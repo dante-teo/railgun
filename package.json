@@ -1,6 +1,6 @@
 {
-  "name": "railgun",
-  "version": "1.0.0",
+  "name": "@dantea/railgun",
+  "version": "1.0.1",
   "description": "An egg-framework for modular folder structure.",
   "dependencies": {
     "egg": "^2.3.0"
