@@ -13,31 +13,56 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 ## System Context
 
-- Users: TBD
-- External systems: TBD
-- Runtime environments: TBD
+- Users: the project's own author, via a local terminal
+- External systems: Devin/Cascade (via `widevin`'s OAuth + HTTP/streaming API)
+- Runtime environments: local developer machine (macOS/Linux/Windows), Node.js >= 20
 
 ## Components
 
 | Component | Responsibility | Owner |
 | --- | --- | --- |
-| TBD | TBD | TBD |
+| CLI (`src/cli.ts`) | One-shot terminal chat with Devin | Solo project — no formal ownership split |
 
 ## Data Flow
 
-TBD
+1. User runs `pnpm start "<question>"`.
+2. `src/cli.ts` reads the question from argv (default `"Hello!"`) and checks
+   `~/.railgun/devin-token` via `widevin`'s `createFileTokenStore`.
+3. If no token is cached, `devin.login()` drives an OAuth flow: it opens the
+   system browser (`src/openBrowser.ts`) to a Devin sign-in URL and blocks
+   until the token exchange completes, then the token store persists it.
+4. `devin.listModels()` fetches available models; the first one is selected.
+5. `devin.streamChat(...)` opens a streaming request; `text_delta` events are
+   written to stdout as they arrive, and a trailing newline is written on
+   `done`. All other event types (`thinking_delta`, `toolcall_*`, `usage`)
+   are received but ignored until tool calling is implemented in a later
+   phase.
+6. Any `DevinAuthError`/`DevinApiError`/`DevinProtocolError`/other error
+   short-circuits the flow and prints one line to stderr with a non-zero
+   exit code.
 
 ## Persistence
 
-TBD
+A single file, `~/.railgun/devin-token` (mode `0600`), holds the cached
+Devin auth token — created and managed entirely by `widevin`'s
+`createFileTokenStore`. Railgun itself keeps no other on-disk state (no
+conversation history yet; that arrives with multi-turn support in a later
+phase).
 
 ## Integrations
 
-TBD
+- Devin, via the `widevin` npm package (OAuth login, model discovery, streaming chat). See
+  `docs/adr/0001-single-provider-devin-via-widevin.md`.
 
 ## Security
 
-TBD
+- The Devin token is stored in a single user-owned file (`~/.railgun/devin-token`,
+  mode `0600`), not in an env var or shell history, limiting exposure to
+  other local users/processes on shared machines.
+- Railgun never logs or prints the token itself; only the sign-in URL (which
+  is not a secret on its own) is printed during login.
+- Compliance is an operational responsibility, not a code-enforced one — see
+  `docs/adr/0001-single-provider-devin-via-widevin.md`.
 
 ## Observability
 
