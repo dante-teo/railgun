@@ -14,9 +14,13 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 1 (one-shot chat):** a CLI that logs into Devin once,
-caches the token, lists available models, sends one user-supplied question,
-and streams the text reply to stdout. No multi-turn memory, no tools, no GUI.
+**Current phase — Phase 2 (multi-turn Ink REPL):** an Ink (React-for-CLI)
+terminal chat that logs into Devin once, caches the token, lists available
+models, and keeps a scrolling conversation alive for the process lifetime —
+every turn's `history` is sent as context on the next turn. Phase 1's
+one-shot behavior is preserved behind an explicit `--print`/`-p` flag for
+CI/scripting use. No tools, no persistence across restarts, no GUI beyond
+the terminal.
 
 ## Users
 
@@ -50,18 +54,26 @@ and streams the text reply to stdout. No multi-turn memory, no tools, no GUI.
 
 ## Core Workflows
 
-1. Run `pnpm start "<question>"` from a terminal; on first use, complete a
-   one-time browser sign-in to Devin; read the streamed answer from stdout.
+1. Run `pnpm start` from a terminal; on first use, complete a one-time
+   browser sign-in to Devin; type messages into the Ink chat REPL and read
+   streamed replies from the scrollback, with each turn remembering the
+   whole conversation for the process's lifetime.
+2. Run `pnpm start --print "<question>"` (or `-p`) for a one-shot,
+   scriptable/CI invocation that reproduces Phase 1's exact stdout/stderr
+   contract — no interactive REPL, no conversation memory.
 
 ## Success Metrics
 
 - Each phase's own "Definition of Usable" from the replication plan is met
-  and manually verified (e.g. Phase 1: a real streamed Devin answer on first
-  and later runs, with cached-token reuse and clean error handling on a bad
-  token).
+  and manually verified (e.g. Phase 2: a second REPL turn correctly
+  references information from the first turn, proving conversation memory;
+  `/exit` and a per-turn Devin error both leave the process in a clean
+  state; the `--print`/`-p` path reproduces Phase 1's one-shot contract
+  byte-for-byte).
 
 ## Open Questions
 
-- Which later phases (multi-turn REPL, tool calling, GUIs, messaging
-  gateways) get built, and in what order, beyond the replication plan's
-  suggested sequence — deferred until each phase is actually started.
+- Which later phases (tool calling, session persistence across restarts,
+  GUIs, messaging gateways) get built, and in what order, beyond the
+  replication plan's suggested sequence — deferred until each phase is
+  actually started.

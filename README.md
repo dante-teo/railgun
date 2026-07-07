@@ -2,8 +2,9 @@
 
 A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s
 core agent loop, built incrementally, phase by phase (see
-[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 1 is a one-shot terminal chat with
-Devin — no multi-turn memory, no tools, no GUI yet.
+[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 2 is a multi-turn Ink terminal
+chat with Devin — conversation memory for the process lifetime, no tools, no
+persistence across restarts yet.
 
 ## Prerequisites
 
@@ -21,32 +22,55 @@ pnpm install
 ## Run
 
 ```sh
-pnpm start "What is the capital of France?"
+pnpm start
 ```
+
+`pnpm start` with no arguments opens a scrolling Ink chat REPL:
 
 - **First run**: no cached credentials exist yet, so a browser window opens for
   Devin sign-in. After you complete login, the token is cached to
-  `~/.railgun/devin-token` (mode `0600`) and the answer streams to stdout.
-- **Later runs**: the cached token is reused — no browser prompt — and the
-  answer streams immediately.
-- **No argument**: `pnpm start` alone sends the default question `"Hello!"`.
-- **Bad or expired token**: the CLI exits non-zero with a one-line
-  `Devin API request failed (401): ...` message on stderr. Fix with
+  `~/.railgun/devin-token` (mode `0600`).
+- **Later runs**: the cached token is reused — no browser prompt.
+- Type a message and press Enter to send it; the reply streams into the
+  scrollback. Every prior turn in the session is sent as context on the next
+  turn, so the REPL remembers the whole conversation for the process's
+  lifetime (not across restarts — see `docs/ARCHITECTURE.md`).
+- Type `/exit` (or `Ctrl+C`) to quit.
+- **Per-turn error**: a failed turn (e.g. an expired token) prints a red
+  one-line error into the transcript and the REPL stays open for the next
+  message — it does not exit the process. Fix a bad token with
   `rm ~/.railgun/devin-token` and rerun `pnpm start` to log in again.
 
-Status/progress messages (which model is in use, the login prompt) print to
-stderr; only the model's answer is written to stdout, so `pnpm start "..." |
-some-other-tool` pipes just the answer text.
+### One-shot / scripting mode
+
+```sh
+pnpm start --print "What is the capital of France?"
+pnpm start -p "What is the capital of France?"
+```
+
+`--print`/`-p` reproduces Phase 1's exact one-shot behavior: a single
+question in, the streamed answer on stdout, status/progress messages (model
+selection, login prompt) on stderr, and a non-zero exit code with a one-line
+error on failure — nothing else. `pnpm start --print` alone (no question
+text) sends the default question `"Hello!"`. Because only the answer goes to
+stdout, `pnpm start --print "..." | some-other-tool` pipes just the answer
+text.
+
+Any other positional argument without `--print`/`-p` is a usage error:
+`pnpm start "no flag"` prints `Usage: railgun [--print|-p <question>]` to
+stderr and exits non-zero without launching anything.
 
 ## Development
 
 ```sh
 pnpm run typecheck   # tsc --noEmit
+pnpm test            # vitest run — covers src/agent/turn.ts's turn logic
 pnpm run build       # compile src/ to dist/
 ```
 
-No test suite exists yet — Phase 1 defers automated tests to whichever later
-phase first needs them (see [`docs/PRODUCT.md`](docs/PRODUCT.md)).
+The Ink REPL UI itself is verified manually (see `docs/PRODUCT.md`'s
+Success Metrics); automated tests are scoped to the pure turn/history logic
+in `src/agent/turn.ts`.
 
 ## Compliance
 

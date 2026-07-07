@@ -1,9 +1,7 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { createDevinProvider, createFileTokenStore, DevinApiError, DevinAuthError, DevinProtocolError } from "widevin";
-import { openUrlInBrowser } from "./openBrowser.js";
-
-const TOKEN_PATH = join(homedir(), ".railgun", "devin-token");
+import { describeDevinError } from "./errors.js";
+import { runOneShot } from "./oneShot.js";
+import { runRepl } from "./repl/App.js";
+import { initDevinSession } from "./session.js";
 
 // Piping stdout into a command that closes early (e.g. `| head`) makes further
 // writes fail with EPIPE, which Node reports as an unhandled stream error and
@@ -14,40 +12,25 @@ process.stdout.on("error", (error: NodeJS.ErrnoException) => {
 });
 
 const main = async (): Promise<void> => {
-  const question = process.argv.slice(2).join(" ") || "Hello!";
-  const tokenStore = createFileTokenStore(TOKEN_PATH);
-  const devin = createDevinProvider({ tokenStore, openBrowser: openUrlInBrowser });
+  const args = process.argv.slice(2);
 
-  if (!(await tokenStore.get())) {
-    await devin.login();
+  if (args[0] === "--print" || args[0] === "-p") {
+    await runOneShot(args.slice(1).join(" ") || "Hello!");
+    return;
   }
 
-  const models = await devin.listModels();
-  const model = models[0];
-  if (!model) throw new Error("Devin returned no available models");
-  console.error(`Using model: ${model.id}`);
-
-  for await (const event of devin.streamChat({
-    model: model.id,
-    messages: [{ role: "user", content: question }]
-  })) {
-    if (event.type === "text_delta") {
-      process.stdout.write(event.delta);
-    } else if (event.type === "done") {
-      process.stdout.write("\n");
-    }
+  if (args.length > 0) {
+    console.error("Usage: railgun [--print|-p <question>]");
+    process.exitCode = 1;
+    return;
   }
+
+  const session = await initDevinSession();
+  await runRepl(session);
 };
 
 main().catch((error: unknown) => {
-  if (error instanceof DevinAuthError) {
-    console.error(`Devin login failed: ${error.message}`);
-  } else if (error instanceof DevinApiError) {
-    console.error(`Devin API request failed (${error.status}): ${error.message}`);
-  } else if (error instanceof DevinProtocolError) {
-    console.error(`Devin protocol error: ${error.message}`);
-  } else {
-    console.error(error);
-  }
+  const message = describeDevinError(error);
+  console.error(message ?? error);
   process.exitCode = 1;
 });
