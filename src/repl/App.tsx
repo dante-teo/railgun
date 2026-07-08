@@ -78,6 +78,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       const outcome = await runTurn(
         session.devin,
         session.model.id,
+        session.systemPrompt,
         history,
         text,
         iterationBudgetRef.current,

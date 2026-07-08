@@ -16,9 +16,9 @@ const confirmShellCommand = async (command: string): Promise<boolean> => {
 };
 
 export const runOneShot = async (question: string): Promise<void> => {
-  const { devin, model } = await initDevinSession();
+  const { devin, model, systemPrompt } = await initDevinSession();
   let activeStop: ((isError: boolean) => void) | undefined;
-  const outcome = await runTurn(devin, model.id, [], question, IterationBudget.create(), confirmShellCommand, {
+  const outcome = await runTurn(devin, model.id, systemPrompt, [], question, IterationBudget.create(), confirmShellCommand, {
     onDelta: delta => {
       process.stdout.write(delta);
     },

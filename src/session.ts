@@ -1,7 +1,8 @@
-import { homedir } from "node:os";
+import { homedir, platform, release } from "node:os";
 import { join } from "node:path";
 import { createDevinProvider, createFileTokenStore } from "widevin";
 import type { DevinModel, DevinProvider } from "widevin";
+import { buildSystemPrompt } from "./agent/systemPrompt.js";
 import { openUrlInBrowser } from "./openBrowser.js";
 
 export const TOKEN_PATH = join(homedir(), ".railgun", "devin-token");
@@ -9,7 +10,13 @@ export const TOKEN_PATH = join(homedir(), ".railgun", "devin-token");
 export interface DevinSession {
   devin: DevinProvider;
   model: DevinModel;
+  systemPrompt: readonly string[];
 }
+
+const padDatePart = (value: number): string => String(value).padStart(2, "0");
+
+export const formatLocalDate = (date: Date): string =>
+  `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
 export const initDevinSession = async (): Promise<DevinSession> => {
   const tokenStore = createFileTokenStore(TOKEN_PATH);
@@ -24,5 +31,14 @@ export const initDevinSession = async (): Promise<DevinSession> => {
   if (!model) throw new Error("Devin returned no available models");
   console.error(`Using model: ${model.id}`);
 
-  return { devin, model };
+  const systemPrompt = buildSystemPrompt({
+    cwd: process.cwd(),
+    platform: platform(),
+    osRelease: release(),
+    startDate: formatLocalDate(new Date()),
+    modelId: model.id,
+    provider: "Devin"
+  });
+
+  return { devin, model, systemPrompt };
 };

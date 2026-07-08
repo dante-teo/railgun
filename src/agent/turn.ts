@@ -23,6 +23,7 @@ export interface LoopCallbacks {
 const runStep = async (
   devin: DevinProvider,
   model: string,
+  systemPrompt: readonly string[],
   messages: DevinMessage[],
   context: ToolContext,
   allTextParts: string[],
@@ -36,9 +37,7 @@ const runStep = async (
     model,
     messages,
     tools: registry.getSchemas(ENABLED_TOOLSETS),
-    systemPrompt: [
-      "You are Railgun, a helpful assistant with access to tools for reading and writing files, listing directories, and running shell commands."
-    ]
+    systemPrompt
   })) {
     if (event.type === "text_delta") {
       textParts.push(event.delta);
@@ -105,6 +104,7 @@ const runStep = async (
 export const runTurn = async (
   devin: DevinProvider,
   model: string,
+  systemPrompt: readonly string[],
   history: readonly DevinMessage[],
   userText: string,
   iterationBudget: IterationBudget,
@@ -117,7 +117,9 @@ export const runTurn = async (
 
   try {
     while (iterationBudget.consume()) {
-      const outcome = await callDevinWithRecovery(() => runStep(devin, model, messages, context, allTextParts, callbacks));
+      const outcome = await callDevinWithRecovery(() =>
+        runStep(devin, model, systemPrompt, messages, context, allTextParts, callbacks)
+      );
       if (outcome.done) return { ok: true, messages, assistantText: outcome.assistantText };
     }
   } catch (error) {

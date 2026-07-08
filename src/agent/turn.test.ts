@@ -22,24 +22,30 @@ vi.mock("node:fs/promises", async importOriginal => {
 });
 
 type FakeRound = readonly DevinStreamEvent[] | { throws: unknown };
+type StreamChatRequest = Parameters<DevinProvider["streamChat"]>[0];
+type FakeProvider = DevinProvider & { streamChatRequests: StreamChatRequest[] };
 
 const approveAll = async () => true;
 const defaultBudget = () => IterationBudget.create();
+const defaultSystemPrompt = ["Railgun test system prompt"] as const;
 
-const fakeProvider = (rounds: readonly FakeRound[]): DevinProvider => {
+const fakeProvider = (rounds: readonly FakeRound[]): FakeProvider => {
   let callIndex = 0;
-  return {
+  const streamChatRequests: StreamChatRequest[] = [];
+  const provider = {
     login: vi.fn(),
     setToken: vi.fn(),
     clearToken: vi.fn(),
     listModels: vi.fn(),
-    streamChat: async function* () {
+    streamChat: async function* (request: StreamChatRequest) {
+      streamChatRequests.push(request);
       const round = rounds[callIndex++];
       if (!round) throw new Error(`streamChat called more times (call ${callIndex}) than scripted (${rounds.length})`);
       if ("throws" in round) throw round.throws;
       for (const event of round) yield event;
     }
   };
+  return Object.assign(provider, { streamChatRequests });
 };
 
 describe("runTurn", () => {
@@ -53,7 +59,9 @@ describe("runTurn", () => {
     ]);
     const deltas: string[] = [];
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll, { onDelta: d => deltas.push(d) });
+    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
+      onDelta: d => deltas.push(d)
+    });
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -65,6 +73,42 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("passes the provided systemPrompt unchanged to Devin", async () => {
+    const devin = fakeProvider([[{ type: "text_delta", delta: "ok" }]]);
+    const systemPrompt = ["identity", "tool rules", "environment"] as const;
+
+    const outcome = await runTurn(devin, "model-1", systemPrompt, [], "Hi", defaultBudget(), approveAll);
+
+    expect(outcome.ok).toBe(true);
+    expect(devin.streamChatRequests).toHaveLength(1);
+    expect(devin.streamChatRequests[0]?.systemPrompt).toBe(systemPrompt);
+  });
+
+  it("passes the same systemPrompt to every Devin call in a multi-round turn", async () => {
+    const devin = fakeProvider([
+      [
+        { type: "toolcall_delta", id: "call-1", delta: "{}" },
+        { type: "toolcall_end", id: "call-1", name: "loop_forever", arguments: {} }
+      ],
+      [
+        { type: "toolcall_delta", id: "call-2", delta: "{}" },
+        { type: "toolcall_end", id: "call-2", name: "loop_forever", arguments: {} }
+      ],
+      [{ type: "text_delta", delta: "done" }]
+    ]);
+    const systemPrompt = ["stable", "cached"] as const;
+
+    const outcome = await runTurn(devin, "model-1", systemPrompt, [], "Hi", defaultBudget(), approveAll);
+
+    expect(outcome.ok).toBe(true);
+    expect(devin.streamChatRequests).toHaveLength(3);
+    expect(devin.streamChatRequests.map(request => request.systemPrompt)).toEqual([
+      systemPrompt,
+      systemPrompt,
+      systemPrompt
+    ]);
+  });
+
   it("keeps prior history intact and appends the new turn on success", async () => {
     const devin = fakeProvider([[{ type: "text_delta", delta: "Alex" }]]);
     const priorHistory = [
@@ -72,7 +116,7 @@ describe("runTurn", () => {
       { role: "assistant", content: [{ type: "text", text: "Nice to meet you, Alex" }] }
     ] as const;
 
-    const outcome = await runTurn(devin, "model-1", priorHistory, "What is my name?", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, priorHistory, "What is my name?", defaultBudget(), approveAll);
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -84,7 +128,7 @@ describe("runTurn", () => {
     const boom = new DevinApiError("network blip", 400);
     const devin = fakeProvider([{ throws: boom }]);
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome).toEqual({ ok: false, error: boom });
   });
@@ -100,7 +144,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "ok" }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
+      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -124,7 +168,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "ok" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
       await vi.runAllTimersAsync();
       const outcome = await outcomePromise;
 
@@ -142,7 +186,7 @@ describe("runTurn", () => {
       const err = new Error("persistent failure");
       const devin = fakeProvider([{ throws: err }, { throws: err }, { throws: err }]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
       await vi.runAllTimersAsync();
       const outcome = await outcomePromise;
 
@@ -176,7 +220,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "What is the secret?", defaultBudget(), approveAll);
+      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -202,7 +246,7 @@ describe("runTurn", () => {
       ]);
       const confirmShellCommand = vi.fn(async () => true);
 
-      const outcome = await runTurn(devin, "model-1", [], "Run echo turn-test", defaultBudget(), confirmShellCommand);
+      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Run echo turn-test", defaultBudget(), confirmShellCommand);
 
       expect(confirmShellCommand).toHaveBeenCalledWith("echo turn-test");
       expect(outcome.ok).toBe(true);
@@ -222,7 +266,7 @@ describe("runTurn", () => {
       const devin = fakeProvider(rounds);
       const streamChatSpy = vi.spyOn(devin, "streamChat");
 
-      const outcome = await runTurn(devin, "model-1", [], "Loop forever", budget, approveAll);
+      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Loop forever", budget, approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -252,6 +296,7 @@ describe("runTurn", () => {
       const outcome = await runTurn(
         devin,
         "model-1",
+        defaultSystemPrompt,
         priorHistory,
         "What is the secret?",
         defaultBudget(),
@@ -282,7 +327,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Read both files", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll);
 
       // Both readFile calls must fire before either resolves -- genuine concurrency, not
       // "both eventually completed".
@@ -315,7 +360,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Read the same file twice", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Read the same file twice", defaultBudget(), approveAll);
 
       await vi.waitFor(() => expect(readFileMock).toHaveBeenCalledTimes(1));
       // The second read_file call cannot fire until this `await registry.run(...)` inside
@@ -346,7 +391,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "What is the secret?", defaultBudget(), approveAll, {
+      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll, {
         onToolStart,
         onToolComplete
       });
@@ -375,7 +420,7 @@ describe("runTurn", () => {
           [{ type: "text_delta", delta: "ok" }]
         ]);
 
-        const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll, {
+        const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
           onToolStart,
           onToolComplete
         });
@@ -407,7 +452,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "Read both files", defaultBudget(), approveAll, {
+      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll, {
         onToolStart,
         onToolComplete
       });

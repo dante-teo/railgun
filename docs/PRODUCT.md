@@ -63,9 +63,13 @@ retrying pointlessly. Four tools are registered:
 `list_directory` (toolset `"file"`), and `run_shell_command` (toolset
 `"terminal"`, gated behind an interactive y/n approval prompt in both the
 REPL and one-shot mode). Both toolsets are hardcoded on for every turn —
-no per-profile config yet. Every request declares a fixed system prompt
-naming the agent "Railgun" — required because Devin's Claude-family models
-reject a request that declares tools with an empty system prompt.
+no per-profile config yet. Session bootstrap builds one cached Phase 8
+system prompt naming the agent "Railgun", setting concise tool-use rules,
+and recording the cwd/platform/date/model/provider environment. The date
+uses the local calendar day for the process, and environment fields are
+quoted as serialized data before they enter the prompt. Every Devin
+request reuses that prompt because Devin's Claude-family models reject a
+request that declares tools with an empty system prompt.
 Phase 1's one-shot mode (`--print`/`-p`) now runs through the same
 tool-calling turn loop as the REPL — it is no longer tools-free, but keeps
 Phase 1's stdout/stderr contract. No persistence across restarts, no GUI

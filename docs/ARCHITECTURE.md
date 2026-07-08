@@ -22,7 +22,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Component | Responsibility | Owner |
 | --- | --- | --- |
 | CLI entry (`src/cli.ts`) | Parses argv, dispatches to one-shot or REPL, top-level error handling | Solo project — no formal ownership split |
-| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery — shared by both paths | Solo project |
+| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery, local-date capture, and one-time Phase 8 system-prompt construction — shared by both paths | Solo project |
+| System prompt builder (`src/agent/systemPrompt.ts`) | Pure Phase 8 prompt assembly: Railgun identity, tool rules, and cached session environment; environment values are JSON-serialized as data, with no context-file discovery yet | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
@@ -45,7 +46,14 @@ This document records the intended system architecture for Railgun. Keep it curr
    `~/.railgun/devin-token` via `widevin`'s `createFileTokenStore`; if no
    token is cached, `devin.login()` drives an OAuth flow via
    `src/openBrowser.ts`, then the token store persists it; `devin.listModels()`
-   fetches available models and the first one is selected.
+   fetches available models and the first one is selected. Session
+   bootstrap then builds one cached Phase 8 system prompt via
+   `src/agent/systemPrompt.ts`, including Railgun's general-assistant
+   identity, tool-use rules, and the cwd/platform/date/model/provider
+   environment. The date is captured from local calendar fields rather
+   than UTC serialization, and every environment value is JSON-serialized
+   before insertion into the prompt so paths or model ids containing
+   control characters cannot create extra system-prompt instructions.
 3. `runOneShot` creates a fresh default `IterationBudget` and calls
    `runTurn` (`src/agent/turn.ts`) with empty prior history, the single
    question as `userText`, and a `confirmShellCommand` built from
@@ -79,12 +87,14 @@ This document records the intended system architecture for Railgun. Keep it curr
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
    (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
    `waitUntilExit()`.
-2. `ChatApp` creates one default `IterationBudget` in a React ref, shared
+2. `ChatApp` receives the cached system prompt from `initDevinSession`.
+   It also creates one default `IterationBudget` in a React ref, shared
    by every turn for the REPL process lifetime. Each submitted line calls
    `runTurn` (`src/agent/turn.ts`) with the growing `history` array, the
-   session's `DevinProvider`/model, the new user text, that shared budget,
-   and a `confirmShellCommand` callback that stores a `{ resolve }` pair in
-   a ref and sets `pendingCommand` React state; a `useInput` handler
+   session's `DevinProvider`/model/system prompt, the new user text, that
+   shared budget, and a `confirmShellCommand` callback that stores a
+   `{ resolve }` pair in a ref and sets `pendingCommand` React state; a
+   `useInput` handler
    (active only while `pendingCommand` is set) resolves that approval
    promise. `runTurn` loops one `streamChat` round per consumed budget
    step, each wrapped in `callDevinWithRecovery`
