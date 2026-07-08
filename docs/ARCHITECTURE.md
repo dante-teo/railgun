@@ -15,7 +15,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 - Users: the project's own author, via a local terminal
 - External systems: Devin/Cascade (via `widevin`'s OAuth + HTTP/streaming API)
-- Runtime environments: local developer machine (macOS/Linux/Windows), Node.js >= 20
+- Runtime environments: local developer machine (macOS/Linux/Windows), Node.js >= 22 (see `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`)
 
 ## Components
 
@@ -23,14 +23,16 @@ This document records the intended system architecture for Railgun. Keep it curr
 | --- | --- | --- |
 | CLI entry (`src/cli.ts`) | Parses argv, dispatches to one-shot or REPL, top-level error handling | Solo project — no formal ownership split |
 | Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery — shared by both paths | Solo project |
-| One-shot path (`src/oneShot.ts`) | Phase 1's exact single-question streaming behavior, used by `--print`/`-p` | Solo project |
+| One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds (currently one hardcoded tool, `read_file`, which reads real files from disk — the module's only side effect) for up to 10 steps until a text-only reply; returns new history or an error — the only unit-tested module | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit` | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) for up to 10 steps until a text-only reply; returns new history or an error | Solo project |
+| Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
+| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell}.ts`) | Four self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`) | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit`, and a `useInput`-driven y/n approval gate for `run_shell_command` | Solo project |
 
 ## Data Flow
 
-**One-shot path (`pnpm start --print`/`-p "<question>"`, unchanged from Phase 1):**
+**One-shot path (`pnpm start --print`/`-p "<question>"`, tool-calling since Phase 4):**
 
 1. `src/cli.ts` detects `--print`/`-p`, takes the remaining argv as the
    question (default `"Hello!"`), and calls `runOneShot`.
@@ -39,34 +41,52 @@ This document records the intended system architecture for Railgun. Keep it curr
    token is cached, `devin.login()` drives an OAuth flow via
    `src/openBrowser.ts`, then the token store persists it; `devin.listModels()`
    fetches available models and the first one is selected.
-3. `devin.streamChat(...)` opens a streaming request with the single
-   question as the only message; `text_delta` events are written to stdout
-   as they arrive, and a trailing newline is written on `done`.
-4. Any error short-circuits the flow and prints one line to stderr (via
-   `describeDevinError`, falling back to a full dump for unclassified
-   errors) with a non-zero exit code.
+3. `runOneShot` calls `runTurn` (`src/agent/turn.ts`) with empty prior
+   history, the single question as `userText`, and a `confirmShellCommand`
+   built from `node:readline/promises`: it opens a `readline` interface on
+   `process.stdin`/`process.stderr`, prompts
+   `Run shell command: <command>\nType "yes" to run, anything else to cancel: `,
+   and resolves `true` only if the answer trimmed/lowercased is exactly
+   `"yes"` (closed/EOF stdin resolves immediately to an empty answer, i.e.
+   declined; open-but-silent stdin blocks until answered — see
+   `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`'s
+   context for why this matters for CI/scripted invocations).
+4. `text_delta` events stream to stdout as `runTurn` runs its rounds; on
+   success a trailing newline is written after the loop completes.
+5. Any error — from `streamChat` itself, or an error `runTurn` returns as
+   `{ ok: false, error }` — is re-thrown by `runOneShot` and caught by
+   `main()`'s top-level handler in `src/cli.ts`, which prints one line to
+   stderr (via `describeDevinError`, falling back to a full dump for
+   unclassified errors) with a non-zero exit code.
 
-**REPL path (`pnpm start`, tool calling since Phase 3):**
+**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4):**
 
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
    (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
    `waitUntilExit()`.
 2. Each submitted line calls `runTurn` (`src/agent/turn.ts`) with the
-   growing `history` array, the session's `DevinProvider`/model, and the
-   new user text. Internally `runTurn` loops `streamChat` calls — passing
-   its one hardcoded tool, `read_file`, and a fixed system prompt naming
-   the agent "Railgun" (required: Devin's Claude-family models reject a
-   request that declares `tools` with an empty system prompt) — for up to
-   10 rounds. Each round's `text_delta` events stream into a live
-   "in-flight" line via a callback as they arrive; `toolcall_end` events
-   are buffered until that round's stream ends, then run in call order
-   (`read_file` reads the given path from disk, or returns an
-   `isError: true` result on a missing/invalid `path` argument or a
-   filesystem error) with each result pushed back as a `tool`-role
-   message before the next round starts. A round producing no tool calls
-   ends the loop; the REPL shows no distinct UI for tool-call rounds —
-   the same streaming line stays at its empty placeholder during a pure
-   tool-call round.
+   growing `history` array, the session's `DevinProvider`/model, the new
+   user text, and a `confirmShellCommand` callback that stores a
+   `{ resolve }` pair in a ref and sets `pendingCommand` React state; a
+   `useInput` handler (active only while `pendingCommand` is set) resolves
+   `true` on `y`, `false` on `n`/`Esc`, and ignores every other key. Internally
+   `runTurn` loops `streamChat` calls — passing `registry.getSchemas(["file",
+   "terminal"])` (both toolsets always enabled; no per-profile config yet)
+   and a fixed system prompt naming the agent "Railgun" (required: Devin's
+   Claude-family models reject a request that declares `tools` with an
+   empty system prompt) — for up to 10 rounds. Each round's `text_delta`
+   events stream into a live "in-flight" line via a callback as they
+   arrive; `toolcall_end` events are buffered until that round's stream
+   ends, then run in call order via `registry.run(name, args, { confirmShellCommand })`
+   (each tool returns `{ content, isError }` — `run_shell_command` first
+   awaits `confirmShellCommand`, returning `isError: true` immediately if
+   declined, before ever spawning `execFile("bash", ["-c", command])`)
+   with each result pushed back as a `tool`-role message before the next
+   round starts. A round producing no tool calls ends the loop; the REPL
+   shows no distinct UI for tool-call rounds — the same streaming line
+   stays at its empty placeholder during a pure tool-call round, except
+   when `run_shell_command` is pending approval, when the input box is
+   replaced by the `Run shell command: <command> [y/n]` prompt.
 3. On success, `runTurn` returns a new `history` array (the turn's one
    user message, plus each round's assistant message and — for rounds
    that called a tool — tool messages, appended in round order) that
@@ -91,12 +111,12 @@ This document records the intended system architecture for Railgun. Keep it curr
    `main()` return normally.
 
 `toolcall_end` events drive `src/agent/turn.ts`'s tool-calling loop in
-the REPL path. `thinking_delta`, `toolcall_start`, `toolcall_delta`, and
+both paths. `thinking_delta`, `toolcall_start`, `toolcall_delta`, and
 `usage` are still received but ignored by both paths (live tool-call
-feedback and reasoning display are later phases). The one-shot path
-(`src/oneShot.ts`) sends no `tools` in its request at all and remains
-exactly Phase 1's single-question behavior — it never triggers a tool
-call.
+feedback and reasoning display are later phases). Both paths now enable
+the exact same toolsets (`"file"` + `"terminal"`) — the only behavioral
+difference between them is how `confirmShellCommand` collects the y/n
+answer (Ink `useInput` vs. blocking `readline` on stdin).
 
 ## Persistence
 
@@ -114,7 +134,10 @@ save/resume).
 - Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-text-input` (`^6.0.0`) for the
   REPL's terminal UI, pulled forward from the replication plan's later
   "polished terminal UI" phase. See
-  `docs/adr/0002-ink-repl-ahead-of-schedule.md`.
+  `docs/adr/0002-ink-repl-ahead-of-schedule.md`. Ink is still pinned to 6,
+  not 7, even though the Node floor was independently raised to `>=22`
+  for `Promise.withResolvers()` — see
+  `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`.
 
 ## Security
 
@@ -123,6 +146,12 @@ save/resume).
   other local users/processes on shared machines.
 - Railgun never logs or prints the token itself; only the sign-in URL (which
   is not a secret on its own) is printed during login.
+- `run_shell_command` runs whatever command string the model provides via
+  `execFile("bash", ["-c", command])` — a real arbitrary-code-execution
+  surface, mitigated only by the interactive y/n approval gate
+  (`ToolContext.confirmShellCommand`) in front of every invocation, in
+  both the REPL and one-shot mode. There is no allowlist/sandboxing; the
+  approval prompt is the only safety control.
 - Compliance is an operational responsibility, not a code-enforced one — see
   `docs/adr/0001-single-provider-devin-via-widevin.md`.
 

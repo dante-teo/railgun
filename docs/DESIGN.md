@@ -33,7 +33,7 @@ command/single answer shape for scripting.
 | Screen | Purpose | Notes |
 | --- | --- | --- |
 | Ink chat REPL (stdout, interactive) | Scrolling conversation transcript above a single-line input box | Default `pnpm start` surface; user lines prefixed `> `, a cyan in-flight line shows the reply streaming in, red lines are per-turn errors |
-| One-shot terminal (stdout/stderr) | Show one streamed answer and status messages, then exit | `--print`/`-p` only; `docs/PRODUCT.md`'s later phases add a TUI/Web/Desktop/Mobile front end reusing the same core |
+| One-shot terminal (stdout/stderr) | Show one streamed answer and status messages, then exit; may pause on stderr for shell-command approval | `--print`/`-p` only; `docs/PRODUCT.md`'s later phases add a TUI/Web/Desktop/Mobile front end reusing the same core |
 
 ## Interaction Patterns
 
@@ -53,10 +53,18 @@ command/single answer shape for scripting.
   plus a generic fallback) and the REPL stays open for the next
   message — errors no longer always exit the process, only the one-shot
   path's top-level failure still does.
-- The REPL's agent can call a `read_file` tool to read files from disk
-  while answering; tool-call rounds show no distinct UI (the streaming
-  line stays at its empty placeholder during a pure tool-call round) — a
-  later phase adds live tool activity feedback.
+- The REPL's agent can read/write files and list directories while
+  answering, invisibly; tool-call rounds show no distinct UI for these
+  (the streaming line stays at its empty placeholder during a pure
+  tool-call round) — a later phase adds live tool activity feedback.
+- Before running a shell command, the REPL freezes the text input (loses
+  focus) and shows a yellow `Run shell command: <command> [y/n]` line in
+  place of normal turn output; pressing `y` runs it and feeds the real
+  output back into the conversation, `n` or `Esc` declines and the input
+  regains focus — no other key does anything while the prompt is showing.
+  The one-shot path shows the equivalent prompt on stderr and blocks
+  reading a line from stdin instead (`Type "yes" to run, anything else to
+  cancel:`).
 
 ## Visual System
 

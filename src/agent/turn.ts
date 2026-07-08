@@ -1,61 +1,25 @@
-import { readFile } from "node:fs/promises";
-import type { DevinAssistantContentPart, DevinMessage, DevinProvider, DevinTool } from "widevin";
+import type { DevinAssistantContentPart, DevinMessage, DevinProvider } from "widevin";
+import { registry } from "../tools/index.js";
+import type { ToolContext } from "../tools/index.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
   | { ok: false; error: unknown };
 
 const MAX_STEPS = 10;
-
-const readFileTool: DevinTool = {
-  name: "read_file",
-  description: "Read the text content of a file on disk.",
-  inputSchema: {
-    type: "object",
-    properties: { path: { type: "string" } },
-    required: ["path"],
-  },
-};
-const TOOLS: readonly DevinTool[] = [readFileTool];
-
-interface ToolResult {
-  content: string;
-  isError: boolean;
-}
-
-const extractPath = (args: unknown): string | undefined => {
-  if (typeof args !== "object" || args === null) return undefined;
-  const path = (args as Record<string, unknown>).path;
-  return typeof path === "string" ? path : undefined;
-};
-
-const runReadFileTool = async (args: unknown): Promise<ToolResult> => {
-  const path = extractPath(args);
-  if (path === undefined) {
-    return { content: 'Error: read_file requires a string "path" argument', isError: true };
-  }
-  try {
-    const content = await readFile(path, "utf-8");
-    return { content, isError: false };
-  } catch (error) {
-    return { content: `Error reading ${path}: ${String(error)}`, isError: true };
-  }
-};
-
-const runTool = async (name: string, args: unknown): Promise<ToolResult> => {
-  if (name === "read_file") return runReadFileTool(args);
-  return { content: `Error: unknown tool "${name}"`, isError: true };
-};
+const ENABLED_TOOLSETS = ["file", "terminal"] as const;
 
 export const runTurn = async (
   devin: DevinProvider,
   model: string,
   history: readonly DevinMessage[],
   userText: string,
+  confirmShellCommand: (command: string) => Promise<boolean>,
   onDelta?: (delta: string) => void
 ): Promise<TurnOutcome> => {
   const messages: DevinMessage[] = [...history, { role: "user", content: userText }];
   const allTextParts: string[] = [];
+  const context: ToolContext = { confirmShellCommand };
 
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -66,8 +30,10 @@ export const runTurn = async (
       for await (const event of devin.streamChat({
         model,
         messages,
-        tools: TOOLS,
-        systemPrompt: ["You are Railgun, a helpful assistant with access to a read_file tool for reading files from disk."]
+        tools: registry.getSchemas(ENABLED_TOOLSETS),
+        systemPrompt: [
+          "You are Railgun, a helpful assistant with access to tools for reading and writing files, listing directories, and running shell commands."
+        ]
       })) {
         if (event.type === "text_delta") {
           textParts.push(event.delta);
@@ -90,7 +56,7 @@ export const runTurn = async (
 
       allTextParts.push(...textParts);
       for (const call of toolCalls) {
-        const result = await runTool(call.name, call.arguments);
+        const result = await registry.run(call.name, call.arguments, context);
         messages.push({ role: "tool", toolCallId: call.id, content: result.content, isError: result.isError });
       }
     }

@@ -7,6 +7,8 @@ import { runTurn } from "./turn.js";
 
 type FakeRound = readonly DevinStreamEvent[] | { throws: unknown };
 
+const approveAll = async () => true;
+
 const fakeProvider = (rounds: readonly FakeRound[]): DevinProvider => {
   let callIndex = 0;
   return {
@@ -34,7 +36,7 @@ describe("runTurn", () => {
     ]);
     const deltas: string[] = [];
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi", d => deltas.push(d));
+    const outcome = await runTurn(devin, "model-1", [], "Hi", approveAll, d => deltas.push(d));
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -53,7 +55,7 @@ describe("runTurn", () => {
       { role: "assistant", content: [{ type: "text", text: "Nice to meet you, Alex" }] }
     ] as const;
 
-    const outcome = await runTurn(devin, "model-1", priorHistory, "What is my name?");
+    const outcome = await runTurn(devin, "model-1", priorHistory, "What is my name?", approveAll);
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -65,7 +67,7 @@ describe("runTurn", () => {
     const boom = new Error("network blip");
     const devin = fakeProvider([{ throws: boom }]);
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi");
+    const outcome = await runTurn(devin, "model-1", [], "Hi", approveAll);
 
     expect(outcome).toEqual({ ok: false, error: boom });
   });
@@ -81,7 +83,7 @@ describe("runTurn", () => {
       await rm(dir, { recursive: true, force: true });
     });
 
-    it("round-trips a successful read_file tool call into the final answer", async () => {
+    it("round-trips a successful read_file tool call into the final answer (proves registry wiring works end-to-end)", async () => {
       const filePath = join(dir, "secret.txt");
       await writeFile(filePath, "the secret is 42", "utf-8");
 
@@ -90,7 +92,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "What is the secret?");
+      const outcome = await runTurn(devin, "model-1", [], "What is the secret?", approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -106,41 +108,22 @@ describe("runTurn", () => {
       ]);
     });
 
-    it("feeds a read_file error for a nonexistent file back as a tool message", async () => {
-      const missingPath = "/definitely/does/not/exist.txt";
+    it("passes confirmShellCommand through to a run_shell_command tool call", async () => {
       const devin = fakeProvider([
-        [{ type: "toolcall_end", id: "call-1", name: "read_file", arguments: { path: missingPath } }],
-        [{ type: "text_delta", delta: "I could not find that file." }]
+        [{ type: "toolcall_end", id: "call-1", name: "run_shell_command", arguments: { command: "echo turn-test" } }],
+        [{ type: "text_delta", delta: "Ran it." }]
       ]);
+      const confirmShellCommand = vi.fn(async () => true);
 
-      const outcome = await runTurn(devin, "model-1", [], "What does that file say?");
+      const outcome = await runTurn(devin, "model-1", [], "Run echo turn-test", confirmShellCommand);
 
+      expect(confirmShellCommand).toHaveBeenCalledWith("echo turn-test");
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
       const toolMessage = outcome.messages.find(m => m.role === "tool");
       expect(toolMessage).toBeDefined();
       if (!toolMessage || toolMessage.role !== "tool") throw new Error("expected tool message");
-      expect(toolMessage.isError).toBe(true);
-      expect(toolMessage.content).toMatch(/^Error reading \/definitely\/does\/not\/exist\.txt: /);
-    });
-
-    it("returns a fixed error for a missing/invalid path argument without touching the filesystem", async () => {
-      const devin = fakeProvider([
-        [{ type: "toolcall_end", id: "call-1", name: "read_file", arguments: {} }],
-        [{ type: "text_delta", delta: "I need a path." }]
-      ]);
-
-      const outcome = await runTurn(devin, "model-1", [], "Read a file for me");
-
-      expect(outcome.ok).toBe(true);
-      if (!outcome.ok) throw new Error("expected ok");
-      const toolMessage = outcome.messages.find(m => m.role === "tool");
-      expect(toolMessage).toEqual({
-        role: "tool",
-        toolCallId: "call-1",
-        content: 'Error: read_file requires a string "path" argument',
-        isError: true
-      });
+      expect(toolMessage.isError).toBe(false);
     });
 
     it("stops after MAX_STEPS rounds and reports the step-limit sentinel", async () => {
@@ -150,7 +133,7 @@ describe("runTurn", () => {
       const devin = fakeProvider(rounds);
       const streamChatSpy = vi.spyOn(devin, "streamChat");
 
-      const outcome = await runTurn(devin, "model-1", [], "Loop forever");
+      const outcome = await runTurn(devin, "model-1", [], "Loop forever", approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -170,7 +153,7 @@ describe("runTurn", () => {
       const priorHistory = [{ role: "user", content: "hi" }] as const;
       const priorHistorySnapshot = JSON.parse(JSON.stringify(priorHistory));
 
-      const outcome = await runTurn(devin, "model-1", priorHistory, "What is the secret?");
+      const outcome = await runTurn(devin, "model-1", priorHistory, "What is the secret?", approveAll);
 
       expect(outcome).toEqual({ ok: false, error: boom });
       expect(priorHistory).toEqual(priorHistorySnapshot);

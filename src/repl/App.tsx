@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from "react";
-import { Box, render, Static, Text, useApp } from "ink";
+import React, { useCallback, useRef, useState } from "react";
+import { Box, render, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { DevinMessage } from "widevin";
 import { runTurn } from "../agent/turn.js";
@@ -18,6 +18,32 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
+
+  const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
+    const { promise, resolve } = Promise.withResolvers<boolean>();
+    pendingApprovalRef.current = { resolve };
+    setPendingCommand(command);
+    return promise;
+  }, []);
+
+  useInput(
+    (input, key) => {
+      const pending = pendingApprovalRef.current;
+      if (!pending) return;
+      if (input.toLowerCase() === "y") {
+        pending.resolve(true);
+      } else if (input.toLowerCase() === "n" || key.escape) {
+        pending.resolve(false);
+      } else {
+        return;
+      }
+      pendingApprovalRef.current = null;
+      setPendingCommand(null);
+    },
+    { isActive: pendingCommand !== null }
+  );
 
   const handleSubmit = useCallback(
     async (value: string) => {
@@ -33,7 +59,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       setBusy(true);
       setStreaming("");
 
-      const outcome = await runTurn(session.devin, session.model.id, history, text, delta => {
+      const outcome = await runTurn(session.devin, session.model.id, history, text, confirmShellCommand, delta => {
         setStreaming(prev => prev + delta);
       });
 
@@ -48,7 +74,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       setStreaming("");
       setBusy(false);
     },
-    [history, session, exit]
+    [history, session, exit, confirmShellCommand]
   );
 
   return (
@@ -61,9 +87,17 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
         )}
       </Static>
       {busy && <Text color="cyan">{streaming || "…"}</Text>}
+      {pendingCommand !== null && (
+        <Text color="yellow">Run shell command: {pendingCommand} [y/n]</Text>
+      )}
       <Box>
         <Text>{"> "}</Text>
-        <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={!busy} />
+        <TextInput
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSubmit}
+          focus={!busy && pendingCommand === null}
+        />
       </Box>
     </Box>
   );

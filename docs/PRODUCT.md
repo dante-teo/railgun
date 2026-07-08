@@ -14,16 +14,22 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 3 (tool calling):** the Ink REPL's agent loop
-(`src/agent/turn.ts`) can call a single hardcoded tool, `read_file`, over
-up to 10 rounds of conversation with Devin per turn (a round can call the
-tool more than once), feeding each result back until it produces a final
-text-only answer. Every request declares a fixed system prompt naming the
-agent "Railgun" — required because Devin's Claude-family models reject a
-request that declares tools with an empty system prompt. Phase 1's
-one-shot behavior is preserved behind an explicit `--print`/`-p` flag for
-CI/scripting use and never calls tools. No tool registry yet (Phase 4),
-no persistence across restarts, no GUI beyond the terminal.
+**Current phase — Phase 4 (tool registry):** the Ink REPL's agent loop
+(`src/agent/turn.ts`) dispatches through a generic `ToolRegistry`
+(`src/tools/registry.ts`) instead of a single hardcoded tool, over up to
+10 rounds of conversation with Devin per turn (a round can call tools more
+than once), feeding each result back until it produces a final text-only
+answer. Four tools are registered: `read_file`, `write_file`,
+`list_directory` (toolset `"file"`), and `run_shell_command` (toolset
+`"terminal"`, gated behind an interactive y/n approval prompt in both the
+REPL and one-shot mode). Both toolsets are hardcoded on for every turn —
+no per-profile config yet. Every request declares a fixed system prompt
+naming the agent "Railgun" — required because Devin's Claude-family models
+reject a request that declares tools with an empty system prompt.
+Phase 1's one-shot mode (`--print`/`-p`) now runs through the same
+tool-calling turn loop as the REPL — it is no longer tools-free, but keeps
+Phase 1's stdout/stderr contract. No persistence across restarts, no GUI
+beyond the terminal.
 
 ## Users
 
@@ -62,8 +68,10 @@ no persistence across restarts, no GUI beyond the terminal.
    streamed replies from the scrollback, with each turn remembering the
    whole conversation for the process's lifetime.
 2. Run `pnpm start --print "<question>"` (or `-p`) for a one-shot,
-   scriptable/CI invocation that reproduces Phase 1's exact stdout/stderr
-   contract — no interactive REPL, no conversation memory.
+   scriptable/CI invocation that keeps Phase 1's stdout/stderr contract —
+   no interactive REPL, no conversation memory — but, since Phase 4, can
+   call the same tools as the REPL, including a stdin-blocking approval
+   prompt if the model calls `run_shell_command`.
 
 ## Success Metrics
 
@@ -71,10 +79,14 @@ no persistence across restarts, no GUI beyond the terminal.
   and manually verified (e.g. Phase 2: a second REPL turn correctly
   references information from the first turn, proving conversation memory;
   `/exit` and a per-turn Devin error both leave the process in a clean
-  state; the `--print`/`-p` path reproduces Phase 1's one-shot contract
-  byte-for-byte; Phase 3: asking about a file's contents (e.g. "What does
+  state; Phase 3: asking about a file's contents (e.g. "What does
   notes.txt say?") triggers a real read_file call whose result is used in
-  the answer, without the user pasting the file content themselves).
+  the answer, without the user pasting the file content themselves; Phase 4:
+  the REPL can list a directory, write a file, and run an approved shell
+  command in one session, and the `--print`/`-p` path exercises the same
+  tool registry — including the y/n approval prompt for
+  `run_shell_command` — while keeping its non-interactive stdout/stderr
+  contract for the text-only-answer case).
 
 ## Open Questions
 
