@@ -2,17 +2,16 @@
 
 A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s
 core agent loop, built incrementally, phase by phase (see
-[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 4 added a tool registry: the
-REPL's agent can read and write files, list directories, and run shell
-commands (the last gated behind an interactive y/n approval prompt) before
-answering, looping the conversation with Devin until it has a final text
-answer (up to 10 rounds per turn). Phase 5 hardens that loop with no new
-user-visible behavior: tool calls in a round run concurrently only when
-it's provably safe to do so, a tool call whose arguments never parse as
-valid JSON no longer crashes the turn, and a round that hits a transient
-API failure (rate limit, 502/503) retries automatically instead of
-failing the whole turn. Conversation memory lasts for the
-process lifetime; no persistence across restarts yet.
+[`docs/PRODUCT.md`](docs/PRODUCT.md)). The REPL's agent can read and write
+files, list directories, and run shell commands (the last gated behind an
+interactive y/n approval prompt) before answering, looping the conversation
+with Devin until it has a final text answer. The loop is hardened with
+parallel-safe tool batching, corrupted tool-call JSON self-healing,
+transient API retry, and a 90-step iteration budget. In the REPL that
+budget is shared for the process lifetime; in one-shot mode each invocation
+gets a fresh budget. Exhausting it is a graceful stop, not a failure.
+Conversation memory lasts for the process lifetime; no persistence across
+restarts yet.
 
 ## Prerequisites
 
@@ -53,6 +52,11 @@ pnpm start
   `Run shell command: <command> [y/n]`; press `y` to run it and feed the
   real output back to the agent, or `n`/`Esc` to decline (the agent gets
   told the command was not approved and answers accordingly).
+- A REPL session has one shared 90-step iteration budget across all turns.
+  Each Devin/tool-call round consumes one step. If the budget is exhausted,
+  the assistant prints
+  `I've reached the iteration limit for this session, so I'm stopping here gracefully.`
+  and the REPL stays open.
 - Type `/exit` (or `Ctrl+C`) to quit.
 - **Per-turn error**: a failed turn (e.g. an expired token) prints a red
   one-line error into the transcript and the REPL stays open for the next
@@ -75,6 +79,10 @@ approval prompt) on stderr, and a non-zero exit code with a one-line error
 on failure. `pnpm start --print` alone (no question text) sends the default
 question `"Hello!"`. Because only the answer goes to stdout,
 `pnpm start --print "..." | some-other-tool` pipes just the answer text.
+
+Each `--print`/`-p` invocation gets its own fresh 90-step iteration budget.
+If it is exhausted, the limit message is printed as the successful answer
+text and the process exits normally.
 
 If the model calls `run_shell_command`, `--print`/`-p` prompts on stderr
 with `Run shell command: <command>` and blocks reading a line from stdin —

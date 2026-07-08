@@ -25,7 +25,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery — shared by both paths | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) for up to 10 steps until a text-only reply; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`; returns new history or an error | Solo project |
+| Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`; returns new history or an error | Solo project |
 | Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
 | API failure recovery (`src/agent/recovery.ts`) | Classifies a thrown error into a `RecoveryAction` (`classifyError`) and retries a step up to 3 times with linear backoff only when the classification says to (`callDevinWithRecovery`) | Solo project |
 | Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
@@ -34,7 +35,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 ## Data Flow
 
-**One-shot path (`pnpm start --print`/`-p "<question>"`, tool-calling since Phase 4):**
+**One-shot path (`pnpm start --print`/`-p "<question>"`, tool-calling since Phase 4, iteration-budgeted since Phase 6):**
 
 1. `src/cli.ts` detects `--print`/`-p`, takes the remaining argv as the
    question (default `"Hello!"`), and calls `runOneShot`.
@@ -43,9 +44,10 @@ This document records the intended system architecture for Railgun. Keep it curr
    token is cached, `devin.login()` drives an OAuth flow via
    `src/openBrowser.ts`, then the token store persists it; `devin.listModels()`
    fetches available models and the first one is selected.
-3. `runOneShot` calls `runTurn` (`src/agent/turn.ts`) with empty prior
-   history, the single question as `userText`, and a `confirmShellCommand`
-   built from `node:readline/promises`: it opens a `readline` interface on
+3. `runOneShot` creates a fresh default `IterationBudget` and calls
+   `runTurn` (`src/agent/turn.ts`) with empty prior history, the single
+   question as `userText`, and a `confirmShellCommand` built from
+   `node:readline/promises`: it opens a `readline` interface on
    `process.stdin`/`process.stderr`, prompts
    `Run shell command: <command>\nType "yes" to run, anything else to cancel: `,
    and resolves `true` only if the answer trimmed/lowercased is exactly
@@ -54,32 +56,37 @@ This document records the intended system architecture for Railgun. Keep it curr
    `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`'s
    context for why this matters for CI/scripted invocations).
 4. `text_delta` events stream to stdout as `runTurn` runs its rounds; on
-   success a trailing newline is written after the loop completes.
+   success a trailing newline is written after the loop completes. Budget
+   exhaustion is returned as success, with the iteration-limit message as
+   the answer text.
 5. Any error — from `streamChat` itself, or an error `runTurn` returns as
    `{ ok: false, error }` — is re-thrown by `runOneShot` and caught by
    `main()`'s top-level handler in `src/cli.ts`, which prints one line to
    stderr (via `describeDevinError`, falling back to a full dump for
    unclassified errors) with a non-zero exit code.
 
-**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5):**
+**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6):**
 
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
    (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
    `waitUntilExit()`.
-2. Each submitted line calls `runTurn` (`src/agent/turn.ts`) with the
-   growing `history` array, the session's `DevinProvider`/model, the new
-   user text, and a `confirmShellCommand` callback that stores a
-   `{ resolve }` pair in a ref and sets `pendingCommand` React state; a
-   `useInput` handler (active only while `pendingCommand` is set) resolves
-   `runTurn` loops one `streamChat` round per step (up to 10), each
-   wrapped in `callDevinWithRecovery` (`src/agent/recovery.ts`): a round
-   that throws a transient error (429/502/503, or an error type
-   `classifyError` doesn't recognize) is retried up to 3 times total with
-   linear backoff (500ms × attempt number) before the turn gives up; a
-   malformed-request error (400/413) or `DevinAuthError` fails the turn
-   immediately on first throw, with no retry. Within a round, `text_delta`
-   events stream into a live "in-flight" line via a callback as they
-   arrive; `toolcall_delta` events are buffered per tool-call id into a raw
+2. `ChatApp` creates one default `IterationBudget` in a React ref, shared
+   by every turn for the REPL process lifetime. Each submitted line calls
+   `runTurn` (`src/agent/turn.ts`) with the growing `history` array, the
+   session's `DevinProvider`/model, the new user text, that shared budget,
+   and a `confirmShellCommand` callback that stores a `{ resolve }` pair in
+   a ref and sets `pendingCommand` React state; a `useInput` handler
+   (active only while `pendingCommand` is set) resolves that approval
+   promise. `runTurn` loops one `streamChat` round per consumed budget
+   step, each wrapped in `callDevinWithRecovery`
+   (`src/agent/recovery.ts`): a round that throws a transient error
+   (429/502/503, or an error type `classifyError` doesn't recognize) is
+   retried up to 3 times total with linear backoff (500ms × attempt
+   number) before the turn gives up; a malformed-request error (400/413)
+   or `DevinAuthError` fails the turn immediately on first throw, with no
+   retry. Within a round, `text_delta` events stream into a live
+   "in-flight" line via a callback as they arrive; `toolcall_delta` events
+   are buffered per tool-call id into a raw
    JSON string (widevin's own incrementally-parsed `.arguments` is not
    trusted, since it silently returns `{}` on a parse failure instead of
    surfacing one), and at that round's `toolcall_end` the buffered string is
@@ -112,11 +119,11 @@ This document records the intended system architecture for Railgun. Keep it curr
    every round's streamed text in round order — including narration a
    round streams before calling a tool — so nothing the in-flight line
    showed live is ever missing from the permanent scrollback (`Static`)
-   entry it moves into on completion. If the loop exhausts its 10-round
-   limit without a text-only round, this still counts as success:
-   `assistantText` is instead the literal string
-   `"(stopped: too many steps)"` and `history` keeps every round run so
-   far.
+   entry it moves into on completion. If the injected budget is exhausted
+   before a text-only round, this still counts as success: `assistantText`
+   is the friendly iteration-limit message and `history` keeps every round
+   run so far, followed by a synthetic assistant message containing the
+   same limit text.
 4. On failure (a streamChat error in any round), runTurn returns
    `{ ok: false, error }` and the *caller's*
    `history` is left untouched (no dangling unanswered user turn is ever
@@ -136,6 +143,9 @@ This document records the intended system architecture for Railgun. Keep it curr
 paths now enable the exact same toolsets (`"file"` + `"terminal"`) — the
 only behavioral difference between them is how `confirmShellCommand`
 collects the y/n answer (Ink `useInput` vs. blocking `readline` on stdin).
+They also differ in budget lifetime: the REPL has one shared 90-step budget
+for the process lifetime, while each one-shot invocation gets a fresh
+90-step budget.
 
 ## Persistence
 

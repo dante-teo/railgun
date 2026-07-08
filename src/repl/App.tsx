@@ -3,6 +3,7 @@ import { Box, render, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { DevinMessage } from "widevin";
 import { runTurn } from "../agent/turn.js";
+import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
 import type { DevinSession } from "../session.js";
 
@@ -19,6 +20,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
   const [streaming, setStreaming] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const iterationBudgetRef = useRef(IterationBudget.create());
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
 
   const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
@@ -59,9 +61,17 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       setBusy(true);
       setStreaming("");
 
-      const outcome = await runTurn(session.devin, session.model.id, history, text, confirmShellCommand, delta => {
-        setStreaming(prev => prev + delta);
-      });
+      const outcome = await runTurn(
+        session.devin,
+        session.model.id,
+        history,
+        text,
+        iterationBudgetRef.current,
+        confirmShellCommand,
+        delta => {
+          setStreaming(prev => prev + delta);
+        }
+      );
 
       if (outcome.ok) {
         setHistory(outcome.messages);

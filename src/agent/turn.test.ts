@@ -8,6 +8,7 @@ import { DevinApiError } from "widevin";
 import { runTurn } from "./turn.js";
 import { registry } from "../tools/index.js";
 import { CORRUPTION_MARKER } from "./toolDispatch.js";
+import { IterationBudget, ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
 
 const { readFileMock } = vi.hoisted(() => ({ readFileMock: vi.fn() }));
 
@@ -23,6 +24,7 @@ vi.mock("node:fs/promises", async importOriginal => {
 type FakeRound = readonly DevinStreamEvent[] | { throws: unknown };
 
 const approveAll = async () => true;
+const defaultBudget = () => IterationBudget.create();
 
 const fakeProvider = (rounds: readonly FakeRound[]): DevinProvider => {
   let callIndex = 0;
@@ -51,7 +53,7 @@ describe("runTurn", () => {
     ]);
     const deltas: string[] = [];
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi", approveAll, d => deltas.push(d));
+    const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll, d => deltas.push(d));
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -70,7 +72,7 @@ describe("runTurn", () => {
       { role: "assistant", content: [{ type: "text", text: "Nice to meet you, Alex" }] }
     ] as const;
 
-    const outcome = await runTurn(devin, "model-1", priorHistory, "What is my name?", approveAll);
+    const outcome = await runTurn(devin, "model-1", priorHistory, "What is my name?", defaultBudget(), approveAll);
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -82,7 +84,7 @@ describe("runTurn", () => {
     const boom = new DevinApiError("network blip", 400);
     const devin = fakeProvider([{ throws: boom }]);
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi", approveAll);
+    const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome).toEqual({ ok: false, error: boom });
   });
@@ -98,7 +100,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "ok" }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "Hi", approveAll);
+      const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -122,7 +124,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "ok" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Hi", approveAll);
+      const outcomePromise = runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
       await vi.runAllTimersAsync();
       const outcome = await outcomePromise;
 
@@ -140,7 +142,7 @@ describe("runTurn", () => {
       const err = new Error("persistent failure");
       const devin = fakeProvider([{ throws: err }, { throws: err }, { throws: err }]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Hi", approveAll);
+      const outcomePromise = runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll);
       await vi.runAllTimersAsync();
       const outcome = await outcomePromise;
 
@@ -174,7 +176,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", [], "What is the secret?", approveAll);
+      const outcome = await runTurn(devin, "model-1", [], "What is the secret?", defaultBudget(), approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -200,7 +202,7 @@ describe("runTurn", () => {
       ]);
       const confirmShellCommand = vi.fn(async () => true);
 
-      const outcome = await runTurn(devin, "model-1", [], "Run echo turn-test", confirmShellCommand);
+      const outcome = await runTurn(devin, "model-1", [], "Run echo turn-test", defaultBudget(), confirmShellCommand);
 
       expect(confirmShellCommand).toHaveBeenCalledWith("echo turn-test");
       expect(outcome.ok).toBe(true);
@@ -211,20 +213,25 @@ describe("runTurn", () => {
       expect(toolMessage.isError).toBe(false);
     });
 
-    it("stops after MAX_STEPS rounds and reports the step-limit sentinel", async () => {
-      const rounds: FakeRound[] = Array.from({ length: 10 }, (_, i) => [
+    it("stops after exhausting the iteration budget and appends the limit message", async () => {
+      const budget = IterationBudget.create(3);
+      const rounds: FakeRound[] = Array.from({ length: 3 }, (_, i) => [
         { type: "toolcall_delta", id: `call-${i}`, delta: "{}" },
         { type: "toolcall_end", id: `call-${i}`, name: "loop_forever", arguments: {} }
       ]);
       const devin = fakeProvider(rounds);
       const streamChatSpy = vi.spyOn(devin, "streamChat");
 
-      const outcome = await runTurn(devin, "model-1", [], "Loop forever", approveAll);
+      const outcome = await runTurn(devin, "model-1", [], "Loop forever", budget, approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
-      expect(outcome.assistantText).toBe("(stopped: too many steps)");
-      expect(streamChatSpy).toHaveBeenCalledTimes(10);
+      expect(outcome.assistantText).toBe(ITERATION_LIMIT_MESSAGE);
+      expect(streamChatSpy).toHaveBeenCalledTimes(3);
+      expect(outcome.messages.at(-1)).toEqual({
+        role: "assistant",
+        content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }]
+      });
     });
 
     it("discards the whole turn and leaves caller history untouched when a later round throws", async () => {
@@ -242,7 +249,14 @@ describe("runTurn", () => {
       const priorHistory = [{ role: "user", content: "hi" }] as const;
       const priorHistorySnapshot = JSON.parse(JSON.stringify(priorHistory));
 
-      const outcome = await runTurn(devin, "model-1", priorHistory, "What is the secret?", approveAll);
+      const outcome = await runTurn(
+        devin,
+        "model-1",
+        priorHistory,
+        "What is the secret?",
+        defaultBudget(),
+        approveAll
+      );
 
       expect(outcome).toEqual({ ok: false, error: boom });
       expect(priorHistory).toEqual(priorHistorySnapshot);
@@ -268,7 +282,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Read both files", approveAll);
+      const outcomePromise = runTurn(devin, "model-1", [], "Read both files", defaultBudget(), approveAll);
 
       // Both readFile calls must fire before either resolves -- genuine concurrency, not
       // "both eventually completed".
@@ -301,7 +315,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", [], "Read the same file twice", approveAll);
+      const outcomePromise = runTurn(devin, "model-1", [], "Read the same file twice", defaultBudget(), approveAll);
 
       await vi.waitFor(() => expect(readFileMock).toHaveBeenCalledTimes(1));
       // The second read_file call cannot fire until this `await registry.run(...)` inside

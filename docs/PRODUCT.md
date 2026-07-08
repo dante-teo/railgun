@@ -14,29 +14,38 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 5 (agent loop internals / harness engineering):**
-the agent loop from Phase 3/4 is now hardened against production-grade
-failure modes, with no new user-visible feature (Phase 4's REPL/one-shot
-behavior is otherwise unchanged). Three independent mechanisms sit
+**Current phase — Phase 6 (iteration budget):**
+the agent loop now uses an explicit 90-step `IterationBudget` instead of a
+hardcoded per-turn cap. A step means one outer Devin/tool-call round; retry
+attempts inside `callDevinWithRecovery` do not consume additional budget
+unless they lead to another outer round. The REPL owns one shared budget for
+the process lifetime, so a long multi-turn session cannot loop forever
+across prompts. The one-shot `--print`/`-p` path creates a fresh budget for
+each invocation. Exhaustion is treated as a controlled, successful stop:
+the assistant returns and records the friendly limit message
+`I've reached the iteration limit for this session, so I'm stopping here gracefully.`
+rather than failing the turn.
+
+The Phase 5 hardening remains in place. Three independent mechanisms sit
 between `src/agent/turn.ts`'s per-round `streamChat` call and the tool
 registry: (1) **parallel-safe tool batching** — a round's tool calls run
 concurrently via `Promise.all` only when `shouldParallelizeToolBatch`
 (`src/agent/toolDispatch.ts`) proves it's safe (no interactive tool like
 the not-yet-built `clarify`, no overlapping file paths across
-`read_file`/`write_file` calls, every other tool on an explicit
-read-only allow-list), otherwise the round's calls run sequentially, one
-at a time, exactly as before; (2) **corrupted tool-call JSON
-self-healing** — `turn.ts` now buffers each tool call's raw JSON itself
-from `toolcall_delta` events and parses that buffer at `toolcall_end`
+`read_file`/`write_file` calls, every other tool on an explicit read-only
+allow-list), otherwise the round's calls run sequentially, one at a time,
+exactly as before; (2) **corrupted tool-call JSON self-healing** —
+`turn.ts` now buffers each tool call's raw JSON itself from
+`toolcall_delta` events and parses that buffer at `toolcall_end`
 (ignoring widevin's own pre-parsed `.arguments`, which silently returns
 `{}` on a parse failure instead of surfacing it), so a tool call whose
 arguments never parse pushes a labeled corruption message instead of
 running with empty/wrong arguments or crashing the turn; (3)
-**classified API-failure recovery** — each round is retried up to 3
-times with linear backoff only for failures classified as transient
-(rate limits, 502/503, or an unrecognized error type), while a
-malformed-request error (400/413) or an auth failure fails the turn
-immediately instead of retrying pointlessly. Four tools are registered:
+**classified API-failure recovery** — each round is retried up to 3 times
+with linear backoff only for failures classified as transient (rate
+limits, 502/503, or an unrecognized error type), while a malformed-request
+error (400/413) or an auth failure fails the turn immediately instead of
+retrying pointlessly. Four tools are registered:
 `read_file`, `write_file`,
 `list_directory` (toolset `"file"`), and `run_shell_command` (toolset
 `"terminal"`, gated behind an interactive y/n approval prompt in both the
@@ -116,7 +125,11 @@ beyond the terminal.
   and a round that throws a retryable API error is retried automatically
   and succeeds without surfacing a failure to the caller — plus a manual
   `pnpm start --print "..."` smoke test confirms the non-corrupted,
-  non-retried common case is unregressed).
+  non-retried common case is unregressed; Phase 6:
+  `src/agent/iterationBudget.test.ts` proves budget consumption and
+  exhaustion directly, while `src/agent/turn.test.ts` proves the turn loop
+  consumes only the allowed number of outer rounds and appends the friendly
+  limit message to returned history).
 
 ## Open Questions
 

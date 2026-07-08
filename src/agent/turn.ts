@@ -3,12 +3,13 @@ import { registry } from "../tools/index.js";
 import type { ToolContext } from "../tools/index.js";
 import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from "./toolDispatch.js";
 import { callDevinWithRecovery } from "./recovery.js";
+import type { IterationBudget } from "./iterationBudget.js";
+import { ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
   | { ok: false; error: unknown };
 
-const MAX_STEPS = 10;
 const ENABLED_TOOLSETS = ["file", "terminal"] as const;
 
 type StepResult = { done: true; assistantText: string } | { done: false };
@@ -94,6 +95,7 @@ export const runTurn = async (
   model: string,
   history: readonly DevinMessage[],
   userText: string,
+  iterationBudget: IterationBudget,
   confirmShellCommand: (command: string) => Promise<boolean>,
   onDelta?: (delta: string) => void
 ): Promise<TurnOutcome> => {
@@ -102,7 +104,7 @@ export const runTurn = async (
   const context: ToolContext = { confirmShellCommand };
 
   try {
-    for (let step = 0; step < MAX_STEPS; step++) {
+    while (iterationBudget.consume()) {
       const outcome = await callDevinWithRecovery(() => runStep(devin, model, messages, context, allTextParts, onDelta));
       if (outcome.done) return { ok: true, messages, assistantText: outcome.assistantText };
     }
@@ -110,5 +112,6 @@ export const runTurn = async (
     return { ok: false, error };
   }
 
-  return { ok: true, messages, assistantText: "(stopped: too many steps)" };
+  messages.push({ role: "assistant", content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }] });
+  return { ok: true, messages, assistantText: ITERATION_LIMIT_MESSAGE };
 };
