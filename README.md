@@ -2,11 +2,16 @@
 
 A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s
 core agent loop, built incrementally, phase by phase (see
-[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 4 adds a tool registry: the
+[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 4 added a tool registry: the
 REPL's agent can read and write files, list directories, and run shell
 commands (the last gated behind an interactive y/n approval prompt) before
 answering, looping the conversation with Devin until it has a final text
-answer (up to 10 rounds per turn). Conversation memory lasts for the
+answer (up to 10 rounds per turn). Phase 5 hardens that loop with no new
+user-visible behavior: tool calls in a round run concurrently only when
+it's provably safe to do so, a tool call whose arguments never parse as
+valid JSON no longer crashes the turn, and a round that hits a transient
+API failure (rate limit, 502/503) retries automatically instead of
+failing the whole turn. Conversation memory lasts for the
 process lifetime; no persistence across restarts yet.
 
 ## Prerequisites
@@ -87,13 +92,16 @@ stderr and exits non-zero without launching anything.
 
 ```sh
 pnpm run typecheck   # tsc --noEmit
-pnpm test            # vitest run — covers src/agent/turn.ts's turn logic and src/tools/*
+pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery logic and src/tools/*
 pnpm run build       # compile src/ to dist/
 ```
 
 The Ink REPL UI itself is verified manually (see `docs/PRODUCT.md`'s
-Success Metrics); automated tests are scoped to the pure turn/history logic
-in `src/agent/turn.ts` and each tool's own handler logic in `src/tools/`.
+Success Metrics); automated tests are scoped to the pure logic in
+`src/agent/turn.ts` (turn/history loop), `src/agent/toolDispatch.ts`
+(parallel-batch safety, corrupted-JSON detection), `src/agent/recovery.ts`
+(API failure classification and retry), and each tool's own handler logic
+in `src/tools/`.
 
 ## Compliance
 

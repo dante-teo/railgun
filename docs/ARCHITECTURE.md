@@ -25,7 +25,9 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery — shared by both paths | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) for up to 10 steps until a text-only reply; returns new history or an error | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) for up to 10 steps until a text-only reply; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`; returns new history or an error | Solo project |
+| Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
+| API failure recovery (`src/agent/recovery.ts`) | Classifies a thrown error into a `RecoveryAction` (`classifyError`) and retries a step up to 3 times with linear backoff only when the classification says to (`callDevinWithRecovery`) | Solo project |
 | Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
 | Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell}.ts`) | Four self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`) | Solo project |
 | Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit`, and a `useInput`-driven y/n approval gate for `run_shell_command` | Solo project |
@@ -59,7 +61,7 @@ This document records the intended system architecture for Railgun. Keep it curr
    stderr (via `describeDevinError`, falling back to a full dump for
    unclassified errors) with a non-zero exit code.
 
-**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4):**
+**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5):**
 
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
    (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
@@ -69,24 +71,40 @@ This document records the intended system architecture for Railgun. Keep it curr
    user text, and a `confirmShellCommand` callback that stores a
    `{ resolve }` pair in a ref and sets `pendingCommand` React state; a
    `useInput` handler (active only while `pendingCommand` is set) resolves
-   `true` on `y`, `false` on `n`/`Esc`, and ignores every other key. Internally
-   `runTurn` loops `streamChat` calls — passing `registry.getSchemas(["file",
-   "terminal"])` (both toolsets always enabled; no per-profile config yet)
-   and a fixed system prompt naming the agent "Railgun" (required: Devin's
-   Claude-family models reject a request that declares `tools` with an
-   empty system prompt) — for up to 10 rounds. Each round's `text_delta`
+   `runTurn` loops one `streamChat` round per step (up to 10), each
+   wrapped in `callDevinWithRecovery` (`src/agent/recovery.ts`): a round
+   that throws a transient error (429/502/503, or an error type
+   `classifyError` doesn't recognize) is retried up to 3 times total with
+   linear backoff (500ms × attempt number) before the turn gives up; a
+   malformed-request error (400/413) or `DevinAuthError` fails the turn
+   immediately on first throw, with no retry. Within a round, `text_delta`
    events stream into a live "in-flight" line via a callback as they
-   arrive; `toolcall_end` events are buffered until that round's stream
-   ends, then run in call order via `registry.run(name, args, { confirmShellCommand })`
+   arrive; `toolcall_delta` events are buffered per tool-call id into a raw
+   JSON string (widevin's own incrementally-parsed `.arguments` is not
+   trusted, since it silently returns `{}` on a parse failure instead of
+   surfacing one), and at that round's `toolcall_end` the buffered string is
+   parsed via `safeParseToolArgs` (`src/agent/toolDispatch.ts`) — a call
+   whose buffer never parses gets a labeled corruption message
+   (`CORRUPTION_MARKER`) pushed as its tool result and is never dispatched
+   to `registry.run`. Every other (valid) call in the round is dispatched
+   either concurrently via `Promise.all` or one at a time in a `for` loop,
+   chosen by `shouldParallelizeToolBatch`: concurrent only when every call
+   is either on an explicit read-only allow-list (currently just
+   `read_file`) or is a path-scoped call (`read_file`/`write_file`) whose
+   target path doesn't overlap any other call's target in the same round,
+   and never when any call is on the "never parallel" list (currently just
+   the not-yet-built `clarify`, pre-declared for Phase 16). Each dispatched
+   call's result — or a corrupted call's marker — is pushed back as a
+   `tool`-role message via `registry.run(name, args, { confirmShellCommand })`
    (each tool returns `{ content, isError }` — `run_shell_command` first
    awaits `confirmShellCommand`, returning `isError: true` immediately if
    declined, before ever spawning `execFile("bash", ["-c", command])`)
-   with each result pushed back as a `tool`-role message before the next
-   round starts. A round producing no tool calls ends the loop; the REPL
-   shows no distinct UI for tool-call rounds — the same streaming line
-   stays at its empty placeholder during a pure tool-call round, except
-   when `run_shell_command` is pending approval, when the input box is
-   replaced by the `Run shell command: <command> [y/n]` prompt.
+   before the next round starts. A round producing no tool calls ends the
+   loop; the REPL shows no distinct UI for tool-call rounds — the same
+   streaming line stays at its empty placeholder during a pure tool-call
+   round, except when `run_shell_command` is pending approval, when the
+   input box is replaced by the `Run shell command: <command> [y/n]`
+   prompt.
 3. On success, `runTurn` returns a new `history` array (the turn's one
    user message, plus each round's assistant message and — for rounds
    that called a tool — tool messages, appended in round order) that
@@ -110,13 +128,14 @@ This document records the intended system architecture for Railgun. Keep it curr
 6. `/exit` calls Ink's `exit()`, which resolves `waitUntilExit()` and lets
    `main()` return normally.
 
-`toolcall_end` events drive `src/agent/turn.ts`'s tool-calling loop in
-both paths. `thinking_delta`, `toolcall_start`, `toolcall_delta`, and
-`usage` are still received but ignored by both paths (live tool-call
-feedback and reasoning display are later phases). Both paths now enable
-the exact same toolsets (`"file"` + `"terminal"`) — the only behavioral
-difference between them is how `confirmShellCommand` collects the y/n
-answer (Ink `useInput` vs. blocking `readline` on stdin).
+`toolcall_delta` and `toolcall_end` events together drive
+`src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
+`toolcall_delta` buffering; before that it was ignored). `thinking_delta`,
+`toolcall_start`, and `usage` are still received but ignored by both paths
+(live tool-call feedback and reasoning display are later phases). Both
+paths now enable the exact same toolsets (`"file"` + `"terminal"`) — the
+only behavioral difference between them is how `confirmShellCommand`
+collects the y/n answer (Ink `useInput` vs. blocking `readline` on stdin).
 
 ## Persistence
 
