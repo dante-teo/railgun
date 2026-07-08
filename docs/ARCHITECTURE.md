@@ -33,7 +33,12 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `get(name)` looks up a registered tool's metadata, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
 | Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell}.ts`) | Four self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`); each registers a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for its live-activity label | Solo project |
 | Tool activity labels (`src/tools/toolLabel.ts`) | Pure `buildToolLabel(name, args, phase)` — turns a dispatched call's name+args into a one-line verb-based label (`"Reading <path>"`, `"Running <command>"`) via each tool's registered `verb`/`previewArgKey`, falling back to raw name+JSON for unlabeled/unregistered tools and the `"__batch__"` sentinel for a collapsed concurrent batch; whitespace-collapsed and truncated to 60 chars | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit`, a `useInput`-driven y/n approval gate for `run_shell_command`, and an `ink-spinner`-driven live line + permanent `✓`/`✗` scrollback line for tool activity | Solo project |
+| Skin system (`src/skins.ts`) | Pure skin data: `SkinConfig` interface, two built-in skins (`default`, `mono`) covering banner colors, prompt symbol, `ink-spinner` type, and branding strings; `resolveSkin(name)` is a pure lookup returning `undefined` for an unrecognized name | Solo project |
+| Config persistence (`src/config.ts`) | `loadConfig`/`saveConfig` read/write `~/.railgun/config.json` (skin preference only, `{ "skin": "<name>" }`); a missing file, unreadable file, malformed JSON, or an unrecognized skin name all collapse silently to the default skin, with no startup warning | Solo project |
+| Command system (`src/commands.ts`) | Pure slash-command logic: `KNOWN_COMMANDS`, prefix matching (`matchCommand`/`findMatches`), `parseSlashCommand` (splits `"/skin mono"` into command + arg), and `nextCompletionState` (the tab/escape state machine cycling frozen matches vs. re-deriving live matches) — no I/O, no React | Solo project |
+| Banner (`src/repl/Banner.tsx`) | `printBanner(skin)` — a one-shot, raw-ANSI-colored startup banner (hex-to-24-bit-ANSI conversion, no `chalk` dependency) written via `console.log` before Ink's `render()` is ever called; lives outside the Ink component tree entirely, so it is printed exactly once per launch and never re-renders | Solo project |
+| Suggestions (`src/repl/Suggestions.tsx`) | Pure Ink component rendering a vertical dropdown of slash-command matches beneath the input box, highlighting whichever entry the current tab-cycle has selected | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, slash commands (`/exit`, `/skin <name>`, `/help`, `/clear`), tab-completion with a live `Suggestions` dropdown, a `useInput`-driven y/n approval gate for `run_shell_command`, and a skin-driven prompt symbol + `ink-spinner` type (`activeSkin.colors.promptSymbol`/`activeSkin.spinnerType`) alongside the permanent `✓`/`✗` scrollback line for tool activity | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✓`/`✗` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
 
 ## Data Flow
@@ -85,9 +90,16 @@ This document records the intended system architecture for Railgun. Keep it curr
 **REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6, live tool feedback since Phase 7):**
 
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
-   (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
+   (`src/repl/App.tsx`) loads the persisted skin preference via
+   `loadConfig` (`src/config.ts`), resolves it to a `SkinConfig` via
+   `resolveSkin` (`src/skins.ts`, falling back to the default skin for a
+   missing/invalid config), prints the startup banner via `printBanner`
+   (`src/repl/Banner.tsx`) straight to stdout — before Ink's `render()`
+   is ever called — then renders the Ink `ChatApp` and blocks on
    `waitUntilExit()`.
-2. `ChatApp` receives the cached system prompt from `initDevinSession`.
+2. `ChatApp` receives the cached system prompt from `initDevinSession`
+   and the resolved skin as its `initialSkin` prop, seeding the
+   `activeSkin` React state that `/skin` can later update live.
    It also creates one default `IterationBudget` in a React ref, shared
    by every turn for the REPL process lifetime. Each submitted line calls
    `runTurn` (`src/agent/turn.ts`) with the growing `history` array, the
@@ -156,8 +168,22 @@ This document records the intended system architecture for Railgun. Keep it curr
 5. `history` lives only in the Ink component's React state for the
    process's lifetime; there is no on-disk conversation persistence yet
    (a later phase adds save/resume).
-6. `/exit` calls Ink's `exit()`, which resolves `waitUntilExit()` and lets
-   `main()` return normally.
+6. Slash commands are dispatched by `handleSubmit` via `parseSlashCommand`
+   (`src/commands.ts`) before any turn is run: `/exit` calls Ink's
+   `exit()`, which resolves `waitUntilExit()` and lets `main()` return
+   normally; `/skin <name>` resolves the name via `resolveSkin`
+   (`src/skins.ts`) — on success it updates `activeSkin` React state
+   (changing the prompt symbol, spinner type, and banner colors live on
+   the next render) and fire-and-forgets `saveConfig` (`src/config.ts`)
+   to persist the choice to `~/.railgun/config.json`, or on an
+   unknown/missing name pushes a red `Unknown skin: …` scrollback line
+   instead; `/help` pushes one scrollback line listing all four
+   commands; `/clear` writes the terminal-clear escape sequence
+   (`\x1Bc`) via Ink's `useStdout().write` (never raw
+   `process.stdout.write`, which would corrupt Ink's internal
+   render-diff state) without touching the `lines` array — Ink's
+   `<Static>` uses a monotonically-advancing index, so shrinking the
+   array would silently break subsequent scrollback rendering.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
@@ -177,10 +203,14 @@ lifetime, while each one-shot invocation gets a fresh 90-step budget.
 
 A single file, `~/.railgun/devin-token` (mode `0600`), holds the cached
 Devin auth token — created and managed entirely by `widevin`'s
-`createFileTokenStore`. Railgun keeps no other on-disk state: REPL
-`history` is in-memory-only for the process's lifetime, with no
-conversation persistence across restarts yet (a later phase adds
-save/resume).
+`createFileTokenStore`. A second file, `~/.railgun/config.json` (no file
+mode restriction — it holds no secret, just `{ "skin": "<name>" }`), is
+read on REPL startup by `src/config.ts`'s `loadConfig` and written by its
+`saveConfig` whenever `/skin <name>` succeeds; a missing, unreadable,
+malformed, or unrecognized-skin config silently falls back to the default
+skin. Railgun keeps no other on-disk state: REPL `history` is
+in-memory-only for the process's lifetime, with no conversation
+persistence across restarts yet (a later phase adds save/resume).
 
 ## Integrations
 

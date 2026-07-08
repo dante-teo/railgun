@@ -11,7 +11,10 @@ transient API retry, and a 90-step iteration budget. In the REPL that
 budget is shared for the process lifetime; in one-shot mode each invocation
 gets a fresh budget. Exhausting it is a graceful stop, not a failure.
 Conversation memory lasts for the process lifetime; no persistence across
-restarts yet.
+restarts yet. The REPL also has a CLI polish layer: a startup banner,
+a themeable skin system (`default`/`mono`, switchable live and persisted
+to `~/.railgun/config.json`), slash commands (`/exit`, `/skin`, `/help`,
+`/clear`), and Tab-completion for those commands.
 
 ## Prerequisites
 
@@ -34,6 +37,9 @@ pnpm start
 
 `pnpm start` with no arguments opens a scrolling Ink chat REPL:
 
+- **Startup banner**: a bordered banner prints once, before the REPL
+  renders, showing the agent name and a welcome message in the active
+  skin's colors.
 - **First run**: no cached credentials exist yet, so a browser window opens for
   Devin sign-in. After you complete login, the token is cached to
   `~/.railgun/devin-token` (mode `0600`).
@@ -63,7 +69,19 @@ pnpm start
   the assistant prints
   `I've reached the iteration limit for this session, so I'm stopping here gracefully.`
   and the REPL stays open.
-- Type `/exit` (or `Ctrl+C`) to quit.
+- Slash commands:
+  - `/exit` (or `Ctrl+C`) — quit the REPL.
+  - `/skin <name>` — switch the active skin (`default` or `mono`); updates
+    the prompt symbol and spinner live and persists the choice to
+    `~/.railgun/config.json` so the next launch starts in that skin. An
+    unknown skin name prints an error and leaves the current skin unchanged.
+  - `/help` — print the list of available commands.
+  - `/clear` — clear the terminal screen (the already-flushed scrollback
+    above the prompt is not replayed; the banner and current turn's
+    transcript reappear).
+- **Tab-completion**: type `/` to see a dropdown of matching slash
+  commands as you type; press Tab to complete an unambiguous match, or
+  `Esc` to dismiss the dropdown.
 - **Per-turn error**: a failed turn (e.g. an expired token) prints a red
   one-line error into the transcript and the REPL stays open for the next
   message — it does not exit the process. Fix a bad token with
@@ -108,7 +126,7 @@ stderr and exits non-zero without launching anything.
 
 ```sh
 pnpm run typecheck   # tsc --noEmit
-pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery logic and src/tools/*
+pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery logic, src/tools/*, and src/skins.ts, src/commands.ts, src/config.ts
 pnpm run build       # compile src/ to dist/
 ```
 
@@ -116,8 +134,10 @@ The Ink REPL UI itself is verified manually (see `docs/PRODUCT.md`'s
 Success Metrics); automated tests are scoped to the pure logic in
 `src/agent/turn.ts` (turn/history loop), `src/agent/toolDispatch.ts`
 (parallel-batch safety, corrupted-JSON detection), `src/agent/recovery.ts`
-(API failure classification and retry), and each tool's own handler logic
-in `src/tools/`.
+(API failure classification and retry), each tool's own handler logic
+in `src/tools/`, `src/commands.ts` (slash-command prefix matching and
+parsing), and `src/config.ts` (skin config load/save, including
+missing-file, malformed-JSON, and unknown-skin fallback behavior).
 
 ## Compliance
 

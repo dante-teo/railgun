@@ -14,8 +14,9 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 7 (live tool activity feedback):**
-`runTurn` (`src/agent/turn.ts`) now accepts an optional trailing
+**Current phase — Phase 9 (CLI polish: banner, skin system, tab-completion):**
+Phase 7 (live tool activity feedback) is complete:
+`runTurn` (`src/agent/turn.ts`) accepts an optional trailing
 `LoopCallbacks` object — `onDelta`, `onToolStart`, `onToolComplete` —
 alongside the required `confirmShellCommand` gate. `onToolStart`/
 `onToolComplete` fire around each of `runStep`'s three existing dispatch
@@ -34,46 +35,62 @@ collapsed and the result truncated to 60 characters. The REPL
 (`src/repl/App.tsx`) shows a live `ink-spinner`-driven line in place of
 the streaming placeholder while a tool runs, then appends a permanent
 green `✓`/red `✗`-prefixed scrollback line once it finishes. The one-shot
-`--print`/`-p` path's new `src/spinner.ts` renders the plain-terminal
+`--print`/`-p` path's `src/spinner.ts` renders the plain-terminal
 equivalent (a cycling braille frame, then a final `✓`/`✗` line) on
 `process.stderr`, keeping stdout limited to the streamed answer text per
 the existing contract.
 
+Phase 9 adds a startup banner, a themeable skin system, config
+persistence, real slash commands, and slash-command tab-completion, all
+in-process on top of the Ink REPL (`src/repl/App.tsx`) — see
+`docs/adr/0002-ink-repl-ahead-of-schedule.md` for why this phase targets
+Ink instead of the replication plan's bare-`readline` pseudocode.
+`src/skins.ts` defines the `SkinConfig` data type (banner colors as hex
+strings, an `ink-spinner` preset name, a prompt symbol glyph, and
+agent-name/welcome branding text) plus two builtin skins — `default`
+(gold/bronze, `❯` prompt, `dots` spinner) and `mono` (gray, `>` prompt,
+`line` spinner) — in a `BUILTIN_SKINS` map, with a pure `resolveSkin`
+lookup. `src/repl/Banner.tsx`'s `printBanner` renders a bordered banner
+showing the active skin's agent name and welcome text using raw ANSI
+`\x1b[38;2;r;g;bm` truecolor escapes converted from those hex colors —
+called once, directly on `console.log`, before Ink's `render()` is
+invoked (`runRepl` in `src/repl/App.tsx`), never as a component inside
+the Ink tree, so it never re-renders or gets cleared by Ink's own output
+tracking. `src/config.ts`'s `loadConfig`/`saveConfig` persist just the
+chosen skin name as JSON to `~/.railgun/config.json` (mirroring
+`src/session.ts`'s `~/.railgun/devin-token` path pattern), creating the
+directory on write; `loadConfig` collapses every failure mode — missing
+file, unreadable file, invalid JSON, or an unrecognized skin name — to
+the same silent default skin, and `runRepl` awaits it before Ink's
+`render()` so the resolved skin reaches `ChatApp` as an `initialSkin`
+prop rather than a post-mount state update. `src/commands.ts` replaces
+the old hardcoded `text === "/exit"` check with a real registry:
+`KNOWN_COMMANDS` (`/exit`, `/skin`, `/help`, `/clear`), a `matchCommand`
+unique-prefix lookup, a `findMatches` full-list lookup, and
+`parseSlashCommand` to split a command from its trailing argument.
+`handleSubmit` (`src/repl/App.tsx`) dispatches on the parsed command:
+`/exit` exits as before; `/skin <name>` resolves and swaps the live
+`activeSkin` state (updating the prompt symbol and spinner type
+immediately), appends an assistant scrollback line confirming the
+change, and fire-and-forgets a `saveConfig` write, or appends a red
+error line for an unknown/missing skin name; `/help` appends a
+scrollback line listing all four commands; `/clear` writes the raw
+`"\x1Bc"` full-reset escape via Ink's own
+`useStdout().write` (never raw `process.stdout.write`, which would
+desync Ink's internal output tracking) — it clears the terminal only,
+leaving `<Static>`'s already-flushed scrollback lines untouched, since
+the banner is launch-only and is not re-printed on `/clear`. Tab
+completion is a pure state machine, `nextCompletionState`
+(`src/commands.ts`), driven by a second `useInput` handler in
+`ChatApp` active whenever the input starts with `/`: typing `/`
+auto-computes live matches and shows a `<Suggestions>` dropdown
+(`src/repl/Suggestions.tsx`) under the prompt; each Tab press freezes
+the current match list and cycles the highlighted selection through it,
+writing the selected command (plus a trailing space once a single
+choice remains) back into the input; Escape clears the frozen matches
+and dismisses the dropdown.
+
 The Phase 5 hardening remains in place. Three independent mechanisms sit
-between `src/agent/turn.ts`'s per-round `streamChat` call and the tool
-registry: (1) **parallel-safe tool batching** — a round's tool calls run
-concurrently via `Promise.all` only when `shouldParallelizeToolBatch`
-(`src/agent/toolDispatch.ts`) proves it's safe (no interactive tool like
-the not-yet-built `clarify`, no overlapping file paths across
-`read_file`/`write_file` calls, every other tool on an explicit read-only
-allow-list), otherwise the round's calls run sequentially, one at a time,
-exactly as before; (2) **corrupted tool-call JSON self-healing** —
-`turn.ts` now buffers each tool call's raw JSON itself from
-`toolcall_delta` events and parses that buffer at `toolcall_end`
-(ignoring widevin's own pre-parsed `.arguments`, which silently returns
-`{}` on a parse failure instead of surfacing it), so a tool call whose
-arguments never parse pushes a labeled corruption message instead of
-running with empty/wrong arguments or crashing the turn; (3)
-**classified API-failure recovery** — each round is retried up to 3 times
-with linear backoff only for failures classified as transient (rate
-limits, 502/503, or an unrecognized error type), while a malformed-request
-error (400/413) or an auth failure fails the turn immediately instead of
-retrying pointlessly. Four tools are registered:
-`read_file`, `write_file`,
-`list_directory` (toolset `"file"`), and `run_shell_command` (toolset
-`"terminal"`, gated behind an interactive y/n approval prompt in both the
-REPL and one-shot mode). Both toolsets are hardcoded on for every turn —
-no per-profile config yet. Session bootstrap builds one cached Phase 8
-system prompt naming the agent "Railgun", setting concise tool-use rules,
-and recording the cwd/platform/date/model/provider environment. The date
-uses the local calendar day for the process, and environment fields are
-quoted as serialized data before they enter the prompt. Every Devin
-request reuses that prompt because Devin's Claude-family models reject a
-request that declares tools with an empty system prompt.
-Phase 1's one-shot mode (`--print`/`-p`) now runs through the same
-tool-calling turn loop as the REPL — it is no longer tools-free, but keeps
-Phase 1's stdout/stderr contract. No persistence across restarts, no GUI
-beyond the terminal.
 
 ## Users
 
@@ -160,7 +177,28 @@ beyond the terminal.
   during a tool call, a permanent `✓`/`✗` scrollback line after, and one
   collapsed `"Running N tools concurrently"` line for a concurrent batch
   instead of N separate ones) and a manual one-shot smoke test confirming
-  the spinner writes only to stderr, never stdout).
+  the spinner writes only to stderr, never stdout); Phase 9:
+  `src/skins.test.ts` proves `resolveSkin` returns the matching
+  `SkinConfig` for both builtin skin names and `undefined` for an
+  unrecognized one, and that `BUILTIN_SKINS` exposes exactly the
+  `default`/`mono` keys; `src/config.test.ts` (mocking
+  `node:fs/promises`) proves `loadConfig` falls back to the default skin
+  on a missing file (ENOENT), invalid JSON, and a recognized-but-unknown
+  skin name, and that `saveConfig` calls `mkdir` with
+  `{ recursive: true }` before `writeFile`-ing the serialized config;
+  `src/commands.test.ts` proves `matchCommand`'s unique-prefix
+  resolution (including its ambiguous-`/`-and-no-match undefined cases),
+  `findMatches`'s full candidate list, `parseSlashCommand`'s
+  command/arg split, and `nextCompletionState`'s state transitions across
+  Tab (freeze-then-cycle through multiple matches, auto-complete a single
+  match with a trailing space) and Escape (reset to empty) — plus a
+  manual REPL smoke test confirming a bordered banner in the active
+  skin's colors appears once above the input on launch, `/help` prints
+  the command list, `/skin mono` swaps the prompt symbol and banner
+  colors live and persists the choice to `~/.railgun/config.json` across
+  a restart, `/clear` visibly clears the terminal without disturbing
+  `<Static>` scrollback, and typing `/` shows a suggestions dropdown that
+  Tab cycles through and Escape dismisses).
 
 ## Open Questions
 

@@ -1,5 +1,5 @@
-import React, { useCallback, useRef, useState } from "react";
-import { Box, render, Static, Text, useApp, useInput } from "ink";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Box, render, Static, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
 import type { DevinMessage } from "widevin";
@@ -8,6 +8,12 @@ import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
 import { buildToolLabel } from "../tools/toolLabel.js";
 import type { DevinSession } from "../session.js";
+import { BUILTIN_SKINS, DEFAULT_SKIN, resolveSkin } from "../skins.js";
+import type { SkinConfig } from "../skins.js";
+import { loadConfig, saveConfig } from "../config.js";
+import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
+import { printBanner } from "./Banner.js";
+import { Suggestions } from "./Suggestions.js";
 
 interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
@@ -15,11 +21,20 @@ interface DisplayLine {
   failed?: boolean;
 }
 
-const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => {
+const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin: SkinConfig }): React.ReactElement => {
   const { exit } = useApp();
+  const { write: stdoutWrite } = useStdout();
+  const [activeSkin, setActiveSkin] = useState<SkinConfig>(initialSkin);
   const [history, setHistory] = useState<readonly DevinMessage[]>([]);
   const [lines, setLines] = useState<readonly DisplayLine[]>([]);
   const [input, setInput] = useState("");
+  const [inputKey, setInputKey] = useState(0);
+  const [completionIndex, setCompletionIndex] = useState<number | null>(null);
+  const [completionMatches, setCompletionMatches] = useState<readonly string[]>([]);
+  const liveMatches = useMemo(
+    () => (input.startsWith("/") && !input.includes(" ") ? findMatches(input) : []),
+    [input],
+  );
   const [streaming, setStreaming] = useState("");
   const [busy, setBusy] = useState(false);
   const [toolLabel, setToolLabel] = useState<string | null>(null);
@@ -51,6 +66,22 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
     { isActive: pendingCommand !== null }
   );
 
+  useInput(
+    (_ch, key) => {
+      if (key.tab || (key.escape && completionMatches.length > 0)) {
+        const event = key.tab ? "tab" as const : "escape" as const;
+        const next = nextCompletionState(completionMatches, completionIndex, liveMatches, event);
+        setCompletionMatches(next.frozenMatches);
+        setCompletionIndex(next.index);
+        if (next.input !== null) {
+          setInput(next.input);
+          setInputKey(k => k + 1);
+        }
+      }
+    },
+    { isActive: !busy && pendingCommand === null }
+  );
+
   const onToolStart = useCallback((name: string, args: unknown) => {
     setToolLabel(buildToolLabel(name, args, "start"));
   }, []);
@@ -64,10 +95,42 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
     async (value: string) => {
       const text = value.trim();
       setInput("");
+      setCompletionIndex(null);
+      setCompletionMatches([]);
       if (text === "") return;
-      if (text === "/exit") {
-        exit();
-        return;
+      if (text.startsWith("/")) {
+        const { command, arg } = parseSlashCommand(text);
+        switch (command) {
+          case "/exit":
+            exit();
+            return;
+          case "/skin": {
+            const resolved = arg ? resolveSkin(arg) : undefined;
+            if (resolved) {
+              setActiveSkin(resolved);
+              setLines(prev => [...prev, {
+                kind: "assistant",
+                text: `Skin changed to "${resolved.name}".`,
+              }]);
+              saveConfig({ skin: resolved.name }).catch(() => {});
+            } else {
+              setLines(prev => [...prev, {
+                kind: "error",
+                text: `Unknown skin: ${arg ?? "(none)"}. Available: ${Object.keys(BUILTIN_SKINS).join(", ")}.`,
+              }]);
+            }
+            return;
+          }
+          case "/help":
+            setLines(prev => [...prev, {
+              kind: "assistant",
+              text: "Commands: /exit, /skin <name>, /help, /clear",
+            }]);
+            return;
+          case "/clear":
+            stdoutWrite("\x1Bc");
+            return;
+        }
       }
 
       setLines(prev => [...prev, { kind: "user", text }]);
@@ -103,7 +166,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       setStreaming("");
       setBusy(false);
     },
-    [history, session, exit, confirmShellCommand, onToolStart, onToolComplete]
+    [history, session, exit, stdoutWrite, confirmShellCommand, onToolStart, onToolComplete]
   );
 
   return (
@@ -119,7 +182,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
           }
           return (
             <Text key={index} {...(line.kind === "error" ? { color: "red" as const } : {})}>
-              {line.kind === "user" ? `> ${line.text}` : line.text}
+              {line.kind === "user" ? `${activeSkin.colors.promptSymbol} ${line.text}` : line.text}
             </Text>
           );
         }}
@@ -127,7 +190,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       {busy &&
         (toolLabel !== null ? (
           <Text color="cyan">
-            <Spinner type="dots" /> {toolLabel}
+            <Spinner type={activeSkin.spinnerType} /> {toolLabel}
           </Text>
         ) : (
           <Text color="cyan">{streaming || "…"}</Text>
@@ -136,19 +199,29 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
         <Text color="yellow">Run shell command: {pendingCommand} [y/n]</Text>
       )}
       <Box>
-        <Text>{"> "}</Text>
+        <Text>{activeSkin.colors.promptSymbol + " "}</Text>
         <TextInput
+          key={inputKey}
           value={input}
-          onChange={setInput}
+          onChange={v => { setInput(v); setCompletionMatches([]); setCompletionIndex(null); }}
           onSubmit={handleSubmit}
           focus={!busy && pendingCommand === null}
         />
       </Box>
+      {(completionMatches.length > 1 || liveMatches.length > 0) && (
+        <Suggestions
+          items={completionMatches.length > 1 ? completionMatches : liveMatches}
+          selectedIndex={completionIndex ?? -1}
+        />
+      )}
     </Box>
   );
 };
 
 export const runRepl = async (session: DevinSession): Promise<void> => {
-  const instance = render(<ChatApp session={session} />);
+  const config = await loadConfig();
+  const initialSkin = resolveSkin(config.skin) ?? DEFAULT_SKIN;
+  printBanner(initialSkin);
+  const instance = render(<ChatApp session={session} initialSkin={initialSkin} />);
   await instance.waitUntilExit();
 };
