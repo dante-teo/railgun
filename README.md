@@ -44,9 +44,15 @@ pnpm start
   lifetime (not across restarts — see `docs/ARCHITECTURE.md`).
 - Ask something that requires reading a file in the working directory
   (e.g. `"What does notes.txt say?"`) and the REPL calls `read_file`
-  automatically and uses its contents to answer — the tool call itself is
-  invisible in the transcript; only the final answer appears. `write_file`
-  and `list_directory` work the same way, silently.
+  automatically and uses its contents to answer. While the tool runs, a
+  live spinner line shows `Reading notes.txt` in place of the streaming
+  placeholder; once it finishes, a permanent `✓ Reading notes.txt` line
+  stays in the scrollback (or `✗ ...` on failure) — the tool's raw result
+  content itself is never shown, only this verb+arg label. `write_file`
+  and `list_directory` show the equivalent `Writing`/`Listing` labels. A
+  parallel-safe batch of tool calls (e.g. reading two different files in
+  one round) collapses to a single `Running N tools concurrently` line
+  and one `✓ N/N tools completed` line, not one pair per call.
 - Ask it to run a shell command (e.g. `"run echo hello in the shell"`) and
   the REPL freezes the text input and prints
   `Run shell command: <command> [y/n]`; press `y` to run it and feed the
@@ -77,8 +83,10 @@ question in, the streamed answer on stdout, status/progress messages (model
 selection, login prompt, and — if the model calls `run_shell_command` — the
 approval prompt) on stderr, and a non-zero exit code with a one-line error
 on failure. `pnpm start --print` alone (no question text) sends the default
-question `"Hello!"`. Because only the answer goes to stdout,
-`pnpm start --print "..." | some-other-tool` pipes just the answer text.
+question `"Hello!"`. While a tool runs, the same live spinner+label
+(e.g. `Reading notes.txt`) and final `✓`/`✗` line print to stderr, never
+stdout, so `pnpm start --print "..." | some-other-tool` still pipes only
+the answer text.
 
 Each `--print`/`-p` invocation gets its own fresh 90-step iteration budget.
 If it is exhausted, the limit message is printed as the successful answer

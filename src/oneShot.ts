@@ -2,6 +2,8 @@ import { createInterface } from "node:readline/promises";
 import { initDevinSession } from "./session.js";
 import { runTurn } from "./agent/turn.js";
 import { IterationBudget } from "./agent/iterationBudget.js";
+import { startSpinner } from "./spinner.js";
+import { buildToolLabel } from "./tools/toolLabel.js";
 
 const confirmShellCommand = async (command: string): Promise<boolean> => {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -15,8 +17,18 @@ const confirmShellCommand = async (command: string): Promise<boolean> => {
 
 export const runOneShot = async (question: string): Promise<void> => {
   const { devin, model } = await initDevinSession();
-  const outcome = await runTurn(devin, model.id, [], question, IterationBudget.create(), confirmShellCommand, delta => {
-    process.stdout.write(delta);
+  let activeStop: ((isError: boolean) => void) | undefined;
+  const outcome = await runTurn(devin, model.id, [], question, IterationBudget.create(), confirmShellCommand, {
+    onDelta: delta => {
+      process.stdout.write(delta);
+    },
+    onToolStart: (name, args) => {
+      activeStop = startSpinner(buildToolLabel(name, args, "start"));
+    },
+    onToolComplete: (name, args, isError) => {
+      activeStop?.(isError);
+      activeStop = undefined;
+    }
   });
   if (outcome.ok) {
     process.stdout.write("\n");

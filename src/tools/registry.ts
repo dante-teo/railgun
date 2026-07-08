@@ -15,11 +15,14 @@ export interface RegisteredTool {
   schema: DevinTool;
   handler: (args: unknown, context: ToolContext) => Promise<ToolRunResult>;
   isAvailable?: () => boolean;
+  verb?: string;
+  previewArgKey?: string;
 }
 
 export interface ToolRegistry {
   register(tool: RegisteredTool): void;
   getSchemas(enabledToolsets: readonly string[]): DevinTool[];
+  get(name: string): RegisteredTool | undefined;
   run(name: string, args: unknown, context: ToolContext): Promise<ToolRunResult>;
 }
 
@@ -36,6 +39,8 @@ export const createToolRegistry = (): ToolRegistry => {
       .filter(t => (t.isAvailable ? t.isAvailable() : true))
       .map(t => t.schema);
 
+  const get = (name: string): RegisteredTool | undefined => tools.get(name);
+
   const run = async (name: string, args: unknown, context: ToolContext): Promise<ToolRunResult> => {
     const tool = tools.get(name);
     if (!tool) return { content: `Error: unknown tool "${name}"`, isError: true };
@@ -46,7 +51,7 @@ export const createToolRegistry = (): ToolRegistry => {
     }
   };
 
-  return { register, getSchemas, run };
+  return { register, getSchemas, get, run };
 };
 
 export const registry = createToolRegistry();

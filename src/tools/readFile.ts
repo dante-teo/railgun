@@ -10,6 +10,8 @@ const extractPath = (args: unknown): string | undefined => {
 registry.register({
   name: "read_file",
   toolset: "file",
+  verb: "Reading",
+  previewArgKey: "path",
   schema: {
     name: "read_file",
     description: "Read the text content of a file on disk.",

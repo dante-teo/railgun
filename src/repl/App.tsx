@@ -1,15 +1,18 @@
 import React, { useCallback, useRef, useState } from "react";
 import { Box, render, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
+import Spinner from "ink-spinner";
 import type { DevinMessage } from "widevin";
 import { runTurn } from "../agent/turn.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
+import { buildToolLabel } from "../tools/toolLabel.js";
 import type { DevinSession } from "../session.js";
 
 interface DisplayLine {
-  kind: "user" | "assistant" | "error";
+  kind: "user" | "assistant" | "error" | "tool";
   text: string;
+  failed?: boolean;
 }
 
 const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => {
@@ -19,6 +22,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState("");
   const [busy, setBusy] = useState(false);
+  const [toolLabel, setToolLabel] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const iterationBudgetRef = useRef(IterationBudget.create());
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
@@ -47,6 +51,15 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
     { isActive: pendingCommand !== null }
   );
 
+  const onToolStart = useCallback((name: string, args: unknown) => {
+    setToolLabel(buildToolLabel(name, args, "start"));
+  }, []);
+
+  const onToolComplete = useCallback((name: string, args: unknown, isError: boolean) => {
+    setToolLabel(null);
+    setLines(prev => [...prev, { kind: "tool", text: buildToolLabel(name, args, "complete"), failed: isError }]);
+  }, []);
+
   const handleSubmit = useCallback(
     async (value: string) => {
       const text = value.trim();
@@ -60,6 +73,7 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       setLines(prev => [...prev, { kind: "user", text }]);
       setBusy(true);
       setStreaming("");
+      setToolLabel(null);
 
       const outcome = await runTurn(
         session.devin,
@@ -68,8 +82,12 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
         text,
         iterationBudgetRef.current,
         confirmShellCommand,
-        delta => {
-          setStreaming(prev => prev + delta);
+        {
+          onDelta: delta => {
+            setStreaming(prev => prev + delta);
+          },
+          onToolStart,
+          onToolComplete
         }
       );
 
@@ -84,19 +102,35 @@ const ChatApp = ({ session }: { session: DevinSession }): React.ReactElement => 
       setStreaming("");
       setBusy(false);
     },
-    [history, session, exit, confirmShellCommand]
+    [history, session, exit, confirmShellCommand, onToolStart, onToolComplete]
   );
 
   return (
     <Box flexDirection="column">
       <Static items={[...lines]}>
-        {(line, index) => (
-          <Text key={index} {...(line.kind === "error" ? { color: "red" as const } : {})}>
-            {line.kind === "user" ? `> ${line.text}` : line.text}
-          </Text>
-        )}
+        {(line, index) => {
+          if (line.kind === "tool") {
+            return (
+              <Text key={index} color={line.failed ? "red" : "green"}>
+                {(line.failed ? "✗ " : "✓ ") + line.text}
+              </Text>
+            );
+          }
+          return (
+            <Text key={index} {...(line.kind === "error" ? { color: "red" as const } : {})}>
+              {line.kind === "user" ? `> ${line.text}` : line.text}
+            </Text>
+          );
+        }}
       </Static>
-      {busy && <Text color="cyan">{streaming || "…"}</Text>}
+      {busy &&
+        (toolLabel !== null ? (
+          <Text color="cyan">
+            <Spinner type="dots" /> {toolLabel}
+          </Text>
+        ) : (
+          <Text color="cyan">{streaming || "…"}</Text>
+        ))}
       {pendingCommand !== null && (
         <Text color="yellow">Run shell command: {pendingCommand} [y/n]</Text>
       )}

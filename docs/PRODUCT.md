@@ -14,17 +14,30 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 6 (iteration budget):**
-the agent loop now uses an explicit 90-step `IterationBudget` instead of a
-hardcoded per-turn cap. A step means one outer Devin/tool-call round; retry
-attempts inside `callDevinWithRecovery` do not consume additional budget
-unless they lead to another outer round. The REPL owns one shared budget for
-the process lifetime, so a long multi-turn session cannot loop forever
-across prompts. The one-shot `--print`/`-p` path creates a fresh budget for
-each invocation. Exhaustion is treated as a controlled, successful stop:
-the assistant returns and records the friendly limit message
-`I've reached the iteration limit for this session, so I'm stopping here gracefully.`
-rather than failing the turn.
+**Current phase — Phase 7 (live tool activity feedback):**
+`runTurn` (`src/agent/turn.ts`) now accepts an optional trailing
+`LoopCallbacks` object — `onDelta`, `onToolStart`, `onToolComplete` —
+alongside the required `confirmShellCommand` gate. `onToolStart`/
+`onToolComplete` fire around each of `runStep`'s three existing dispatch
+branches: a sequential call reports itself individually
+(`name`, real parsed `arguments`); a corrupted call reports itself with
+empty `{}` args and `isError: true`; a parallel-safe batch collapses to
+one `"__batch__"` sentinel pair reporting only a completion count, never
+per-call detail or a pass/fail state — matching Hermes'
+`agent/tool_executor.py` spinner behavior rather than firing N separate
+pairs. `buildToolLabel` (`src/tools/toolLabel.ts`) turns a tool's
+name+args into a verb-based label (`"Reading <path>"`,
+`"Running <command>"`, etc.) using each tool's new `verb`/`previewArgKey`
+registry fields (`src/tools/registry.ts`), falling back to raw
+name+JSON-args for unlabeled or unregistered tools, with whitespace
+collapsed and the result truncated to 60 characters. The REPL
+(`src/repl/App.tsx`) shows a live `ink-spinner`-driven line in place of
+the streaming placeholder while a tool runs, then appends a permanent
+green `✓`/red `✗`-prefixed scrollback line once it finishes. The one-shot
+`--print`/`-p` path's new `src/spinner.ts` renders the plain-terminal
+equivalent (a cycling braille frame, then a final `✓`/`✗` line) on
+`process.stderr`, keeping stdout limited to the streamed answer text per
+the existing contract.
 
 The Phase 5 hardening remains in place. Three independent mechanisms sit
 between `src/agent/turn.ts`'s per-round `streamChat` call and the tool
@@ -129,7 +142,21 @@ beyond the terminal.
   `src/agent/iterationBudget.test.ts` proves budget consumption and
   exhaustion directly, while `src/agent/turn.test.ts` proves the turn loop
   consumes only the allowed number of outer rounds and appends the friendly
-  limit message to returned history).
+  limit message to returned history; Phase 7: `src/agent/turn.test.ts`'s
+  three new callback tests prove `onToolStart`/`onToolComplete` fire in
+  order for a sequential call, fire once with empty args and
+  `isError: true` for a corrupted call, and collapse to a single
+  `"__batch__"` pair — never firing per-call — for a parallel batch;
+  `src/tools/toolLabel.test.ts` proves `buildToolLabel`'s verb+arg
+  formatting for all four registered tools plus its unregistered-tool,
+  missing/non-string-preview-arg, whitespace-collapsing, and
+  60-character-truncation fallback paths; `src/spinner.test.ts` proves
+  the one-shot terminal spinner's frame cadence and final `✓`/`✗` line
+  under fake timers — plus a manual REPL smoke test (a spinner+label line
+  during a tool call, a permanent `✓`/`✗` scrollback line after, and one
+  collapsed `"Running N tools concurrently"` line for a concurrent batch
+  instead of N separate ones) and a manual one-shot smoke test confirming
+  the spinner writes only to stderr, never stdout).
 
 ## Open Questions
 

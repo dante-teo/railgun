@@ -54,9 +54,15 @@ command/single answer shape for scripting.
   message — errors no longer always exit the process, only the one-shot
   path's top-level failure still does.
 - The REPL's agent can read/write files and list directories while
-  answering, invisibly; tool-call rounds show no distinct UI for these
-  (the streaming line stays at its empty placeholder during a pure
-  tool-call round) — a later phase adds live tool activity feedback.
+  answering. A live spinner+label line (e.g. a braille frame plus
+  "Reading notes.txt") replaces the streaming placeholder while a tool
+  runs; once it finishes, a permanent green `✓`/red `✗`-prefixed line
+  (e.g. "✓ Reading notes.txt") moves into the scrollback in its place —
+  a parallel-safe batch of tool calls collapses to one
+  "Running N tools concurrently" line and one "✓ N/N tools completed"
+  line rather than a separate pair per call. The one-shot path shows the
+  equivalent spinner and final `✓`/`✗` line on stderr only, so a piped
+  stdout answer never contains spinner frames or tool labels.
 - Before running a shell command, the REPL freezes the text input (loses
   focus) and shows a yellow `Run shell command: <command> [y/n]` line in
   place of normal turn output; pressing `y` runs it and feeds the real

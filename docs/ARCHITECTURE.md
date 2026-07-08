@@ -26,16 +26,18 @@ This document records the intended system architecture for Railgun. Keep it curr
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`; returns new history or an error | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`, firing an optional `LoopCallbacks` (`onDelta`/`onToolStart`/`onToolComplete`) around each dispatch; returns new history or an error | Solo project |
 | Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
 | API failure recovery (`src/agent/recovery.ts`) | Classifies a thrown error into a `RecoveryAction` (`classifyError`) and retries a step up to 3 times with linear backoff only when the classification says to (`callDevinWithRecovery`) | Solo project |
-| Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
-| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell}.ts`) | Four self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`) | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit`, and a `useInput`-driven y/n approval gate for `run_shell_command` | Solo project |
+| Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `get(name)` looks up a registered tool's metadata, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
+| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell}.ts`) | Four self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`); each registers a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for its live-activity label | Solo project |
+| Tool activity labels (`src/tools/toolLabel.ts`) | Pure `buildToolLabel(name, args, phase)` — turns a dispatched call's name+args into a one-line verb-based label (`"Reading <path>"`, `"Running <command>"`) via each tool's registered `verb`/`previewArgKey`, falling back to raw name+JSON for unlabeled/unregistered tools and the `"__batch__"` sentinel for a collapsed concurrent batch; whitespace-collapsed and truncated to 60 chars | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit`, a `useInput`-driven y/n approval gate for `run_shell_command`, and an `ink-spinner`-driven live line + permanent `✓`/`✗` scrollback line for tool activity | Solo project |
+| One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✓`/`✗` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
 
 ## Data Flow
 
-**One-shot path (`pnpm start --print`/`-p "<question>"`, tool-calling since Phase 4, iteration-budgeted since Phase 6):**
+**One-shot path (`pnpm start --print`/`-p "<question>"`, tool-calling since Phase 4, iteration-budgeted since Phase 6, live tool spinner since Phase 7):**
 
 1. `src/cli.ts` detects `--print`/`-p`, takes the remaining argv as the
    question (default `"Hello!"`), and calls `runOneShot`.
@@ -55,8 +57,15 @@ This document records the intended system architecture for Railgun. Keep it curr
    declined; open-but-silent stdin blocks until answered — see
    `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`'s
    context for why this matters for CI/scripted invocations).
-4. `text_delta` events stream to stdout as `runTurn` runs its rounds; on
-   success a trailing newline is written after the loop completes. Budget
+4. `text_delta` events stream to stdout as `runTurn` runs its rounds. Each
+   round's dispatched tool call(s) also fire `LoopCallbacks.onToolStart`/
+   `onToolComplete` (see step 2 of the REPL path below for the shared
+   dispatch semantics); `runOneShot` wires these to `src/spinner.ts`'s
+   `startSpinner`/`stop`, which write a cycling braille frame and a final
+   `✓`/`✗ <label>` line to `process.stderr` only — stdout carries nothing
+   but the streamed answer, so the spinner never corrupts a piped
+   `pnpm start --print "..." | some-other-tool` invocation. On success a
+   trailing newline is written to stdout after the loop completes. Budget
    exhaustion is returned as success, with the iteration-limit message as
    the answer text.
 5. Any error — from `streamChat` itself, or an error `runTurn` returns as
@@ -65,7 +74,7 @@ This document records the intended system architecture for Railgun. Keep it curr
    stderr (via `describeDevinError`, falling back to a full dump for
    unclassified errors) with a non-zero exit code.
 
-**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6):**
+**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6, live tool feedback since Phase 7):**
 
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
    (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
@@ -106,12 +115,17 @@ This document records the intended system architecture for Railgun. Keep it curr
    (each tool returns `{ content, isError }` — `run_shell_command` first
    awaits `confirmShellCommand`, returning `isError: true` immediately if
    declined, before ever spawning `execFile("bash", ["-c", command])`)
-   before the next round starts. A round producing no tool calls ends the
-   loop; the REPL shows no distinct UI for tool-call rounds — the same
-   streaming line stays at its empty placeholder during a pure tool-call
-   round, except when `run_shell_command` is pending approval, when the
-   input box is replaced by the `Run shell command: <command> [y/n]`
-   prompt.
+   before the next round starts. `LoopCallbacks.onToolStart`/
+   `onToolComplete` fire around this dispatch (once per call in the
+   sequential `for` loop; once for the whole batch under the `"__batch__"`
+   sentinel, with `isError` hardcoded `false` regardless of any individual
+   call's result); `ChatApp` wires these to `src/tools/toolLabel.ts`'s
+   `buildToolLabel` to drive an `ink-spinner` line in place of the busy
+   placeholder while a call is in flight, then appends a permanent
+   `✓`/`✗`-prefixed line to the scrollback (`Static`) once it settles. A
+   round producing no tool calls ends the loop, except when
+   `run_shell_command` is pending approval, when the input box is
+   replaced by the `Run shell command: <command> [y/n]` prompt.
 3. On success, `runTurn` returns a new `history` array (the turn's one
    user message, plus each round's assistant message and — for rounds
    that called a tool — tool messages, appended in round order) that
@@ -139,13 +153,15 @@ This document records the intended system architecture for Railgun. Keep it curr
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
 `toolcall_delta` buffering; before that it was ignored). `thinking_delta`,
 `toolcall_start`, and `usage` are still received but ignored by both paths
-(live tool-call feedback and reasoning display are later phases). Both
+(reasoning display is a later phase; live tool-call feedback shipped in
+Phase 7 via `LoopCallbacks` rather than a new stream-event type). Both
 paths now enable the exact same toolsets (`"file"` + `"terminal"`) — the
 only behavioral difference between them is how `confirmShellCommand`
-collects the y/n answer (Ink `useInput` vs. blocking `readline` on stdin).
-They also differ in budget lifetime: the REPL has one shared 90-step budget
-for the process lifetime, while each one-shot invocation gets a fresh
-90-step budget.
+collects the y/n answer (Ink `useInput` vs. blocking `readline` on stdin)
+and how tool activity renders (an `ink-spinner` line + scrollback vs. a
+stderr braille spinner via `src/spinner.ts`). They also differ in budget
+lifetime: the REPL has one shared 90-step budget for the process
+lifetime, while each one-shot invocation gets a fresh 90-step budget.
 
 ## Persistence
 
@@ -160,13 +176,15 @@ save/resume).
 
 - Devin, via the `widevin` npm package (OAuth login, model discovery, streaming chat). See
   `docs/adr/0001-single-provider-devin-via-widevin.md`.
-- Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-text-input` (`^6.0.0`) for the
-  REPL's terminal UI, pulled forward from the replication plan's later
-  "polished terminal UI" phase. See
+- Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-text-input` (`^6.0.0`) +
+  `ink-spinner` (`^5.0.0`) for the REPL's terminal UI, pulled forward from
+  the replication plan's later "polished terminal UI" phase. See
   `docs/adr/0002-ink-repl-ahead-of-schedule.md`. Ink is still pinned to 6,
   not 7, even though the Node floor was independently raised to `>=22`
   for `Promise.withResolvers()` — see
   `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`.
+  `ink-spinner`'s published peer deps (`ink >=4.0.0`, `react >=18.0.0`)
+  are satisfied by both pins with no override needed.
 
 ## Security
 

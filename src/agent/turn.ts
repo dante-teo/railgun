@@ -14,13 +14,19 @@ const ENABLED_TOOLSETS = ["file", "terminal"] as const;
 
 type StepResult = { done: true; assistantText: string } | { done: false };
 
+export interface LoopCallbacks {
+  onDelta?: (delta: string) => void;
+  onToolStart?: (name: string, args: unknown) => void;
+  onToolComplete?: (name: string, args: unknown, isError: boolean) => void;
+}
+
 const runStep = async (
   devin: DevinProvider,
   model: string,
   messages: DevinMessage[],
   context: ToolContext,
   allTextParts: string[],
-  onDelta?: (delta: string) => void
+  callbacks?: LoopCallbacks
 ): Promise<StepResult> => {
   const textParts: string[] = [];
   const rawArgsById = new Map<string, string>();
@@ -36,7 +42,7 @@ const runStep = async (
   })) {
     if (event.type === "text_delta") {
       textParts.push(event.delta);
-      onDelta?.(event.delta);
+      callbacks?.onDelta?.(event.delta);
     }
     if (event.type === "toolcall_delta") {
       rawArgsById.set(event.id, (rawArgsById.get(event.id) ?? "") + event.delta);
@@ -66,6 +72,8 @@ const runStep = async (
 
   for (const call of resolved) {
     if (call.corrupted) {
+      callbacks?.onToolStart?.(call.name, {});
+      callbacks?.onToolComplete?.(call.name, {}, true);
       messages.push({ role: "tool", toolCallId: call.id, content: CORRUPTION_MARKER, isError: true });
     }
   }
@@ -75,14 +83,18 @@ const runStep = async (
   );
 
   if (shouldParallelizeToolBatch(validCalls)) {
+    callbacks?.onToolStart?.("__batch__", { count: validCalls.length });
     const results = await Promise.all(validCalls.map(call => registry.run(call.name, call.arguments, context)));
     validCalls.forEach((call, i) => {
       const result = results[i];
       if (result) messages.push({ role: "tool", toolCallId: call.id, content: result.content, isError: result.isError });
     });
+    callbacks?.onToolComplete?.("__batch__", { count: validCalls.length }, false);
   } else {
     for (const call of validCalls) {
+      callbacks?.onToolStart?.(call.name, call.arguments);
       const result = await registry.run(call.name, call.arguments, context);
+      callbacks?.onToolComplete?.(call.name, call.arguments, result.isError);
       messages.push({ role: "tool", toolCallId: call.id, content: result.content, isError: result.isError });
     }
   }
@@ -97,7 +109,7 @@ export const runTurn = async (
   userText: string,
   iterationBudget: IterationBudget,
   confirmShellCommand: (command: string) => Promise<boolean>,
-  onDelta?: (delta: string) => void
+  callbacks?: LoopCallbacks
 ): Promise<TurnOutcome> => {
   const messages: DevinMessage[] = [...history, { role: "user", content: userText }];
   const allTextParts: string[] = [];
@@ -105,7 +117,7 @@ export const runTurn = async (
 
   try {
     while (iterationBudget.consume()) {
-      const outcome = await callDevinWithRecovery(() => runStep(devin, model, messages, context, allTextParts, onDelta));
+      const outcome = await callDevinWithRecovery(() => runStep(devin, model, messages, context, allTextParts, callbacks));
       if (outcome.done) return { ok: true, messages, assistantText: outcome.assistantText };
     }
   } catch (error) {

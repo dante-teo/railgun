@@ -53,7 +53,7 @@ describe("runTurn", () => {
     ]);
     const deltas: string[] = [];
 
-    const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll, d => deltas.push(d));
+    const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll, { onDelta: d => deltas.push(d) });
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -330,6 +330,93 @@ describe("runTurn", () => {
       const outcome = await outcomePromise;
 
       expect(outcome.ok).toBe(true);
+    });
+
+    it("fires onToolStart before onToolComplete for a sequential read_file call", async () => {
+      const filePath = join(dir, "secret.txt");
+      await writeFile(filePath, "the secret is 42", "utf-8");
+      const onToolStart = vi.fn();
+      const onToolComplete = vi.fn();
+
+      const devin = fakeProvider([
+        [
+          { type: "toolcall_delta", id: "call-1", delta: JSON.stringify({ path: filePath }) },
+          { type: "toolcall_end", id: "call-1", name: "read_file", arguments: { path: filePath } }
+        ],
+        [{ type: "text_delta", delta: "The secret is 42." }]
+      ]);
+
+      const outcome = await runTurn(devin, "model-1", [], "What is the secret?", defaultBudget(), approveAll, {
+        onToolStart,
+        onToolComplete
+      });
+
+      expect(outcome.ok).toBe(true);
+      expect(onToolStart).toHaveBeenCalledExactlyOnceWith("read_file", { path: filePath });
+      expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("read_file", { path: filePath }, false);
+      const [startOrder] = onToolStart.mock.invocationCallOrder;
+      const [completeOrder] = onToolComplete.mock.invocationCallOrder;
+      expect(startOrder).toBeDefined();
+      expect(completeOrder).toBeDefined();
+      if (startOrder === undefined || completeOrder === undefined) throw new Error("unreachable");
+      expect(startOrder).toBeLessThan(completeOrder);
+    });
+
+    it("fires onToolStart/onToolComplete with empty args and isError true for a corrupted tool call", async () => {
+      const onToolStart = vi.fn();
+      const onToolComplete = vi.fn();
+      const runSpy = vi.spyOn(registry, "run");
+      try {
+        const devin = fakeProvider([
+          [
+            { type: "toolcall_delta", id: "call-1", delta: '{"path": "a.txt"' },
+            { type: "toolcall_end", id: "call-1", name: "read_file", arguments: {} }
+          ],
+          [{ type: "text_delta", delta: "ok" }]
+        ]);
+
+        const outcome = await runTurn(devin, "model-1", [], "Hi", defaultBudget(), approveAll, {
+          onToolStart,
+          onToolComplete
+        });
+
+        expect(outcome.ok).toBe(true);
+        expect(onToolStart).toHaveBeenCalledExactlyOnceWith("read_file", {});
+        expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("read_file", {}, true);
+        expect(runSpy).not.toHaveBeenCalled();
+      } finally {
+        runSpy.mockRestore();
+      }
+    });
+
+    it("collapses a parallel batch into a single __batch__ onToolStart/onToolComplete pair", async () => {
+      const fileA = join(dir, "a.txt");
+      const fileB = join(dir, "b.txt");
+      await writeFile(fileA, "AAA", "utf-8");
+      await writeFile(fileB, "BBB", "utf-8");
+      const onToolStart = vi.fn();
+      const onToolComplete = vi.fn();
+
+      const devin = fakeProvider([
+        [
+          { type: "toolcall_delta", id: "call-1", delta: JSON.stringify({ path: fileA }) },
+          { type: "toolcall_delta", id: "call-2", delta: JSON.stringify({ path: fileB }) },
+          { type: "toolcall_end", id: "call-1", name: "read_file", arguments: { path: fileA } },
+          { type: "toolcall_end", id: "call-2", name: "read_file", arguments: { path: fileB } }
+        ],
+        [{ type: "text_delta", delta: "done" }]
+      ]);
+
+      const outcome = await runTurn(devin, "model-1", [], "Read both files", defaultBudget(), approveAll, {
+        onToolStart,
+        onToolComplete
+      });
+
+      expect(outcome.ok).toBe(true);
+      expect(onToolStart).toHaveBeenCalledExactlyOnceWith("__batch__", { count: 2 });
+      expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("__batch__", { count: 2 }, false);
+      expect(onToolStart).not.toHaveBeenCalledWith("read_file", expect.anything());
+      expect(onToolComplete).not.toHaveBeenCalledWith("read_file", expect.anything(), expect.anything());
     });
   });
 });

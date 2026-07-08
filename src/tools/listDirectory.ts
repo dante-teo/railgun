@@ -10,6 +10,8 @@ const extractPath = (args: unknown): string | undefined => {
 registry.register({
   name: "list_directory",
   toolset: "file",
+  verb: "Listing",
+  previewArgKey: "path",
   schema: {
     name: "list_directory",
     description:

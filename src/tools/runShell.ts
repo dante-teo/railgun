@@ -19,6 +19,8 @@ const execShell = (command: string): Promise<ToolRunResult> => {
 registry.register({
   name: "run_shell_command",
   toolset: "terminal",
+  verb: "Running",
+  previewArgKey: "command",
   schema: {
     name: "run_shell_command",
     description: "Run a shell command and return its output. Requires human approval before running.",

@@ -28,9 +28,10 @@ scriptable callers.
 ## Consequences
 
 - Phase 26's "component-based scrolling chat" goal is substantially met
-  early; remaining Phase 26/Phase 7 polish (live tool-activity spinners,
-  `thinking_delta` display) still lands when those phases are actually
-  built, on top of this same `ChatApp` component.
+  early; live tool-activity spinners landed in Phase 7 on top of this same
+  `ChatApp` component (see `src/tools/toolLabel.ts`, `src/repl/App.tsx`'s
+  `ink-spinner` wiring); remaining Phase 26 polish (`thinking_delta`
+  display, themed chrome) still lands when that phase is actually built.
 - Railgun's terminal surface now depends on React's reconciler and Ink's
   raw-mode stdin handling instead of a plain `readline` loop — more moving
   parts than the replication plan's own pseudocode, in exchange for a

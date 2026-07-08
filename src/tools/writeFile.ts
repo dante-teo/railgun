@@ -16,6 +16,8 @@ const extractContent = (args: unknown): string | undefined => {
 registry.register({
   name: "write_file",
   toolset: "file",
+  verb: "Writing",
+  previewArgKey: "path",
   schema: {
     name: "write_file",
     description: "Write text content to a file on disk, overwriting existing content.",
