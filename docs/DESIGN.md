@@ -53,6 +53,10 @@ command/single answer shape for scripting.
   plus a generic fallback) and the REPL stays open for the next
   message — errors no longer always exit the process, only the one-shot
   path's top-level failure still does.
+- The REPL's agent can call a `read_file` tool to read files from disk
+  while answering; tool-call rounds show no distinct UI (the streaming
+  line stays at its empty placeholder during a pure tool-call round) — a
+  later phase adds live tool activity feedback.
 
 ## Visual System
 

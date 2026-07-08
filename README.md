@@ -2,9 +2,11 @@
 
 A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s
 core agent loop, built incrementally, phase by phase (see
-[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 2 is a multi-turn Ink terminal
-chat with Devin — conversation memory for the process lifetime, no tools, no
-persistence across restarts yet.
+[`docs/PRODUCT.md`](docs/PRODUCT.md)). Phase 3 adds tool calling: the
+REPL's agent can call a `read_file` tool to read files from disk before
+answering, looping the conversation with Devin until it has a final text
+answer (up to 10 rounds per turn). Conversation memory lasts for the
+process lifetime; no persistence across restarts yet.
 
 ## Prerequisites
 
@@ -35,6 +37,10 @@ pnpm start
   scrollback. Every prior turn in the session is sent as context on the next
   turn, so the REPL remembers the whole conversation for the process's
   lifetime (not across restarts — see `docs/ARCHITECTURE.md`).
+- Ask something that requires reading a file in the working directory
+  (e.g. `"What does notes.txt say?"`) and the REPL calls `read_file`
+  automatically and uses its contents to answer — the tool call itself is
+  invisible in the transcript; only the final answer appears.
 - Type `/exit` (or `Ctrl+C`) to quit.
 - **Per-turn error**: a failed turn (e.g. an expired token) prints a red
   one-line error into the transcript and the REPL stays open for the next

@@ -25,7 +25,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery — shared by both paths | Solo project |
 | One-shot path (`src/oneShot.ts`) | Phase 1's exact single-question streaming behavior, used by `--print`/`-p` | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Pure function: runs one chat turn against a `DevinProvider`, returns new history or an error — the only unit-tested module | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds (currently one hardcoded tool, `read_file`, which reads real files from disk — the module's only side effect) for up to 10 steps until a text-only reply; returns new history or an error — the only unit-tested module | Solo project |
 | Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, `/exit` | Solo project |
 
 ## Data Flow
@@ -46,19 +46,41 @@ This document records the intended system architecture for Railgun. Keep it curr
    `describeDevinError`, falling back to a full dump for unclassified
    errors) with a non-zero exit code.
 
-**REPL path (`pnpm start`, new in Phase 2):**
+**REPL path (`pnpm start`, tool calling since Phase 3):**
 
 1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
    (`src/repl/App.tsx`) renders the Ink `ChatApp` and blocks on
    `waitUntilExit()`.
 2. Each submitted line calls `runTurn` (`src/agent/turn.ts`) with the
-   growing `history` array, the session's `DevinProvider`/model, and the new
-   user text; `text_delta` events stream into a live "in-flight" line via a
-   callback while the request is outstanding.
-3. On success, `runTurn` returns a new `history` array (user + assistant
-   messages appended) that becomes React state for the next turn; the
-   finished reply moves into the permanent scrollback (`Static`).
-4. On failure, `runTurn` returns `{ ok: false, error }` and the *caller's*
+   growing `history` array, the session's `DevinProvider`/model, and the
+   new user text. Internally `runTurn` loops `streamChat` calls — passing
+   its one hardcoded tool, `read_file`, and a fixed system prompt naming
+   the agent "Railgun" (required: Devin's Claude-family models reject a
+   request that declares `tools` with an empty system prompt) — for up to
+   10 rounds. Each round's `text_delta` events stream into a live
+   "in-flight" line via a callback as they arrive; `toolcall_end` events
+   are buffered until that round's stream ends, then run in call order
+   (`read_file` reads the given path from disk, or returns an
+   `isError: true` result on a missing/invalid `path` argument or a
+   filesystem error) with each result pushed back as a `tool`-role
+   message before the next round starts. A round producing no tool calls
+   ends the loop; the REPL shows no distinct UI for tool-call rounds —
+   the same streaming line stays at its empty placeholder during a pure
+   tool-call round.
+3. On success, `runTurn` returns a new `history` array (the turn's one
+   user message, plus each round's assistant message and — for rounds
+   that called a tool — tool messages, appended in round order) that
+   becomes React state for the next turn. `assistantText` concatenates
+   every round's streamed text in round order — including narration a
+   round streams before calling a tool — so nothing the in-flight line
+   showed live is ever missing from the permanent scrollback (`Static`)
+   entry it moves into on completion. If the loop exhausts its 10-round
+   limit without a text-only round, this still counts as success:
+   `assistantText` is instead the literal string
+   `"(stopped: too many steps)"` and `history` keeps every round run so
+   far.
+4. On failure (a streamChat error in any round), runTurn returns
+   `{ ok: false, error }` and the *caller's*
    `history` is left untouched (no dangling unanswered user turn is ever
    sent next); the REPL renders one red line via `describeDevinError` and
    keeps running — a per-turn error never exits the process.
@@ -68,9 +90,13 @@ This document records the intended system architecture for Railgun. Keep it curr
 6. `/exit` calls Ink's `exit()`, which resolves `waitUntilExit()` and lets
    `main()` return normally.
 
-All other Devin stream event types (`thinking_delta`, `toolcall_*`, `usage`)
-are received but ignored by both paths until tool calling is implemented in
-a later phase.
+`toolcall_end` events drive `src/agent/turn.ts`'s tool-calling loop in
+the REPL path. `thinking_delta`, `toolcall_start`, `toolcall_delta`, and
+`usage` are still received but ignored by both paths (live tool-call
+feedback and reasoning display are later phases). The one-shot path
+(`src/oneShot.ts`) sends no `tools` in its request at all and remains
+exactly Phase 1's single-question behavior — it never triggers a tool
+call.
 
 ## Persistence
 

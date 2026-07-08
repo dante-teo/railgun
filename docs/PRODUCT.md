@@ -14,13 +14,16 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 2 (multi-turn Ink REPL):** an Ink (React-for-CLI)
-terminal chat that logs into Devin once, caches the token, lists available
-models, and keeps a scrolling conversation alive for the process lifetime —
-every turn's `history` is sent as context on the next turn. Phase 1's
+**Current phase — Phase 3 (tool calling):** the Ink REPL's agent loop
+(`src/agent/turn.ts`) can call a single hardcoded tool, `read_file`, over
+up to 10 rounds of conversation with Devin per turn (a round can call the
+tool more than once), feeding each result back until it produces a final
+text-only answer. Every request declares a fixed system prompt naming the
+agent "Railgun" — required because Devin's Claude-family models reject a
+request that declares tools with an empty system prompt. Phase 1's
 one-shot behavior is preserved behind an explicit `--print`/`-p` flag for
-CI/scripting use. No tools, no persistence across restarts, no GUI beyond
-the terminal.
+CI/scripting use and never calls tools. No tool registry yet (Phase 4),
+no persistence across restarts, no GUI beyond the terminal.
 
 ## Users
 
@@ -69,7 +72,9 @@ the terminal.
   references information from the first turn, proving conversation memory;
   `/exit` and a per-turn Devin error both leave the process in a clean
   state; the `--print`/`-p` path reproduces Phase 1's one-shot contract
-  byte-for-byte).
+  byte-for-byte; Phase 3: asking about a file's contents (e.g. "What does
+  notes.txt say?") triggers a real read_file call whose result is used in
+  the answer, without the user pasting the file content themselves).
 
 ## Open Questions
 
