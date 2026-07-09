@@ -90,13 +90,9 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 - Multi-step planning appears in a dedicated todo panel above the input,
   not as normal tool-completion scrollback. The panel is hidden while empty,
   shows `Crafting todos` with a spinner while an empty todo update is in
-  flight, then renders `Todos · done/total` plus nested rows with status
-  markers. Parent progress is derived from children. The panel is
-  process-local state: it survives turns in the same REPL but is not
-  persisted across restart. If the assistant emits an explicit markdown
-  checkbox list instead of calling `todo`, those checkbox rows are promoted
-  into the panel and removed from the transcript; ordinary bullet and
-  numbered lists remain ordinary transcript text.
+  flight, then renders `Todos · completed/total` plus flat rows with status
+  glyphs (`[ ]`/`[>]`/`[x]`/`[-]`). The panel is process-local state: it
+  survives turns in the same REPL but is not persisted across restart.
 
 ## Visual System
 

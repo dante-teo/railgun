@@ -21,18 +21,22 @@ and operates on a caller-owned in-memory store: the REPL keeps one store
 for the process lifetime, while each `--print`/`-p` invocation gets a
 fresh store. There is intentionally no persistence or history hydration
 yet. `src/tools/todo.ts` owns the reducer/store boundary and hardening:
-nested todos, globally unique ids, a 256-node cap, 4000-character content
-cap with truncation marker, invalid-status normalization to `pending`,
-blank-content rejection, deterministic duplicate-id collapse, derived
-parent progress, and active-work formatting for prompt injection.
+flat ordered todos, globally unique ids, a 256-item cap, 4000-character
+content cap with truncation marker, invalid-status normalization to
+`pending`, malformed-item coercion (blank content → `"(no description)"`,
+blank id → `"?"`, non-object → placeholder), last-occurrence-wins
+duplicate-id collapse, partial-field merge-by-id (status-only or
+content-only patches preserve untouched fields), and active-work
+formatting for prompt injection. The tool handler validates input before
+reaching the store: JSON strings are parsed, non-list values are rejected
+with an error, and `null` todos are treated as a read.
 `src/repl/App.tsx` renders nonempty todo state in a persistent panel above
 the input, shows a `Crafting todos` spinner while an empty todo update is
-in flight, suppresses normal transcript tool-completion lines for `todo`,
-and keeps one store in a React ref. `--print` mode keeps todo activity
-silent so stdout remains the final answer. `src/repl/markdownTodos.ts`
-provides a narrow fallback for explicit markdown checkbox lists when the
-model ignores the tool; ordinary bullet and numbered lists remain visible
-as normal transcript text.
+in flight, suppresses normal transcript tool-completion lines for
+successful `todo` calls (errors still surface as red `✗` lines), and
+keeps one store in a React ref. `--print` mode emits only the final
+answer on stdout (stderr still shows the generic tool spinner for all
+tools including `todo`).
 
 Phase 10 project-level context loading remains in place: project context
 files and `~/.railgun/SOUL.md` are loaded once during session bootstrap,
@@ -151,17 +155,17 @@ to both the REPL and one-shot paths.
   a restart, `/clear` visibly clears the terminal without disturbing
   `<Static>` scrollback, and typing `/` shows a suggestions dropdown that
   Tab cycles through and Escape dismisses; Phase 11:
-  `src/tools/todo.test.ts` proves todo normalization, nested replace
-  writes, global-id merge, duplicate collapse, bad-status normalization,
-  blank-content rejection, truncation, 256-node cap, derived parent
-  progress, and active-work injection formatting;
-  `src/tools/todo.integration.test.ts` proves the planning schema is
-  exposed and caller-owned stores do not leak; `src/agent/turn.test.ts`
-  proves `todo` is available to Devin and updates the injected store;
-  `src/repl/App.test.tsx` and `src/repl/markdownTodos.test.ts` cover the
-  panel's empty/loading/nonempty behavior, transcript suppression for
-  todo completions, checkbox-list fallback, and the regression guard that
-  ordinary bullet/numbered markdown lists are not converted into todos).
+  `src/tools/todo.test.ts` proves todo normalization, flat replace
+  writes, global-id merge with partial-field updates (status-only and
+  content-only patches), last-occurrence-wins duplicate-id collapse,
+  malformed-item coercion, bad-status normalization, truncation,
+  256-item cap, four-way summary breakdown, and active-work injection
+  formatting; `src/tools/todo.integration.test.ts` proves the planning
+  schema is exposed and caller-owned stores do not leak;
+  `src/agent/turn.test.ts` proves `todo` is available to Devin and
+  updates the injected store; `src/repl/App.test.tsx` covers the
+  panel's empty/loading/nonempty behavior, status glyph rendering,
+  and transcript suppression for todo completions).
 
 ## Open Questions
 

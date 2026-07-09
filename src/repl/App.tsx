@@ -7,7 +7,7 @@ import { runTurn } from "../agent/turn.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
 import { buildToolLabel } from "../tools/toolLabel.js";
-import { createTodoStore, deriveTodoProgress, summarizeTodos } from "../tools/todo.js";
+import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import type { DevinSession } from "../session.js";
 import { BUILTIN_SKINS, DEFAULT_SKIN, resolveSkin } from "../skins.js";
@@ -16,7 +16,6 @@ import { loadConfig, saveConfig } from "../config.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { printBanner } from "./Banner.js";
 import { Suggestions } from "./Suggestions.js";
-import { extractMarkdownTodos, stripMarkdownTodoLines } from "./markdownTodos.js";
 
 interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
@@ -24,31 +23,8 @@ interface DisplayLine {
   failed?: boolean;
 }
 
-const statusMarker = (status: NormalizedTodoItem["status"]): string => {
-  if (status === "completed") return "✓";
-  if (status === "in_progress") return "●";
-  if (status === "cancelled") return "×";
-  return "○";
-};
-
-const TodoRow = ({ todo, depth = 0 }: { todo: NormalizedTodoItem; depth?: number }): React.ReactElement => {
-  const children = todo.children ?? [];
-  const progress = deriveTodoProgress(todo);
-  const label = children.length > 0 ? `${todo.content} ${progress.done}/${progress.total}` : todo.content;
-  return (
-    <Box flexDirection="column">
-      <Box marginLeft={depth * 2}>
-        <Text color={todo.status === "completed" ? "green" : todo.status === "in_progress" ? "cyan" : "gray"}>
-          {statusMarker(todo.status)}{" "}
-        </Text>
-        <Text>{label}</Text>
-      </Box>
-      {children.map(child => (
-        <TodoRow key={child.id} todo={child} depth={depth + 1} />
-      ))}
-    </Box>
-  );
-};
+const todoGlyph = (status: NormalizedTodoItem["status"]): string =>
+  status === "completed" ? "[x]" : status === "cancelled" ? "[-]" : status === "in_progress" ? "[>]" : "[ ]";
 
 export const TodoPanel = ({ todos, isLoading }: { todos: TodoState; isLoading: boolean }): React.ReactElement | null => {
   if (todos.length === 0 && !isLoading) return null;
@@ -64,13 +40,19 @@ export const TodoPanel = ({ todos, isLoading }: { todos: TodoState; isLoading: b
         </Text>
       )}
       {todos.map(todo => (
-        <TodoRow key={todo.id} todo={todo} />
+        <Box key={todo.id}>
+          <Text color={todo.status === "completed" ? "green" : todo.status === "in_progress" ? "cyan" : "gray"}>
+            {todoGlyph(todo.status)}{" "}
+          </Text>
+          <Text>{todo.content}</Text>
+        </Box>
       ))}
     </Box>
   );
 };
 
 export const shouldAppendToolTranscriptLine = (name: string): boolean => name !== "todo";
+export const shouldShowToolLine = (name: string, isError: boolean): boolean => shouldAppendToolTranscriptLine(name) || isError;
 
 const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin: SkinConfig }): React.ReactElement => {
   const { exit } = useApp();
@@ -146,9 +128,10 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
     if (!shouldAppendToolTranscriptLine(name)) {
       setTodoLoading(false);
       setTodos(todoStoreRef.current.read());
-      return;
     }
-    setLines(prev => [...prev, { kind: "tool", text: buildToolLabel(name, args, "complete"), failed: isError }]);
+    if (shouldShowToolLine(name, isError)) {
+      setLines(prev => [...prev, { kind: "tool", text: buildToolLabel(name, args, "complete"), failed: isError }]);
+    }
   }, []);
 
   const handleSubmit = useCallback(
@@ -218,13 +201,8 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
 
       if (outcome.ok) {
         setHistory(outcome.messages);
-        const fallbackTodos = extractMarkdownTodos(outcome.assistantText);
-        const nextTodos = todoStoreRef.current.read().length === 0 && fallbackTodos.length > 0
-          ? todoStoreRef.current.write({ todos: fallbackTodos }).todos
-          : todoStoreRef.current.read();
-        const displayText = fallbackTodos.length > 0 ? stripMarkdownTodoLines(outcome.assistantText) : outcome.assistantText;
-        setTodos(nextTodos);
-        if (displayText !== "") setLines(prev => [...prev, { kind: "assistant", text: displayText }]);
+        setTodos(todoStoreRef.current.read());
+        if (outcome.assistantText !== "") setLines(prev => [...prev, { kind: "assistant", text: outcome.assistantText }]);
       } else {
         const message = describeDevinError(outcome.error) ?? String(outcome.error);
         setLines(prev => [...prev, { kind: "error", text: message }]);

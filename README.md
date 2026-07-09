@@ -4,7 +4,7 @@ A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousR
 core agent loop, built incrementally, phase by phase (see
 [`docs/PRODUCT.md`](docs/PRODUCT.md)). The REPL's agent can read and write
 files, list directories, run shell commands (the last gated behind an
-interactive y/n approval prompt), and maintain an in-memory nested todo
+interactive y/n approval prompt), and maintain an in-memory flat todo
 plan before answering, looping the conversation with Devin until it has a
 final text answer. The loop is hardened with
 parallel-safe tool batching, corrupted tool-call JSON self-healing,
@@ -66,16 +66,13 @@ pnpm start
   one round) collapses to a single `Running N tools concurrently` line
   and one `✓ N/N tools completed` line, not one pair per call.
 - Ask for a multi-step plan and the model can call the `todo` planning
-  tool. The REPL renders the current nested todo tree in a persistent
-  panel above the input, with a `Todos · done/total` header and per-item
-  status markers. While a todo update is in flight, an empty panel shows
-  a `Crafting todos` spinner. Todo activity is intentionally not echoed
-  as normal `✓ todo ...` transcript lines. Todo state is in-memory only
-  for the current REPL process; it is not saved or restored across
-  restarts. If the model emits an explicit markdown checkbox list
-  (`- [ ] ...`, `- [x] ...`) instead of calling the tool, the REPL converts
-  those checkbox items into the panel; ordinary bullet and numbered
-  markdown lists remain visible in the transcript.
+  tool. The REPL renders the current flat todo list in a persistent
+  panel above the input, with a `Todos · completed/total` header and per-item
+  status glyphs (`[ ]`/`[>]`/`[x]`/`[-]`). While a todo update is in
+  flight, an empty panel shows a `Crafting todos` spinner. Todo activity
+  is intentionally not echoed as normal `✓ todo ...` transcript lines.
+  Todo state is in-memory only for the current REPL process; it is not
+  saved or restored across restarts.
 - Ask it to run a shell command (e.g. `"run echo hello in the shell"`) and
   the REPL freezes the text input and prints
   `Run shell command: <command> [y/n]`; press `y` to run it and feed the
@@ -128,9 +125,9 @@ Each `--print`/`-p` invocation gets its own fresh 90-step iteration budget.
 If it is exhausted, the limit message is printed as the successful answer
 text and the process exits normally.
 
-Todo planning in `--print`/`-p` is silent: there is no persistent panel and
-todo updates do not print progress lines, so scripted stdout stays focused
-on the final answer text.
+Todo planning in `--print`/`-p` operates silently on stdout: there is no
+persistent panel and todo results do not appear in the final answer text.
+The generic stderr tool spinner still fires for all tools including `todo`.
 
 If the model calls `run_shell_command`, `--print`/`-p` prompts on stderr
 with `Run shell command: <command>` and blocks reading a line from stdin —
@@ -164,7 +161,7 @@ matching), each tool's own handler logic in `src/tools/`,
 `src/commands.ts` (slash-command prefix matching and parsing), and
 `src/config.ts` (skin config load/save, including missing-file,
 malformed-JSON, and unknown-skin fallback behavior), plus pure REPL helpers
-such as the todo panel props and markdown-checkbox todo fallback.
+such as the todo panel props and status glyph rendering.
 
 ## Compliance
 

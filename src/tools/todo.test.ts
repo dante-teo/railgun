@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createTodoStore,
-  deriveTodoProgress,
   normalizeTodoState,
+  summarizeTodos,
   TODO_CONTENT_LIMIT,
   TODO_NODE_LIMIT,
   TODO_TRUNCATION_MARKER,
@@ -15,46 +15,88 @@ describe("todo state", () => {
     expect(store.read()).toEqual([]);
   });
 
-  it("replace-writes nested todos", () => {
+  it("replace-writes flat todos", () => {
     const store = createTodoStore();
 
     const result = store.write({
-      todos: [{ id: "parent", content: "Parent", children: [{ id: "child", content: "Child", status: "completed" }] }]
+      todos: [{ id: "a", content: "A" }],
     });
 
-    expect(result.todos).toEqual([
-      { id: "parent", content: "Parent", status: "pending", children: [{ id: "child", content: "Child", status: "completed" }] }
-    ]);
+    expect(result.todos).toEqual([{ id: "a", content: "A", status: "pending" }]);
     expect(store.read()).toEqual(result.todos);
   });
 
   it("merge-updates any node by global id", () => {
     const store = createTodoStore([
-      { id: "parent", content: "Parent", status: "pending", children: [{ id: "child", content: "Child", status: "pending" }] }
+      { id: "a", content: "Alpha", status: "pending" },
+      { id: "b", content: "Beta", status: "in_progress" },
     ]);
 
-    const result = store.write({ merge: true, todos: [{ id: "child", content: "Child done", status: "completed" }] });
+    const result = store.write({
+      merge: true,
+      todos: [{ id: "b", content: "Beta done", status: "completed" }],
+    });
 
     expect(result.todos).toEqual([
-      {
-        id: "parent",
-        content: "Parent",
-        status: "pending",
-        children: [{ id: "child", content: "Child done", status: "completed" }]
-      }
+      { id: "a", content: "Alpha", status: "pending" },
+      { id: "b", content: "Beta done", status: "completed" },
     ]);
   });
 
-  it("collapses duplicate ids deterministically", () => {
+  it("merge-update status only (regression: merge-drop bug)", () => {
+    const store = createTodoStore([
+      { id: "a", content: "Original", status: "pending" },
+    ]);
+
+    const result = store.write({
+      merge: true,
+      todos: [{ id: "a", status: "completed" }],
+    });
+
+    expect(result.todos).toEqual([
+      { id: "a", content: "Original", status: "completed" },
+    ]);
+  });
+
+  it("merge-update content only", () => {
+    const store = createTodoStore([
+      { id: "a", content: "Original", status: "in_progress" },
+    ]);
+
+    const result = store.write({
+      merge: true,
+      todos: [{ id: "a", content: "Revised" }],
+    });
+
+    expect(result.todos).toEqual([
+      { id: "a", content: "Revised", status: "in_progress" },
+    ]);
+  });
+
+  it("merge appends new items after existing ones", () => {
+    const store = createTodoStore([
+      { id: "a", content: "Alpha", status: "pending" },
+    ]);
+
+    const result = store.write({
+      merge: true,
+      todos: [{ id: "b", content: "Beta" }],
+    });
+
+    expect(result.todos).toEqual([
+      { id: "a", content: "Alpha", status: "pending" },
+      { id: "b", content: "Beta", status: "pending" },
+    ]);
+  });
+
+  it("collapses duplicate ids keeping last occurrence", () => {
     const normalized = normalizeTodoState([
       { id: "same", content: "first" },
       { id: "same", content: "second" },
-      { id: "parent", content: "parent", children: [{ id: "same", content: "nested" }] }
     ]);
 
     expect(normalized).toEqual([
-      { id: "same", content: "first", status: "pending" },
-      { id: "parent", content: "parent", status: "pending" }
+      { id: "same", content: "second", status: "pending" },
     ]);
   });
 
@@ -64,49 +106,98 @@ describe("todo state", () => {
     expect(normalized).toEqual([{ id: "x", content: "X", status: "pending" }]);
   });
 
-  it("drops items with blank content so the UI never renders empty todo rows", () => {
+  it("coerces items with blank content to placeholder", () => {
     const normalized = normalizeTodoState([
       { id: "blank", content: "   " },
       { id: "missing-content" },
-      { id: "ok", content: "Keep me" }
+      { id: "ok", content: "Keep me" },
     ]);
 
-    expect(normalized).toEqual([{ id: "ok", content: "Keep me", status: "pending" }]);
+    expect(normalized).toEqual([
+      { id: "blank", content: "(no description)", status: "pending" },
+      { id: "missing-content", content: "(no description)", status: "pending" },
+      { id: "ok", content: "Keep me", status: "pending" },
+    ]);
   });
 
-  it("truncates oversized content", () => {
+  it("coerces blank/missing id to '?'", () => {
+    const normalized = normalizeTodoState([
+      { id: "", content: "no id" },
+      { id: "   ", content: "whitespace id" },
+    ]);
+
+    // Both get id "?", last-occurrence-wins via dedupe
+    expect(normalized).toEqual([
+      { id: "?", content: "whitespace id", status: "pending" },
+    ]);
+  });
+
+  it("coerces non-object items to invalid-item placeholders", () => {
+    const normalized = normalizeTodoState([
+      42,
+      "hello",
+      { id: "ok", content: "Valid" },
+    ]);
+
+    expect(normalized).toEqual([
+      { id: "?", content: "(invalid item)", status: "pending" },
+      { id: "?", content: "(invalid item)", status: "pending" },
+      { id: "ok", content: "Valid", status: "pending" },
+    ]);
+  });
+
+  it("truncates oversized content to exactly TODO_CONTENT_LIMIT chars", () => {
     const oversized = "a".repeat(TODO_CONTENT_LIMIT + 10);
     const [item] = normalizeTodoState([{ id: "x", content: oversized }]);
 
-    expect(item?.content).toHaveLength(TODO_CONTENT_LIMIT + TODO_TRUNCATION_MARKER.length);
+    expect(item?.content).toHaveLength(TODO_CONTENT_LIMIT);
     expect(item?.content.endsWith(TODO_TRUNCATION_MARKER)).toBe(true);
+    expect(item?.content.slice(0, -TODO_TRUNCATION_MARKER.length)).toHaveLength(TODO_CONTENT_LIMIT - TODO_TRUNCATION_MARKER.length);
   });
 
   it("keeps only the first 256 nodes", () => {
     const normalized = normalizeTodoState(
-      Array.from({ length: TODO_NODE_LIMIT + 10 }, (_, i) => ({ id: `id-${i}`, content: `Item ${i}` }))
+      Array.from({ length: TODO_NODE_LIMIT + 10 }, (_, i) => ({ id: `id-${i}`, content: `Item ${i}` })),
     );
 
     expect(normalized).toHaveLength(TODO_NODE_LIMIT);
     expect(normalized.at(-1)?.id).toBe("id-255");
   });
 
-  it("derives parent progress from children and ignores explicit parent completion", () => {
-    const [parent] = normalizeTodoState([
-      {
-        id: "parent",
-        content: "Parent",
-        status: "completed",
-        children: [
-          { id: "a", content: "A", status: "completed" },
-          { id: "b", content: "B", status: "pending" }
-        ]
-      }
+  it("normalizes uppercase status to lowercase", () => {
+    const normalized = normalizeTodoState([
+      { id: "a", content: "A", status: "COMPLETED" },
+      { id: "b", content: "B", status: "In_Progress" },
     ]);
 
-    expect(parent).toBeDefined();
-    if (!parent) throw new Error("expected parent");
-    expect(deriveTodoProgress(parent)).toEqual({ done: 1, total: 2 });
+    expect(normalized).toEqual([
+      { id: "a", content: "A", status: "completed" },
+      { id: "b", content: "B", status: "in_progress" },
+    ]);
+  });
+
+  it("does not truncate long ids", () => {
+    const longId = "x".repeat(TODO_CONTENT_LIMIT + 100);
+    const [item] = normalizeTodoState([{ id: longId, content: "test" }]);
+
+    expect(item?.id).toBe(longId);
+  });
+
+  it("summarizeTodos returns four-way breakdown", () => {
+    const todos = normalizeTodoState([
+      { id: "a", content: "A", status: "pending" },
+      { id: "b", content: "B", status: "in_progress" },
+      { id: "c", content: "C", status: "completed" },
+      { id: "d", content: "D", status: "cancelled" },
+    ]);
+
+    expect(summarizeTodos(todos)).toEqual({
+      total: 4,
+      pending: 1,
+      in_progress: 1,
+      completed: 1,
+      cancelled: 1,
+    });
   });
 
   it("formatForInjection includes only active pending/in-progress work", () => {
@@ -115,18 +206,21 @@ describe("todo state", () => {
       { id: "active", content: "Active", status: "in_progress" },
       { id: "done", content: "Done", status: "completed" },
       { id: "cancelled", content: "Cancelled", status: "cancelled" },
-      {
-        id: "parent",
-        content: "Parent",
-        status: "completed",
-        children: [{ id: "child", content: "Child", status: "pending" }]
-      }
     ]);
 
-    expect(store.formatForInjection()).toContain("pending");
-    expect(store.formatForInjection()).toContain("active");
-    expect(store.formatForInjection()).toContain("child");
-    expect(store.formatForInjection()).not.toContain("done");
-    expect(store.formatForInjection()).not.toContain("cancelled");
+    const injection = store.formatForInjection();
+    expect(injection).toContain("[Your active task list was preserved across context compression]");
+    expect(injection).toContain("- [ ] pending. Pending (pending)");
+    expect(injection).toContain("- [>] active. Active (in_progress)");
+    expect(injection).not.toContain("done");
+    expect(injection).not.toContain("cancelled");
+  });
+
+  it("formatForInjection returns empty string when no active items", () => {
+    const store = createTodoStore([
+      { id: "done", content: "Done", status: "completed" },
+    ]);
+
+    expect(store.formatForInjection()).toBe("");
   });
 });

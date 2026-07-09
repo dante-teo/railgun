@@ -23,7 +23,7 @@ describe("todo tool registry integration", () => {
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({
       todos: [{ id: "a", content: "A", status: "pending" }],
-      summary: { total: 1, completed: 0, active: 1 }
+      summary: { total: 1, pending: 1, in_progress: 0, completed: 0, cancelled: 0 }
     });
     expect(store.read()).toEqual([{ id: "a", content: "A", status: "pending" }]);
   });
@@ -36,5 +36,41 @@ describe("todo tool registry integration", () => {
 
     expect(first.read()).toHaveLength(1);
     expect(second.read()).toEqual([]);
+  });
+
+  it("rejects non-list todos with an error instead of wiping the store", async () => {
+    const store = createTodoStore([{ id: "a", content: "A" }]);
+    const result = await registry.run("todo", { todos: {} }, noopContext(store));
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("todos must be a list");
+    expect(store.read()).toHaveLength(1);
+  });
+
+  it("rejects an unparseable string todos with an error", async () => {
+    const store = createTodoStore([{ id: "a", content: "A" }]);
+    const result = await registry.run("todo", { todos: "not json" }, noopContext(store));
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("unparseable string");
+    expect(store.read()).toHaveLength(1);
+  });
+
+  it("parses a JSON string todos into a list", async () => {
+    const store = createTodoStore();
+    const jsonString = JSON.stringify([{ id: "a", content: "A", status: "pending" }]);
+    const result = await registry.run("todo", { todos: jsonString }, noopContext(store));
+
+    expect(result.isError).toBe(false);
+    expect(store.read()).toEqual([{ id: "a", content: "A", status: "pending" }]);
+  });
+
+  it("treats null todos as a read instead of erroring", async () => {
+    const store = createTodoStore([{ id: "a", content: "A" }]);
+    const result = await registry.run("todo", { todos: null }, noopContext(store));
+
+    expect(result.isError).toBe(false);
+    expect(store.read()).toHaveLength(1);
+    expect(JSON.parse(result.content).todos).toEqual([{ id: "a", content: "A", status: "pending" }]);
   });
 });

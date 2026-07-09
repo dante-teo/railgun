@@ -3,7 +3,7 @@ import type { ToolContext, ToolRunResult } from "./registry.js";
 
 export const TODO_NODE_LIMIT = 256;
 export const TODO_CONTENT_LIMIT = 4000;
-export const TODO_TRUNCATION_MARKER = "\n[truncated]";
+export const TODO_TRUNCATION_MARKER = "… [truncated]";
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
@@ -11,14 +11,12 @@ export interface TodoItem {
   id: string;
   content: string;
   status?: TodoStatus;
-  children?: readonly TodoItem[];
 }
 
 export type NormalizedTodoItem = Readonly<{
   id: string;
   content: string;
   status: TodoStatus;
-  children?: readonly NormalizedTodoItem[];
 }>;
 
 export type TodoState = readonly NormalizedTodoItem[];
@@ -26,6 +24,14 @@ export type TodoState = readonly NormalizedTodoItem[];
 export interface TodoWriteInput {
   todos?: unknown;
   merge?: unknown;
+}
+
+export interface TodoSummary {
+  total: number;
+  pending: number;
+  in_progress: number;
+  completed: number;
+  cancelled: number;
 }
 
 export interface TodoWriteResult {
@@ -39,143 +45,141 @@ export interface TodoStore {
   formatForInjection(): string;
 }
 
-export interface TodoProgress {
-  done: number;
-  total: number;
-}
-
-export interface TodoSummary {
-  total: number;
-  completed: number;
-  active: number;
-}
-
 const VALID_STATUSES = new Set<TodoStatus>(["pending", "in_progress", "completed", "cancelled"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const normalizeStatus = (value: unknown): TodoStatus =>
-  typeof value === "string" && VALID_STATUSES.has(value as TodoStatus) ? (value as TodoStatus) : "pending";
-
-const normalizeText = (value: unknown): string => {
-  const text = typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
-  return text.length > TODO_CONTENT_LIMIT ? `${text.slice(0, TODO_CONTENT_LIMIT)}${TODO_TRUNCATION_MARKER}` : text;
+const normalizeStatus = (value: unknown): TodoStatus => {
+  if (typeof value !== "string") return "pending";
+  const lower = value.trim().toLowerCase();
+  return VALID_STATUSES.has(lower as TodoStatus) ? (lower as TodoStatus) : "pending";
 };
 
-const normalizeId = (value: unknown): string | null => {
-  const text = normalizeText(value).trim();
-  return text === "" ? null : text;
+// Hermes todo_tool.py:153-156: total length ≤ TODO_CONTENT_LIMIT
+const capContent = (content: string): string => {
+  if (content.length <= TODO_CONTENT_LIMIT) return content;
+  const keep = TODO_CONTENT_LIMIT - TODO_TRUNCATION_MARKER.length;
+  return content.slice(0, keep) + TODO_TRUNCATION_MARKER;
 };
 
-interface NormalizeAccumulator {
-  seenIds: ReadonlySet<string>;
-  count: number;
-}
+// --- Hermes-aligned _validate (todo_tool.py:158-183) ---
+// Coerces malformed items into valid ones instead of dropping them.
+const validateItem = (item: unknown): NormalizedTodoItem => {
+  if (!isRecord(item)) return { id: "?", content: "(invalid item)", status: "pending" };
 
-const appendSeen = (seenIds: ReadonlySet<string>, id: string): ReadonlySet<string> => new Set([...seenIds, id]);
+  const rawId = typeof item.id === "string" ? item.id.trim() : item.id === undefined || item.id === null ? "" : String(item.id).trim();
+  const id = rawId === "" ? "?" : rawId;
 
-const normalizeNode = (
-  value: unknown,
-  accumulator: NormalizeAccumulator
-): readonly [NormalizedTodoItem | null, NormalizeAccumulator] => {
-  if (!isRecord(value) || accumulator.count >= TODO_NODE_LIMIT) return [null, accumulator];
+  const rawContent = typeof item.content === "string" ? item.content.trim() : item.content === undefined || item.content === null ? "" : String(item.content).trim();
+  const content = rawContent === "" ? "(no description)" : capContent(rawContent);
 
-  const id = normalizeId(value.id);
-  if (id === null || accumulator.seenIds.has(id)) return [null, accumulator];
-
-  const content = normalizeText(value.content);
-  if (content.trim() === "") return [null, accumulator];
-
-  const status = normalizeStatus(value.status);
-  const nextAccumulator = { seenIds: appendSeen(accumulator.seenIds, id), count: accumulator.count + 1 };
-  const rawChildren = Array.isArray(value.children) ? value.children : [];
-  const [children, finalAccumulator] = rawChildren.reduce<readonly [readonly NormalizedTodoItem[], NormalizeAccumulator]>(
-    ([items, acc], child) => {
-      const [normalized, next] = normalizeNode(child, acc);
-      return normalized === null ? [items, next] : [[...items, normalized], next];
-    },
-    [[], nextAccumulator]
-  );
-
-  return [
-    children.length > 0 ? { id, content, status, children } : { id, content, status },
-    finalAccumulator
-  ];
+  return { id, content, status: normalizeStatus(item.status) };
 };
 
+// --- Hermes-aligned _dedupe_by_id (todo_tool.py:186-196) ---
+// Runs BEFORE validation on raw items. Non-dict items get synthetic keys
+// so they survive dedupe independently (two non-dicts both survive; a
+// non-dict and a blank-id dict both survive).
+const dedupeById = (todos: readonly unknown[]): readonly unknown[] => {
+  const lastIndex = new Map<string, number>();
+  for (let i = 0; i < todos.length; i++) {
+    const item = todos[i];
+    if (!isRecord(item)) {
+      lastIndex.set(`__invalid_${i}`, i);
+      continue;
+    }
+    const rawId = typeof item.id === "string" ? item.id.trim() : item.id === undefined || item.id === null ? "" : String(item.id).trim();
+    const key = rawId === "" ? "?" : rawId;
+    lastIndex.set(key, i);
+  }
+  return [...lastIndex.values()].sort((a, b) => a - b).map(i => todos[i]);
+};
+
+// Replace mode: dedupe raw → validate each → cap at limit.
 export const normalizeTodoState = (value: unknown): TodoState => {
   const rawItems = Array.isArray(value) ? value : [];
-  const [items] = rawItems.reduce<readonly [readonly NormalizedTodoItem[], NormalizeAccumulator]>(
-    ([normalizedItems, accumulator], item) => {
-      const [normalized, next] = normalizeNode(item, accumulator);
-      return normalized === null ? [normalizedItems, next] : [[...normalizedItems, normalized], next];
-    },
-    [[], { seenIds: new Set<string>(), count: 0 }]
-  );
-  return items;
+  return dedupeById(rawItems).map(validateItem).slice(0, TODO_NODE_LIMIT);
 };
 
-const flattenTodos = (todos: TodoState): readonly NormalizedTodoItem[] =>
-  todos.flatMap(todo => [todo, ...flattenTodos(todo.children ?? [])]);
+export const summarizeTodos = (todos: TodoState): TodoSummary => ({
+  total: todos.length,
+  pending: todos.filter(t => t.status === "pending").length,
+  in_progress: todos.filter(t => t.status === "in_progress").length,
+  completed: todos.filter(t => t.status === "completed").length,
+  cancelled: todos.filter(t => t.status === "cancelled").length,
+});
 
-export const summarizeTodos = (todos: TodoState): TodoSummary => {
-  const flattened = flattenTodos(todos);
-  return {
-    total: flattened.length,
-    completed: flattened.filter(todo => todo.status === "completed").length,
-    active: flattened.filter(todo => todo.status === "pending" || todo.status === "in_progress").length
-  };
+// --- Hermes-aligned merge (todo_tool.py:66-101) ---
+// Update existing items by id (partial fields), append new ones.
+const mergeTodos = (current: TodoState, incoming: readonly unknown[]): TodoState => {
+  const deduped = dedupeById(incoming);
+  const existing = new Map(current.map(item => [item.id, { ...item }]));
+  const appendOrder: NormalizedTodoItem[] = [];
+
+  for (const raw of deduped) {
+    if (!isRecord(raw)) continue; // Can't merge a non-dict — no id to match on
+
+    const rawId = typeof raw.id === "string" ? raw.id.trim() : raw.id === undefined || raw.id === null ? "" : String(raw.id).trim();
+    if (rawId === "") continue; // Can't merge without an id (Hermes: line 71-72)
+
+    if (existing.has(rawId)) {
+      // Update only the fields the LLM actually provided (Hermes: lines 75-81)
+      const entry = existing.get(rawId)!;
+      if ("content" in raw && raw.content) {
+        const c = typeof raw.content === "string" ? raw.content.trim() : String(raw.content).trim();
+        if (c !== "") entry.content = capContent(c);
+      }
+      if ("status" in raw && raw.status) {
+        const s = typeof raw.status === "string" ? raw.status.trim().toLowerCase() : String(raw.status).trim().toLowerCase();
+        if (VALID_STATUSES.has(s as TodoStatus)) entry.status = s as TodoStatus;
+      }
+    } else {
+      // New item — validate fully and append (Hermes: lines 83-86)
+      const validated = validateItem(raw);
+      existing.set(validated.id, validated);
+      appendOrder.push(validated);
+    }
+  }
+
+  // Rebuild preserving order for existing items, then appended new ones (Hermes: lines 88-95)
+  const seen = new Set<string>();
+  const rebuilt: NormalizedTodoItem[] = [];
+  for (const item of current) {
+    const entry = existing.get(item.id) ?? item;
+    if (!seen.has(entry.id)) {
+      rebuilt.push({ id: entry.id, content: entry.content, status: entry.status });
+      seen.add(entry.id);
+    }
+  }
+  for (const item of appendOrder) {
+    if (!seen.has(item.id)) {
+      rebuilt.push(item);
+      seen.add(item.id);
+    }
+  }
+
+  return rebuilt.slice(0, TODO_NODE_LIMIT);
 };
 
-export const deriveTodoProgress = (todo: NormalizedTodoItem): TodoProgress => {
-  const children = todo.children ?? [];
-  if (children.length === 0) return { done: todo.status === "completed" ? 1 : 0, total: 1 };
-  const progresses = children.map(deriveTodoProgress);
-  return {
-    done: progresses.reduce((sum, progress) => sum + progress.done, 0),
-    total: progresses.reduce((sum, progress) => sum + progress.total, 0)
-  };
-};
-
-const mergeNode = (node: NormalizedTodoItem, updates: ReadonlyMap<string, NormalizedTodoItem>): NormalizedTodoItem => {
-  const updated = updates.get(node.id);
-  const base = updated ? { ...node, content: updated.content, status: updated.status } : node;
-  const children = (base.children ?? node.children ?? []).map(child => mergeNode(child, updates));
-  return children.length > 0 ? { ...base, children } : { id: base.id, content: base.content, status: base.status };
-};
-
-const existingIds = (todos: TodoState): ReadonlySet<string> => new Set(flattenTodos(todos).map(todo => todo.id));
-
-const mergeTodos = (current: TodoState, incoming: TodoState): TodoState => {
-  const incomingFlat = flattenTodos(incoming);
-  const updates = new Map(incomingFlat.map(todo => [todo.id, todo]));
-  const mergedCurrent = current.map(todo => mergeNode(todo, updates));
-  const ids = existingIds(current);
-  const additions = incoming.filter(todo => !ids.has(todo.id));
-  return normalizeTodoState([...mergedCurrent, ...additions]);
-};
-
-const activeTodo = (todo: NormalizedTodoItem): NormalizedTodoItem | null => {
-  const children = (todo.children ?? []).map(activeTodo).filter((child): child is NormalizedTodoItem => child !== null);
-  if (children.length > 0) return { ...todo, children };
-  return todo.status === "pending" || todo.status === "in_progress" ? { id: todo.id, content: todo.content, status: todo.status } : null;
-};
-
-const activeTodos = (todos: TodoState): TodoState =>
-  todos.map(activeTodo).filter((todo): todo is NormalizedTodoItem => todo !== null);
-
-const formatTodoLine = (todo: NormalizedTodoItem, depth: number): readonly string[] => {
-  const indent = "  ".repeat(depth);
-  const children = todo.children ?? [];
-  const marker = todo.status === "in_progress" ? "[~]" : "[ ]";
-  const ownLine = `${indent}${marker} (${todo.id}) ${todo.content}`;
-  return [ownLine, ...children.flatMap(child => formatTodoLine(child, depth + 1))];
+// --- Hermes-aligned format_for_injection (todo_tool.py:111-143) ---
+// Wire-format glyphs from todo_tool.py:122-127 (cancelled = "[~]")
+const INJECTION_MARKERS: Record<TodoStatus, string> = {
+  completed: "[x]",
+  in_progress: "[>]",
+  pending: "[ ]",
+  cancelled: "[~]",
 };
 
 const formatForInjection = (todos: TodoState): string => {
-  const active = activeTodos(todos);
-  return active.length === 0 ? "" : ["Current active todos:", ...active.flatMap(todo => formatTodoLine(todo, 0))].join("\n");
+  const active = todos.filter(t => t.status === "pending" || t.status === "in_progress");
+  if (active.length === 0) return "";
+  const lines = ["[Your active task list was preserved across context compression]"];
+  for (const item of active) {
+    const marker = INJECTION_MARKERS[item.status] ?? "[?]";
+    lines.push(`- ${marker} ${item.id}. ${item.content} (${item.status})`);
+  }
+  return lines.join("\n");
 };
 
 export const createTodoStore = (initialState: unknown = []): TodoStore => {
@@ -183,22 +187,30 @@ export const createTodoStore = (initialState: unknown = []): TodoStore => {
   return {
     read: () => state,
     write: input => {
-      const incoming = normalizeTodoState(input.todos);
-      state = input.merge === true ? mergeTodos(state, incoming) : incoming;
+      const raw = Array.isArray(input.todos) ? input.todos : [];
+      state = input.merge === true ? mergeTodos(state, raw) : normalizeTodoState(input.todos);
       return { todos: state, summary: summarizeTodos(state) };
     },
-    formatForInjection: () => formatForInjection(state)
+    formatForInjection: () => formatForInjection(state),
   };
 };
 
 const todoTool = async (args: unknown, context: ToolContext): Promise<ToolRunResult> => {
   const store = context.todoStore;
   if (!store) return { content: "Error: todo store is unavailable", isError: true };
-  if (!isRecord(args) || !("todos" in args)) {
+  if (!isRecord(args) || !("todos" in args) || args.todos == null) {
     const todos = store.read() as TodoState;
     return { content: JSON.stringify({ todos, summary: summarizeTodos(todos) }), isError: false };
   }
-  const result = store.write({ todos: args.todos, merge: args.merge });
+  // Hermes todo_tool.py:218-228: parse JSON strings, reject other non-lists
+  let todos = args.todos;
+  if (typeof todos === "string") {
+    try { todos = JSON.parse(todos); } catch { return { content: "Error: todos must be a list of objects, got unparseable string", isError: true }; }
+  }
+  if (!Array.isArray(todos)) {
+    return { content: `Error: todos must be a list, got ${typeof todos}`, isError: true };
+  }
+  const result = store.write({ todos, merge: args.merge });
   return { content: JSON.stringify(result), isError: false };
 };
 
@@ -208,21 +220,36 @@ registry.register({
   schema: {
     name: "todo",
     description:
-      "Read or update the current in-memory nested todo list. Omit todos to read. Provide todos to replace, or merge:true to update by globally unique id.",
+      "Manage your task list for the current session. Use for complex tasks with 3+ steps or when the user provides multiple tasks. Call with no parameters to read the current list.\n\nWriting:\n- Provide 'todos' array to create/update items\n- merge=false (default): replace the entire list with a fresh plan\n- merge=true: update existing items by id, add any new ones\n\nEach item: {id: string, content: string, status: pending|in_progress|completed|cancelled}\nList order is priority. Only ONE item in_progress at a time.\nMark items completed immediately when done. If something fails, cancel it and add a revised item.\n\nAlways returns the full current list.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
-        merge: { type: "boolean", description: "When true, merge items by id instead of replacing the full tree." },
+        merge: {
+          type: "boolean",
+          description: "true: update existing items by id, add new ones. false (default): replace the entire list.",
+        },
         todos: {
           type: "array",
-          description: "Nested todo items with globally unique ids.",
-          items: { type: "object", additionalProperties: true }
-        }
-      }
-    }
+          description: "Task items to write. Omit to read current list.",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Unique item identifier" },
+              content: { type: "string", description: "Task description" },
+              status: {
+                type: "string",
+                enum: ["pending", "in_progress", "completed", "cancelled"],
+                description: "Current status",
+              },
+            },
+            required: ["id", "content", "status"],
+          },
+        },
+      },
+    },
   },
   handler: todoTool,
   verb: "Updating todos",
-  previewArgKey: "todos"
+  previewArgKey: "todos",
 });

@@ -57,7 +57,6 @@ describe("buildSystemPrompt", () => {
 
     expect(prompt).toContain("todo");
     expect(prompt).toContain("3+ steps");
-    expect(prompt).toContain("nested");
     expect(prompt).toContain("Do not render a markdown checklist");
   });
 
