@@ -14,7 +14,12 @@ Conversation memory lasts for the process lifetime; no persistence across
 restarts yet. The REPL also has a CLI polish layer: a startup banner,
 a themeable skin system (`default`/`mono`, switchable live and persisted
 to `~/.railgun/config.json`), slash commands (`/exit`, `/skin`, `/help`,
-`/clear`), and Tab-completion for those commands.
+`/clear`), and Tab-completion for those commands. A `.railgun.md` (or
+`RAILGUN.md`) found in the project tree (walking up to the git root), or
+an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the working directory,
+is loaded into the system prompt automatically at session startup — as is
+a personal `~/.railgun/SOUL.md` — with untrusted content truncated and
+scanned for prompt-injection patterns before use.
 
 ## Prerequisites
 
@@ -126,7 +131,7 @@ stderr and exits non-zero without launching anything.
 
 ```sh
 pnpm run typecheck   # tsc --noEmit
-pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery logic, src/tools/*, and src/skins.ts, src/commands.ts, src/config.ts
+pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery/projectContext logic, src/security/threatPatterns.ts, src/tools/*, and src/skins.ts, src/commands.ts, src/config.ts
 pnpm run build       # compile src/ to dist/
 ```
 
@@ -134,10 +139,13 @@ The Ink REPL UI itself is verified manually (see `docs/PRODUCT.md`'s
 Success Metrics); automated tests are scoped to the pure logic in
 `src/agent/turn.ts` (turn/history loop), `src/agent/toolDispatch.ts`
 (parallel-batch safety, corrupted-JSON detection), `src/agent/recovery.ts`
-(API failure classification and retry), each tool's own handler logic
-in `src/tools/`, `src/commands.ts` (slash-command prefix matching and
-parsing), and `src/config.ts` (skin config load/save, including
-missing-file, malformed-JSON, and unknown-skin fallback behavior).
+(API failure classification and retry), `src/agent/projectContext.ts`
+(context-file discovery, git-root walk, injection scan, truncation,
+`SOUL.md` loading), `src/security/threatPatterns.ts` (injection-pattern
+matching), each tool's own handler logic in `src/tools/`,
+`src/commands.ts` (slash-command prefix matching and parsing), and
+`src/config.ts` (skin config load/save, including missing-file,
+malformed-JSON, and unknown-skin fallback behavior).
 
 ## Compliance
 

@@ -5,6 +5,8 @@ export interface SystemPromptInput {
   startDate: string;
   modelId: string;
   provider: "Devin";
+  soulIdentity?: string | null;
+  projectContext?: string | null;
 }
 
 const promptData = (value: string): string => JSON.stringify(value);
@@ -15,7 +17,9 @@ export const buildSystemPrompt = ({
   osRelease,
   startDate,
   modelId,
-  provider
+  provider,
+  soulIdentity,
+  projectContext,
 }: SystemPromptInput): readonly string[] => [
   [
     "You are Railgun, a general-purpose assistant inspired by Hermes Agent.",
@@ -37,5 +41,11 @@ export const buildSystemPrompt = ({
     `- Platform: ${promptData(platform)}`,
     `- OS release: ${promptData(osRelease)}`,
     `- Conversation start date: ${promptData(startDate)}`
-  ].join("\n")
+  ].join("\n"),
+  ...(soulIdentity
+    ? [`# Persistent Identity\n\nThe following personal identity notes have been loaded from ~/.railgun/SOUL.md and should be followed:\n\n${soulIdentity}`]
+    : []),
+  ...(projectContext
+    ? [`# Project Context\n\nThe following project context has been loaded and should be followed:\n\n${projectContext}`]
+    : []),
 ];

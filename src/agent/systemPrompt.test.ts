@@ -51,4 +51,64 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain(".hermes.md");
     expect(prompt).not.toContain("Global Coding Preferences");
   });
+
+  it("appends project context as array entry [3] with exact header", () => {
+    const prompt = buildSystemPrompt({
+      ...defaultInput,
+      projectContext: "Always use British English spelling.",
+    });
+
+    expect(prompt).toHaveLength(4);
+    expect(prompt[3]).toBe(
+      "# Project Context\n\nThe following project context has been loaded and should be followed:\n\nAlways use British English spelling."
+    );
+  });
+
+  it("appends persistent identity as array entry [3] with exact header", () => {
+    const prompt = buildSystemPrompt({
+      ...defaultInput,
+      soulIdentity: "I prefer concise answers.",
+    });
+
+    expect(prompt).toHaveLength(4);
+    expect(prompt[3]).toBe(
+      "# Persistent Identity\n\nThe following personal identity notes have been loaded from ~/.railgun/SOUL.md and should be followed:\n\nI prefer concise answers."
+    );
+  });
+
+  it("places soulIdentity at [3] and projectContext at [4] when both present", () => {
+    const prompt = buildSystemPrompt({
+      ...defaultInput,
+      soulIdentity: "SOUL_CONTENT",
+      projectContext: "PROJECT_CONTENT",
+    });
+
+    expect(prompt).toHaveLength(5);
+    expect(prompt[3]).toContain("# Persistent Identity");
+    expect(prompt[3]).toContain("SOUL_CONTENT");
+    expect(prompt[4]).toContain("# Project Context");
+    expect(prompt[4]).toContain("PROJECT_CONTENT");
+  });
+
+  it("omits both blocks when neither field is set (backward compat)", () => {
+    const prompt = buildSystemPrompt(defaultInput);
+
+    const joined = prompt.join("\n");
+    expect(joined).not.toContain("# Project Context");
+    expect(joined).not.toContain("# Persistent Identity");
+    expect(prompt).toHaveLength(3);
+  });
+
+  it("omits blocks for null values", () => {
+    const prompt = buildSystemPrompt({
+      ...defaultInput,
+      soulIdentity: null,
+      projectContext: null,
+    });
+
+    const joined = prompt.join("\n");
+    expect(joined).not.toContain("# Project Context");
+    expect(joined).not.toContain("# Persistent Identity");
+    expect(prompt).toHaveLength(3);
+  });
 });

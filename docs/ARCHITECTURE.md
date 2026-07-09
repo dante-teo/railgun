@@ -22,8 +22,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Component | Responsibility | Owner |
 | --- | --- | --- |
 | CLI entry (`src/cli.ts`) | Parses argv, dispatches to one-shot or REPL, top-level error handling | Solo project — no formal ownership split |
-| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery, local-date capture, and one-time Phase 8 system-prompt construction — shared by both paths | Solo project |
-| System prompt builder (`src/agent/systemPrompt.ts`) | Pure Phase 8 prompt assembly: Railgun identity, tool rules, and cached session environment; environment values are JSON-serialized as data, with no context-file discovery yet | Solo project |
+| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery, local-date capture, parallel project-context and persistent-identity loading via `projectContext.ts`, and one-time system-prompt construction — shared by both paths | Solo project |
+| System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules, cached session environment, and two optional context blocks — `soulIdentity` (from `~/.railgun/SOUL.md`) and `projectContext` (from the project's context file); environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens in `projectContext.ts` before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
@@ -40,6 +40,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure Ink component rendering a vertical dropdown of slash-command matches beneath the input box, highlighting whichever entry the current tab-cycle has selected | Solo project |
 | Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, slash commands (`/exit`, `/skin <name>`, `/help`, `/clear`), tab-completion with a live `Suggestions` dropdown, a `useInput`-driven y/n approval gate for `run_shell_command`, and a skin-driven prompt symbol + `ink-spinner` type (`activeSkin.colors.promptSymbol`/`activeSkin.spinnerType`) alongside the permanent `✓`/`✗` scrollback line for tool activity | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✓`/`✗` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
+| Threat pattern scanner (`src/security/threatPatterns.ts`) | Pure, id-tagged regex list (`CONTEXT_THREAT_PATTERNS`, 10 curated patterns covering prompt injection, role hijack, HTML hidden-element injection, system-prompt leak, and safety-bypass phrasing) plus `scanForThreats(content)` returning matched pattern ids; no I/O, bounded filler `(?:\w+\s+){0,8}` prevents catastrophic backtracking | Solo project |
+| Project context loader (`src/agent/projectContext.ts`) | Discovers and loads a project's context file (`.railgun.md`/`RAILGUN.md` walking to the git root, falling back to `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, `.cursorrules` in cwd only — first readable non-empty file wins, with case-variant aliases exhausted per directory before walking up or moving to the next candidate group), plus `~/.railgun/SOUL.md` as persistent identity; truncates with a 70/30 head/tail split at 20 000 chars, then scans the retained head and tail independently for injection via `scanForThreats` (blocked files produce a `[BLOCKED: ...]` placeholder that does not fall through to the next candidate); exports `loadProjectContext(cwd)` and `loadSoulIdentity()` | Solo project |
 
 ## Data Flow
 
@@ -52,10 +54,27 @@ This document records the intended system architecture for Railgun. Keep it curr
    token is cached, `devin.login()` drives an OAuth flow via
    `src/openBrowser.ts`, then the token store persists it; `devin.listModels()`
    fetches available models and the first one is selected. Session
-   bootstrap then builds one cached Phase 8 system prompt via
-   `src/agent/systemPrompt.ts`, including Railgun's general-assistant
-   identity, tool-use rules, and the cwd/platform/date/model/provider
-   environment. The date is captured from local calendar fields rather
+   bootstrap then loads project context and persistent identity in parallel
+   via `loadProjectContext(cwd)` and `loadSoulIdentity()`
+   (`src/agent/projectContext.ts`): `loadProjectContext` searches for
+   `.railgun.md`/`RAILGUN.md` (walking up to the git root),
+   `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` (cwd only), first found wins;
+   `loadSoulIdentity` reads `~/.railgun/SOUL.md`. Both loaders truncate
+   raw content to 20 000 chars (70/30 head/tail split) if needed, then
+   scan the retained head and tail independently for injection patterns
+   by `scanForThreats` (`src/security/threatPatterns.ts`) — a match
+   replaces the content with a `[BLOCKED: ...]` placeholder and logs to
+   stderr. For project context, a whitespace-only or unreadable alias
+   falls through to the next case-variant alias in the same candidate
+   group before moving to the next group, returning `null` only when all
+   candidates are exhausted; for SOUL identity, a missing or
+   whitespace-only file returns `null` directly. The
+   results are passed to
+   `buildSystemPrompt` (`src/agent/systemPrompt.ts`), which assembles the
+   cached system prompt: Railgun's general-assistant identity, tool-use
+   rules, cwd/platform/date/model/provider environment, and — when
+   present — a `# Persistent Identity` block and a `# Project Context`
+   block. The date is captured from local calendar fields rather
    than UTC serialization, and every environment value is JSON-serialized
    before insertion into the prompt so paths or model ids containing
    control characters cannot create extra system-prompt instructions.
@@ -89,14 +108,17 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 **REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6, live tool feedback since Phase 7):**
 
-1. `src/cli.ts` (no argv) calls `initDevinSession` once, then `runRepl`
-   (`src/repl/App.tsx`) loads the persisted skin preference via
-   `loadConfig` (`src/config.ts`), resolves it to a `SkinConfig` via
-   `resolveSkin` (`src/skins.ts`, falling back to the default skin for a
-   missing/invalid config), prints the startup banner via `printBanner`
-   (`src/repl/Banner.tsx`) straight to stdout — before Ink's `render()`
-   is ever called — then renders the Ink `ChatApp` and blocks on
-   `waitUntilExit()`.
+1. `src/cli.ts` (no argv) calls `initDevinSession` once (which now also
+   loads project context and persistent identity in parallel — see the
+   one-shot path step 2 above for the full `loadProjectContext`/
+   `loadSoulIdentity` discovery, injection scan, and truncation
+   semantics), then `runRepl` (`src/repl/App.tsx`) loads the persisted
+   skin preference via `loadConfig` (`src/config.ts`), resolves it to a
+   `SkinConfig` via `resolveSkin` (`src/skins.ts`, falling back to the
+   default skin for a missing/invalid config), prints the startup banner
+   via `printBanner` (`src/repl/Banner.tsx`) straight to stdout — before
+   Ink's `render()` is ever called — then renders the Ink `ChatApp` and
+   blocks on `waitUntilExit()`.
 2. `ChatApp` receives the cached system prompt from `initDevinSession`
    and the resolved skin as its `initialSkin` prop, seeding the
    `activeSkin` React state that `/skin` can later update live.
@@ -208,9 +230,14 @@ mode restriction — it holds no secret, just `{ "skin": "<name>" }`), is
 read on REPL startup by `src/config.ts`'s `loadConfig` and written by its
 `saveConfig` whenever `/skin <name>` succeeds; a missing, unreadable,
 malformed, or unrecognized-skin config silently falls back to the default
-skin. Railgun keeps no other on-disk state: REPL `history` is
-in-memory-only for the process's lifetime, with no conversation
-persistence across restarts yet (a later phase adds save/resume).
+skin. A third optional file, `~/.railgun/SOUL.md` (no file-mode
+restriction — user-authored text, not a secret), is read once at session
+startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
+content injected as a `# Persistent Identity` block in the system prompt;
+a missing or whitespace-only file is silently ignored. Railgun keeps no
+other on-disk state: REPL `history` is in-memory-only for the process's
+lifetime, with no conversation persistence across restarts yet (a later
+phase adds save/resume).
 
 ## Integrations
 
@@ -239,6 +266,18 @@ persistence across restarts yet (a later phase adds save/resume).
   (`ToolContext.confirmShellCommand`) in front of every invocation, in
   both the REPL and one-shot mode. There is no allowlist/sandboxing; the
   approval prompt is the only safety control.
+- Project context files (`.railgun.md`/`RAILGUN.md`, `AGENTS.md`/`agents.md`,
+  `CLAUDE.md`/`claude.md`, `.cursorrules`) and `~/.railgun/SOUL.md` are untrusted user-authored
+  content injected into the system prompt. Before inclusion, each file is
+  truncated to a 20 000-char head/tail window, then the retained head and
+  tail are scanned independently for injection patterns by `scanForThreats`
+  (`src/security/threatPatterns.ts`) — a heuristic, defense-in-depth control
+  covering 10 curated patterns (prompt injection, role hijack, system-prompt
+  leak, etc.). Scanning head and tail separately prevents false positives
+  from regex patterns bridging the truncation seam, and truncating before
+  scanning ensures no unscanned content reaches the prompt. A match replaces
+  the entire file with a `[BLOCKED: ...]` placeholder; blocked files do not
+  fall through to lower-precedence candidates, preventing precedence probing.
 - Compliance is an operational responsibility, not a code-enforced one — see
   `docs/adr/0001-single-provider-devin-via-widevin.md`.
 

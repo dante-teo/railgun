@@ -4,6 +4,7 @@ import { createDevinProvider, createFileTokenStore } from "widevin";
 import type { DevinModel, DevinProvider } from "widevin";
 import { buildSystemPrompt } from "./agent/systemPrompt.js";
 import { openUrlInBrowser } from "./openBrowser.js";
+import { loadProjectContext, loadSoulIdentity } from "./agent/projectContext.js";
 
 export const TOKEN_PATH = join(homedir(), ".railgun", "devin-token");
 
@@ -31,13 +32,21 @@ export const initDevinSession = async (): Promise<DevinSession> => {
   if (!model) throw new Error("Devin returned no available models");
   console.error(`Using model: ${model.id}`);
 
+  const cwd = process.cwd();
+  const [projectContext, soulIdentity] = await Promise.all([
+    loadProjectContext(cwd),
+    loadSoulIdentity(),
+  ]);
+
   const systemPrompt = buildSystemPrompt({
-    cwd: process.cwd(),
+    cwd,
     platform: platform(),
     osRelease: release(),
     startDate: formatLocalDate(new Date()),
     modelId: model.id,
-    provider: "Devin"
+    provider: "Devin",
+    projectContext,
+    soulIdentity,
   });
 
   return { devin, model, systemPrompt };

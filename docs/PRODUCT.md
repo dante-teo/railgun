@@ -14,81 +14,54 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 9 (CLI polish: banner, skin system, tab-completion):**
-Phase 7 (live tool activity feedback) is complete:
-`runTurn` (`src/agent/turn.ts`) accepts an optional trailing
-`LoopCallbacks` object — `onDelta`, `onToolStart`, `onToolComplete` —
-alongside the required `confirmShellCommand` gate. `onToolStart`/
-`onToolComplete` fire around each of `runStep`'s three existing dispatch
-branches: a sequential call reports itself individually
-(`name`, real parsed `arguments`); a corrupted call reports itself with
-empty `{}` args and `isError: true`; a parallel-safe batch collapses to
-one `"__batch__"` sentinel pair reporting only a completion count, never
-per-call detail or a pass/fail state — matching Hermes'
-`agent/tool_executor.py` spinner behavior rather than firing N separate
-pairs. `buildToolLabel` (`src/tools/toolLabel.ts`) turns a tool's
-name+args into a verb-based label (`"Reading <path>"`,
-`"Running <command>"`, etc.) using each tool's new `verb`/`previewArgKey`
-registry fields (`src/tools/registry.ts`), falling back to raw
-name+JSON-args for unlabeled or unregistered tools, with whitespace
-collapsed and the result truncated to 60 characters. The REPL
-(`src/repl/App.tsx`) shows a live `ink-spinner`-driven line in place of
-the streaming placeholder while a tool runs, then appends a permanent
-green `✓`/red `✗`-prefixed scrollback line once it finishes. The one-shot
-`--print`/`-p` path's `src/spinner.ts` renders the plain-terminal
-equivalent (a cycling braille frame, then a final `✓`/`✗` line) on
-`process.stderr`, keeping stdout limited to the streamed answer text per
-the existing contract.
-
-Phase 9 adds a startup banner, a themeable skin system, config
-persistence, real slash commands, and slash-command tab-completion, all
-in-process on top of the Ink REPL (`src/repl/App.tsx`) — see
-`docs/adr/0002-ink-repl-ahead-of-schedule.md` for why this phase targets
-Ink instead of the replication plan's bare-`readline` pseudocode.
-`src/skins.ts` defines the `SkinConfig` data type (banner colors as hex
-strings, an `ink-spinner` preset name, a prompt symbol glyph, and
-agent-name/welcome branding text) plus two builtin skins — `default`
-(gold/bronze, `❯` prompt, `dots` spinner) and `mono` (gray, `>` prompt,
-`line` spinner) — in a `BUILTIN_SKINS` map, with a pure `resolveSkin`
-lookup. `src/repl/Banner.tsx`'s `printBanner` renders a bordered banner
-showing the active skin's agent name and welcome text using raw ANSI
-`\x1b[38;2;r;g;bm` truecolor escapes converted from those hex colors —
-called once, directly on `console.log`, before Ink's `render()` is
-invoked (`runRepl` in `src/repl/App.tsx`), never as a component inside
-the Ink tree, so it never re-renders or gets cleared by Ink's own output
-tracking. `src/config.ts`'s `loadConfig`/`saveConfig` persist just the
-chosen skin name as JSON to `~/.railgun/config.json` (mirroring
-`src/session.ts`'s `~/.railgun/devin-token` path pattern), creating the
-directory on write; `loadConfig` collapses every failure mode — missing
-file, unreadable file, invalid JSON, or an unrecognized skin name — to
-the same silent default skin, and `runRepl` awaits it before Ink's
-`render()` so the resolved skin reaches `ChatApp` as an `initialSkin`
-prop rather than a post-mount state update. `src/commands.ts` replaces
-the old hardcoded `text === "/exit"` check with a real registry:
-`KNOWN_COMMANDS` (`/exit`, `/skin`, `/help`, `/clear`), a `matchCommand`
-unique-prefix lookup, a `findMatches` full-list lookup, and
-`parseSlashCommand` to split a command from its trailing argument.
-`handleSubmit` (`src/repl/App.tsx`) dispatches on the parsed command:
-`/exit` exits as before; `/skin <name>` resolves and swaps the live
-`activeSkin` state (updating the prompt symbol and spinner type
-immediately), appends an assistant scrollback line confirming the
-change, and fire-and-forgets a `saveConfig` write, or appends a red
-error line for an unknown/missing skin name; `/help` appends a
-scrollback line listing all four commands; `/clear` writes the raw
-`"\x1Bc"` full-reset escape via Ink's own
-`useStdout().write` (never raw `process.stdout.write`, which would
-desync Ink's internal output tracking) — it clears the terminal only,
-leaving `<Static>`'s already-flushed scrollback lines untouched, since
-the banner is launch-only and is not re-printed on `/clear`. Tab
-completion is a pure state machine, `nextCompletionState`
-(`src/commands.ts`), driven by a second `useInput` handler in
-`ChatApp` active whenever the input starts with `/`: typing `/`
-auto-computes live matches and shows a `<Suggestions>` dropdown
-(`src/repl/Suggestions.tsx`) under the prompt; each Tab press freezes
-the current match list and cycles the highlighted selection through it,
-writing the selected command (plus a trailing space once a single
-choice remains) back into the input; Escape clears the frozen matches
-and dismisses the dropdown.
+**Current phase — Phase 10 (project-level context files):**
+Phase 10 adds automatic discovery and loading of project-level context
+files into the system prompt, plus a personal persistent-identity file.
+`src/security/threatPatterns.ts` provides a pure, shared injection
+scanner: `CONTEXT_THREAT_PATTERNS` (10 curated regexes ported verbatim
+from Hermes's `tools/threat_patterns.py`, covering prompt injection,
+system-prompt override, disregard-rules, bypass-restrictions, HTML
+comment injection, hidden-div injection, role hijack, role pretend,
+leak-system-prompt, and remove-filters — all case-insensitive, with
+bounded filler `(?:\w+\s+){0,8}` to prevent catastrophic backtracking)
+and `scanForThreats(content)` returning matched pattern ids.
+`src/agent/projectContext.ts` owns all filesystem I/O for context
+discovery, keeping `buildSystemPrompt` pure and synchronous.
+`PROJECT_CONTEXT_CANDIDATES` defines the precedence chain:
+`.railgun.md`/`RAILGUN.md` (walking up to the git root via
+`findUpToGitRoot`, which `stat`s for a `.git` entry at each level),
+then `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, and
+`.cursorrules` (cwd only, no walk) — first file found wins.
+`loadProjectContext(cwd)` reads the first match, truncates it
+(70/30 head/tail split at a fixed 20 000-char
+cap), then scans the retained head and tail independently for
+injection via `scanForThreats` (scanning separately prevents
+false positives from patterns spanning the truncation seam) — on a
+match, the content is replaced with a
+`[BLOCKED: <filename> contained potential prompt injection (<ids>).
+Content not loaded.]` placeholder and logged via `console.error`; the
+blocked result does NOT fall through to the next precedence candidate,
+preventing an attacker from probing which file wins by triggering a
+block on the higher-priority one.
+A whitespace-only or unreadable file falls through to the next
+case-variant alias in the same candidate group (e.g. `AGENTS.md` →
+`agents.md`) before moving to the next candidate group; a
+missing file silently results in `null`. `SOUL_PATH`
+(`~/.railgun/SOUL.md`) is loaded by `loadSoulIdentity()` with the
+same truncate-then-scan pipeline (see
+`docs/adr/0005-soul-md-persistent-identity.md` for why this is
+included in Phase 10 rather than deferred). Both loaders are called in
+parallel via `Promise.all` during `initDevinSession`
+(`src/session.ts`) and their results passed to `buildSystemPrompt`
+(`src/agent/systemPrompt.ts`) as optional `soulIdentity` and
+`projectContext` fields; when present, they produce a
+`# Persistent Identity` block and a `# Project Context` block
+appended after the existing identity/tool-rules/environment blocks.
+Both fields are optional with `| null`, so all existing callers and
+tests are unaffected. No mid-session subdirectory hints
+(`agent/subdirectory_hints.py`'s idea), no `.cursor/rules/*.mdc`
+support, no config-driven `context_file_max_chars` override — all
+deferred to later phases.
 
 The Phase 5 hardening remains in place. Three independent mechanisms sit
 
