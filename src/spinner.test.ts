@@ -34,7 +34,7 @@ describe("startSpinner", () => {
       writeSpy.mockClear();
 
       stop(false);
-      expect(writeSpy).toHaveBeenCalledExactlyOnceWith("\r✓ Reading foo.txt\n");
+      expect(writeSpy).toHaveBeenCalledExactlyOnceWith("\r✔ Reading foo.txt\n");
 
       writeSpy.mockClear();
       vi.advanceTimersByTime(240);
@@ -50,7 +50,7 @@ describe("startSpinner", () => {
       const stop = startSpinner("Running sleep 2");
       stop(true);
 
-      expect(writeSpy).toHaveBeenCalledExactlyOnceWith("\r✗ Running sleep 2\n");
+      expect(writeSpy).toHaveBeenCalledExactlyOnceWith("\r✘ Running sleep 2\n");
     } finally {
       writeSpy.mockRestore();
     }

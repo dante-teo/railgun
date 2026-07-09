@@ -38,7 +38,7 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 
 | Screen | Purpose | Notes |
 | --- | --- | --- |
-| Ink chat REPL (stdout, interactive) | Scrolling conversation transcript above a persistent todo panel and a single-line input box | Default `pnpm start` surface; shows a bordered startup banner in the active skin's colors before the transcript; user lines prefixed by the skin's prompt symbol (default `❯ `); a cyan in-flight line shows the reply streaming in; red lines are per-turn errors; typing `/` opens a slash-command dropdown below the input |
+| Ink chat REPL (stdout, interactive) | Scrolling conversation transcript above a persistent todo panel and a single-line input box, with a status line at the bottom | Default `pnpm start` surface; shows a rounded-corner startup banner in the active skin's color tokens before the transcript; user lines render on a tinted background block prefixed by the skin's prompt symbol (default `❯ `); tool calls render in bordered frames (pending/success/error with state-tinted backgrounds); an accent-colored in-flight line shows the reply streaming in; error lines use the skin's `error` color; a persistent status line shows model id, `~`-shortened cwd, and git branch; typing `/` opens a skin-themed slash-command dropdown below the input |
 | One-shot terminal (stdout/stderr) | Show one streamed answer and status messages, then exit; may pause on stderr for shell-command approval | `--print`/`-p` only; `docs/PRODUCT.md`'s later phases add a TUI/Web/Desktop/Mobile front end reusing the same core |
 
 ## Interaction Patterns
@@ -54,7 +54,7 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
   `/exit` (or `Ctrl+C`) quits, `/skin <name>` switches skins, `/help`
   lists commands, `/clear` clears the terminal.
 - While a turn is in flight, the input box loses focus (no concurrent
-  submits) and a cyan line shows the reply streaming in; on completion it
+  submits) and an accent-colored line shows the reply streaming in; on completion it
   moves into the permanent scrollback and the input regains focus.
 - A per-turn Devin error surfaces as one red line in the transcript (via
   the same three known-error-type classification as the one-shot path,
@@ -64,7 +64,7 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 - Typing `/` auto-shows a vertical dropdown of available slash commands
   below the input; Tab cycles through the matches with a highlight, and
   Escape dismisses the dropdown without submitting.
-- `/skin <name>` changes the prompt symbol and spinner type live (no
+- `/skin <name>` changes the prompt symbol and color tokens live (no
   restart) and persists the chosen skin to `~/.railgun/config.json`, so
   the next launch starts in that skin.
 - `/clear` clears the terminal screen; the scrolling transcript
@@ -72,15 +72,15 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 - The REPL's agent can read/write files and list directories while
   answering. A live spinner+label line (e.g. a braille frame plus
   "Reading notes.txt") replaces the streaming placeholder while a tool
-  runs; once it finishes, a permanent green `✓`/red `✗`-prefixed line
-  (e.g. "✓ Reading notes.txt") moves into the scrollback in its place —
+  runs; once it finishes, a permanent `✔`-prefixed (success) or
+  `✘`-prefixed (error) line moves into the scrollback in its place —
   a parallel-safe batch of tool calls collapses to one
-  "Running N tools concurrently" line and one "✓ N/N tools completed"
+  "Running N tools concurrently" line and one "✔ N/N tools completed"
   line rather than a separate pair per call. The one-shot path shows the
-  equivalent spinner and final `✓`/`✗` line on stderr only, so a piped
+  equivalent spinner and final `✔`/`✘` line on stderr only, so a piped
   stdout answer never contains spinner frames or tool labels.
 - Before running a shell command, the REPL freezes the text input (loses
-  focus) and shows a yellow `Run shell command: <command> [y/n]` line in
+  focus) and shows an accent-colored `Run shell command: <command> [y/n]` line in
   place of normal turn output; pressing `y` runs it and feeds the real
   output back into the conversation, `n` or `Esc` declines and the input
   regains focus — no other key does anything while the prompt is showing.
@@ -97,16 +97,40 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 ## Visual System
 
 - Typography: TBD
-- Color: a skin system provides two builtin themes — `default` (gold/bronze)
-  and `mono` (grayscale) — selected at runtime via `/skin <name>`. Each
-  skin controls the startup banner's border, title, and body text colors,
-  the REPL's prompt symbol, and the spinner type used for in-flight/tool
-  lines; the rest of the palette (transcript text, error red, tool
-  success/failure markers) is unthemed and shared across skins.
+- Color: a skin system provides two builtin themes — `default` (OMP
+  dark-theme palette) and `mono` (OMP dark-monochrome palette) — selected at
+  runtime via `/skin <name>`. Each skin defines color-role tokens mirroring
+  OMP's theme vocabulary: `accent` (headings, prompt symbol, highlights,
+  in-flight/attention color), `border` (box chrome, input frame, pending
+  tool frame), `muted` (secondary body text), `dim` (tertiary/de-emphasized
+  UI such as unselected dropdown rows), `success`/`error` (tool completion
+  status and tool-frame borders), `selectedBg` (dropdown selection
+  background), `userMessageBg` (user-message background block),
+  `toolPendingBg`/`toolSuccessBg`/`toolErrorBg` (tool-frame background
+  tints), `statusLineBg`/`statusLineModel`/`statusLinePath`/
+  `statusLineGitClean`/`statusLineGitDirty` (bottom status bar segments).
+  The startup banner uses rounded-corner Unicode box-drawing (`╭╮╰╯─│`)
+  with border chrome colored `border`, agent name colored `accent` bold,
+  and welcome text colored `muted`. Tool completion lines render inside
+  bordered `Box` frames using OMP's `✔`/`✘` glyphs colored by
+  `success`/`error`, with state-dependent background tints and border
+  colors. The in-flight tool spinner also renders in a bordered pending
+  frame using the `dots2` braille set (OMP's "status" spinner) colored
+  `accent`. The text input sits inside a rounded bordered frame colored
+  `border`. User messages in the scrollback render on a `userMessageBg`
+  background block. The slash-command dropdown highlights the selected row
+  with `accent`-colored text on a `selectedBg` background; unselected rows
+  use `dim`. A persistent status line at the bottom shows the model id
+  (`statusLineModel`), `~`-shortened working directory (`statusLinePath`),
+  and — when inside a git repo — the current branch name
+  (`statusLineGitClean`/`statusLineGitDirty`, with a `*` suffix when dirty).
 - Spacing: TBD
-- Icons: TBD
-- Components: transcript, streaming line, slash-command suggestions, shell
-  approval prompt, and todo panel.
+- Icons: `✔` (success), `✘` (error), `❯` (default prompt), `>` (mono
+  prompt); OMP's 8-frame braille "status" spinner
+  (`⣾⣽⣻⢿⡿⣟⣯⣷`) for tool calls; plain streaming text uses no spinner.
+- Components: transcript (with user-message background blocks and bordered
+  tool-execution frames), streaming line, bordered input frame, slash-command
+  suggestions, shell approval prompt, todo panel, and status line.
 
 ## Accessibility
 

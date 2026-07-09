@@ -2,15 +2,16 @@ import { describe, expect, it } from "vitest";
 import type React from "react";
 import { TodoPanel, shouldAppendToolTranscriptLine, shouldShowToolLine } from "./App.js";
 import { createTodoStore } from "../tools/todo.js";
+import { DEFAULT_SKIN } from "../skins.js";
 
 describe("TodoPanel", () => {
   it("hides when todo state is empty", () => {
-    expect(TodoPanel({ todos: [], isLoading: false })).toBeNull();
+    expect(TodoPanel({ todos: [], isLoading: false, skin: DEFAULT_SKIN })).toBeNull();
   });
 
   it("renders when todo state is nonempty", () => {
     const store = createTodoStore([{ id: "a", content: "A", status: "pending" }]);
-    const panel = TodoPanel({ todos: store.read(), isLoading: false });
+    const panel = TodoPanel({ todos: store.read(), isLoading: false, skin: DEFAULT_SKIN });
     const element = panel as React.ReactElement<{ children: readonly React.ReactElement[] }>;
     const header = element.props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;
 
@@ -19,7 +20,7 @@ describe("TodoPanel", () => {
   });
 
   it("renders a loading state while todos are being crafted", () => {
-    const panel = TodoPanel({ todos: [], isLoading: true });
+    const panel = TodoPanel({ todos: [], isLoading: true, skin: DEFAULT_SKIN });
     const element = panel as React.ReactElement<{ children: readonly React.ReactElement[] }>;
     const loading = element.props.children[1] as React.ReactElement<{ children: readonly unknown[] }>;
 
@@ -41,7 +42,7 @@ describe("TodoPanel", () => {
 
   it("renders pending items with [ ] glyph", () => {
     const store = createTodoStore([{ id: "a", content: "A", status: "pending" }]);
-    const panel = TodoPanel({ todos: store.read(), isLoading: false });
+    const panel = TodoPanel({ todos: store.read(), isLoading: false, skin: DEFAULT_SKIN });
     const element = panel as unknown as React.ReactElement<{ children: readonly unknown[] }>;
     const items = element.props.children[2] as unknown as React.ReactElement[];
     const glyphText = (items[0] as React.ReactElement<{ children: readonly unknown[] }>).props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;
@@ -51,7 +52,7 @@ describe("TodoPanel", () => {
 
   it("renders completed items with [x] glyph", () => {
     const store = createTodoStore([{ id: "a", content: "A", status: "completed" }]);
-    const panel = TodoPanel({ todos: store.read(), isLoading: false });
+    const panel = TodoPanel({ todos: store.read(), isLoading: false, skin: DEFAULT_SKIN });
     const element = panel as unknown as React.ReactElement<{ children: readonly unknown[] }>;
     const items = element.props.children[2] as unknown as React.ReactElement[];
     const glyphText = (items[0] as React.ReactElement<{ children: readonly unknown[] }>).props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;

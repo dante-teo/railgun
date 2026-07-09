@@ -7,6 +7,6 @@ export const startSpinner = (label: string): ((isError: boolean) => void) => {
   }, 80);
   return (isError: boolean) => {
     clearInterval(interval);
-    process.stderr.write(`\r${isError ? "✗" : "✓"} ${label}\n`);
+    process.stderr.write(`\r${isError ? "✘" : "✔"} ${label}\n`);
   };
 };

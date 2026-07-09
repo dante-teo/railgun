@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, render, Static, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
@@ -15,7 +15,11 @@ import type { SkinConfig } from "../skins.js";
 import { loadConfig, saveConfig } from "../config.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { printBanner } from "./Banner.js";
+import { toolLineIcon, toolLineColor, busyColor, busySpinnerType, approvalColor, toolFrameBg, toolFrameBorder } from "./toolLineStyle.js";
+import type { ToolFrameState } from "./toolLineStyle.js";
 import { Suggestions } from "./Suggestions.js";
+import { getGitStatus, formatCwd } from "./statusLine.js";
+import type { GitStatus } from "./statusLine.js";
 
 interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
@@ -26,22 +30,22 @@ interface DisplayLine {
 const todoGlyph = (status: NormalizedTodoItem["status"]): string =>
   status === "completed" ? "[x]" : status === "cancelled" ? "[-]" : status === "in_progress" ? "[>]" : "[ ]";
 
-export const TodoPanel = ({ todos, isLoading }: { todos: TodoState; isLoading: boolean }): React.ReactElement | null => {
+export const TodoPanel = ({ todos, isLoading, skin }: { todos: TodoState; isLoading: boolean; skin: SkinConfig }): React.ReactElement | null => {
   if (todos.length === 0 && !isLoading) return null;
   const summary = summarizeTodos(todos);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginBottom={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={skin.colors.border} paddingX={1} marginBottom={1}>
       <Text bold>
         Todos · {summary.completed}/{summary.total}
       </Text>
       {isLoading && todos.length === 0 && (
-        <Text color="cyan">
+        <Text color={skin.colors.accent}>
           <Spinner type="dots" /> Crafting todos
         </Text>
       )}
       {todos.map(todo => (
         <Box key={todo.id}>
-          <Text color={todo.status === "completed" ? "green" : todo.status === "in_progress" ? "cyan" : "gray"}>
+          <Text color={todo.status === "completed" ? skin.colors.success : todo.status === "in_progress" ? skin.colors.accent : skin.colors.dim}>
             {todoGlyph(todo.status)}{" "}
           </Text>
           <Text>{todo.content}</Text>
@@ -77,6 +81,8 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
   const [todos, setTodos] = useState<TodoState>(todoStoreRef.current.read());
   const [todoLoading, setTodoLoading] = useState(false);
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
+  const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
+  useEffect(() => { getGitStatus(process.cwd()).then(setGitStatus); }, []);
 
   const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
     const { promise, resolve } = Promise.withResolvers<boolean>();
@@ -220,32 +226,42 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
       <Static items={[...lines]}>
         {(line, index) => {
           if (line.kind === "tool") {
+            const state: ToolFrameState = line.failed ? "error" : "success";
             return (
-              <Text key={index} color={line.failed ? "red" : "green"}>
-                {(line.failed ? "✗ " : "✓ ") + line.text}
-              </Text>
+              <Box key={index} borderStyle="round" borderColor={toolFrameBorder(activeSkin, state)} backgroundColor={toolFrameBg(activeSkin, state)} paddingX={1}>
+                <Text color={toolLineColor(activeSkin, !!line.failed)}>
+                  {toolLineIcon(!!line.failed) + " " + line.text}
+                </Text>
+              </Box>
+            );
+          }
+          if (line.kind === "user") {
+            return (
+              <Box key={index} backgroundColor={activeSkin.colors.userMessageBg} paddingX={1}>
+                <Text>{`${activeSkin.colors.promptSymbol} ${line.text}`}</Text>
+              </Box>
             );
           }
           return (
-            <Text key={index} {...(line.kind === "error" ? { color: "red" as const } : {})}>
-              {line.kind === "user" ? `${activeSkin.colors.promptSymbol} ${line.text}` : line.text}
+            <Text key={index} {...(line.kind === "error" ? { color: activeSkin.colors.error } : {})}>
+              {line.text}
             </Text>
           );
         }}
       </Static>
-      {busy &&
-        (toolLabel !== null ? (
-          <Text color="cyan">
-            <Spinner type={activeSkin.spinnerType} /> {toolLabel}
-          </Text>
-        ) : (
-          <Text color="cyan">{streaming || "…"}</Text>
-        ))}
-      {pendingCommand !== null && (
-        <Text color="yellow">Run shell command: {pendingCommand} [y/n]</Text>
+      {busy && toolLabel !== null && (
+        <Box borderStyle="round" borderColor={toolFrameBorder(activeSkin, "pending")} backgroundColor={toolFrameBg(activeSkin, "pending")} paddingX={1}>
+          <Text color={busyColor(activeSkin)}><Spinner type={busySpinnerType()} /> {toolLabel}</Text>
+        </Box>
       )}
-      <TodoPanel todos={todos} isLoading={todoLoading} />
-      <Box>
+      {busy && toolLabel === null && (
+        <Text color={busyColor(activeSkin)}>{streaming || "…"}</Text>
+      )}
+      {pendingCommand !== null && (
+        <Text color={approvalColor(activeSkin)}>Run shell command: {pendingCommand} [y/n]</Text>
+      )}
+      <TodoPanel todos={todos} isLoading={todoLoading} skin={activeSkin} />
+      <Box borderStyle="round" borderColor={activeSkin.colors.border} paddingX={1}>
         <Text>{activeSkin.colors.promptSymbol + " "}</Text>
         <TextInput
           key={inputKey}
@@ -259,8 +275,22 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
         <Suggestions
           items={completionMatches.length > 1 ? completionMatches : liveMatches}
           selectedIndex={completionIndex ?? -1}
+          skin={activeSkin}
         />
       )}
+      <Box backgroundColor={activeSkin.colors.statusLineBg} paddingX={1}>
+        <Text color={activeSkin.colors.statusLineModel}>{session.model.id}</Text>
+        <Text> · </Text>
+        <Text color={activeSkin.colors.statusLinePath}>{formatCwd(process.cwd())}</Text>
+        {gitStatus.branch !== null && (
+          <>
+            <Text> · </Text>
+            <Text color={gitStatus.dirty ? activeSkin.colors.statusLineGitDirty : activeSkin.colors.statusLineGitClean}>
+              {gitStatus.branch}{gitStatus.dirty ? "*" : ""}
+            </Text>
+          </>
+        )}
+      </Box>
     </Box>
   );
 };

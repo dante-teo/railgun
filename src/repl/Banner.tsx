@@ -14,13 +14,13 @@ const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 
 export const printBanner = (skin: SkinConfig): void => {
-  const bc = hexToAnsi(skin.colors.bannerBorder);
-  const tc = hexToAnsi(skin.colors.bannerTitle);
-  const tx = hexToAnsi(skin.colors.bannerText);
+  const bc = hexToAnsi(skin.colors.border);
+  const tc = hexToAnsi(skin.colors.accent);
+  const tx = hexToAnsi(skin.colors.muted);
 
-  console.log(`${bc}┌${"─".repeat(WIDTH)}┐${reset}`);
+  console.log(`${bc}╭${"─".repeat(WIDTH)}╮${reset}`);
   console.log(`${bc}│ ${reset}${tc}${bold}${skin.branding.agentName.padEnd(WIDTH - 1)}${reset}${bc}│${reset}`);
   console.log(`${bc}│ ${reset}${tx}${skin.branding.welcome.padEnd(WIDTH - 1)}${reset}${bc}│${reset}`);
-  console.log(`${bc}└${"─".repeat(WIDTH)}┘${reset}`);
+  console.log(`${bc}╰${"─".repeat(WIDTH)}╯${reset}`);
   console.log();
 };
