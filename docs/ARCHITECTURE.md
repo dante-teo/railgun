@@ -27,18 +27,20 @@ This document records the intended system architecture for Railgun. Keep it curr
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (both `"file"` and `"terminal"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`, firing an optional `LoopCallbacks` (`onDelta`/`onToolStart`/`onToolComplete`) around each dispatch; returns new history or an error | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (`"file"`, `"terminal"`, and `"planning"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`, firing an optional `LoopCallbacks` (`onDelta`/`onToolStart`/`onToolComplete`) around each dispatch; injects active todo state into subsequent model calls when a caller-owned todo store is present; returns new history or an error | Solo project |
 | Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
 | API failure recovery (`src/agent/recovery.ts`) | Classifies a thrown error into a `RecoveryAction` (`classifyError`) and retries a step up to 3 times with linear backoff only when the classification says to (`callDevinWithRecovery`) | Solo project |
 | Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `get(name)` looks up a registered tool's metadata, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
-| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell}.ts`) | Four self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`); each registers a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for its live-activity label | Solo project |
+| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo}.ts`) | Five self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`), and `todo` (toolset `"planning"`, caller-owned in-memory nested todo state); file/terminal tools register a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for live-activity labels, while REPL `todo` completions are suppressed in favor of the persistent panel | Solo project |
+| Todo store (`src/tools/todo.ts`) | Pure normalization/reducer logic plus a tiny stateful `createTodoStore()` boundary. Todos are nested, globally deduplicated by id, bounded to 256 total nodes, truncate content above 4000 chars, normalize bad status to `pending`, reject blank content, derive parent progress from children, and expose `formatForInjection()` for pending/in-progress work only | Solo project |
 | Tool activity labels (`src/tools/toolLabel.ts`) | Pure `buildToolLabel(name, args, phase)` — turns a dispatched call's name+args into a one-line verb-based label (`"Reading <path>"`, `"Running <command>"`) via each tool's registered `verb`/`previewArgKey`, falling back to raw name+JSON for unlabeled/unregistered tools and the `"__batch__"` sentinel for a collapsed concurrent batch; whitespace-collapsed and truncated to 60 chars | Solo project |
 | Skin system (`src/skins.ts`) | Pure skin data: `SkinConfig` interface, two built-in skins (`default`, `mono`) covering banner colors, prompt symbol, `ink-spinner` type, and branding strings; `resolveSkin(name)` is a pure lookup returning `undefined` for an unrecognized name | Solo project |
 | Config persistence (`src/config.ts`) | `loadConfig`/`saveConfig` read/write `~/.railgun/config.json` (skin preference only, `{ "skin": "<name>" }`); a missing file, unreadable file, malformed JSON, or an unrecognized skin name all collapse silently to the default skin, with no startup warning | Solo project |
 | Command system (`src/commands.ts`) | Pure slash-command logic: `KNOWN_COMMANDS`, prefix matching (`matchCommand`/`findMatches`), `parseSlashCommand` (splits `"/skin mono"` into command + arg), and `nextCompletionState` (the tab/escape state machine cycling frozen matches vs. re-deriving live matches) — no I/O, no React | Solo project |
 | Banner (`src/repl/Banner.tsx`) | `printBanner(skin)` — a one-shot, raw-ANSI-colored startup banner (hex-to-24-bit-ANSI conversion, no `chalk` dependency) written via `console.log` before Ink's `render()` is ever called; lives outside the Ink component tree entirely, so it is printed exactly once per launch and never re-renders | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure Ink component rendering a vertical dropdown of slash-command matches beneath the input box, highlighting whichever entry the current tab-cycle has selected | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, text input, slash commands (`/exit`, `/skin <name>`, `/help`, `/clear`), tab-completion with a live `Suggestions` dropdown, a `useInput`-driven y/n approval gate for `run_shell_command`, and a skin-driven prompt symbol + `ink-spinner` type (`activeSkin.colors.promptSymbol`/`activeSkin.spinnerType`) alongside the permanent `✓`/`✗` scrollback line for tool activity | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`), streaming reply line, persistent todo panel, text input, slash commands (`/exit`, `/skin <name>`, `/help`, `/clear`), tab-completion with a live `Suggestions` dropdown, a `useInput`-driven y/n approval gate for `run_shell_command`, and a skin-driven prompt symbol + `ink-spinner` type (`activeSkin.colors.promptSymbol`/`activeSkin.spinnerType`) alongside the permanent `✓`/`✗` scrollback line for non-todo tool activity | Solo project |
+| Markdown todo fallback (`src/repl/markdownTodos.ts`) | Pure REPL helper that recognizes explicit markdown checkbox lists (`- [ ]`, `- [x]`, `- [~]`) and converts them into todo items when the model failed to call `todo`; ordinary bullets and numbered lists are deliberately ignored so normal markdown responses stay visible | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✓`/`✗` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
 | Threat pattern scanner (`src/security/threatPatterns.ts`) | Pure, id-tagged regex list (`CONTEXT_THREAT_PATTERNS`, 10 curated patterns covering prompt injection, role hijack, HTML hidden-element injection, system-prompt leak, and safety-bypass phrasing) plus `scanForThreats(content)` returning matched pattern ids; no I/O, bounded filler `(?:\w+\s+){0,8}` prevents catastrophic backtracking | Solo project |
 | Project context loader (`src/agent/projectContext.ts`) | Discovers and loads a project's context file (`.railgun.md`/`RAILGUN.md` walking to the git root, falling back to `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, `.cursorrules` in cwd only — first readable non-empty file wins, with case-variant aliases exhausted per directory before walking up or moving to the next candidate group), plus `~/.railgun/SOUL.md` as persistent identity; truncates with a 70/30 head/tail split at 20 000 chars, then scans the retained head and tail independently for injection via `scanForThreats` (blocked files produce a `[BLOCKED: ...]` placeholder that does not fall through to the next candidate); exports `loadProjectContext(cwd)` and `loadSoulIdentity()` | Solo project |
@@ -78,7 +80,8 @@ This document records the intended system architecture for Railgun. Keep it curr
    than UTC serialization, and every environment value is JSON-serialized
    before insertion into the prompt so paths or model ids containing
    control characters cannot create extra system-prompt instructions.
-3. `runOneShot` creates a fresh default `IterationBudget` and calls
+3. `runOneShot` creates a fresh default `IterationBudget` and a fresh
+   in-memory `TodoStore`, then calls
    `runTurn` (`src/agent/turn.ts`) with empty prior history, the single
    question as `userText`, and a `confirmShellCommand` built from
    `node:readline/promises`: it opens a `readline` interface on
@@ -99,7 +102,9 @@ This document records the intended system architecture for Railgun. Keep it curr
    `pnpm start --print "..." | some-other-tool` invocation. On success a
    trailing newline is written to stdout after the loop completes. Budget
    exhaustion is returned as success, with the iteration-limit message as
-   the answer text.
+   the answer text. Todo tool calls update the one-shot store but do not
+   render spinner or completion output, preserving the stdout/stderr
+   scripting contract.
 5. Any error — from `streamChat` itself, or an error `runTurn` returns as
    `{ ok: false, error }` — is re-thrown by `runOneShot` and caught by
    `main()`'s top-level handler in `src/cli.ts`, which prints one line to
@@ -122,8 +127,9 @@ This document records the intended system architecture for Railgun. Keep it curr
 2. `ChatApp` receives the cached system prompt from `initDevinSession`
    and the resolved skin as its `initialSkin` prop, seeding the
    `activeSkin` React state that `/skin` can later update live.
-   It also creates one default `IterationBudget` in a React ref, shared
-   by every turn for the REPL process lifetime. Each submitted line calls
+   It also creates one default `IterationBudget` and one `TodoStore` in
+   React refs, both shared by every turn for the REPL process lifetime.
+   Each submitted line calls
    `runTurn` (`src/agent/turn.ts`) with the growing `history` array, the
    session's `DevinProvider`/model/system prompt, the new user text, that
    shared budget, and a `confirmShellCommand` callback that stores a
@@ -155,10 +161,12 @@ This document records the intended system architecture for Railgun. Keep it curr
    and never when any call is on the "never parallel" list (currently just
    the not-yet-built `clarify`, pre-declared for Phase 16). Each dispatched
    call's result — or a corrupted call's marker — is pushed back as a
-   `tool`-role message via `registry.run(name, args, { confirmShellCommand })`
-   (each tool returns `{ content, isError }` — `run_shell_command` first
+   `tool`-role message via `registry.run(name, args, context)` where
+   `context` carries `confirmShellCommand` and, when available, the
+   caller-owned todo store. Each tool returns `{ content, isError }` —
+   `run_shell_command` first
    awaits `confirmShellCommand`, returning `isError: true` immediately if
-   declined, before ever spawning `execFile("bash", ["-c", command])`)
+   declined, before ever spawning `execFile("bash", ["-c", command])`
    before the next round starts. `LoopCallbacks.onToolStart`/
    `onToolComplete` fire around this dispatch (once per call in the
    sequential `for` loop; once for the whole batch under the `"__batch__"`
@@ -166,7 +174,9 @@ This document records the intended system architecture for Railgun. Keep it curr
    call's result); `ChatApp` wires these to `src/tools/toolLabel.ts`'s
    `buildToolLabel` to drive an `ink-spinner` line in place of the busy
    placeholder while a call is in flight, then appends a permanent
-   `✓`/`✗`-prefixed line to the scrollback (`Static`) once it settles. A
+   `✓`/`✗`-prefixed line to the scrollback (`Static`) once it settles. The
+   `todo` tool is the exception: its completion updates the persistent
+   todo panel and is not appended as a normal transcript tool line. A
    round producing no tool calls ends the loop, except when
    `run_shell_command` is pending approval, when the input box is
    replaced by the `Run shell command: <command> [y/n]` prompt.
@@ -182,6 +192,12 @@ This document records the intended system architecture for Railgun. Keep it curr
    is the friendly iteration-limit message and `history` keeps every round
    run so far, followed by a synthetic assistant message containing the
    same limit text.
+   If the returned assistant text contains explicit markdown checkbox
+   items and the todo store is still empty, `ChatApp` converts those
+   checkbox items into the todo panel and strips only those checkbox lines
+   from the transcript. This fallback is intentionally narrower than
+   general markdown-list parsing so ordinary numbered or bullet lists do
+   not disappear from normal answers.
 4. On failure (a streamChat error in any round), runTurn returns
    `{ ok: false, error }` and the *caller's*
    `history` is left untouched (no dangling unanswered user turn is ever
@@ -213,13 +229,15 @@ This document records the intended system architecture for Railgun. Keep it curr
 `toolcall_start`, and `usage` are still received but ignored by both paths
 (reasoning display is a later phase; live tool-call feedback shipped in
 Phase 7 via `LoopCallbacks` rather than a new stream-event type). Both
-paths now enable the exact same toolsets (`"file"` + `"terminal"`) — the
+paths now enable the exact same toolsets (`"file"`, `"terminal"`, and
+`"planning"`) — the
 only behavioral difference between them is how `confirmShellCommand`
 collects the y/n answer (Ink `useInput` vs. blocking `readline` on stdin)
 and how tool activity renders (an `ink-spinner` line + scrollback vs. a
 stderr braille spinner via `src/spinner.ts`). They also differ in budget
-lifetime: the REPL has one shared 90-step budget for the process
-lifetime, while each one-shot invocation gets a fresh 90-step budget.
+lifetime: the REPL has one shared 90-step budget and one shared todo store
+for the process lifetime, while each one-shot invocation gets a fresh
+90-step budget and fresh todo store.
 
 ## Persistence
 
@@ -235,9 +253,9 @@ restriction — user-authored text, not a secret), is read once at session
 startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
 content injected as a `# Persistent Identity` block in the system prompt;
 a missing or whitespace-only file is silently ignored. Railgun keeps no
-other on-disk state: REPL `history` is in-memory-only for the process's
-lifetime, with no conversation persistence across restarts yet (a later
-phase adds save/resume).
+other on-disk state: REPL `history` and todo state are in-memory-only for
+the process's lifetime, with no conversation persistence or todo
+persistence across restarts yet (a later phase adds save/resume).
 
 ## Integrations
 

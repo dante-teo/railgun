@@ -4,6 +4,7 @@ import { runTurn } from "./agent/turn.js";
 import { IterationBudget } from "./agent/iterationBudget.js";
 import { startSpinner } from "./spinner.js";
 import { buildToolLabel } from "./tools/toolLabel.js";
+import { createTodoStore } from "./tools/todo.js";
 
 const confirmShellCommand = async (command: string): Promise<boolean> => {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -18,6 +19,7 @@ const confirmShellCommand = async (command: string): Promise<boolean> => {
 export const runOneShot = async (question: string): Promise<void> => {
   const { devin, model, systemPrompt } = await initDevinSession();
   let activeStop: ((isError: boolean) => void) | undefined;
+  const todoStore = createTodoStore();
   const outcome = await runTurn(devin, model.id, systemPrompt, [], question, IterationBudget.create(), confirmShellCommand, {
     onDelta: delta => {
       process.stdout.write(delta);
@@ -29,7 +31,7 @@ export const runOneShot = async (question: string): Promise<void> => {
       activeStop?.(isError);
       activeStop = undefined;
     }
-  });
+  }, { todoStore });
   if (outcome.ok) {
     process.stdout.write("\n");
   } else {

@@ -1,6 +1,7 @@
 import type { DevinAssistantContentPart, DevinMessage, DevinProvider } from "widevin";
 import { registry } from "../tools/index.js";
 import type { ToolContext } from "../tools/index.js";
+import type { TodoStore } from "../tools/todo.js";
 import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from "./toolDispatch.js";
 import { callDevinWithRecovery } from "./recovery.js";
 import type { IterationBudget } from "./iterationBudget.js";
@@ -10,7 +11,7 @@ export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
   | { ok: false; error: unknown };
 
-const ENABLED_TOOLSETS = ["file", "terminal"] as const;
+const ENABLED_TOOLSETS = ["file", "terminal", "planning"] as const;
 
 type StepResult = { done: true; assistantText: string } | { done: false };
 
@@ -18,6 +19,10 @@ export interface LoopCallbacks {
   onDelta?: (delta: string) => void;
   onToolStart?: (name: string, args: unknown) => void;
   onToolComplete?: (name: string, args: unknown, isError: boolean) => void;
+}
+
+export interface RunTurnOptions {
+  todoStore?: TodoStore;
 }
 
 const runStep = async (
@@ -32,12 +37,14 @@ const runStep = async (
   const textParts: string[] = [];
   const rawArgsById = new Map<string, string>();
   const toolOrder: { id: string; name: string }[] = [];
+  const todoInjection = context.todoStore?.formatForInjection();
+  const prompt = todoInjection && todoInjection.length > 0 ? [...systemPrompt, todoInjection] : systemPrompt;
 
   for await (const event of devin.streamChat({
     model,
     messages,
     tools: registry.getSchemas(ENABLED_TOOLSETS),
-    systemPrompt
+    systemPrompt: prompt
   })) {
     if (event.type === "text_delta") {
       textParts.push(event.delta);
@@ -109,11 +116,14 @@ export const runTurn = async (
   userText: string,
   iterationBudget: IterationBudget,
   confirmShellCommand: (command: string) => Promise<boolean>,
-  callbacks?: LoopCallbacks
+  callbacks?: LoopCallbacks,
+  options?: RunTurnOptions
 ): Promise<TurnOutcome> => {
   const messages: DevinMessage[] = [...history, { role: "user", content: userText }];
   const allTextParts: string[] = [];
-  const context: ToolContext = { confirmShellCommand };
+  const context: ToolContext = options?.todoStore
+    ? { confirmShellCommand, todoStore: options.todoStore }
+    : { confirmShellCommand };
 
   try {
     while (iterationBudget.consume()) {

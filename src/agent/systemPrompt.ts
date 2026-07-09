@@ -30,6 +30,9 @@ export const buildSystemPrompt = ({
     "Tool rules:",
     "- Use tools for real filesystem, directory, and shell facts.",
     "- Do not guess file contents, command output, or local project state when a tool can check it.",
+    "- Use the todo tool before writing a plan for tasks with 3+ steps, explicit planning requests, or multiple requested tasks; use nested todos when useful.",
+    "- Do not render a markdown checklist as a substitute for the todo tool.",
+    "- Keep todo statuses current as work starts, completes, or is cancelled.",
     "- Respect the existing shell approval flow; shell commands may be declined by the user.",
     "- Keep tool use focused on the user's current task."
   ].join("\n"),

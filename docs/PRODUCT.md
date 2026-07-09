@@ -14,56 +14,35 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 10 (project-level context files):**
-Phase 10 adds automatic discovery and loading of project-level context
-files into the system prompt, plus a personal persistent-identity file.
-`src/security/threatPatterns.ts` provides a pure, shared injection
-scanner: `CONTEXT_THREAT_PATTERNS` (10 curated regexes ported verbatim
-from Hermes's `tools/threat_patterns.py`, covering prompt injection,
-system-prompt override, disregard-rules, bypass-restrictions, HTML
-comment injection, hidden-div injection, role hijack, role pretend,
-leak-system-prompt, and remove-filters — all case-insensitive, with
-bounded filler `(?:\w+\s+){0,8}` to prevent catastrophic backtracking)
-and `scanForThreats(content)` returning matched pattern ids.
-`src/agent/projectContext.ts` owns all filesystem I/O for context
-discovery, keeping `buildSystemPrompt` pure and synchronous.
-`PROJECT_CONTEXT_CANDIDATES` defines the precedence chain:
-`.railgun.md`/`RAILGUN.md` (walking up to the git root via
-`findUpToGitRoot`, which `stat`s for a `.git` entry at each level),
-then `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, and
-`.cursorrules` (cwd only, no walk) — first file found wins.
-`loadProjectContext(cwd)` reads the first match, truncates it
-(70/30 head/tail split at a fixed 20 000-char
-cap), then scans the retained head and tail independently for
-injection via `scanForThreats` (scanning separately prevents
-false positives from patterns spanning the truncation seam) — on a
-match, the content is replaced with a
-`[BLOCKED: <filename> contained potential prompt injection (<ids>).
-Content not loaded.]` placeholder and logged via `console.error`; the
-blocked result does NOT fall through to the next precedence candidate,
-preventing an attacker from probing which file wins by triggering a
-block on the higher-priority one.
-A whitespace-only or unreadable file falls through to the next
-case-variant alias in the same candidate group (e.g. `AGENTS.md` →
-`agents.md`) before moving to the next candidate group; a
-missing file silently results in `null`. `SOUL_PATH`
-(`~/.railgun/SOUL.md`) is loaded by `loadSoulIdentity()` with the
-same truncate-then-scan pipeline (see
-`docs/adr/0005-soul-md-persistent-identity.md` for why this is
-included in Phase 10 rather than deferred). Both loaders are called in
-parallel via `Promise.all` during `initDevinSession`
-(`src/session.ts`) and their results passed to `buildSystemPrompt`
-(`src/agent/systemPrompt.ts`) as optional `soulIdentity` and
-`projectContext` fields; when present, they produce a
-`# Persistent Identity` block and a `# Project Context` block
-appended after the existing identity/tool-rules/environment blocks.
-Both fields are optional with `| null`, so all existing callers and
-tests are unaffected. No mid-session subdirectory hints
-(`agent/subdirectory_hints.py`'s idea), no `.cursor/rules/*.mdc`
-support, no config-driven `context_file_max_chars` override — all
-deferred to later phases.
+**Current phase — Phase 11 (planning todos):**
+Phase 11 adds a planning tool and REPL panel for multi-step work. The
+`todo` tool is registered under the always-enabled `"planning"` toolset
+and operates on a caller-owned in-memory store: the REPL keeps one store
+for the process lifetime, while each `--print`/`-p` invocation gets a
+fresh store. There is intentionally no persistence or history hydration
+yet. `src/tools/todo.ts` owns the reducer/store boundary and hardening:
+nested todos, globally unique ids, a 256-node cap, 4000-character content
+cap with truncation marker, invalid-status normalization to `pending`,
+blank-content rejection, deterministic duplicate-id collapse, derived
+parent progress, and active-work formatting for prompt injection.
+`src/repl/App.tsx` renders nonempty todo state in a persistent panel above
+the input, shows a `Crafting todos` spinner while an empty todo update is
+in flight, suppresses normal transcript tool-completion lines for `todo`,
+and keeps one store in a React ref. `--print` mode keeps todo activity
+silent so stdout remains the final answer. `src/repl/markdownTodos.ts`
+provides a narrow fallback for explicit markdown checkbox lists when the
+model ignores the tool; ordinary bullet and numbered lists remain visible
+as normal transcript text.
 
-The Phase 5 hardening remains in place. Three independent mechanisms sit
+Phase 10 project-level context loading remains in place: project context
+files and `~/.railgun/SOUL.md` are loaded once during session bootstrap,
+truncated, scanned for prompt-injection patterns, and appended to the
+system prompt when accepted. No mid-session subdirectory hints, no
+`.cursor/rules/*.mdc` support, and no config-driven
+`context_file_max_chars` override yet. Earlier hardening remains in place:
+parallel-safe tool batching, corrupted tool-call JSON self-healing,
+transient API retry, and the shared iteration-budget behavior still apply
+to both the REPL and one-shot paths.
 
 ## Users
 
@@ -103,9 +82,9 @@ The Phase 5 hardening remains in place. Three independent mechanisms sit
    whole conversation for the process's lifetime.
 2. Run `pnpm start --print "<question>"` (or `-p`) for a one-shot,
    scriptable/CI invocation that keeps Phase 1's stdout/stderr contract —
-   no interactive REPL, no conversation memory — but, since Phase 4, can
-   call the same tools as the REPL, including a stdin-blocking approval
-   prompt if the model calls `run_shell_command`.
+   no interactive REPL, no conversation memory — but can call the same
+   tools as the REPL, including silent todo planning and a stdin-blocking
+   approval prompt if the model calls `run_shell_command`.
 
 ## Success Metrics
 
@@ -142,7 +121,7 @@ The Phase 5 hardening remains in place. Three independent mechanisms sit
   `isError: true` for a corrupted call, and collapse to a single
   `"__batch__"` pair — never firing per-call — for a parallel batch;
   `src/tools/toolLabel.test.ts` proves `buildToolLabel`'s verb+arg
-  formatting for all four registered tools plus its unregistered-tool,
+  formatting for the labeled file/terminal tools plus its unregistered-tool,
   missing/non-string-preview-arg, whitespace-collapsing, and
   60-character-truncation fallback paths; `src/spinner.test.ts` proves
   the one-shot terminal spinner's frame cadence and final `✓`/`✗` line
@@ -171,7 +150,18 @@ The Phase 5 hardening remains in place. Three independent mechanisms sit
   colors live and persists the choice to `~/.railgun/config.json` across
   a restart, `/clear` visibly clears the terminal without disturbing
   `<Static>` scrollback, and typing `/` shows a suggestions dropdown that
-  Tab cycles through and Escape dismisses).
+  Tab cycles through and Escape dismisses; Phase 11:
+  `src/tools/todo.test.ts` proves todo normalization, nested replace
+  writes, global-id merge, duplicate collapse, bad-status normalization,
+  blank-content rejection, truncation, 256-node cap, derived parent
+  progress, and active-work injection formatting;
+  `src/tools/todo.integration.test.ts` proves the planning schema is
+  exposed and caller-owned stores do not leak; `src/agent/turn.test.ts`
+  proves `todo` is available to Devin and updates the injected store;
+  `src/repl/App.test.tsx` and `src/repl/markdownTodos.test.ts` cover the
+  panel's empty/loading/nonempty behavior, transcript suppression for
+  todo completions, checkbox-list fallback, and the regression guard that
+  ordinary bullet/numbered markdown lists are not converted into todos).
 
 ## Open Questions
 

@@ -2,6 +2,11 @@ import type { DevinTool } from "widevin";
 
 export interface ToolContext {
   confirmShellCommand: (command: string) => Promise<boolean>;
+  todoStore?: {
+    read(): unknown;
+    write(input: { todos?: unknown; merge?: unknown }): unknown;
+    formatForInjection(): string;
+  };
 }
 
 export interface ToolRunResult {

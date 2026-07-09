@@ -7,6 +7,7 @@ import type { DevinProvider, DevinStreamEvent } from "widevin";
 import { DevinApiError } from "widevin";
 import { runTurn } from "./turn.js";
 import { registry } from "../tools/index.js";
+import { createTodoStore } from "../tools/todo.js";
 import { CORRUPTION_MARKER } from "./toolDispatch.js";
 import { IterationBudget, ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
 
@@ -107,6 +108,15 @@ describe("runTurn", () => {
       systemPrompt,
       systemPrompt
     ]);
+  });
+
+  it("exposes the planning todo tool to Devin", async () => {
+    const devin = fakeProvider([[{ type: "text_delta", delta: "ok" }]]);
+
+    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+
+    expect(outcome.ok).toBe(true);
+    expect(devin.streamChatRequests[0]?.tools?.some(tool => tool.name === "todo")).toBe(true);
   });
 
   it("keeps prior history intact and appends the new turn on success", async () => {
@@ -462,6 +472,32 @@ describe("runTurn", () => {
       expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("__batch__", { count: 2 }, false);
       expect(onToolStart).not.toHaveBeenCalledWith("read_file", expect.anything());
       expect(onToolComplete).not.toHaveBeenCalledWith("read_file", expect.anything(), expect.anything());
+    });
+
+    it("updates the caller-owned todo store from a todo tool call", async () => {
+      const todoStore = createTodoStore();
+      const devin = fakeProvider([
+        [
+          { type: "toolcall_delta", id: "call-1", delta: JSON.stringify({ todos: [{ id: "a", content: "A" }] }) },
+          { type: "toolcall_end", id: "call-1", name: "todo", arguments: { todos: [{ id: "a", content: "A" }] } }
+        ],
+        [{ type: "text_delta", delta: "tracked" }]
+      ]);
+
+      const outcome = await runTurn(
+        devin,
+        "model-1",
+        defaultSystemPrompt,
+        [],
+        "Track this",
+        defaultBudget(),
+        approveAll,
+        undefined,
+        { todoStore }
+      );
+
+      expect(outcome.ok).toBe(true);
+      expect(todoStore.read()).toEqual([{ id: "a", content: "A", status: "pending" }]);
     });
   });
 });

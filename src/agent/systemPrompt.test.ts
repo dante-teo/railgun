@@ -52,6 +52,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("Global Coding Preferences");
   });
 
+  it("instructs the model to use todo for multi-step work", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+
+    expect(prompt).toContain("todo");
+    expect(prompt).toContain("3+ steps");
+    expect(prompt).toContain("nested");
+    expect(prompt).toContain("Do not render a markdown checklist");
+  });
+
   it("appends project context as array entry [3] with exact header", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,

@@ -31,13 +31,14 @@ command/single answer shape for scripting. Phase 9 adds a startup banner
 slash-command system (`/exit`, `/skin <name>`, `/help`, `/clear`) with
 tab-completion, plus a persisted skin preference at
 `~/.railgun/config.json` — all still local to the REPL surface; the
-one-shot path is unaffected.
+one-shot path is unaffected. Phase 11 adds a local planning surface: an
+in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 
 ## Key Screens
 
 | Screen | Purpose | Notes |
 | --- | --- | --- |
-| Ink chat REPL (stdout, interactive) | Scrolling conversation transcript above a single-line input box | Default `pnpm start` surface; shows a bordered startup banner in the active skin's colors before the transcript; user lines prefixed by the skin's prompt symbol (default `❯ `); a cyan in-flight line shows the reply streaming in; red lines are per-turn errors; typing `/` opens a slash-command dropdown below the input |
+| Ink chat REPL (stdout, interactive) | Scrolling conversation transcript above a persistent todo panel and a single-line input box | Default `pnpm start` surface; shows a bordered startup banner in the active skin's colors before the transcript; user lines prefixed by the skin's prompt symbol (default `❯ `); a cyan in-flight line shows the reply streaming in; red lines are per-turn errors; typing `/` opens a slash-command dropdown below the input |
 | One-shot terminal (stdout/stderr) | Show one streamed answer and status messages, then exit; may pause on stderr for shell-command approval | `--print`/`-p` only; `docs/PRODUCT.md`'s later phases add a TUI/Web/Desktop/Mobile front end reusing the same core |
 
 ## Interaction Patterns
@@ -86,6 +87,16 @@ one-shot path is unaffected.
   The one-shot path shows the equivalent prompt on stderr and blocks
   reading a line from stdin instead (`Type "yes" to run, anything else to
   cancel:`).
+- Multi-step planning appears in a dedicated todo panel above the input,
+  not as normal tool-completion scrollback. The panel is hidden while empty,
+  shows `Crafting todos` with a spinner while an empty todo update is in
+  flight, then renders `Todos · done/total` plus nested rows with status
+  markers. Parent progress is derived from children. The panel is
+  process-local state: it survives turns in the same REPL but is not
+  persisted across restart. If the assistant emits an explicit markdown
+  checkbox list instead of calling `todo`, those checkbox rows are promoted
+  into the panel and removed from the transcript; ordinary bullet and
+  numbered lists remain ordinary transcript text.
 
 ## Visual System
 
@@ -98,7 +109,8 @@ one-shot path is unaffected.
   success/failure markers) is unthemed and shared across skins.
 - Spacing: TBD
 - Icons: TBD
-- Components: TBD
+- Components: transcript, streaming line, slash-command suggestions, shell
+  approval prompt, and todo panel.
 
 ## Accessibility
 

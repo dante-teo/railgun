@@ -7,6 +7,8 @@ import { runTurn } from "../agent/turn.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
 import { buildToolLabel } from "../tools/toolLabel.js";
+import { createTodoStore, deriveTodoProgress, summarizeTodos } from "../tools/todo.js";
+import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import type { DevinSession } from "../session.js";
 import { BUILTIN_SKINS, DEFAULT_SKIN, resolveSkin } from "../skins.js";
 import type { SkinConfig } from "../skins.js";
@@ -14,12 +16,61 @@ import { loadConfig, saveConfig } from "../config.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { printBanner } from "./Banner.js";
 import { Suggestions } from "./Suggestions.js";
+import { extractMarkdownTodos, stripMarkdownTodoLines } from "./markdownTodos.js";
 
 interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
   text: string;
   failed?: boolean;
 }
+
+const statusMarker = (status: NormalizedTodoItem["status"]): string => {
+  if (status === "completed") return "✓";
+  if (status === "in_progress") return "●";
+  if (status === "cancelled") return "×";
+  return "○";
+};
+
+const TodoRow = ({ todo, depth = 0 }: { todo: NormalizedTodoItem; depth?: number }): React.ReactElement => {
+  const children = todo.children ?? [];
+  const progress = deriveTodoProgress(todo);
+  const label = children.length > 0 ? `${todo.content} ${progress.done}/${progress.total}` : todo.content;
+  return (
+    <Box flexDirection="column">
+      <Box marginLeft={depth * 2}>
+        <Text color={todo.status === "completed" ? "green" : todo.status === "in_progress" ? "cyan" : "gray"}>
+          {statusMarker(todo.status)}{" "}
+        </Text>
+        <Text>{label}</Text>
+      </Box>
+      {children.map(child => (
+        <TodoRow key={child.id} todo={child} depth={depth + 1} />
+      ))}
+    </Box>
+  );
+};
+
+export const TodoPanel = ({ todos, isLoading }: { todos: TodoState; isLoading: boolean }): React.ReactElement | null => {
+  if (todos.length === 0 && !isLoading) return null;
+  const summary = summarizeTodos(todos);
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginBottom={1}>
+      <Text bold>
+        Todos · {summary.completed}/{summary.total}
+      </Text>
+      {isLoading && todos.length === 0 && (
+        <Text color="cyan">
+          <Spinner type="dots" /> Crafting todos
+        </Text>
+      )}
+      {todos.map(todo => (
+        <TodoRow key={todo.id} todo={todo} />
+      ))}
+    </Box>
+  );
+};
+
+export const shouldAppendToolTranscriptLine = (name: string): boolean => name !== "todo";
 
 const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin: SkinConfig }): React.ReactElement => {
   const { exit } = useApp();
@@ -40,6 +91,9 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
   const [toolLabel, setToolLabel] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const iterationBudgetRef = useRef(IterationBudget.create());
+  const todoStoreRef = useRef<TodoStore>(createTodoStore());
+  const [todos, setTodos] = useState<TodoState>(todoStoreRef.current.read());
+  const [todoLoading, setTodoLoading] = useState(false);
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
 
   const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
@@ -83,11 +137,17 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
   );
 
   const onToolStart = useCallback((name: string, args: unknown) => {
+    if (name === "todo") setTodoLoading(true);
     setToolLabel(buildToolLabel(name, args, "start"));
   }, []);
 
   const onToolComplete = useCallback((name: string, args: unknown, isError: boolean) => {
     setToolLabel(null);
+    if (!shouldAppendToolTranscriptLine(name)) {
+      setTodoLoading(false);
+      setTodos(todoStoreRef.current.read());
+      return;
+    }
     setLines(prev => [...prev, { kind: "tool", text: buildToolLabel(name, args, "complete"), failed: isError }]);
   }, []);
 
@@ -152,12 +212,19 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
           },
           onToolStart,
           onToolComplete
-        }
+        },
+        { todoStore: todoStoreRef.current }
       );
 
       if (outcome.ok) {
         setHistory(outcome.messages);
-        setLines(prev => [...prev, { kind: "assistant", text: outcome.assistantText }]);
+        const fallbackTodos = extractMarkdownTodos(outcome.assistantText);
+        const nextTodos = todoStoreRef.current.read().length === 0 && fallbackTodos.length > 0
+          ? todoStoreRef.current.write({ todos: fallbackTodos }).todos
+          : todoStoreRef.current.read();
+        const displayText = fallbackTodos.length > 0 ? stripMarkdownTodoLines(outcome.assistantText) : outcome.assistantText;
+        setTodos(nextTodos);
+        if (displayText !== "") setLines(prev => [...prev, { kind: "assistant", text: displayText }]);
       } else {
         const message = describeDevinError(outcome.error) ?? String(outcome.error);
         setLines(prev => [...prev, { kind: "error", text: message }]);
@@ -165,6 +232,7 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
 
       setStreaming("");
       setBusy(false);
+      setTodoLoading(false);
     },
     [history, session, exit, stdoutWrite, confirmShellCommand, onToolStart, onToolComplete]
   );
@@ -198,6 +266,7 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
       {pendingCommand !== null && (
         <Text color="yellow">Run shell command: {pendingCommand} [y/n]</Text>
       )}
+      <TodoPanel todos={todos} isLoading={todoLoading} />
       <Box>
         <Text>{activeSkin.colors.promptSymbol + " "}</Text>
         <TextInput

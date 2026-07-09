@@ -3,9 +3,10 @@
 A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s
 core agent loop, built incrementally, phase by phase (see
 [`docs/PRODUCT.md`](docs/PRODUCT.md)). The REPL's agent can read and write
-files, list directories, and run shell commands (the last gated behind an
-interactive y/n approval prompt) before answering, looping the conversation
-with Devin until it has a final text answer. The loop is hardened with
+files, list directories, run shell commands (the last gated behind an
+interactive y/n approval prompt), and maintain an in-memory nested todo
+plan before answering, looping the conversation with Devin until it has a
+final text answer. The loop is hardened with
 parallel-safe tool batching, corrupted tool-call JSON self-healing,
 transient API retry, and a 90-step iteration budget. In the REPL that
 budget is shared for the process lifetime; in one-shot mode each invocation
@@ -64,6 +65,17 @@ pnpm start
   parallel-safe batch of tool calls (e.g. reading two different files in
   one round) collapses to a single `Running N tools concurrently` line
   and one `✓ N/N tools completed` line, not one pair per call.
+- Ask for a multi-step plan and the model can call the `todo` planning
+  tool. The REPL renders the current nested todo tree in a persistent
+  panel above the input, with a `Todos · done/total` header and per-item
+  status markers. While a todo update is in flight, an empty panel shows
+  a `Crafting todos` spinner. Todo activity is intentionally not echoed
+  as normal `✓ todo ...` transcript lines. Todo state is in-memory only
+  for the current REPL process; it is not saved or restored across
+  restarts. If the model emits an explicit markdown checkbox list
+  (`- [ ] ...`, `- [x] ...`) instead of calling the tool, the REPL converts
+  those checkbox items into the panel; ordinary bullet and numbered
+  markdown lists remain visible in the transcript.
 - Ask it to run a shell command (e.g. `"run echo hello in the shell"`) and
   the REPL freezes the text input and prints
   `Run shell command: <command> [y/n]`; press `y` to run it and feed the
@@ -100,8 +112,9 @@ pnpm start -p "What is the capital of France?"
 ```
 
 `--print`/`-p` now runs the same tool-calling turn loop as the REPL (file
-read/write, directory listing, shell commands) instead of Phase 1's plain
-no-tools stream, but keeps Phase 1's stdout/stderr contract: a single
+read/write, directory listing, shell commands, and the in-memory todo
+planning tool) instead of Phase 1's plain no-tools stream, but keeps Phase
+1's stdout/stderr contract: a single
 question in, the streamed answer on stdout, status/progress messages (model
 selection, login prompt, and — if the model calls `run_shell_command` — the
 approval prompt) on stderr, and a non-zero exit code with a one-line error
@@ -114,6 +127,10 @@ the answer text.
 Each `--print`/`-p` invocation gets its own fresh 90-step iteration budget.
 If it is exhausted, the limit message is printed as the successful answer
 text and the process exits normally.
+
+Todo planning in `--print`/`-p` is silent: there is no persistent panel and
+todo updates do not print progress lines, so scripted stdout stays focused
+on the final answer text.
 
 If the model calls `run_shell_command`, `--print`/`-p` prompts on stderr
 with `Run shell command: <command>` and blocks reading a line from stdin —
@@ -131,12 +148,13 @@ stderr and exits non-zero without launching anything.
 
 ```sh
 pnpm run typecheck   # tsc --noEmit
-pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery/projectContext logic, src/security/threatPatterns.ts, src/tools/*, and src/skins.ts, src/commands.ts, src/config.ts
+pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery/projectContext logic, src/security/threatPatterns.ts, src/tools/*, src/repl/* pure helpers, and src/skins.ts, src/commands.ts, src/config.ts
 pnpm run build       # compile src/ to dist/
 ```
 
-The Ink REPL UI itself is verified manually (see `docs/PRODUCT.md`'s
-Success Metrics); automated tests are scoped to the pure logic in
+The Ink REPL UI itself is still smoke-tested manually (see
+`docs/PRODUCT.md`'s Success Metrics); automated tests are scoped to the
+pure logic in
 `src/agent/turn.ts` (turn/history loop), `src/agent/toolDispatch.ts`
 (parallel-batch safety, corrupted-JSON detection), `src/agent/recovery.ts`
 (API failure classification and retry), `src/agent/projectContext.ts`
@@ -145,7 +163,8 @@ Success Metrics); automated tests are scoped to the pure logic in
 matching), each tool's own handler logic in `src/tools/`,
 `src/commands.ts` (slash-command prefix matching and parsing), and
 `src/config.ts` (skin config load/save, including missing-file,
-malformed-JSON, and unknown-skin fallback behavior).
+malformed-JSON, and unknown-skin fallback behavior), plus pure REPL helpers
+such as the todo panel props and markdown-checkbox todo fallback.
 
 ## Compliance
 
