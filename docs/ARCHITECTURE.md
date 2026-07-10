@@ -21,16 +21,17 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 | Component | Responsibility | Owner |
 | --- | --- | --- |
-| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; sequences store/chooser/Devin boundaries and owns top-level error handling | Solo project — no formal ownership split |
-| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery (optionally requiring one exact saved model), local-date capture, parallel project-context and persistent-identity loading via `projectContext.ts`, and one-time system-prompt construction — shared by both paths | Solo project |
+| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for `login`, `logout`, fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; auth commands return before any SQLite/session/TUI boundary | Solo project — no formal ownership split |
+| Authentication boundary (`src/auth.ts`) | Selects trimmed process-local `DEVIN_TOKEN` or the file cache, wraps model discovery and async streaming with source-aware 401 invalidation, and implements fresh-login verification plus idempotent cached logout without exposing token contents | Solo project |
+| Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, performs model discovery (optionally requiring one exact saved model), captures the local date, loads project context and persistent identity in parallel, and builds the system prompt once | Solo project |
 | Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: versioned schema setup, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, and atomic idempotent full-snapshot checkpoints | Solo project |
 | System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules, cached session environment, and two optional context blocks — `soulIdentity` (from `~/.railgun/SOUL.md`) and `projectContext` (from the project's context file); environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens in `projectContext.ts` before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
-| Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
+| Error presentation (`src/errors.ts`) | Maps widevin and source-aware credential errors to one-line messages while preserving API/protocol formatting and reporting cache-removal failures alongside the original 401 | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
 | Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (`"file"`, `"terminal"`, and `"planning"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`, firing an optional `LoopCallbacks` (`onDelta`/`onToolStart`/`onToolComplete`) around each dispatch; injects active todo state into subsequent model calls when a caller-owned todo store is present; returns new history or an error | Solo project |
 | Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
-| API failure recovery (`src/agent/recovery.ts`) | Classifies a thrown error into a `RecoveryAction` (`classifyError`) and retries a step up to 3 times with linear backoff only when the classification says to (`callDevinWithRecovery`) | Solo project |
+| API failure recovery (`src/agent/recovery.ts`) | Treats credential rejection/401 as reauthentication, retries HTTP 408/429/5xx and fetch-style transport failures up to 3 attempts with 500ms/1000ms delays, and fails other client/protocol/unrelated errors immediately | Solo project |
 | Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `get(name)` looks up a registered tool's metadata, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
 | Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo}.ts`) | Five self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`), and `todo` (toolset `"planning"`, caller-owned in-memory flat todo state); file/terminal tools register a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for live-activity labels, while REPL `todo` completions are suppressed in favor of the persistent panel | Solo project |
 | Todo store (`src/tools/todo.ts`) | Pure normalization/reducer logic plus a tiny stateful `createTodoStore()` boundary. Todos are flat, ordered by priority, globally deduplicated by id (last-occurrence-wins), bounded to 256 total items, truncate content above 4000 chars, normalize bad status to `pending`, coerce malformed items to placeholders, support partial-field merge-by-id, and expose `formatForInjection()` for pending/in-progress work only | Solo project |
@@ -54,11 +55,13 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 1. `src/cli.ts` detects `--print`/`-p`, takes the remaining argv as the
    question (default `"Hello!"`), and calls `runOneShot`.
-2. `runOneShot` calls `initDevinSession` (`src/session.ts`), which checks
-   `~/.railgun/devin-token` via `widevin`'s `createFileTokenStore`; if no
-   token is cached, `devin.login()` drives an OAuth flow via
-   `src/openBrowser.ts`, then the token store persists it; `devin.listModels()`
-   fetches available models and the first one is selected. Session
+2. `runOneShot` calls `initDevinSession` (`src/session.ts`), which asks the
+   authentication boundary for a provider. A trimmed nonempty `DEVIN_TOKEN`
+   uses a process-local memory store and takes precedence without reading or
+   changing the cache. Otherwise `~/.railgun/devin-token` is reused; only an
+   absent cache starts OAuth through `src/openBrowser.ts`. Whitespace-only
+   environment input counts as absent. `devin.listModels()` fetches available
+   models and the first one is selected. Session
    bootstrap then loads project context and persistent identity in parallel
    via `loadProjectContext(cwd)` and `loadSoulIdentity()`
    (`src/agent/projectContext.ts`): `loadProjectContext` searches for
@@ -112,7 +115,22 @@ This document records the intended system architecture for Railgun. Keep it curr
    `{ ok: false, error }` — is re-thrown by `runOneShot` and caught by
    `main()`'s top-level handler in `src/cli.ts`, which prints one line to
    stderr (via `describeDevinError`, falling back to a full dump for
-   unclassified errors) with a non-zero exit code.
+   unclassified errors) with a non-zero exit code. Model-discovery and stream
+   HTTP 401 responses become source-aware rejections: cached credentials are
+   removed, while environment rejection leaves the cache untouched.
+
+**Authentication commands (`login`/`logout`):**
+
+1. CLI parsing recognizes only the exact subcommands with no extra arguments
+   and dispatches before constructing SQLite, project context, a session, or
+   the TUI.
+2. `login` always starts fresh browser OAuth against the file store. The old
+   cache remains until OAuth returns a replacement. Model discovery then
+   verifies it: 401 clears the new value; API/protocol uncertainty retains it
+   with saved-but-unverified context. A nonempty `DEVIN_TOKEN` produces an
+   override warning.
+3. `logout` idempotently clears the file store. A nonempty `DEVIN_TOKEN`
+   produces a warning because environment authentication remains active.
 
 **Startup session management (`--resume`/`-r [session-id]` and
 `--list-sessions`):**
@@ -154,7 +172,11 @@ This document records the intended system architecture for Railgun. Keep it curr
    `TodoStore`. Each submitted message calls `runTurn` with authoritative
    history, streaming/tool callbacks, and the shell-approval promise. Success
    checkpoints the complete history/todo snapshot; save failure retains it in
-   memory for retry, while turn failure restores the pre-turn todos.
+   memory for retry, while turn failure restores the pre-turn todos and saves
+   no checkpoint. Authentication failure leaves the REPL open and never
+   replays the failed message or tools. The file store is read for each
+   request, so `railgun login` in another terminal supplies the credential for
+   the next manually resubmitted message.
 4. Display lines become physical terminal rows before entering the pure
    viewport reducer. Mouse wheel and PageUp/PageDown scroll, Home/End jump,
    resize preserves prior bottom-follow state, and an unseen cue consumes one
@@ -189,9 +211,11 @@ for the process lifetime, while each one-shot invocation gets a fresh
 
 ## Persistence
 
-A single file, `~/.railgun/devin-token` (mode `0600`), holds the cached
-Devin auth token — created and managed entirely by `widevin`'s
-`createFileTokenStore`. A legacy `~/.railgun/config.json`, if present, is
+A single file, `~/.railgun/devin-token` (mode `0600`), holds the optional cached
+Devin auth token and is managed through `widevin`'s `createFileTokenStore`.
+`DEVIN_TOKEN`, when nonempty after trimming, is held in a memory store for the
+current process, takes precedence over this file, and is never persisted or
+cleared by Railgun. A legacy `~/.railgun/config.json`, if present, is
 ignored and left untouched. An optional file, `~/.railgun/SOUL.md` (no file-mode
 restriction — user-authored text, not a secret), is read once at session
 startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
@@ -205,7 +229,8 @@ One-shot mode does not open this database. See ADR 0006.
 ## Integrations
 
 - Devin, via the `widevin` npm package (OAuth login, model discovery, streaming chat). See
-  `docs/adr/0001-single-provider-devin-via-widevin.md`.
+  `docs/adr/0001-single-provider-devin-via-widevin.md` and
+  `docs/adr/0008-source-aware-devin-authentication.md`.
 - SQLite, via `better-sqlite3`, for local interactive session checkpoints. See
   `docs/adr/0006-sqlite-session-checkpoints.md`.
 - Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-multiline-input` (`^0.1.0`) +
@@ -222,10 +247,10 @@ One-shot mode does not open this database. See ADR 0006.
 
 ## Security
 
-- The Devin token is stored in a single user-owned file (`~/.railgun/devin-token`,
-  mode `0600`), not in an env var or shell history, limiting exposure to
-  other local users/processes on shared machines.
-- Railgun never logs or prints the token itself; only the sign-in URL (which
+- Cached Devin tokens use a single user-owned file (`~/.railgun/devin-token`,
+  mode `0600`); environment tokens remain process-local and are never copied
+  into that cache.
+- Railgun never logs or prints token contents; only the sign-in URL (which
   is not a secret on its own) is printed during login.
 - Conversation history and todos may contain sensitive local data. The SQLite
   database is chmod'd to `0600` whenever it is opened, and strict codecs fail

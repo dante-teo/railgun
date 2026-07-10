@@ -190,20 +190,28 @@ describe("runTurn", () => {
     }
   });
 
-  it("gives up and returns ok:false after exhausting every retry attempt", async () => {
-    vi.useFakeTimers();
-    try {
-      const err = new Error("persistent failure");
-      const devin = fakeProvider([{ throws: err }, { throws: err }, { throws: err }]);
+  it("returns unrelated errors immediately without replaying the failed turn", async () => {
+    const err = new Error("persistent failure");
+    const devin = fakeProvider([{ throws: err }]);
+    const streamChat = vi.spyOn(devin, "streamChat");
 
-      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
-      await vi.runAllTimersAsync();
-      const outcome = await outcomePromise;
+    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
-      expect(outcome).toEqual({ ok: false, error: err });
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(outcome).toEqual({ ok: false, error: err });
+    expect(streamChat).toHaveBeenCalledOnce();
+  });
+
+  it("returns HTTP 401 immediately with unchanged history and never replays the failed message", async () => {
+    const err = new DevinApiError("unauthorized", 401);
+    const devin = fakeProvider([{ throws: err }]);
+    const streamChat = vi.spyOn(devin, "streamChat");
+    const history = [{ role: "user", content: "prior" }] as const;
+
+    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, history, "resubmit me", defaultBudget(), approveAll);
+
+    expect(outcome).toEqual({ ok: false, error: err });
+    expect(history).toEqual([{ role: "user", content: "prior" }]);
+    expect(streamChat).toHaveBeenCalledOnce();
   });
 
   describe("tool calling", () => {

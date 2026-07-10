@@ -29,6 +29,8 @@ const fakeSession = { model: { id: "model-a" } } as DevinSession;
 const dependencies = (store = fakeStore()): CliDependencies => ({
   createStore: vi.fn(() => store),
   initSession: vi.fn(async () => fakeSession),
+  runLogin: vi.fn(async () => {}),
+  runLogout: vi.fn(async () => {}),
   runRepl: vi.fn(async () => {}),
   runOneShot: vi.fn(async () => {}),
   selectSession: vi.fn(async () => undefined),
@@ -48,17 +50,31 @@ describe("parseCliArgs", () => {
     [["--list-sessions"], { kind: "list" }],
     [["--print", "hello", "world"], { kind: "print", question: "hello world" }],
     [["-p"], { kind: "print", question: "Hello!" }],
+    [["login"], { kind: "login" }],
+    [["logout"], { kind: "logout" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
 
-  it.each([["extra"], ["--resume", "a", "b"], ["-r", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
+  it.each([["extra"], ["login", "extra"], ["logout", "extra"], ["--resume", "a", "b"], ["-r", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
     ("rejects invalid arguments %j", (...args) => {
       expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
     });
 });
 
 describe("dispatchCli", () => {
+  it.each([
+    [{ kind: "login" as const }, "runLogin" as const],
+    [{ kind: "logout" as const }, "runLogout" as const],
+  ])("runs $command without opening SQLite, initializing Devin sessions, or starting the TUI", async (mode, command) => {
+    const deps = dependencies();
+    await dispatchCli(mode, deps);
+    expect(deps[command]).toHaveBeenCalledOnce();
+    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.initSession).not.toHaveBeenCalled();
+    expect(deps.runRepl).not.toHaveBeenCalled();
+  });
+
   it("keeps print mode stateless and never opens the session database", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "print", question: "hello" }, deps);

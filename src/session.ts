@@ -1,12 +1,9 @@
-import { homedir, platform, release } from "node:os";
-import { join } from "node:path";
-import { createDevinProvider, createFileTokenStore } from "widevin";
+import { platform, release } from "node:os";
 import type { DevinModel, DevinProvider } from "widevin";
+import { createAuthenticatedProvider } from "./auth.js";
 import { buildSystemPrompt } from "./agent/systemPrompt.js";
-import { openUrlInBrowser } from "./openBrowser.js";
 import { loadProjectContext, loadSoulIdentity } from "./agent/projectContext.js";
-
-export const TOKEN_PATH = join(homedir(), ".railgun", "devin-token");
+export { TOKEN_PATH } from "./sessionPath.js";
 
 export interface DevinSession {
   devin: DevinProvider;
@@ -20,13 +17,7 @@ export const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
 export const initDevinSession = async (requiredModelId?: string): Promise<DevinSession> => {
-  const tokenStore = createFileTokenStore(TOKEN_PATH);
-  const devin = createDevinProvider({ tokenStore, openBrowser: openUrlInBrowser });
-
-  if (!(await tokenStore.get())) {
-    await devin.login();
-  }
-
+  const { devin } = await createAuthenticatedProvider();
   const models = await devin.listModels();
   const model = requiredModelId === undefined
     ? models[0]

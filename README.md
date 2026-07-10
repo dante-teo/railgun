@@ -52,10 +52,10 @@ session becomes durable after its first successful turn:
   Terminal and OS changes repaint the interface live. The terminal's own canvas
   background remains untouched. Legacy `~/.railgun/config.json` files are
   ignored and are not deleted.
-- **First run**: no cached credentials exist yet, so a browser window opens for
-  Devin sign-in. After you complete login, the token is cached to
-  `~/.railgun/devin-token` (mode `0600`).
-- **Later runs**: the cached token is reused — no browser prompt.
+- **Authentication**: a nonempty, trimmed `DEVIN_TOKEN` takes precedence for
+  this process and is never persisted. Otherwise Railgun reuses
+  `~/.railgun/devin-token` (mode `0600`), opening browser sign-in only when
+  that cache is absent. Whitespace-only `DEVIN_TOKEN` values count as absent.
 - Type a message and press Enter to send it; Shift+Enter inserts a newline in
   terminals supporting enhanced keyboard reporting. The composer grows from
   one through six rows (and caps lower in short terminals), preserves multiline
@@ -115,13 +115,42 @@ session becomes durable after its first successful turn:
   `Esc` to dismiss the dropdown.
 - **Per-turn error**: a failed turn (e.g. an expired token) prints a red
   one-line error into the transcript and the REPL stays open for the next
-  message — it does not exit the process. Fix a bad token with
-  `rm ~/.railgun/devin-token` and rerun `pnpm start` to log in again.
+  message — it does not exit the process. A rejected cached credential is
+  removed automatically; run `pnpm start login` in another terminal, then
+  manually resubmit the failed message in the still-open REPL. A rejected
+  environment credential is never removed from disk: update or unset
+  `DEVIN_TOKEN` instead. Failed turns are never replayed automatically.
   Todo changes from the failed turn are rolled back, though file and shell
   side effects already performed by tools cannot be undone.
 - **Checkpoint error**: a completed turn stays usable in memory and the
   status line shows `unsaved`. The next successful turn retries the complete
   pending snapshot; a recovery message appears once persistence succeeds.
+
+### Authentication commands
+
+```sh
+pnpm start login
+pnpm start logout
+```
+
+`login` always starts fresh browser OAuth. The existing cached credential stays
+in place until OAuth returns a replacement, which Railgun saves and verifies
+with model discovery. A verification 401 removes the replacement and fails;
+other API or protocol verification failures retain it and report that it was
+saved but could not be verified. If `DEVIN_TOKEN` is set, Railgun warns that it
+still overrides the new cache.
+
+`logout` idempotently removes only the cached credential and succeeds when no
+cache exists. If `DEVIN_TOKEN` is set, Railgun warns that environment-based
+authentication remains active. These commands do not open SQLite, load project
+context, initialize a chat session, or start the TUI. They are exact
+subcommands: `login`/`logout` do not accept extra arguments and have no flag
+aliases.
+
+HTTP 401 is never retried. Railgun retries HTTP 408, 429, and 5xx responses and
+fetch-style transport failures up to three total attempts, waiting 500ms then
+1000ms. Other 4xx responses, protocol failures, and unrelated errors fail
+immediately.
 
 ### Saved sessions
 
@@ -204,7 +233,8 @@ One-shot mode never opens the session database and never creates or updates a
 saved session.
 
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
-the supported `--print`, `--resume`/`-r`, and `--list-sessions` usage to
+the supported `login`, `logout`, `--print`, `--resume`/`-r`, and
+`--list-sessions` usage to
 stderr and exits non-zero without launching anything.
 
 ## Development

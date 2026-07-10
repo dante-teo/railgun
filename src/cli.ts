@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeDevinError } from "./errors.js";
+import { runLoginCommand, runLogoutCommand } from "./auth.js";
 import { runOneShot } from "./oneShot.js";
 import { createSessionStore } from "./persistence/sessionStore.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
@@ -11,13 +12,15 @@ import { runSessionChooser } from "./repl/SessionChooser.js";
 import { initDevinSession } from "./session.js";
 import type { DevinSession } from "./session.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions]";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] | railgun login | railgun logout";
 
 export type CliMode =
   | { kind: "fresh" }
   | { kind: "print"; question: string }
   | { kind: "resume"; id?: string }
-  | { kind: "list" };
+  | { kind: "list" }
+  | { kind: "login" }
+  | { kind: "logout" };
 
 export class CliUsageError extends Error {
   constructor() {
@@ -29,6 +32,8 @@ export class CliUsageError extends Error {
 export interface CliDependencies {
   createStore: () => SessionStore;
   initSession: (requiredModelId?: string) => Promise<DevinSession>;
+  runLogin: () => Promise<void>;
+  runLogout: () => Promise<void>;
   runRepl: (session: DevinSession, options?: ReplPersistenceOptions) => Promise<void>;
   runOneShot: (question: string) => Promise<void>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
@@ -41,6 +46,8 @@ export interface CliDependencies {
 export const parseCliArgs = (args: readonly string[]): CliMode => {
   if (args.length === 0) return { kind: "fresh" };
   const [flag, ...rest] = args;
+  if (flag === "login" && rest.length === 0) return { kind: "login" };
+  if (flag === "logout" && rest.length === 0) return { kind: "logout" };
   if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!" };
   if (flag === "--list-sessions" && rest.length === 0) return { kind: "list" };
   if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
@@ -59,6 +66,8 @@ export const formatSessionTable = (sessions: readonly SessionSummary[]): string 
 const defaultDependencies: CliDependencies = {
   createStore: createSessionStore,
   initSession: initDevinSession,
+  runLogin: runLoginCommand,
+  runLogout: runLogoutCommand,
   runRepl,
   runOneShot,
   selectSession: runSessionChooser,
@@ -99,6 +108,14 @@ const runPersistedRepl = async (
 };
 
 export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies = defaultDependencies): Promise<void> => {
+  if (mode.kind === "login") {
+    await dependencies.runLogin();
+    return;
+  }
+  if (mode.kind === "logout") {
+    await dependencies.runLogout();
+    return;
+  }
   if (mode.kind === "print") {
     await dependencies.runOneShot(mode.question);
     return;

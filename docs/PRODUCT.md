@@ -14,18 +14,24 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 12 (persistent sessions and resume chooser):**
-Phase 12 makes successful interactive conversations and their todo snapshots
-durable in `~/.railgun/state.db`. Fresh sessions are created lazily on their
-first successful checkpoint. `--resume <id>`/`-r <id>` restores one exact session,
-bare `--resume`/`-r` provides a newest-first Up/Down keyboard chooser, and
-`--list-sessions` reports saved sessions without Devin authentication.
-Resumes require their stored model, rebuild launch-specific prompt context,
-and hydrate user/assistant text plus todos while omitting historical tool UI
-frames. Failed Devin turns roll todos back and save nothing. Failed SQLite
-checkpoints retain the completed turn in memory, mark it unsaved, and retry
-the full snapshot after the next successful turn. One-shot mode remains
-stateless and never opens SQLite.
+**Current phase — Phase 13 (robust Devin authentication lifecycle; ADR 0008):**
+Phase 13 adds exact `login` and `logout` subcommands, process-local
+`DEVIN_TOKEN` support, source-aware rejection handling, and precise retry
+boundaries. A trimmed nonempty environment token overrides the file cache
+without reading, changing, or persisting it. Otherwise Railgun reuses
+`~/.railgun/devin-token` and opens browser OAuth only when the cache is absent
+or `login` is explicitly requested. HTTP 401 removes a rejected cached token
+but never touches the cache for a rejected environment token. Authentication
+commands avoid SQLite, project context, chat-session initialization, and the
+TUI. Failed authentication turns remain failed: the REPL stays open, but the
+user must repair credentials and manually resubmit the message.
+
+Phase 12 persistence remains in place. Successful interactive conversations
+and todo snapshots are durable in `~/.railgun/state.db`; exact or interactive
+resume restores them, while one-shot and authentication modes remain outside
+SQLite. Failed Devin turns roll back todos and save nothing. Failed SQLite
+checkpoints retain completed state in memory and retry the full snapshot after
+the next successful turn.
 
 The interactive surface has since been upgraded to an adaptive full-screen TUI
 (ADR 0007): automatic terminal/OS mint theming, alternate-screen restoration,
@@ -63,9 +69,11 @@ truncated, scanned for prompt-injection patterns, and appended to the
 system prompt when accepted. No mid-session subdirectory hints, no
 `.cursor/rules/*.mdc` support, and no config-driven
 `context_file_max_chars` override yet. Earlier hardening remains in place:
-parallel-safe tool batching, corrupted tool-call JSON self-healing,
-transient API retry, and the shared iteration-budget behavior still apply
-to both the REPL and one-shot paths.
+parallel-safe tool batching, corrupted tool-call JSON self-healing, precisely
+bounded transient API retry, and the shared iteration-budget behavior still
+apply to both the REPL and one-shot paths. Retryable failures are HTTP 408,
+429, 5xx, and fetch-style transport errors; HTTP 401, other 4xx responses,
+protocol failures, and unrelated errors fail immediately.
 
 ## Users
 
@@ -99,10 +107,11 @@ to both the REPL and one-shot paths.
 
 ## Core Workflows
 
-1. Run `pnpm start` from a terminal; on first use, complete a one-time
-   browser sign-in to Devin; type messages into the Ink chat REPL and read
-   streamed replies from the scrollback. Each successful turn checkpoints the
-   whole conversation and todos so they can be resumed in a later process.
+1. Run `pnpm start` from a terminal. Railgun uses a trimmed nonempty
+   `DEVIN_TOKEN`, otherwise reuses the cached Devin credential and opens
+   browser sign-in only when the cache is absent. Type messages into the Ink
+   chat REPL and read streamed replies from the scrollback. Each successful
+   turn checkpoints the whole conversation and todos for later resume.
 2. Run `pnpm start --print "<question>"` (or `-p`) for a one-shot,
    scriptable/CI invocation that keeps Phase 1's stdout/stderr contract —
    no interactive REPL, no conversation memory — but can call the same
@@ -110,6 +119,10 @@ to both the REPL and one-shot paths.
    approval prompt if the model calls `run_shell_command`.
 3. Run `pnpm start --resume [session-id]` (or `pnpm start -r [session-id]`) to continue saved work, or
    `pnpm start --list-sessions` to inspect local sessions without logging in.
+4. Run `pnpm start login` to deliberately replace and verify the cached Devin
+   credential, or `pnpm start logout` to idempotently remove only that cache.
+   When `DEVIN_TOKEN` is set, both commands explain that environment
+   authentication overrides or survives the cache operation.
 
 ## Success Metrics
 
@@ -190,7 +203,14 @@ to both the REPL and one-shot paths.
   `src/repl/SessionChooser.test.ts` covers wrapping Up/Down navigation;
   `src/session.test.ts` covers required saved models; and
   `src/repl/App.test.tsx` covers transcript/todo hydration, rollback helpers,
-  unsaved retry, and recovery clearing.
+  unsaved retry, and recovery clearing. Phase 13: `src/auth.test.ts` covers
+  environment/file selection, missing-cache OAuth, model-discovery and stream
+  invalidation, removal failure, fresh login verification, cache preservation,
+  and idempotent logout; `src/cli.test.ts` proves exact auth-command parsing and
+  stateless dispatch; `src/errors.test.ts` proves source-specific recovery text
+  without credential disclosure; and recovery/turn tests prove exact status
+  classification, 500ms/1000ms delays, immediate 401 failure, unchanged turn
+  history, and no automatic replay.
 
 ## Open Questions
 

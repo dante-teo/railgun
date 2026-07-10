@@ -5,8 +5,8 @@
 Railgun's interactive surface is a dense, full-screen terminal workspace. A
 compact branded header anchors a repaintable transcript; sticky todos,
 suggestions or approval, the composer, and a slim status bar stay visible at
-the bottom. One-shot output and `--list-sessions` remain ordinary terminal
-text.
+the bottom. One-shot output, authentication commands, and `--list-sessions`
+remain ordinary terminal text.
 
 ## Appearance
 
@@ -55,3 +55,26 @@ The chooser shares the live automatic theme, header, selected surface, compact
 metadata, and status bar. Up/Down wraps, Enter resumes, and Escape/Ctrl-C
 cancels. Its newest-first list viewport tracks selection across terminal
 resizes.
+
+## Authentication and recovery
+
+`login` and `logout` are startup subcommands, not in-REPL slash commands. They
+produce short plain-text status or warning lines and never enter the alternate
+screen. `login` always opens fresh browser OAuth, keeps the previous cache until
+OAuth returns a replacement, and verifies the replacement through model
+discovery. `logout` removes only the cached credential and succeeds even when
+no cache exists.
+
+A trimmed nonempty `DEVIN_TOKEN` is process-local and takes precedence over the
+cache. Login warns that it will override the newly saved credential; logout
+warns that authentication remains active. Token contents never appear in
+status, warning, or error text.
+
+Credential rejection is source-specific. A rejected cached credential is
+removed and the user is directed to `railgun login`; a rejected environment
+credential is left alone and the user is directed to update or unset
+`DEVIN_TOKEN`. In the REPL, either failure becomes a red transcript line while
+the composer returns to an interactive state. The failed message and any tool
+calls are never replayed automatically. After file-backed login succeeds in
+another terminal, the user manually resubmits the message in the still-open
+REPL.

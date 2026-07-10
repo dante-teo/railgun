@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DevinApiError, DevinAuthError } from "widevin";
+import { DevinApiError, DevinAuthError, DevinProtocolError } from "widevin";
+import { CredentialRejectedError } from "../auth.js";
 import { callDevinWithRecovery, classifyError } from "./recovery.js";
 
 describe("classifyError", () => {
@@ -7,20 +8,27 @@ describe("classifyError", () => {
     expect(classifyError(new DevinAuthError("auth expired"))).toBe("reauth_required");
   });
 
-  it.each([429, 502, 503])("classifies DevinApiError with status %d as retry_with_backoff", status => {
+  it("classifies source-aware rejection and raw HTTP 401 as reauth_required", () => {
+    expect(classifyError(new CredentialRejectedError("file", new DevinApiError("no", 401)))).toBe("reauth_required");
+    expect(classifyError(new DevinApiError("no", 401))).toBe("reauth_required");
+  });
+
+  it.each([408, 429, 500, 502, 503, 599])("classifies DevinApiError with status %d as retry_with_backoff", status => {
     expect(classifyError(new DevinApiError("transient", status))).toBe("retry_with_backoff");
   });
 
-  it.each([400, 413])("classifies DevinApiError with status %d as fail_immediately", status => {
+  it.each([400, 403, 404, 413, 422])("classifies DevinApiError with status %d as fail_immediately", status => {
     expect(classifyError(new DevinApiError("bad request", status))).toBe("fail_immediately");
   });
 
-  it("classifies DevinApiError with an unlisted status as retry_with_backoff", () => {
-    expect(classifyError(new DevinApiError("server error", 500))).toBe("retry_with_backoff");
+  it("classifies protocol and unrelated errors as immediate failures", () => {
+    expect(classifyError(new DevinProtocolError("bad event"))).toBe("fail_immediately");
+    expect(classifyError(new Error("unexpected"))).toBe("fail_immediately");
   });
 
-  it("classifies a plain Error as retry_with_backoff", () => {
-    expect(classifyError(new Error("unexpected"))).toBe("retry_with_backoff");
+  it("classifies fetch-style TypeError transport failures as retryable", () => {
+    expect(classifyError(new TypeError("fetch failed"))).toBe("retry_with_backoff");
+    expect(classifyError(new TypeError("unrelated type bug"))).toBe("fail_immediately");
   });
 });
 
@@ -52,6 +60,26 @@ describe("callDevinWithRecovery", () => {
     const result = await resultPromise;
 
     expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses exactly 500ms and 1000ms delays between the three attempts", async () => {
+    vi.useFakeTimers();
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce("ok");
+
+    const result = callDevinWithRecovery(fn);
+    expect(fn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(fn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fn).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fn).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBe("ok");
     expect(fn).toHaveBeenCalledTimes(3);
   });
 

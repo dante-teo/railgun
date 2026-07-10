@@ -27,5 +27,8 @@ internal data model — no separate generic `ChatMessage`/provider-agnostic shap
 - Railgun inherits `widevin`'s compliance constraint: programmatic Devin access is only
   permitted when the operator's organization and Devin's terms allow it. This is an operational
   responsibility, not something the code enforces.
-- Token storage, OAuth login, model discovery, and stream-event parsing are all delegated to
-  `widevin` and are out of scope for Railgun to reimplement.
+- Token-store primitives, OAuth mechanics, model discovery, and stream-event
+  parsing are delegated to `widevin`. Railgun owns application-level selection
+  between environment and file stores, source-aware 401 invalidation, and CLI
+  login/logout orchestration; see ADR 0008. Railgun does not reimplement the
+  underlying Devin protocol.

@@ -36,14 +36,14 @@ like, written before that phase's own design work happens.
 `classifyError` maps HTTP 413 to `"fail_immediately"`, the same as 400.
 `callDevinWithRecovery` takes no `compress` parameter.
 
-`"reauth_required"` and `"fail_immediately"` currently produce identical
-behavior (rethrow immediately, no retry) — this is intentional, not
-redundant. Phase 11 (robust Devin login) will give `"reauth_required"`
-its own recovery path (e.g. trigger a re-login flow instead of failing
-the turn) without needing to re-derive which errors mean "auth is dead"
-versus "the request itself is bad." Keeping them as distinct enum
-members now, even though they currently behave the same, avoids a
-second classification pass over the same errors later.
+`"reauth_required"` and `"fail_immediately"` both rethrow immediately with no
+retry, but remain distinct classifications. Phase 13 now uses
+`"reauth_required"` for source-aware credential rejection and raw HTTP 401;
+the authentication boundary invalidates a rejected file credential before the
+error reaches recovery. Railgun deliberately does not replay the failed turn
+or trigger in-turn browser OAuth. Keeping the actions distinct preserves the
+reason for failure for presentation and future orchestration without
+conflating dead credentials with a bad request.
 
 ## Consequences
 
