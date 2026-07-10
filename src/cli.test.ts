@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DevinSession } from "./session.js";
+import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
 import { dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
 
@@ -28,6 +29,8 @@ const fakeSession = { model: { id: "model-a" } } as DevinSession;
 
 const dependencies = (store = fakeStore()): CliDependencies => ({
   createStore: vi.fn(() => store),
+  loadConfig: vi.fn(async (): Promise<AppConfig> => ({ model: null })),
+  initFreshSession: vi.fn(async () => fakeSession),
   initSession: vi.fn(async () => fakeSession),
   runLogin: vi.fn(async () => {}),
   runLogout: vi.fn(async () => {}),
@@ -52,17 +55,33 @@ describe("parseCliArgs", () => {
     [["-p"], { kind: "print", question: "Hello!" }],
     [["login"], { kind: "login" }],
     [["logout"], { kind: "logout" }],
+    [["config"], { kind: "config" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
 
-  it.each([["extra"], ["login", "extra"], ["logout", "extra"], ["--resume", "a", "b"], ["-r", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
+  it.each([["extra"], ["login", "extra"], ["logout", "extra"], ["config", "extra"], ["--resume", "a", "b"], ["-r", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
     ("rejects invalid arguments %j", (...args) => {
       expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
     });
 });
 
 describe("dispatchCli", () => {
+  it("prints effective pretty configuration without authentication, SQLite, file writes, or TUI startup", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.loadConfig).mockResolvedValue({ model: null, future: { kept: true } });
+
+    await dispatchCli({ kind: "config" }, deps);
+
+    expect(deps.stdout).toHaveBeenCalledWith('{\n  "model": null,\n  "future": {\n    "kept": true\n  }\n}');
+    expect(deps.loadConfig).toHaveBeenCalledOnce();
+    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.initFreshSession).not.toHaveBeenCalled();
+    expect(deps.initSession).not.toHaveBeenCalled();
+    expect(deps.runLogin).not.toHaveBeenCalled();
+    expect(deps.runRepl).not.toHaveBeenCalled();
+  });
+
   it.each([
     [{ kind: "login" as const }, "runLogin" as const],
     [{ kind: "logout" as const }, "runLogout" as const],
@@ -81,6 +100,15 @@ describe("dispatchCli", () => {
     expect(deps.runOneShot).toHaveBeenCalledWith("hello");
     expect(deps.createStore).not.toHaveBeenCalled();
     expect(deps.initSession).not.toHaveBeenCalled();
+  });
+
+  it("uses fresh-session configuration recovery and exits successfully when it is cancelled", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.initFreshSession).mockResolvedValue(undefined);
+    await dispatchCli({ kind: "fresh" }, deps);
+    expect(deps.initFreshSession).toHaveBeenCalledOnce();
+    expect(deps.runRepl).not.toHaveBeenCalled();
+    expect(deps.createStore).not.toHaveBeenCalled();
   });
 
   it("lists sessions without initializing Devin", async () => {

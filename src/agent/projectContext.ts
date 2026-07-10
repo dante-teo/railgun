@@ -1,7 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { scanForThreats } from "../security/threatPatterns.js";
+import { SOUL_PATH } from "../paths.js";
+export { SOUL_PATH } from "../paths.js";
 
 export interface ProjectContextCandidate {
   readonly names: readonly string[];
@@ -14,8 +15,6 @@ export const PROJECT_CONTEXT_CANDIDATES: readonly ProjectContextCandidate[] = [
   { names: ["CLAUDE.md", "claude.md"], walkToGitRoot: false },
   { names: [".cursorrules"], walkToGitRoot: false },
 ];
-
-export const SOUL_PATH = join(homedir(), ".railgun", "SOUL.md");
 
 // ── Internal helpers ─────────────────────────────────────────────────────
 

@@ -1,16 +1,16 @@
 import { chmodSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { DevinAssistantContentPart, DevinContentPart, DevinMessage } from "widevin";
 import { normalizeTodoState } from "../tools/todo.js";
 import type { TodoState, TodoStatus } from "../tools/todo.js";
+import { STATE_PATH } from "../paths.js";
 
 const SCHEMA_VERSION = 1;
 const PREVIEW_LIMIT = 71;
 const TODO_STATUSES = new Set<TodoStatus>(["pending", "in_progress", "completed", "cancelled"]);
 
-export const DEFAULT_STATE_PATH = join(homedir(), ".railgun", "state.db");
+export const DEFAULT_STATE_PATH = STATE_PATH;
 
 export interface SessionCheckpoint {
   id: string;

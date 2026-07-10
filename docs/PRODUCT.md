@@ -14,8 +14,19 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 13 (robust Devin authentication lifecycle; ADR 0008):**
-Phase 13 adds exact `login` and `logout` subcommands, process-local
+**Current phase — Phase 14 (central configuration and model recovery):**
+Phase 14 activates `~/.railgun/config.json` as the single configuration source,
+with `{ "model": null }` selecting Devin's first returned model. The exact,
+read-only `config` subcommand prints effective pretty JSON without authentication,
+SQLite, file creation, or TUI startup. Fresh REPL and one-shot sessions honor an
+exact configured model; unavailable models can be replaced through a themed
+interactive chooser that atomically persists the selection before startup.
+Non-interactive recovery fails actionably, cancellation is a successful no-op,
+and resumes stay pinned to their recorded models. Config, token, state, and SOUL
+paths now derive from one fixed `~/.railgun` home function. General model
+switching remains deferred to Phase 15.
+
+Phase 13 added exact `login` and `logout` subcommands, process-local
 `DEVIN_TOKEN` support, source-aware rejection handling, and precise retry
 boundaries. A trimmed nonempty environment token overrides the file cache
 without reading, changing, or persisting it. Otherwise Railgun reuses
@@ -123,6 +134,9 @@ protocol failures, and unrelated errors fail immediately.
    credential, or `pnpm start logout` to idempotently remove only that cache.
    When `DEVIN_TOKEN` is set, both commands explain that environment
    authentication overrides or survives the cache operation.
+5. Run `pnpm start config` to inspect effective configuration without side
+   effects. Hand-edit `~/.railgun/config.json` to choose the exact default model
+   for new sessions, or use `null` for Devin's first returned model.
 
 ## Success Metrics
 
@@ -182,8 +196,7 @@ protocol failures, and unrelated errors fail immediately.
   command/arg split, and `nextCompletionState`'s state transitions across
   Tab (freeze-then-cycle through multiple matches, auto-complete a single
   match with a trailing space) and Escape (reset to empty). `/help` lists
-  `/exit`, `/help`, and `/clear`; there is no `/skin` command and legacy
-  `~/.railgun/config.json` is ignored without deletion. Phase 11:
+  `/exit`, `/help`, and `/clear`; there is no `/skin` command. Phase 11:
   `src/tools/todo.test.ts` proves todo normalization, flat replace
   writes, global-id merge with partial-field updates (status-only and
   content-only patches), last-occurrence-wins duplicate-id collapse,
@@ -210,7 +223,14 @@ protocol failures, and unrelated errors fail immediately.
   stateless dispatch; `src/errors.test.ts` proves source-specific recovery text
   without credential disclosure; and recovery/turn tests prove exact status
   classification, 500ms/1000ms delays, immediate 401 failure, unchanged turn
-  history, and no automatic replay.
+  history, and no automatic replay. Phase 14: `src/config.test.ts` covers
+  defaults, recursive merge, validation, read failures, unknown-field
+  preservation, and atomic replacement; `src/paths.test.ts` covers centralized
+  application paths; `src/cli.test.ts` proves exact stateless config dispatch;
+  `src/session.test.ts` covers null, exact, recovery, persistence ordering,
+  cancellation, write failure, non-TTY errors, and unchanged resume pinning;
+  chooser/lifecycle tests cover model rows, wrapping and rapid sequential input,
+  resize windows, screen-reader behavior, and terminal cleanup.
 
 ## Open Questions
 

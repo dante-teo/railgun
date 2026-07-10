@@ -21,9 +21,10 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 | Component | Responsibility | Owner |
 | --- | --- | --- |
-| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for `login`, `logout`, fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; auth commands return before any SQLite/session/TUI boundary | Solo project — no formal ownership split |
+| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for `config`, `login`, `logout`, fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; config/auth commands return before SQLite/session/TUI boundaries | Solo project — no formal ownership split |
+| Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, and SOUL paths from one fixed Railgun home; recursively merges defaults with user JSON, validates recognized fields, preserves unknown fields, and atomically persists model replacements | Solo project |
 | Authentication boundary (`src/auth.ts`) | Selects trimmed process-local `DEVIN_TOKEN` or the file cache, wraps model discovery and async streaming with source-aware 401 invalidation, and implements fresh-login verification plus idempotent cached logout without exposing token contents | Solo project |
-| Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, performs model discovery (optionally requiring one exact saved model), captures the local date, loads project context and persistent identity in parallel, and builds the system prompt once | Solo project |
+| Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, keeps resumes on an exact saved model, applies configuration to fresh sessions, coordinates interactive missing-model recovery before session construction, loads context/identity, and builds the system prompt once | Solo project |
 | Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: versioned schema setup, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, and atomic idempotent full-snapshot checkpoints | Solo project |
 | System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules, cached session environment, and two optional context blocks — `soulIdentity` (from `~/.railgun/SOUL.md`) and `projectContext` (from the project's context file); environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens in `projectContext.ts` before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
@@ -42,7 +43,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Command system (`src/commands.ts`) | Pure `/exit`, `/help`, and `/clear` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
 | Markdown (`src/repl/markdown.ts`) | `markdansi` adapter for wrapped GFM replies, links, tables, lists, and mint-themed fenced code boxes; called only for completed assistant text | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure themed Ink component rendering slash-command matches and selection | Solo project |
-| Session chooser (`src/repl/SessionChooser.tsx`) | Full-screen, live-themed, resize-aware startup selector for bare `--resume`/`-r`; wraps Up/Down, confirms with Enter, and cancels with Escape/Ctrl-C before Devin initialization | Solo project |
+| Session chooser (`src/repl/SessionChooser.tsx`) | Full-screen, live-themed, resize-aware startup selector for bare `--resume`/`-r`; shared synchronous input state preserves rapid navigation before Enter, Up/Down wraps, and Escape/Ctrl-C cancels before Devin initialization | Solo project |
+| Model chooser (`src/repl/ModelChooser.tsx`) | Full-screen missing-model recovery for interactive fresh sessions; reuses the session chooser's input state and pure input/window helpers plus the alternate-screen/theme lifecycle while rendering model-specific capability rows | Solo project |
 | Ink REPL (`src/repl/App.tsx`) | Full-height multi-turn UI with repaintable transcript, sticky todos/approval/suggestions/composer, viewport history, Markdown completion rendering, tool feedback, persistence hydration/checkpoint hooks, and status segments | Solo project |
 | Status line helpers (`src/repl/statusLine.ts`) | Pure `formatCwd(cwd)` (homedir → `~` shortening) and async `getGitStatus(cwd)` (branch name + dirty detection via `execFile("git", ...)`) — consumed once on mount by `App.tsx`'s status bar; returns `{ branch: null, dirty: false }` outside a git repo or on any `git` error | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✔`/`✘` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
@@ -55,13 +57,16 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 1. `src/cli.ts` detects `--print`/`-p`, takes the remaining argv as the
    question (default `"Hello!"`), and calls `runOneShot`.
-2. `runOneShot` calls `initDevinSession` (`src/session.ts`), which asks the
-   authentication boundary for a provider. A trimmed nonempty `DEVIN_TOKEN`
+2. `runOneShot` calls `initFreshDevinSession` (`src/session.ts`), which loads
+   configuration and asks the authentication boundary for a provider. A
+   trimmed nonempty `DEVIN_TOKEN`
    uses a process-local memory store and takes precedence without reading or
    changing the cache. Otherwise `~/.railgun/devin-token` is reused; only an
    absent cache starts OAuth through `src/openBrowser.ts`. Whitespace-only
    environment input counts as absent. `devin.listModels()` fetches available
-   models and the first one is selected. Session
+   models. A null configuration selects the first; an available string selects
+   that exact ID; an unavailable string follows interactive/non-interactive
+   recovery before session construction. Session
    bootstrap then loads project context and persistent identity in parallel
    via `loadProjectContext(cwd)` and `loadSoulIdentity()`
    (`src/agent/projectContext.ts`): `loadProjectContext` searches for
@@ -155,15 +160,31 @@ This document records the intended system architecture for Railgun. Keep it curr
    rebuilt for the new process rather than loaded from SQLite.
 5. Missing IDs, corruption, database errors, and unavailable saved models
    propagate to the top-level error handler and exit nonzero. Store closure is
-   guaranteed by `dispatchCli`'s `finally` block on success, cancellation, and
-   failure.
+   guaranteed by `dispatchCli`'s shared `withStore`/`finally` boundary on
+   success, cancellation, and failure.
+
+**Configuration (`config` and fresh-session model selection):**
+
+1. Exact `config` dispatch calls `loadConfig` and prints two-space JSON before
+   authentication, SQLite, filesystem creation, or Ink initialization.
+2. Missing `config.json` returns `{ "model": null }`. Existing object roots are
+   recursively merged with defaults; recognized fields are validated while
+   unknown JSON fields survive reads and writes. Parse, validation, and read
+   failures identify the path and never trigger repair.
+3. Fresh REPL and one-shot bootstrap apply the configured model. If an exact ID
+   is unavailable and both stdin/stdout are TTYs, `runModelChooser` returns a
+   replacement or cancellation. Replacement uses `write-file-atomic` after
+   creating the Railgun home and completes before context or session startup.
+   Non-TTY launches fail with both unavailable and available IDs. Exact-model
+   resume remains a separate path and never switches models.
 
 **Interactive REPL path (`pnpm start`):**
 
-1. `src/cli.ts` opens the session store, allocates a session ID, initializes
-   Devin and project context, then calls `runRepl`. `ThemeController` resolves
+1. `src/cli.ts` initializes the configured fresh session before opening the
+   session store, so recovery cancellation creates no database. It then opens
+   the store, allocates a session ID, and calls `runRepl`. `ThemeController` resolves
    terminal appearance before OS appearance, installs deduplicated live
-   listeners, and falls back to dark on failure. Legacy config is ignored.
+   listeners, and falls back to dark on failure.
 2. Interactive TTY output enters the alternate screen and enables SGR mouse
    reporting; non-TTY and screen-reader runs do neither. Ink renders a
    full-height `ChatApp`, and alternate-screen, mouse, theme, and native-resource
@@ -211,12 +232,16 @@ for the process lifetime, while each one-shot invocation gets a fresh
 
 ## Persistence
 
+`getHomeDir()` fixes the application home at `~/.railgun`; config, token, state,
+and SOUL paths are derived from it. `config.json` is the single configuration
+source. Missing files use `{ "model": null }`; unknown fields are retained and
+model recovery writes two-space JSON with a trailing newline atomically.
+
 A single file, `~/.railgun/devin-token` (mode `0600`), holds the optional cached
 Devin auth token and is managed through `widevin`'s `createFileTokenStore`.
 `DEVIN_TOKEN`, when nonempty after trimming, is held in a memory store for the
 current process, takes precedence over this file, and is never persisted or
-cleared by Railgun. A legacy `~/.railgun/config.json`, if present, is
-ignored and left untouched. An optional file, `~/.railgun/SOUL.md` (no file-mode
+cleared by Railgun. An optional file, `~/.railgun/SOUL.md` (no file-mode
 restriction — user-authored text, not a secret), is read once at session
 startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
 content injected as a `# Persistent Identity` block in the system prompt;

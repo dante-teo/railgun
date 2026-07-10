@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { initDevinSession } from "./session.js";
+import { initFreshDevinSession } from "./session.js";
 import { runTurn } from "./agent/turn.js";
 import { IterationBudget } from "./agent/iterationBudget.js";
 import { startSpinner } from "./spinner.js";
@@ -17,7 +17,9 @@ const confirmShellCommand = async (command: string): Promise<boolean> => {
 };
 
 export const runOneShot = async (question: string): Promise<void> => {
-  const { devin, model, systemPrompt } = await initDevinSession();
+  const session = await initFreshDevinSession();
+  if (session === undefined) return;
+  const { devin, model, systemPrompt } = session;
   let activeStop: ((isError: boolean) => void) | undefined;
   const todoStore = createTodoStore();
   const outcome = await runTurn(devin, model.id, systemPrompt, [], question, IterationBudget.create(), confirmShellCommand, {

@@ -8,24 +8,66 @@ import { useTerminalSize } from "./terminalSize.js";
 
 export type SelectionDirection = "up" | "down";
 
-export const moveSessionSelection = (
+interface SelectionKey {
+  readonly upArrow?: boolean;
+  readonly downArrow?: boolean;
+  readonly return?: boolean;
+  readonly escape?: boolean;
+  readonly ctrl?: boolean;
+}
+
+export type SelectionInputResult =
+  | { readonly type: "move"; readonly index: number }
+  | { readonly type: "finish"; readonly index: number }
+  | { readonly type: "cancel" }
+  | { readonly type: "none" };
+
+export const moveSelection = (
   current: number,
-  sessionCount: number,
+  itemCount: number,
   direction: SelectionDirection,
 ): number => {
-  if (sessionCount <= 1) return 0;
+  if (itemCount <= 1) return 0;
   const delta = direction === "down" ? 1 : -1;
-  return (current + delta + sessionCount) % sessionCount;
+  return (current + delta + itemCount) % itemCount;
 };
 
-export const sessionListWindow = (
+export const selectionListWindow = (
   selectedIndex: number,
-  sessionCount: number,
+  itemCount: number,
   visibleRows: number,
 ): { readonly start: number; readonly end: number } => {
-  const size = Math.max(1, Math.min(sessionCount, visibleRows));
-  const start = Math.max(0, Math.min(selectedIndex - size + 1, sessionCount - size));
-  return { start, end: Math.min(sessionCount, start + size) };
+  const size = Math.max(1, Math.min(itemCount, visibleRows));
+  const start = Math.max(0, Math.min(selectedIndex - size + 1, itemCount - size));
+  return { start, end: Math.min(itemCount, start + size) };
+};
+
+// Backward-compatible names retained for callers and tests from the resume chooser.
+export const moveSessionSelection = moveSelection;
+export const sessionListWindow = selectionListWindow;
+
+export const reduceSelectionInput = (
+  current: number,
+  itemCount: number,
+  input: string,
+  key: SelectionKey,
+): SelectionInputResult => {
+  if (key.upArrow) return { type: "move", index: moveSelection(current, itemCount, "up") };
+  if (key.downArrow) return { type: "move", index: moveSelection(current, itemCount, "down") };
+  if (key.return) return { type: "finish", index: current };
+  if (key.escape || (key.ctrl && input.toLowerCase() === "c")) return { type: "cancel" };
+  return { type: "none" };
+};
+
+export const createSelectionInputState = (initialIndex = 0) => {
+  let currentIndex = initialIndex;
+  return {
+    reduce: (itemCount: number, input: string, key: SelectionKey): SelectionInputResult => {
+      const action = reduceSelectionInput(currentIndex, itemCount, input, key);
+      if (action.type === "move") currentIndex = action.index;
+      return action;
+    },
+  };
 };
 
 interface SessionChooserProps {
@@ -38,6 +80,7 @@ interface SessionChooserProps {
 export const SessionChooser = ({ sessions, onDone, initialMode, themeController }: SessionChooserProps): React.ReactElement => {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectionInput] = useState(createSelectionInputState);
   const [mode, setMode] = useState(initialMode);
   const size = useTerminalSize();
   const theme = themeForMode(mode);
@@ -49,14 +92,14 @@ export const SessionChooser = ({ sessions, onDone, initialMode, themeController 
   }, [exit, onDone]);
 
   useInput((input, key) => {
-    if (key.upArrow) setSelectedIndex(current => moveSessionSelection(current, sessions.length, "up"));
-    else if (key.downArrow) setSelectedIndex(current => moveSessionSelection(current, sessions.length, "down"));
-    else if (key.return) finish(sessions[selectedIndex]?.id);
-    else if (key.escape || (key.ctrl && input.toLowerCase() === "c")) finish(undefined);
+    const action = selectionInput.reduce(sessions.length, input, key);
+    if (action.type === "move") setSelectedIndex(action.index);
+    else if (action.type === "finish") finish(sessions[action.index]?.id);
+    else if (action.type === "cancel") finish(undefined);
   });
 
   const visibleCount = Math.max(1, Math.floor((size.rows - 5) / 3));
-  const window = sessionListWindow(selectedIndex, sessions.length, visibleCount);
+  const window = selectionListWindow(selectedIndex, sessions.length, visibleCount);
   return (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Box borderStyle="single" borderColor={theme.border} paddingX={1} height={3}>

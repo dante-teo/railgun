@@ -20,12 +20,14 @@
     "markdansi": "^0.3.2",
     "os-theme": "^0.0.9",
     "react": "^19.2.0",
-    "widevin": "^0.1.3"
+    "widevin": "^0.1.3",
+    "write-file-atomic": "^6.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.17.10",
     "@types/react": "^19.2.0",
+    "@types/write-file-atomic": "^4.0.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.10"

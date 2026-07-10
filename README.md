@@ -50,8 +50,11 @@ session becomes durable after its first successful turn:
 - **Automatic appearance**: Railgun first asks the terminal whether its canvas
   is light or dark, then falls back to the OS appearance and finally dark.
   Terminal and OS changes repaint the interface live. The terminal's own canvas
-  background remains untouched. Legacy `~/.railgun/config.json` files are
-  ignored and are not deleted.
+  background remains untouched. Appearance is not configurable.
+- **Configuration**: `~/.railgun/config.json` is the single configuration
+  source. A missing file has the effective default `{ "model": null }`, which
+  selects the first model returned by Devin. Unknown fields are preserved;
+  malformed files and invalid recognized values fail without automatic repair.
 - **Authentication**: a nonempty, trimmed `DEVIN_TOKEN` takes precedence for
   this process and is never persisted. Otherwise Railgun reuses
   `~/.railgun/devin-token` (mode `0600`), opening browser sign-in only when
@@ -151,6 +154,31 @@ HTTP 401 is never retried. Railgun retries HTTP 408, 429, and 5xx responses and
 fetch-style transport failures up to three total attempts, waiting 500ms then
 1000ms. Other 4xx responses, protocol failures, and unrelated errors fail
 immediately.
+
+### Configuration
+
+```sh
+pnpm start config
+```
+
+`config` prints the effective configuration as pretty JSON. It is an exact,
+read-only subcommand: extra arguments are usage errors, and it does not
+authenticate, open SQLite, create files, or enter the TUI. Set `model` to an
+exact Devin model ID to use it for new REPL and one-shot sessions; set it to
+`null` to use Devin's first available model.
+
+If a configured model disappears, an interactive launch opens the themed,
+resize-aware model chooser. Up/Down wraps, Enter atomically saves the selected
+replacement before startup continues, and Escape/Ctrl-C cancels successfully
+without changing configuration or starting a session. A non-interactive launch
+instead exits nonzero and lists the unavailable ID, available IDs, and how to
+launch interactively. Resumed conversations remain pinned to their recorded
+model and never use this recovery path. General model switching is deferred to
+Phase 15.
+
+All application files derive from the fixed `~/.railgun` home: `config.json`,
+`devin-token`, `state.db`, and `SOUL.md`. There are no profiles or home-path
+overrides.
 
 ### Saved sessions
 

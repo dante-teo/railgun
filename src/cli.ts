@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadConfig } from "./config.js";
+import type { AppConfig } from "./config.js";
 import { describeDevinError } from "./errors.js";
 import { runLoginCommand, runLogoutCommand } from "./auth.js";
 import { runOneShot } from "./oneShot.js";
@@ -9,10 +11,10 @@ import type { PersistedSession, SessionStore, SessionSummary } from "./persisten
 import { runRepl } from "./repl/App.js";
 import type { ReplPersistenceOptions } from "./repl/App.js";
 import { runSessionChooser } from "./repl/SessionChooser.js";
-import { initDevinSession } from "./session.js";
+import { initDevinSession, initFreshDevinSession } from "./session.js";
 import type { DevinSession } from "./session.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] | railgun login | railgun logout";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] | railgun login | railgun logout | railgun config";
 
 export type CliMode =
   | { kind: "fresh" }
@@ -20,7 +22,8 @@ export type CliMode =
   | { kind: "resume"; id?: string }
   | { kind: "list" }
   | { kind: "login" }
-  | { kind: "logout" };
+  | { kind: "logout" }
+  | { kind: "config" };
 
 export class CliUsageError extends Error {
   constructor() {
@@ -31,6 +34,8 @@ export class CliUsageError extends Error {
 
 export interface CliDependencies {
   createStore: () => SessionStore;
+  loadConfig: () => Promise<AppConfig>;
+  initFreshSession: () => Promise<DevinSession | undefined>;
   initSession: (requiredModelId?: string) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
@@ -48,6 +53,7 @@ export const parseCliArgs = (args: readonly string[]): CliMode => {
   const [flag, ...rest] = args;
   if (flag === "login" && rest.length === 0) return { kind: "login" };
   if (flag === "logout" && rest.length === 0) return { kind: "logout" };
+  if (flag === "config" && rest.length === 0) return { kind: "config" };
   if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!" };
   if (flag === "--list-sessions" && rest.length === 0) return { kind: "list" };
   if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
@@ -65,6 +71,8 @@ export const formatSessionTable = (sessions: readonly SessionSummary[]): string 
 
 const defaultDependencies: CliDependencies = {
   createStore: createSessionStore,
+  loadConfig,
+  initFreshSession: initFreshDevinSession,
   initSession: initDevinSession,
   runLogin: runLoginCommand,
   runLogout: runLogoutCommand,
@@ -107,6 +115,18 @@ const runPersistedRepl = async (
   await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave));
 };
 
+const withStore = async <T>(
+  dependencies: CliDependencies,
+  run: (store: SessionStore) => Promise<T>,
+): Promise<T> => {
+  const store = dependencies.createStore();
+  try {
+    return await run(store);
+  } finally {
+    store.close();
+  }
+};
+
 export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies = defaultDependencies): Promise<void> => {
   if (mode.kind === "login") {
     await dependencies.runLogin();
@@ -116,21 +136,19 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     await dependencies.runLogout();
     return;
   }
+  if (mode.kind === "config") {
+    dependencies.stdout(JSON.stringify(await dependencies.loadConfig(), null, 2));
+    return;
+  }
   if (mode.kind === "print") {
     await dependencies.runOneShot(mode.question);
     return;
   }
 
-  const store = dependencies.createStore();
-  try {
-    if (mode.kind === "list") {
-      const sessions = store.listSessions();
-      dependencies.stdout(sessions.length === 0 ? "No saved sessions." : formatSessionTable(sessions));
-      return;
-    }
-
-    if (mode.kind === "fresh") {
-      const session = await dependencies.initSession();
+  if (mode.kind === "fresh") {
+    const session = await dependencies.initFreshSession();
+    if (session === undefined) return;
+    await withStore(dependencies, async store => {
       const persisted: PersistedSession = {
         id: dependencies.randomId(),
         model: session.model.id,
@@ -143,6 +161,14 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
         store,
         () => dependencies.stderr(`Session saved: ${persisted.id}`),
       ));
+    });
+    return;
+  }
+
+  await withStore(dependencies, async store => {
+    if (mode.kind === "list") {
+      const sessions = store.listSessions();
+      dependencies.stdout(sessions.length === 0 ? "No saved sessions." : formatSessionTable(sessions));
       return;
     }
 
@@ -159,9 +185,7 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     const persisted = store.loadSession(id);
     if (!persisted) throw new Error(`No saved session found with ID "${id}". Run railgun --list-sessions to see available sessions.`);
     await runPersistedRepl(persisted, store, dependencies);
-  } finally {
-    store.close();
-  }
+  });
 };
 
 export const main = async (args = process.argv.slice(2)): Promise<void> => {
