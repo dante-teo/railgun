@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOWN_COMMANDS } from "./commands.js";
 
 describe("KNOWN_COMMANDS", () => {
-  it("contains the four expected commands", () => {
-    expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/skin", "/help", "/clear"]);
+  it("contains commands without the removed skin override", () => {
+    expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear"]);
   });
 });
 
 describe("matchCommand", () => {
-  it("returns '/skin' for the unique prefix '/sk'", () => {
-    expect(matchCommand("/sk")).toBe("/skin");
+  it("does not match the removed '/skin' command", () => {
+    expect(matchCommand("/sk")).toBeUndefined();
   });
 
   it("returns undefined when prefix matches all commands ('/')", () => {
@@ -34,10 +34,10 @@ describe("matchCommand", () => {
 });
 
 describe("parseSlashCommand", () => {
-  it("splits '/skin mono' into command and arg", () => {
-    expect(parseSlashCommand("/skin mono")).toEqual({
-      command: "/skin",
-      arg: "mono",
+  it("splits a command and argument", () => {
+    expect(parseSlashCommand("/unknown value")).toEqual({
+      command: "/unknown",
+      arg: "value",
     });
   });
 
@@ -47,9 +47,9 @@ describe("parseSlashCommand", () => {
     expect(result).not.toHaveProperty("arg");
   });
 
-  it("handles '/skin  spaced  arg' by trimming and joining", () => {
-    expect(parseSlashCommand("/skin  spaced  arg")).toEqual({
-      command: "/skin",
+  it("trims and joins a spaced argument", () => {
+    expect(parseSlashCommand("/unknown  spaced  arg")).toEqual({
+      command: "/unknown",
       arg: "spaced  arg",
     });
   });
@@ -62,11 +62,11 @@ describe("parseSlashCommand", () => {
 });
 describe("findMatches", () => {
   it("returns all commands for '/'", () => {
-    expect(findMatches("/")).toEqual(["/exit", "/skin", "/help", "/clear"]);
+    expect(findMatches("/")).toEqual(["/exit", "/help", "/clear"]);
   });
 
-  it("returns ['/skin'] for '/sk'", () => {
-    expect(findMatches("/sk")).toEqual(["/skin"]);
+  it("returns no matches for '/sk'", () => {
+    expect(findMatches("/sk")).toEqual([]);
   });
 
   it("returns ['/exit'] for '/e'", () => {
@@ -88,7 +88,7 @@ describe("findMatches", () => {
 });
 
 describe("nextCompletionState", () => {
-  const allCommands = ["/exit", "/skin", "/help", "/clear"];
+  const allCommands = ["/exit", "/help", "/clear"];
 
   it("opens frozen list on first tab with multiple live matches", () => {
     const result = nextCompletionState([], null, allCommands, "tab");
@@ -107,20 +107,20 @@ describe("nextCompletionState", () => {
   it("cycles to next item on subsequent tabs", () => {
     const result = nextCompletionState(allCommands, 0, ["/exit"], "tab");
     expect(result.index).toBe(1);
-    expect(result.input).toBe("/skin");
+    expect(result.input).toBe("/help");
   });
 
   it("wraps around on last item", () => {
-    const result = nextCompletionState(allCommands, 3, ["/clear"], "tab");
+    const result = nextCompletionState(allCommands, 2, ["/clear"], "tab");
     expect(result.index).toBe(0);
     expect(result.input).toBe("/exit");
   });
 
   it("auto-completes with space for single live match", () => {
-    const result = nextCompletionState([], null, ["/skin"], "tab");
+    const result = nextCompletionState([], null, ["/help"], "tab");
     expect(result.frozenMatches).toEqual([]);
     expect(result.index).toBeNull();
-    expect(result.input).toBe("/skin ");
+    expect(result.input).toBe("/help ");
   });
 
   it("clears everything on escape", () => {

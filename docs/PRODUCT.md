@@ -17,8 +17,8 @@ goes toward agent logic instead of provider plumbing (see
 **Current phase — Phase 12 (persistent sessions and resume chooser):**
 Phase 12 makes successful interactive conversations and their todo snapshots
 durable in `~/.railgun/state.db`. Fresh sessions are created lazily on their
-first successful checkpoint. `--resume <id>` restores one exact session,
-bare `--resume` provides a newest-first Up/Down keyboard chooser, and
+first successful checkpoint. `--resume <id>`/`-r <id>` restores one exact session,
+bare `--resume`/`-r` provides a newest-first Up/Down keyboard chooser, and
 `--list-sessions` reports saved sessions without Devin authentication.
 Resumes require their stored model, rebuild launch-specific prompt context,
 and hydrate user/assistant text plus todos while omitting historical tool UI
@@ -26,6 +26,14 @@ frames. Failed Devin turns roll todos back and save nothing. Failed SQLite
 checkpoints retain the completed turn in memory, mark it unsaved, and retry
 the full snapshot after the next successful turn. One-shot mode remains
 stateless and never opens SQLite.
+
+The interactive surface has since been upgraded to an adaptive full-screen TUI
+(ADR 0007): automatic terminal/OS mint theming, alternate-screen restoration,
+physical-row transcript navigation with mouse and keyboard controls, a
+multiline composer, chronological assistant/tool activity, completed-reply GFM
+Markdown, and the same resize-aware treatment in the resume chooser. This
+supersedes the earlier manual skin/config/banner interaction without changing
+Phase 12's persistence contracts.
 
 Phase 11 added a planning tool and REPL panel for multi-step work. The
 `todo` tool is registered under the always-enabled `"planning"` toolset
@@ -100,7 +108,7 @@ to both the REPL and one-shot paths.
    no interactive REPL, no conversation memory — but can call the same
    tools as the REPL, including silent todo planning and a stdin-blocking
    approval prompt if the model calls `run_shell_command`.
-3. Run `pnpm start --resume [session-id]` to continue saved work, or
+3. Run `pnpm start --resume [session-id]` (or `pnpm start -r [session-id]`) to continue saved work, or
    `pnpm start --list-sessions` to inspect local sessions without logging in.
 
 ## Success Metrics
@@ -146,28 +154,23 @@ to both the REPL and one-shot paths.
   during a tool call, a permanent `✓`/`✗` scrollback line after, and one
   collapsed `"Running N tools concurrently"` line for a concurrent batch
   instead of N separate ones) and a manual one-shot smoke test confirming
-  the spinner writes only to stderr, never stdout); Phase 9:
-  `src/skins.test.ts` proves `resolveSkin` returns the matching
-  `SkinConfig` for both builtin skin names and `undefined` for an
-  unrecognized one, and that `BUILTIN_SKINS` exposes exactly the
-  `default`/`mono` keys; `src/config.test.ts` (mocking
-  `node:fs/promises`) proves `loadConfig` falls back to the default skin
-  on a missing file (ENOENT), invalid JSON, and a recognized-but-unknown
-  skin name, and that `saveConfig` calls `mkdir` with
-  `{ recursive: true }` before `writeFile`-ing the serialized config;
+  the spinner writes only to stderr, never stdout); Phase 9's original manual
+  skin/config/banner implementation is superseded by ADR 0007. Current TUI
+  coverage includes exact palettes and terminal-over-OS detection
+  (`src/repl/theme.test.ts`), alternate-screen and mouse cleanup
+  (`lifecycle.test.ts`), physical-row paging/bottom-follow/unseen-cue behavior
+  (`viewport.test.ts`), SGR wheel parsing (`mouse.test.ts`), multiline composer
+  controls and protocol filtering (`composer.test.ts`), Markdown and code boxes
+  (`markdown.test.ts`), terminal resize fallback (`terminalSize.test.ts`), and
+  chronological assistant/tool segmentation (`streamingTranscript.test.ts`).
   `src/commands.test.ts` proves `matchCommand`'s unique-prefix
   resolution (including its ambiguous-`/`-and-no-match undefined cases),
   `findMatches`'s full candidate list, `parseSlashCommand`'s
   command/arg split, and `nextCompletionState`'s state transitions across
   Tab (freeze-then-cycle through multiple matches, auto-complete a single
-  match with a trailing space) and Escape (reset to empty) — plus a
-  manual REPL smoke test confirming a bordered banner in the active
-  skin's colors appears once above the input on launch, `/help` prints
-  the command list, `/skin mono` swaps the prompt symbol and banner
-  colors live and persists the choice to `~/.railgun/config.json` across
-  a restart, `/clear` visibly clears the terminal without disturbing
-  `<Static>` scrollback, and typing `/` shows a suggestions dropdown that
-  Tab cycles through and Escape dismisses; Phase 11:
+  match with a trailing space) and Escape (reset to empty). `/help` lists
+  `/exit`, `/help`, and `/clear`; there is no `/skin` command and legacy
+  `~/.railgun/config.json` is ignored without deletion. Phase 11:
   `src/tools/todo.test.ts` proves todo normalization, flat replace
   writes, global-id merge with partial-field updates (status-only and
   content-only patches), last-occurrence-wins duplicate-id collapse,

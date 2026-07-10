@@ -12,11 +12,10 @@ transient API retry, and a 90-step iteration budget. In the REPL that
 budget is shared for the process lifetime; in one-shot mode each invocation
 gets a fresh budget. Exhausting it is a graceful stop, not a failure.
 Interactive conversations and todos are checkpointed to a private local
-SQLite database and can be resumed across restarts. The REPL also has a CLI
-polish layer: a startup banner,
-a themeable skin system (`default`/`mono`, switchable live and persisted
-to `~/.railgun/config.json`), slash commands (`/exit`, `/skin`, `/help`,
-`/clear`), and Tab-completion for those commands. A `.railgun.md` (or
+SQLite database and can be resumed across restarts. The REPL is a full-screen,
+resize-aware Ink interface with automatic mint-light/mint-dark appearance,
+Markdown replies, transcript history navigation, a multiline composer, slash
+commands (`/exit`, `/help`, `/clear`), and Tab completion. A `.railgun.md` (or
 `RAILGUN.md`) found in the project tree (walking up to the git root), or
 an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the working directory,
 is loaded into the system prompt automatically at session startup — as is
@@ -42,18 +41,29 @@ pnpm install
 pnpm start
 ```
 
-`pnpm start` with no arguments opens a fresh scrolling Ink chat REPL. The
+`pnpm start` with no arguments opens a fresh full-screen Ink chat REPL in the
+terminal's alternate screen buffer. The original terminal contents are
+restored on normal exit, Ctrl+C, cancellation, and errors. Alternate-screen
+mode is skipped for non-TTY output and when `INK_SCREEN_READER=true`. The
 session becomes durable after its first successful turn:
 
-- **Startup banner**: a bordered banner prints once, before the REPL
-  renders, showing the agent name and a welcome message in the active
-  skin's colors.
+- **Automatic appearance**: Railgun first asks the terminal whether its canvas
+  is light or dark, then falls back to the OS appearance and finally dark.
+  Terminal and OS changes repaint the interface live. The terminal's own canvas
+  background remains untouched. Legacy `~/.railgun/config.json` files are
+  ignored and are not deleted.
 - **First run**: no cached credentials exist yet, so a browser window opens for
   Devin sign-in. After you complete login, the token is cached to
   `~/.railgun/devin-token` (mode `0600`).
 - **Later runs**: the cached token is reused — no browser prompt.
-- Type a message and press Enter to send it; the reply streams into the
-  scrollback. Every prior turn is sent as context on the next turn. After
+- Type a message and press Enter to send it; Shift+Enter inserts a newline in
+  terminals supporting enhanced keyboard reporting. The composer grows from
+  one through six rows (and caps lower in short terminals), preserves multiline
+  paste, and keeps its draft while busy or awaiting approval. Tab completes an
+  active slash suggestion and moves the cursor to the completed value's end;
+  otherwise it is reserved for future message enqueue. `Ctrl+U` clears the
+  complete draft.
+  Every prior turn is sent as context on the next turn. After
   each successful turn, messages and todos are atomically checkpointed to
   `~/.railgun/state.db`; the full session ID prints after the first save and
   its short form remains in the status line.
@@ -68,9 +78,12 @@ session becomes durable after its first successful turn:
   parallel-safe batch of tool calls (e.g. reading two different files in
   one round) collapses to a single `Running N tools concurrently` line
   and one `✓ N/N tools completed` line, not one pair per call.
+  Assistant narration is committed before the tool row that follows it, so
+  multi-step turns retain chronological user → assistant → tool ordering.
 - Ask for a multi-step plan and the model can call the `todo` planning
-  tool. The REPL renders the current flat todo list in a persistent
-  panel above the input, with a `Todos · completed/total` header and per-item
+  tool. The REPL renders the current flat todo list in a sticky
+  panel above suggestions, approval, and the composer, with a
+  `Todos · completed/total` header and per-item
   status glyphs (`[ ]`/`[>]`/`[x]`/`[-]`). While a todo update is in
   flight, an empty panel shows a `Crafting todos` spinner. Todo activity
   is intentionally not echoed as normal `✓ todo ...` transcript lines.
@@ -86,16 +99,17 @@ session becomes durable after its first successful turn:
   the assistant prints
   `I've reached the iteration limit for this session, so I'm stopping here gracefully.`
   and the REPL stays open.
+- Completed assistant replies render as GFM Markdown, including wrapping,
+  links, tables, lists, inline code, and fenced code boxes with language labels.
+  Partial streaming text remains plain until the reply completes.
+- Transcript history: the mouse wheel scrolls by rows; PageUp/PageDown move by
+  a viewport; Home/End jump to the bounds. An unseen-output cue reserves a
+  visible row when new output arrives while scrolled up. New output and terminal
+  resizes continue following only when the viewport was already at the bottom.
 - Slash commands:
   - `/exit` (or `Ctrl+C`) — quit the REPL.
-  - `/skin <name>` — switch the active skin (`default` or `mono`); updates
-    the prompt symbol and spinner live and persists the choice to
-    `~/.railgun/config.json` so the next launch starts in that skin. An
-    unknown skin name prints an error and leaves the current skin unchanged.
   - `/help` — print the list of available commands.
-  - `/clear` — clear the terminal screen (the already-flushed scrollback
-    above the prompt is not replayed; the banner and current turn's
-    transcript reappear).
+  - `/clear` — clear the terminal canvas without discarding conversation state.
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
   `Esc` to dismiss the dropdown.
@@ -114,14 +128,18 @@ session becomes durable after its first successful turn:
 ```sh
 pnpm start --resume <session-id>
 pnpm start --resume
+pnpm start -r <session-id>
+pnpm start -r
 pnpm start --list-sessions
 ```
 
+`-r` is the short alias for `--resume`; both accept an optional session ID.
 `--resume <session-id>` restores that conversation and its todos. Railgun
 requires the saved model to still be available and fails clearly instead of
-switching models. Bare `--resume` opens a newest-first keyboard chooser: use
-Up/Down to highlight a session (navigation wraps at either end) and press
-Enter to resume it; Escape or Ctrl-C cancels successfully.
+switching models. Bare `--resume` opens a newest-first, full-screen chooser
+using the same live mint theme. Use Up/Down to highlight a session (navigation
+wraps at either end) and press Enter to resume it; Escape or Ctrl-C cancels
+successfully. The list viewport follows selection and terminal resizes.
 `--list-sessions` prints the detailed table without authenticating to Devin.
 If there are no sessions, both commands print `No saved sessions.` and exit
 successfully. Resumes rebuild the system prompt, project context, and personal
@@ -186,7 +204,7 @@ One-shot mode never opens the session database and never creates or updates a
 saved session.
 
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
-the supported `--print`, `--resume`, and `--list-sessions` usage to
+the supported `--print`, `--resume`/`-r`, and `--list-sessions` usage to
 stderr and exits non-zero without launching anything.
 
 ## Development
@@ -197,19 +215,18 @@ pnpm test            # vitest run — includes real temporary-SQLite persistence
 pnpm run build       # compile src/ to dist/
 ```
 
-The Ink REPL UI itself is still smoke-tested manually (see
-`docs/PRODUCT.md`'s Success Metrics); automated tests are scoped to the
-pure logic in
+The Ink REPL UI is supported by automated tests for its pure state and
+rendering helpers, alongside tests for
 `src/agent/turn.ts` (turn/history loop), `src/agent/toolDispatch.ts`
 (parallel-batch safety, corrupted-JSON detection), `src/agent/recovery.ts`
 (API failure classification and retry), `src/agent/projectContext.ts`
 (context-file discovery, git-root walk, injection scan, truncation,
 `SOUL.md` loading), `src/security/threatPatterns.ts` (injection-pattern
 matching), each tool's own handler logic in `src/tools/`,
-`src/commands.ts` (slash-command prefix matching and parsing), and
-`src/config.ts` (skin config load/save, including missing-file,
-malformed-JSON, and unknown-skin fallback behavior), plus pure REPL helpers
-such as the todo panel props and status glyph rendering.
+`src/commands.ts` (slash-command prefix matching and parsing), theme detection,
+physical-row viewport/navigation, mouse parsing and lifecycle cleanup, composer
+sizing/actions, chronological streaming/tool segmentation, terminal resizing,
+Markdown output, todo rendering, and session chooser navigation.
 
 ## Compliance
 

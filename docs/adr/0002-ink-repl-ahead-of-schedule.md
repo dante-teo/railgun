@@ -4,7 +4,7 @@ Date: 2026-07-07
 
 ## Status
 
-Accepted
+Accepted; implementation superseded in part by ADR 0007
 
 ## Context
 
@@ -43,3 +43,11 @@ scriptable callers.
   not blocking on an upstream release.
 - Raising the Node floor to `>=22` (to use Ink 7) is deliberately deferred
   to its own future decision, not bundled into this REPL work.
+
+## 2026-07-10 update
+
+ADR 0007 retains Ink 6 and React but replaces `ink-text-input` with
+`ink-multiline-input`, raises the already-independent Node floor to 22, and
+ships the formerly deferred full-screen theming, Markdown, viewport, mouse,
+and lifecycle work. This record remains the rationale for adopting Ink early;
+ADR 0007 describes the current terminal architecture.

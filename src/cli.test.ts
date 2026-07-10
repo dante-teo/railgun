@@ -43,6 +43,8 @@ describe("parseCliArgs", () => {
     [[], { kind: "fresh" }],
     [["--resume", "abc"], { kind: "resume", id: "abc" }],
     [["--resume"], { kind: "resume" }],
+    [["-r", "abc"], { kind: "resume", id: "abc" }],
+    [["-r"], { kind: "resume" }],
     [["--list-sessions"], { kind: "list" }],
     [["--print", "hello", "world"], { kind: "print", question: "hello world" }],
     [["-p"], { kind: "print", question: "Hello!" }],
@@ -50,7 +52,7 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
 
-  it.each([["extra"], ["--resume", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
+  it.each([["extra"], ["--resume", "a", "b"], ["-r", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
     ("rejects invalid arguments %j", (...args) => {
       expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
     });

@@ -35,13 +35,14 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo}.ts`) | Five self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`), and `todo` (toolset `"planning"`, caller-owned in-memory flat todo state); file/terminal tools register a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for live-activity labels, while REPL `todo` completions are suppressed in favor of the persistent panel | Solo project |
 | Todo store (`src/tools/todo.ts`) | Pure normalization/reducer logic plus a tiny stateful `createTodoStore()` boundary. Todos are flat, ordered by priority, globally deduplicated by id (last-occurrence-wins), bounded to 256 total items, truncate content above 4000 chars, normalize bad status to `pending`, coerce malformed items to placeholders, support partial-field merge-by-id, and expose `formatForInjection()` for pending/in-progress work only | Solo project |
 | Tool activity labels (`src/tools/toolLabel.ts`) | Pure `buildToolLabel(name, args, phase)` — turns a dispatched call's name+args into a one-line verb-based label (`"Reading <path>"`, `"Running <command>"`) via each tool's registered `verb`/`previewArgKey`, falling back to raw name+JSON for unlabeled/unregistered tools and the `"__batch__"` sentinel for a collapsed concurrent batch; whitespace-collapsed and truncated to 60 chars | Solo project |
-| Skin system (`src/skins.ts`) | Pure skin data: `SkinConfig` interface, two built-in skins (`default`, `mono`) defining OMP-aligned color-role tokens (`accent`, `border`, `muted`, `dim`, `success`, `error`, `selectedBg`, `userMessageBg`, `toolPendingBg`, `toolSuccessBg`, `toolErrorBg`, `statusLineBg`, `statusLineModel`, `statusLinePath`, `statusLineGitClean`, `statusLineGitDirty`), prompt symbol, and branding strings; `resolveSkin(name)` is a pure lookup returning `undefined` for an unrecognized name | Solo project |
-| Config persistence (`src/config.ts`) | `loadConfig`/`saveConfig` read/write `~/.railgun/config.json` (skin preference only, `{ "skin": "<name>" }`); a missing file, unreadable file, malformed JSON, or an unrecognized skin name all collapse silently to the default skin, with no startup warning | Solo project |
-| Command system (`src/commands.ts`) | Pure slash-command logic: `KNOWN_COMMANDS`, prefix matching (`matchCommand`/`findMatches`), `parseSlashCommand` (splits `"/skin mono"` into command + arg), and `nextCompletionState` (the tab/escape state machine cycling frozen matches vs. re-deriving live matches) — no I/O, no React | Solo project |
-| Banner (`src/repl/Banner.tsx`) | `printBanner(skin)` — a one-shot, raw-ANSI-colored startup banner with rounded-corner Unicode box-drawing (`╭╮╰╯─│`), border colored via `skin.colors.border`, agent name via `skin.colors.accent` (bold), welcome text via `skin.colors.muted` (hex-to-24-bit-ANSI conversion, no `chalk` dependency) written via `console.log` before Ink's `render()` is ever called; lives outside the Ink component tree entirely, so it is printed exactly once per launch and never re-renders | Solo project |
-| Suggestions (`src/repl/Suggestions.tsx`) | Pure Ink component rendering a vertical dropdown of slash-command matches beneath the input box; the selected row uses `skin.colors.accent` text on `skin.colors.selectedBg` background, unselected rows use `skin.colors.dim` | Solo project |
-| Session chooser (`src/repl/SessionChooser.tsx`) | Startup-only Ink selector for bare `--resume`; renders newest-first session details, wraps Up/Down navigation, confirms with Enter, and cancels with Escape/Ctrl-C before Devin initialization | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI plus optional persistence hydration/checkpoint hooks: restored user/assistant text and todos, failed-turn todo rollback, save-failure retry/marker, scrolling transcript, tool frames, input, slash commands, approvals, and model/cwd/git/short-session status | Solo project |
+| Theme system (`src/repl/theme.ts`) | Immutable exact mint-light/mint-dark semantic palettes plus a `ThemeController` around `os-theme`; terminal-over-OS resolution, live terminal events, OS-event terminal re-query, deduplication, failure fallback, and resource cleanup | Solo project |
+| Viewport/composer/lifecycle (`src/repl/{viewport,composer,lifecycle,mouse,terminalSize}.ts`) | Pure viewport and composer actions, SGR mouse parsing, shared resize observation, and guaranteed alternate-screen/mouse-mode boundaries; resize preserves prior bottom-follow state and unseen cues reserve a rendered row | Solo project |
+| Streaming transcript (`src/repl/streamingTranscript.ts`) | Pure segment state that accumulates deltas, flushes narration before each tool starts, and returns only the uncommitted final assistant segment | Solo project |
+| Command system (`src/commands.ts`) | Pure `/exit`, `/help`, and `/clear` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
+| Markdown (`src/repl/markdown.ts`) | `markdansi` adapter for wrapped GFM replies, links, tables, lists, and mint-themed fenced code boxes; called only for completed assistant text | Solo project |
+| Suggestions (`src/repl/Suggestions.tsx`) | Pure themed Ink component rendering slash-command matches and selection | Solo project |
+| Session chooser (`src/repl/SessionChooser.tsx`) | Full-screen, live-themed, resize-aware startup selector for bare `--resume`/`-r`; wraps Up/Down, confirms with Enter, and cancels with Escape/Ctrl-C before Devin initialization | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Full-height multi-turn UI with repaintable transcript, sticky todos/approval/suggestions/composer, viewport history, Markdown completion rendering, tool feedback, persistence hydration/checkpoint hooks, and status segments | Solo project |
 | Status line helpers (`src/repl/statusLine.ts`) | Pure `formatCwd(cwd)` (homedir → `~` shortening) and async `getGitStatus(cwd)` (branch name + dirty detection via `execFile("git", ...)`) — consumed once on mount by `App.tsx`'s status bar; returns `{ branch: null, dirty: false }` outside a git repo or on any `git` error | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✔`/`✘` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
 | Threat pattern scanner (`src/security/threatPatterns.ts`) | Pure, id-tagged regex list (`CONTEXT_THREAT_PATTERNS`, 10 curated patterns covering prompt injection, role hijack, HTML hidden-element injection, system-prompt leak, and safety-bypass phrasing) plus `scanForThreats(content)` returning matched pattern ids; no I/O, bounded filler `(?:\w+\s+){0,8}` prevents catastrophic backtracking | Solo project |
@@ -113,7 +114,7 @@ This document records the intended system architecture for Railgun. Keep it curr
    stderr (via `describeDevinError`, falling back to a full dump for
    unclassified errors) with a non-zero exit code.
 
-**Startup session management (`--resume [session-id]` and
+**Startup session management (`--resume`/`-r [session-id]` and
 `--list-sessions`):**
 
 1. `parseCliArgs` resolves the mode before any stateful dependency is opened.
@@ -122,7 +123,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 2. `--list-sessions` opens `createSessionStore`, calls `listSessions`, prints
    the detailed newest-first table (or `No saved sessions.`), and closes the
    store without calling `initDevinSession`.
-3. Direct `--resume <id>` calls `loadSession(id)`. Bare `--resume` first calls
+3. Direct `--resume <id>`/`-r <id>` calls `loadSession(id)`. Bare `--resume`/`-r` first calls
    `listSessions`; an empty result exits successfully, otherwise
    `runSessionChooser` renders the Ink selector. Up/Down wraps the highlight,
    Enter returns the selected ID, and Escape/Ctrl-C returns no selection. The
@@ -139,117 +140,36 @@ This document records the intended system architecture for Railgun. Keep it curr
    guaranteed by `dispatchCli`'s `finally` block on success, cancellation, and
    failure.
 
-**REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6, live tool feedback since Phase 7):**
+**Interactive REPL path (`pnpm start`):**
 
-1. `src/cli.ts` (no argv) opens the session store, allocates a session ID,
-   and calls `initDevinSession` once (which now also
-   loads project context and persistent identity in parallel — see the
-   one-shot path step 2 above for the full `loadProjectContext`/
-   `loadSoulIdentity` discovery, injection scan, and truncation
-   semantics), then `runRepl` (`src/repl/App.tsx`) loads the persisted
-   skin preference via `loadConfig` (`src/config.ts`), resolves it to a
-   `SkinConfig` via `resolveSkin` (`src/skins.ts`, falling back to the
-   default skin for a missing/invalid config), prints the startup banner
-   via `printBanner` (`src/repl/Banner.tsx`) straight to stdout — before
-   Ink's `render()` is ever called — then renders the Ink `ChatApp` and
-   blocks on `waitUntilExit()`. The database row is not created until the
-   first successful turn checkpoint.
-2. `ChatApp` receives the cached system prompt from `initDevinSession`
-   and the resolved skin as its `initialSkin` prop, seeding the
-   `activeSkin` React state that `/skin` can later update live.
-   It also creates one default `IterationBudget` and one hydrated `TodoStore` in
-   React refs, both shared by every turn for the REPL process lifetime.
-   Each submitted line calls
-   `runTurn` (`src/agent/turn.ts`) with the growing `history` array, the
-   session's `DevinProvider`/model/system prompt, the new user text, that
-   shared budget, and a `confirmShellCommand` callback that stores a
-   `{ resolve }` pair in a ref and sets `pendingCommand` React state; a
-   `useInput` handler
-   (active only while `pendingCommand` is set) resolves that approval
-   promise. After success, the complete message history and todo snapshot are
-   checkpointed atomically. Save failure retains both in memory and marks the
-   session unsaved for a full retry after the next successful turn. Turn
-   failure restores the pre-turn todos and writes nothing. `runTurn` loops one `streamChat` round per consumed budget
-   step, each wrapped in `callDevinWithRecovery`
-   (`src/agent/recovery.ts`): a round that throws a transient error
-   (429/502/503, or an error type `classifyError` doesn't recognize) is
-   retried up to 3 times total with linear backoff (500ms × attempt
-   number) before the turn gives up; a malformed-request error (400/413)
-   or `DevinAuthError` fails the turn immediately on first throw, with no
-   retry. Within a round, `text_delta` events stream into a live
-   "in-flight" line via a callback as they arrive; `toolcall_delta` events
-   are buffered per tool-call id into a raw
-   JSON string (widevin's own incrementally-parsed `.arguments` is not
-   trusted, since it silently returns `{}` on a parse failure instead of
-   surfacing one), and at that round's `toolcall_end` the buffered string is
-   parsed via `safeParseToolArgs` (`src/agent/toolDispatch.ts`) — a call
-   whose buffer never parses gets a labeled corruption message
-   (`CORRUPTION_MARKER`) pushed as its tool result and is never dispatched
-   to `registry.run`. Every other (valid) call in the round is dispatched
-   either concurrently via `Promise.all` or one at a time in a `for` loop,
-   chosen by `shouldParallelizeToolBatch`: concurrent only when every call
-   is either on an explicit read-only allow-list (currently just
-   `read_file`) or is a path-scoped call (`read_file`/`write_file`) whose
-   target path doesn't overlap any other call's target in the same round,
-   and never when any call is on the "never parallel" list (currently just
-   the not-yet-built `clarify`, pre-declared for Phase 16). Each dispatched
-   call's result — or a corrupted call's marker — is pushed back as a
-   `tool`-role message via `registry.run(name, args, context)` where
-   `context` carries `confirmShellCommand` and, when available, the
-   caller-owned todo store. Each tool returns `{ content, isError }` —
-   `run_shell_command` first
-   awaits `confirmShellCommand`, returning `isError: true` immediately if
-   declined, before ever spawning `execFile("bash", ["-c", command])`
-   before the next round starts. `LoopCallbacks.onToolStart`/
-   `onToolComplete` fire around this dispatch (once per call in the
-   sequential `for` loop; once for the whole batch under the `"__batch__"`
-   sentinel, with `isError` hardcoded `false` regardless of any individual
-   call's result); `ChatApp` wires these to `src/tools/toolLabel.ts`'s
-   `buildToolLabel` to drive an `ink-spinner` line in place of the busy
-   placeholder while a call is in flight, then appends a permanent
-   `✔`/`✘`-prefixed line to the scrollback (`Static`) once it settles. The
-   `todo` tool is the exception: its completion updates the persistent
-   todo panel and is not appended as a normal transcript tool line. A
-   round producing no tool calls ends the loop, except when
-   `run_shell_command` is pending approval, when the input box is
-   replaced by the `Run shell command: <command> [y/n]` prompt.
-3. On success, `runTurn` returns a new `history` array (the turn's one
-   user message, plus each round's assistant message and — for rounds
-   that called a tool — tool messages, appended in round order) that
-   becomes React state for the next turn. `assistantText` concatenates
-   every round's streamed text in round order — including narration a
-   round streams before calling a tool — so nothing the in-flight line
-   showed live is ever missing from the permanent scrollback (`Static`)
-   entry it moves into on completion. If the injected budget is exhausted
-   before a text-only round, this still counts as success: `assistantText`
-   is the friendly iteration-limit message and `history` keeps every round
-   run so far, followed by a synthetic assistant message containing the
-   same limit text.
-4. On failure (a streamChat error in any round), runTurn returns
-   `{ ok: false, error }` and the *caller's*
-   `history` is left untouched (no dangling unanswered user turn is ever
-   sent next); the REPL renders one red line via `describeDevinError` and
-   keeps running — a per-turn error never exits the process.
-5. `history` remains authoritative in React state while the process runs and
-   is checkpointed with todos after each successful turn. A resume hydrates
-   that complete model history, rebuilds display-only user/assistant lines,
-   and deliberately omits old tool frames.
-6. Slash commands are dispatched by `handleSubmit` via `parseSlashCommand`
-   (`src/commands.ts`) before any turn is run: `/exit` calls Ink's
-   `exit()`, which resolves `waitUntilExit()` and lets `main()` return
-   normally; `/skin <name>` resolves the name via `resolveSkin`
-   (`src/skins.ts`) — on success it updates `activeSkin` React state
-   (changing the prompt symbol and color tokens live on
-   the next render) and fire-and-forgets `saveConfig` (`src/config.ts`)
-   to persist the choice to `~/.railgun/config.json`, or on an
-   unknown/missing name pushes a red `Unknown skin: …` scrollback line
-   instead; `/help` pushes one scrollback line listing all four
-   commands; `/clear` writes the terminal-clear escape sequence
-   (`\x1Bc`) via Ink's `useStdout().write` (never raw
-   `process.stdout.write`, which would corrupt Ink's internal
-   render-diff state) without touching the `lines` array — Ink's
-   `<Static>` uses a monotonically-advancing index, so shrinking the
-   array would silently break subsequent scrollback rendering.
+1. `src/cli.ts` opens the session store, allocates a session ID, initializes
+   Devin and project context, then calls `runRepl`. `ThemeController` resolves
+   terminal appearance before OS appearance, installs deduplicated live
+   listeners, and falls back to dark on failure. Legacy config is ignored.
+2. Interactive TTY output enters the alternate screen and enables SGR mouse
+   reporting; non-TTY and screen-reader runs do neither. Ink renders a
+   full-height `ChatApp`, and alternate-screen, mouse, theme, and native-resource
+   cleanup are guaranteed by `finally` boundaries around `waitUntilExit()`.
+3. `ChatApp` owns one process-lifetime `IterationBudget` and hydrated
+   `TodoStore`. Each submitted message calls `runTurn` with authoritative
+   history, streaming/tool callbacks, and the shell-approval promise. Success
+   checkpoints the complete history/todo snapshot; save failure retains it in
+   memory for retry, while turn failure restores the pre-turn todos.
+4. Display lines become physical terminal rows before entering the pure
+   viewport reducer. Mouse wheel and PageUp/PageDown scroll, Home/End jump,
+   resize preserves prior bottom-follow state, and an unseen cue consumes one
+   visible row while scrolled up. Completed assistant text passes through the
+   `markdansi` adapter; partial streaming text stays plain. Streaming narration
+   is flushed before each following compact tool row, while `todo` activity is
+   represented by the sticky todo panel.
+5. `ink-multiline-input` provides cursor navigation, wrapping, and multiline
+   paste. Railgun supplies Enter/Shift+Enter bindings, completion-first Tab,
+   Ctrl+U clearing, busy/approval focus control, protocol-response filtering,
+   and one-to-six-row sizing. Enhanced keyboard reporting is enabled without a
+   capability-query input leak only for known supporting terminals.
+6. `/exit`, `/help`, and `/clear` are handled before agent dispatch. `/exit`
+   resolves Ink, `/help` appends the current command list, and `/clear` clears
+   the canvas without discarding authoritative conversation state.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
@@ -271,16 +191,12 @@ for the process lifetime, while each one-shot invocation gets a fresh
 
 A single file, `~/.railgun/devin-token` (mode `0600`), holds the cached
 Devin auth token — created and managed entirely by `widevin`'s
-`createFileTokenStore`. A second file, `~/.railgun/config.json` (no file
-mode restriction — it holds no secret, just `{ "skin": "<name>" }`), is
-read on REPL startup by `src/config.ts`'s `loadConfig` and written by its
-`saveConfig` whenever `/skin <name>` succeeds; a missing, unreadable,
-malformed, or unrecognized-skin config silently falls back to the default
-skin. A third optional file, `~/.railgun/SOUL.md` (no file-mode
+`createFileTokenStore`. A legacy `~/.railgun/config.json`, if present, is
+ignored and left untouched. An optional file, `~/.railgun/SOUL.md` (no file-mode
 restriction — user-authored text, not a secret), is read once at session
 startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
 content injected as a `# Persistent Identity` block in the system prompt;
-a missing or whitespace-only file is silently ignored. A fourth file,
+a missing or whitespace-only file is silently ignored. The session database,
 `~/.railgun/state.db` (mode `0600`), stores interactive sessions, messages,
 and todo snapshots. It uses WAL, foreign keys, a busy timeout, and schema
 versioning; malformed saved state aborts loading instead of being skipped.
@@ -292,7 +208,7 @@ One-shot mode does not open this database. See ADR 0006.
   `docs/adr/0001-single-provider-devin-via-widevin.md`.
 - SQLite, via `better-sqlite3`, for local interactive session checkpoints. See
   `docs/adr/0006-sqlite-session-checkpoints.md`.
-- Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-text-input` (`^6.0.0`) +
+- Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-multiline-input` (`^0.1.0`) +
   `ink-spinner` (`^5.0.0`) for the REPL's terminal UI, pulled forward from
   the replication plan's later "polished terminal UI" phase. See
   `docs/adr/0002-ink-repl-ahead-of-schedule.md`. Ink is still pinned to 6,
@@ -301,6 +217,8 @@ One-shot mode does not open this database. See ADR 0006.
   `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`.
   `ink-spinner`'s published peer deps (`ink >=4.0.0`, `react >=18.0.0`)
   are satisfied by both pins with no override needed.
+- `os-theme` provides OS and terminal appearance detection; `markdansi`
+  provides completed-reply GFM parsing, layout, links, tables, and code boxes.
 
 ## Security
 

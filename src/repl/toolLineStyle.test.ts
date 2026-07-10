@@ -10,9 +10,7 @@ import {
   toolFrameBg,
   toolFrameBorder,
 } from "./toolLineStyle.js";
-import { DEFAULT_SKIN, BUILTIN_SKINS } from "../skins.js";
-
-const mono = BUILTIN_SKINS["mono"]!;
+import { THEMES } from "./theme.js";
 
 describe("toolLineIcon", () => {
   it("returns ✔ for success", () => {
@@ -25,21 +23,21 @@ describe("toolLineIcon", () => {
 });
 
 describe("toolLineColor", () => {
-  it("returns skin success color when not failed", () => {
-    expect(toolLineColor(DEFAULT_SKIN, false)).toBe("#89d281");
-    expect(toolLineColor(mono, false)).toBe("#558a55");
+  it("returns theme success color when not failed", () => {
+    expect(toolLineColor(THEMES.dark, false)).toBe("#52D89C");
+    expect(toolLineColor(THEMES.light, false)).toBe("#087A52");
   });
 
-  it("returns skin error color when failed", () => {
-    expect(toolLineColor(DEFAULT_SKIN, true)).toBe("#fc3a4b");
-    expect(toolLineColor(mono, true)).toBe("#8a5555");
+  it("returns theme error color when failed", () => {
+    expect(toolLineColor(THEMES.dark, true)).toBe("#FF7B86");
+    expect(toolLineColor(THEMES.light, true)).toBe("#B42335");
   });
 });
 
 describe("busyColor", () => {
-  it("returns skin accent color", () => {
-    expect(busyColor(DEFAULT_SKIN)).toBe("#febc38");
-    expect(busyColor(mono)).toBe("#5fafaf");
+  it("returns theme accent color", () => {
+    expect(busyColor(THEMES.dark)).toBe("#5EE6B8");
+    expect(busyColor(THEMES.light)).toBe("#087F5B");
   });
 });
 
@@ -50,66 +48,66 @@ describe("busySpinnerType", () => {
 });
 
 describe("approvalColor", () => {
-  it("returns skin accent color", () => {
-    expect(approvalColor(DEFAULT_SKIN)).toBe("#febc38");
-    expect(approvalColor(mono)).toBe("#5fafaf");
+  it("returns theme accent color", () => {
+    expect(approvalColor(THEMES.dark)).toBe("#5EE6B8");
+    expect(approvalColor(THEMES.light)).toBe("#087F5B");
   });
 });
 
 describe("selectedItemStyle", () => {
-  it("returns accent foreground and selectedBg background for default skin", () => {
-    const style = selectedItemStyle(DEFAULT_SKIN);
-    expect(style.color).toBe("#febc38");
-    expect(style.backgroundColor).toBe("#31363f");
+  it("returns dark accent and selection colors", () => {
+    const style = selectedItemStyle(THEMES.dark);
+    expect(style.color).toBe("#5EE6B8");
+    expect(style.backgroundColor).toBe("#1E5A47");
   });
 
-  it("returns accent foreground and selectedBg background for mono skin", () => {
-    const style = selectedItemStyle(mono);
-    expect(style.color).toBe("#5fafaf");
-    expect(style.backgroundColor).toBe("#3a3a3a");
+  it("returns light accent and selection colors", () => {
+    const style = selectedItemStyle(THEMES.light);
+    expect(style.color).toBe("#087F5B");
+    expect(style.backgroundColor).toBe("#C9F1E3");
   });
 });
 
 describe("unselectedItemColor", () => {
-  it("returns skin dim color for default skin", () => {
-    expect(unselectedItemColor(DEFAULT_SKIN)).toBe("#5f6673");
+  it("returns dark theme dim color", () => {
+    expect(unselectedItemColor(THEMES.dark)).toBe("#78988E");
   });
 
-  it("returns skin dim color for mono skin", () => {
-    expect(unselectedItemColor(mono)).toBe("#707070");
+  it("returns light theme dim color", () => {
+    expect(unselectedItemColor(THEMES.light)).toBe("#67877D");
   });
 });
 
 describe("toolFrameBg", () => {
   it("returns toolPendingBg for pending state", () => {
-    expect(toolFrameBg(DEFAULT_SKIN, "pending")).toBe("#2a2620");
-    expect(toolFrameBg(mono, "pending")).toBe("#333333");
+    expect(toolFrameBg(THEMES.dark, "pending")).toBe("#3E341A");
+    expect(toolFrameBg(THEMES.light, "pending")).toBe("#FFF3CC");
   });
 
   it("returns toolSuccessBg for success state", () => {
-    expect(toolFrameBg(DEFAULT_SKIN, "success")).toBe("#1f2d22");
-    expect(toolFrameBg(mono, "success")).toBe("#2a3a2a");
+    expect(toolFrameBg(THEMES.dark, "success")).toBe("#123C2B");
+    expect(toolFrameBg(THEMES.light, "success")).toBe("#DDF5E9");
   });
 
   it("returns toolErrorBg for error state", () => {
-    expect(toolFrameBg(DEFAULT_SKIN, "error")).toBe("#2d1f22");
-    expect(toolFrameBg(mono, "error")).toBe("#3a2a2a");
+    expect(toolFrameBg(THEMES.dark, "error")).toBe("#421F26");
+    expect(toolFrameBg(THEMES.light, "error")).toBe("#FDE2E5");
   });
 });
 
 describe("toolFrameBorder", () => {
   it("returns border color for pending state", () => {
-    expect(toolFrameBorder(DEFAULT_SKIN, "pending")).toBe("#3d424a");
-    expect(toolFrameBorder(mono, "pending")).toBe("#3a3a3a");
+    expect(toolFrameBorder(THEMES.dark, "pending")).toBe("#3F6F60");
+    expect(toolFrameBorder(THEMES.light, "pending")).toBe("#8ABDAC");
   });
 
   it("returns success color for success state", () => {
-    expect(toolFrameBorder(DEFAULT_SKIN, "success")).toBe("#89d281");
-    expect(toolFrameBorder(mono, "success")).toBe("#558a55");
+    expect(toolFrameBorder(THEMES.dark, "success")).toBe("#52D89C");
+    expect(toolFrameBorder(THEMES.light, "success")).toBe("#087A52");
   });
 
   it("returns error color for error state", () => {
-    expect(toolFrameBorder(DEFAULT_SKIN, "error")).toBe("#fc3a4b");
-    expect(toolFrameBorder(mono, "error")).toBe("#8a5555");
+    expect(toolFrameBorder(THEMES.dark, "error")).toBe("#FF7B86");
+    expect(toolFrameBorder(THEMES.light, "error")).toBe("#B42335");
   });
 });

@@ -1,4 +1,4 @@
-export const KNOWN_COMMANDS = ["/exit", "/skin", "/help", "/clear"] as const;
+export const KNOWN_COMMANDS = ["/exit", "/help", "/clear"] as const;
 
 export const matchCommand = (partial: string): string | undefined => {
   const hits = KNOWN_COMMANDS.filter((c) => c.startsWith(partial));

@@ -10,13 +10,15 @@
     "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run"
+    "test": "vitest run src"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "ink": "^6.8.0",
+    "ink-multiline-input": "^0.1.0",
     "ink-spinner": "^5.0.0",
-    "ink-text-input": "^6.0.0",
+    "markdansi": "^0.3.2",
+    "os-theme": "^0.0.9",
     "react": "^19.2.0",
     "widevin": "^0.1.3"
   },

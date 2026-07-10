@@ -1,29 +1,29 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { SkinConfig } from "../skins.js";
+import type { Theme } from "./theme.js";
 import { selectedItemStyle, unselectedItemColor } from "./toolLineStyle.js";
 
 interface SuggestionsProps {
   readonly items: readonly string[];
   readonly selectedIndex: number;
-  readonly skin: SkinConfig;
+  readonly theme: Theme;
 }
 
 export const Suggestions = ({
   items,
   selectedIndex,
-  skin,
+  theme,
 }: SuggestionsProps): React.ReactElement | null => {
   if (items.length === 0) return null;
 
-  const selected = selectedItemStyle(skin);
+  const selected = selectedItemStyle(theme);
 
   return (
     <Box flexDirection="column" marginLeft={2}>
       {items.map((item, i) => (
         <Text
           key={item}
-          color={i === selectedIndex ? selected.color : unselectedItemColor(skin)}
+          color={i === selectedIndex ? selected.color : unselectedItemColor(theme)}
           {...(i === selectedIndex ? { backgroundColor: selected.backgroundColor } : {})}
           bold={i === selectedIndex}
         >

@@ -3,6 +3,8 @@ import type React from "react";
 import type { DevinMessage } from "widevin";
 import {
   TodoPanel,
+  TranscriptRowLine,
+  displayLineToTranscriptRows,
   attemptCheckpoint,
   createHydratedTodoStore,
   historyToDisplayLines,
@@ -10,16 +12,16 @@ import {
   shouldShowToolLine,
 } from "./App.js";
 import { createTodoStore } from "../tools/todo.js";
-import { DEFAULT_SKIN } from "../skins.js";
+import { THEMES } from "./theme.js";
 
 describe("TodoPanel", () => {
   it("hides when todo state is empty", () => {
-    expect(TodoPanel({ todos: [], isLoading: false, skin: DEFAULT_SKIN })).toBeNull();
+    expect(TodoPanel({ todos: [], isLoading: false, theme: THEMES.dark })).toBeNull();
   });
 
   it("renders when todo state is nonempty", () => {
     const store = createTodoStore([{ id: "a", content: "A", status: "pending" }]);
-    const panel = TodoPanel({ todos: store.read(), isLoading: false, skin: DEFAULT_SKIN });
+    const panel = TodoPanel({ todos: store.read(), isLoading: false, theme: THEMES.dark });
     const element = panel as React.ReactElement<{ children: readonly React.ReactElement[] }>;
     const header = element.props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;
 
@@ -28,7 +30,7 @@ describe("TodoPanel", () => {
   });
 
   it("renders a loading state while todos are being crafted", () => {
-    const panel = TodoPanel({ todos: [], isLoading: true, skin: DEFAULT_SKIN });
+    const panel = TodoPanel({ todos: [], isLoading: true, theme: THEMES.dark });
     const element = panel as React.ReactElement<{ children: readonly React.ReactElement[] }>;
     const loading = element.props.children[1] as React.ReactElement<{ children: readonly unknown[] }>;
 
@@ -50,7 +52,7 @@ describe("TodoPanel", () => {
 
   it("renders pending items with [ ] glyph", () => {
     const store = createTodoStore([{ id: "a", content: "A", status: "pending" }]);
-    const panel = TodoPanel({ todos: store.read(), isLoading: false, skin: DEFAULT_SKIN });
+    const panel = TodoPanel({ todos: store.read(), isLoading: false, theme: THEMES.dark });
     const element = panel as unknown as React.ReactElement<{ children: readonly unknown[] }>;
     const items = element.props.children[2] as unknown as React.ReactElement[];
     const glyphText = (items[0] as React.ReactElement<{ children: readonly unknown[] }>).props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;
@@ -60,12 +62,38 @@ describe("TodoPanel", () => {
 
   it("renders completed items with [x] glyph", () => {
     const store = createTodoStore([{ id: "a", content: "A", status: "completed" }]);
-    const panel = TodoPanel({ todos: store.read(), isLoading: false, skin: DEFAULT_SKIN });
+    const panel = TodoPanel({ todos: store.read(), isLoading: false, theme: THEMES.dark });
     const element = panel as unknown as React.ReactElement<{ children: readonly unknown[] }>;
     const items = element.props.children[2] as unknown as React.ReactElement[];
     const glyphText = (items[0] as React.ReactElement<{ children: readonly unknown[] }>).props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;
 
     expect(glyphText.props.children).toContain("[x]");
+  });
+});
+
+describe("TranscriptLine", () => {
+  it("uses the same fixed role gutter for user and assistant bodies", () => {
+    const userRow = displayLineToTranscriptRows({ kind: "user", text: "hello" }, THEMES.light, 80)[0]!;
+    const assistantRow = displayLineToTranscriptRows({ kind: "assistant", text: "hello" }, THEMES.light, 80)[0]!;
+    type RowElement = React.ReactElement<{ children: readonly React.ReactElement<{ width?: number }>[] }>;
+    const user = TranscriptRowLine({ row: userRow, theme: THEMES.light }) as RowElement;
+    const assistant = TranscriptRowLine({ row: assistantRow, theme: THEMES.light }) as RowElement;
+    const userChildren = user.props.children;
+    const assistantChildren = assistant.props.children;
+
+    expect(userChildren[0]?.props.width).toBe(10);
+    expect(assistantChildren[0]?.props.width).toBe(10);
+  });
+
+  it("counts every physical wrapped row so long model output is not clipped", () => {
+    const rows = displayLineToTranscriptRows(
+      { kind: "assistant", text: "one two three four five six seven eight nine ten" },
+      THEMES.light,
+      18,
+    );
+
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.map(row => row.text).join(" ")).toContain("ten");
   });
 });
 

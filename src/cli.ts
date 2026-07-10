@@ -11,7 +11,7 @@ import { runSessionChooser } from "./repl/SessionChooser.js";
 import { initDevinSession } from "./session.js";
 import type { DevinSession } from "./session.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume [session-id]] [--list-sessions]";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions]";
 
 export type CliMode =
   | { kind: "fresh" }
@@ -43,7 +43,7 @@ export const parseCliArgs = (args: readonly string[]): CliMode => {
   const [flag, ...rest] = args;
   if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!" };
   if (flag === "--list-sessions" && rest.length === 0) return { kind: "list" };
-  if (flag === "--resume" && rest.length <= 1) {
+  if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
     return rest[0] === undefined ? { kind: "resume" } : { kind: "resume", id: rest[0] };
   }
   throw new CliUsageError();
