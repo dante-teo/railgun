@@ -31,8 +31,11 @@ command/single answer shape for scripting. Phase 9 adds a startup banner
 slash-command system (`/exit`, `/skin <name>`, `/help`, `/clear`) with
 tab-completion, plus a persisted skin preference at
 `~/.railgun/config.json` — all still local to the REPL surface; the
-one-shot path is unaffected. Phase 11 adds a local planning surface: an
-in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
+one-shot path is unaffected. Phase 11 adds a local planning surface: a todo
+panel in the REPL and a silent todo tool in one-shot mode. Phase 12 adds local
+session persistence plus two startup-only management surfaces: a detailed
+session table and a keyboard-driven resume chooser. There are no in-session
+new/switch/rename/delete commands.
 
 ## Key Screens
 
@@ -40,6 +43,7 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 | --- | --- | --- |
 | Ink chat REPL (stdout, interactive) | Scrolling conversation transcript above a persistent todo panel and a single-line input box, with a status line at the bottom | Default `pnpm start` surface; shows a rounded-corner startup banner in the active skin's color tokens before the transcript; user lines render on a tinted background block prefixed by the skin's prompt symbol (default `❯ `); tool calls render in bordered frames (pending/success/error with state-tinted backgrounds); an accent-colored in-flight line shows the reply streaming in; error lines use the skin's `error` color; a persistent status line shows model id, `~`-shortened cwd, and git branch; typing `/` opens a skin-themed slash-command dropdown below the input |
 | One-shot terminal (stdout/stderr) | Show one streamed answer and status messages, then exit; may pause on stderr for shell-command approval | `--print`/`-p` only; `docs/PRODUCT.md`'s later phases add a TUI/Web/Desktop/Mobile front end reusing the same core |
+| Saved-session list/chooser | Inspect newest-first saved sessions or select one to resume | Rows show local start time, message count, model, full ID, and collapsed first-user preview; Up/Down moves the highlight, Enter resumes, and Escape/Ctrl-C cancels |
 
 ## Interaction Patterns
 
@@ -91,12 +95,19 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
   not as normal tool-completion scrollback. The panel is hidden while empty,
   shows `Crafting todos` with a spinner while an empty todo update is in
   flight, then renders `Todos · completed/total` plus flat rows with status
-  glyphs (`[ ]`/`[>]`/`[x]`/`[-]`). The panel is process-local state: it
-  survives turns in the same REPL but is not persisted across restart.
+  glyphs (`[ ]`/`[>]`/`[x]`/`[-]`). The panel is checkpointed with an
+  interactive conversation and hydrated on resume.
+- A saved session's short ID appears in the status line. A failed checkpoint
+  adds an `unsaved` marker and warning without discarding the completed turn;
+  the marker clears after a later full-snapshot retry succeeds.
+- Resumed scrollback contains historical user blocks and the assistant text
+  associated with each turn. Old tool execution frames are not replayed.
 
 ## Visual System
 
-- Typography: TBD
+- Typography: inherits the user's terminal font and size. Hierarchy uses Ink
+  `bold`, `dimColor`, and inverse selection rather than bundled fonts or text
+  scaling.
 - Color: a skin system provides two builtin themes — `default` (OMP
   dark-theme palette) and `mono` (OMP dark-monochrome palette) — selected at
   runtime via `/skin <name>`. Each skin defines color-role tokens mirroring
@@ -124,7 +135,9 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
   (`statusLineModel`), `~`-shortened working directory (`statusLinePath`),
   and — when inside a git repo — the current branch name
   (`statusLineGitClean`/`statusLineGitDirty`, with a `*` suffix when dirty).
-- Spacing: TBD
+- Spacing: bordered panels use one-column horizontal padding; transcript,
+  chooser, and todo content stack vertically with a single blank row or
+  bottom margin between distinct items.
 - Icons: `✔` (success), `✘` (error), `❯` (default prompt), `>` (mono
   prompt); OMP's 8-frame braille "status" spinner
   (`⣾⣽⣻⢿⡿⣟⣯⣷`) for tool calls; plain streaming text uses no spinner.
@@ -134,11 +147,21 @@ in-memory todo panel in the REPL and a silent todo tool in one-shot mode.
 
 ## Accessibility
 
-- Keyboard support: TBD
-- Screen reader support: TBD
-- Color contrast: TBD
-- Motion preferences: TBD
+- Keyboard support: all interactive paths are keyboard-only. The session
+  chooser supports Up/Down, Enter, Escape, and Ctrl-C; the REPL supports text
+  entry, Tab completion, Escape dismissal/decline, y/n shell approval, slash
+  commands, and Ctrl-C exit.
+- Screen reader support: no dedicated screen-reader mode has been tested.
+  Dynamic Ink repainting, spinners, and ANSI styling may be announced
+  inconsistently by terminal accessibility tools.
+- Color contrast: no formal contrast audit has been performed. The `mono`
+  skin provides a low-color alternative, but meaning is also conveyed with
+  text and glyphs rather than color alone.
+- Motion preferences: there is no reduced-motion setting; in-flight tools and
+  todo creation use terminal spinners.
 
 ## Open Questions
 
-- TBD
+- Should the all-sessions chooser gain viewporting or paging when saved
+  session counts exceed the terminal height?
+- Is a static-output/screen-reader mode needed for the Ink surfaces?

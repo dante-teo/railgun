@@ -14,13 +14,24 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 11 (planning todos):**
-Phase 11 adds a planning tool and REPL panel for multi-step work. The
+**Current phase — Phase 12 (persistent sessions and resume chooser):**
+Phase 12 makes successful interactive conversations and their todo snapshots
+durable in `~/.railgun/state.db`. Fresh sessions are created lazily on their
+first successful checkpoint. `--resume <id>` restores one exact session,
+bare `--resume` provides a newest-first Up/Down keyboard chooser, and
+`--list-sessions` reports saved sessions without Devin authentication.
+Resumes require their stored model, rebuild launch-specific prompt context,
+and hydrate user/assistant text plus todos while omitting historical tool UI
+frames. Failed Devin turns roll todos back and save nothing. Failed SQLite
+checkpoints retain the completed turn in memory, mark it unsaved, and retry
+the full snapshot after the next successful turn. One-shot mode remains
+stateless and never opens SQLite.
+
+Phase 11 added a planning tool and REPL panel for multi-step work. The
 `todo` tool is registered under the always-enabled `"planning"` toolset
-and operates on a caller-owned in-memory store: the REPL keeps one store
-for the process lifetime, while each `--print`/`-p` invocation gets a
-fresh store. There is intentionally no persistence or history hydration
-yet. `src/tools/todo.ts` owns the reducer/store boundary and hardening:
+and operates on a caller-owned store: the REPL checkpoints it, while each
+`--print`/`-p` invocation gets a fresh store. `src/tools/todo.ts` owns the
+reducer/store boundary and hardening:
 flat ordered todos, globally unique ids, a 256-item cap, 4000-character
 content cap with truncation marker, invalid-status normalization to
 `pending`, malformed-item coercion (blank content → `"(no description)"`,
@@ -82,13 +93,15 @@ to both the REPL and one-shot paths.
 
 1. Run `pnpm start` from a terminal; on first use, complete a one-time
    browser sign-in to Devin; type messages into the Ink chat REPL and read
-   streamed replies from the scrollback, with each turn remembering the
-   whole conversation for the process's lifetime.
+   streamed replies from the scrollback. Each successful turn checkpoints the
+   whole conversation and todos so they can be resumed in a later process.
 2. Run `pnpm start --print "<question>"` (or `-p`) for a one-shot,
    scriptable/CI invocation that keeps Phase 1's stdout/stderr contract —
    no interactive REPL, no conversation memory — but can call the same
    tools as the REPL, including silent todo planning and a stdin-blocking
    approval prompt if the model calls `run_shell_command`.
+3. Run `pnpm start --resume [session-id]` to continue saved work, or
+   `pnpm start --list-sessions` to inspect local sessions without logging in.
 
 ## Success Metrics
 
@@ -165,11 +178,20 @@ to both the REPL and one-shot paths.
   `src/agent/turn.test.ts` proves `todo` is available to Devin and
   updates the injected store; `src/repl/App.test.tsx` covers the
   panel's empty/loading/nonempty behavior, status glyph rendering,
-  and transcript suppression for todo completions).
+  and transcript suppression for todo completions); Phase 12:
+  `src/persistence/sessionStore.test.ts` exercises real temporary databases
+  for schema reopen, exact codecs, lazy/atomic/idempotent checkpoints,
+  summaries, missing IDs, and fail-closed corruption; `src/cli.test.ts`
+  covers parsing, chooser dispatch/cancel, no-session handling, direct resume,
+  and proves list/chooser/print avoid Devin or SQLite where required;
+  `src/repl/SessionChooser.test.ts` covers wrapping Up/Down navigation;
+  `src/session.test.ts` covers required saved models; and
+  `src/repl/App.test.tsx` covers transcript/todo hydration, rollback helpers,
+  unsaved retry, and recovery clearing.
 
 ## Open Questions
 
-- Which later phases (tool calling, session persistence across restarts,
-  GUIs, messaging gateways) get built, and in what order, beyond the
+- Which later phases (context compression, GUIs, messaging gateways) get
+  built, and in what order, beyond the
   replication plan's suggested sequence — deferred until each phase is
   actually started.

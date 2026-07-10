@@ -21,8 +21,9 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 | Component | Responsibility | Owner |
 | --- | --- | --- |
-| CLI entry (`src/cli.ts`) | Parses argv, dispatches to one-shot or REPL, top-level error handling | Solo project — no formal ownership split |
-| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery, local-date capture, parallel project-context and persistent-identity loading via `projectContext.ts`, and one-time system-prompt construction — shared by both paths | Solo project |
+| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; sequences store/chooser/Devin boundaries and owns top-level error handling | Solo project — no formal ownership split |
+| Session bootstrap (`src/session.ts`) | Token store setup, login-if-needed, model discovery (optionally requiring one exact saved model), local-date capture, parallel project-context and persistent-identity loading via `projectContext.ts`, and one-time system-prompt construction — shared by both paths | Solo project |
+| Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: versioned schema setup, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, and atomic idempotent full-snapshot checkpoints | Solo project |
 | System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules, cached session environment, and two optional context blocks — `soulIdentity` (from `~/.railgun/SOUL.md`) and `projectContext` (from the project's context file); environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens in `projectContext.ts` before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error classification (`src/errors.ts`) | Maps `DevinAuthError`/`DevinApiError`/`DevinProtocolError` to one-line messages | Solo project |
@@ -39,7 +40,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Command system (`src/commands.ts`) | Pure slash-command logic: `KNOWN_COMMANDS`, prefix matching (`matchCommand`/`findMatches`), `parseSlashCommand` (splits `"/skin mono"` into command + arg), and `nextCompletionState` (the tab/escape state machine cycling frozen matches vs. re-deriving live matches) — no I/O, no React | Solo project |
 | Banner (`src/repl/Banner.tsx`) | `printBanner(skin)` — a one-shot, raw-ANSI-colored startup banner with rounded-corner Unicode box-drawing (`╭╮╰╯─│`), border colored via `skin.colors.border`, agent name via `skin.colors.accent` (bold), welcome text via `skin.colors.muted` (hex-to-24-bit-ANSI conversion, no `chalk` dependency) written via `console.log` before Ink's `render()` is ever called; lives outside the Ink component tree entirely, so it is printed exactly once per launch and never re-renders | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure Ink component rendering a vertical dropdown of slash-command matches beneath the input box; the selected row uses `skin.colors.accent` text on `skin.colors.selectedBg` background, unselected rows use `skin.colors.dim` | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI: scrolling transcript (`Static`) with user-message background blocks and bordered tool-execution frames (pending/success/error), streaming reply line, persistent todo panel, bordered text input, slash commands (`/exit`, `/skin <name>`, `/help`, `/clear`), tab-completion with a live `Suggestions` dropdown, a `useInput`-driven y/n approval gate for `run_shell_command`, a persistent bottom status line (model, `~`-shortened cwd, git branch with dirty indicator via `src/repl/statusLine.ts`), and skin-driven color tokens via `src/repl/toolLineStyle.ts` — tool completion lines use `✔`/`✘` glyphs colored by `success`/`error`, the in-flight tool spinner uses `dots2` (OMP's "status" set) colored `accent`, and the shell-approval prompt uses `accent` | Solo project |
+| Session chooser (`src/repl/SessionChooser.tsx`) | Startup-only Ink selector for bare `--resume`; renders newest-first session details, wraps Up/Down navigation, confirms with Enter, and cancels with Escape/Ctrl-C before Devin initialization | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Multi-turn chat UI plus optional persistence hydration/checkpoint hooks: restored user/assistant text and todos, failed-turn todo rollback, save-failure retry/marker, scrolling transcript, tool frames, input, slash commands, approvals, and model/cwd/git/short-session status | Solo project |
 | Status line helpers (`src/repl/statusLine.ts`) | Pure `formatCwd(cwd)` (homedir → `~` shortening) and async `getGitStatus(cwd)` (branch name + dirty detection via `execFile("git", ...)`) — consumed once on mount by `App.tsx`'s status bar; returns `{ branch: null, dirty: false }` outside a git repo or on any `git` error | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✔`/`✘` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line | Solo project |
 | Threat pattern scanner (`src/security/threatPatterns.ts`) | Pure, id-tagged regex list (`CONTEXT_THREAT_PATTERNS`, 10 curated patterns covering prompt injection, role hijack, HTML hidden-element injection, system-prompt leak, and safety-bypass phrasing) plus `scanForThreats(content)` returning matched pattern ids; no I/O, bounded filler `(?:\w+\s+){0,8}` prevents catastrophic backtracking | Solo project |
@@ -111,9 +113,36 @@ This document records the intended system architecture for Railgun. Keep it curr
    stderr (via `describeDevinError`, falling back to a full dump for
    unclassified errors) with a non-zero exit code.
 
+**Startup session management (`--resume [session-id]` and
+`--list-sessions`):**
+
+1. `parseCliArgs` resolves the mode before any stateful dependency is opened.
+   The `--print` branch returns directly to `runOneShot`, so it never creates
+   a `SessionStore`.
+2. `--list-sessions` opens `createSessionStore`, calls `listSessions`, prints
+   the detailed newest-first table (or `No saved sessions.`), and closes the
+   store without calling `initDevinSession`.
+3. Direct `--resume <id>` calls `loadSession(id)`. Bare `--resume` first calls
+   `listSessions`; an empty result exits successfully, otherwise
+   `runSessionChooser` renders the Ink selector. Up/Down wraps the highlight,
+   Enter returns the selected ID, and Escape/Ctrl-C returns no selection. The
+   CLI awaits this result before any Devin login or model discovery.
+4. A confirmed resume loads the strict persisted snapshot, then calls
+   `initDevinSession(saved.model)`. The exact model is required; Railgun never
+   silently switches an old conversation to another model. `runRepl` receives
+   the complete saved messages, normalized todos, immutable session metadata,
+   and the full-snapshot checkpoint callback. The system prompt, project
+   context, persistent identity, current directory, and 90-step budget are
+   rebuilt for the new process rather than loaded from SQLite.
+5. Missing IDs, corruption, database errors, and unavailable saved models
+   propagate to the top-level error handler and exit nonzero. Store closure is
+   guaranteed by `dispatchCli`'s `finally` block on success, cancellation, and
+   failure.
+
 **REPL path (`pnpm start`, tool calling since Phase 3, tool registry since Phase 4, hardened loop since Phase 5, iteration-budgeted since Phase 6, live tool feedback since Phase 7):**
 
-1. `src/cli.ts` (no argv) calls `initDevinSession` once (which now also
+1. `src/cli.ts` (no argv) opens the session store, allocates a session ID,
+   and calls `initDevinSession` once (which now also
    loads project context and persistent identity in parallel — see the
    one-shot path step 2 above for the full `loadProjectContext`/
    `loadSoulIdentity` discovery, injection scan, and truncation
@@ -123,11 +152,12 @@ This document records the intended system architecture for Railgun. Keep it curr
    default skin for a missing/invalid config), prints the startup banner
    via `printBanner` (`src/repl/Banner.tsx`) straight to stdout — before
    Ink's `render()` is ever called — then renders the Ink `ChatApp` and
-   blocks on `waitUntilExit()`.
+   blocks on `waitUntilExit()`. The database row is not created until the
+   first successful turn checkpoint.
 2. `ChatApp` receives the cached system prompt from `initDevinSession`
    and the resolved skin as its `initialSkin` prop, seeding the
    `activeSkin` React state that `/skin` can later update live.
-   It also creates one default `IterationBudget` and one `TodoStore` in
+   It also creates one default `IterationBudget` and one hydrated `TodoStore` in
    React refs, both shared by every turn for the REPL process lifetime.
    Each submitted line calls
    `runTurn` (`src/agent/turn.ts`) with the growing `history` array, the
@@ -136,7 +166,10 @@ This document records the intended system architecture for Railgun. Keep it curr
    `{ resolve }` pair in a ref and sets `pendingCommand` React state; a
    `useInput` handler
    (active only while `pendingCommand` is set) resolves that approval
-   promise. `runTurn` loops one `streamChat` round per consumed budget
+   promise. After success, the complete message history and todo snapshot are
+   checkpointed atomically. Save failure retains both in memory and marks the
+   session unsaved for a full retry after the next successful turn. Turn
+   failure restores the pre-turn todos and writes nothing. `runTurn` loops one `streamChat` round per consumed budget
    step, each wrapped in `callDevinWithRecovery`
    (`src/agent/recovery.ts`): a round that throws a transient error
    (429/502/503, or an error type `classifyError` doesn't recognize) is
@@ -197,9 +230,10 @@ This document records the intended system architecture for Railgun. Keep it curr
    `history` is left untouched (no dangling unanswered user turn is ever
    sent next); the REPL renders one red line via `describeDevinError` and
    keeps running — a per-turn error never exits the process.
-5. `history` lives only in the Ink component's React state for the
-   process's lifetime; there is no on-disk conversation persistence yet
-   (a later phase adds save/resume).
+5. `history` remains authoritative in React state while the process runs and
+   is checkpointed with todos after each successful turn. A resume hydrates
+   that complete model history, rebuilds display-only user/assistant lines,
+   and deliberately omits old tool frames.
 6. Slash commands are dispatched by `handleSubmit` via `parseSlashCommand`
    (`src/commands.ts`) before any turn is run: `/exit` calls Ink's
    `exit()`, which resolves `waitUntilExit()` and lets `main()` return
@@ -246,15 +280,18 @@ skin. A third optional file, `~/.railgun/SOUL.md` (no file-mode
 restriction — user-authored text, not a secret), is read once at session
 startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
 content injected as a `# Persistent Identity` block in the system prompt;
-a missing or whitespace-only file is silently ignored. Railgun keeps no
-other on-disk state: REPL `history` and todo state are in-memory-only for
-the process's lifetime, with no conversation persistence or todo
-persistence across restarts yet (a later phase adds save/resume).
+a missing or whitespace-only file is silently ignored. A fourth file,
+`~/.railgun/state.db` (mode `0600`), stores interactive sessions, messages,
+and todo snapshots. It uses WAL, foreign keys, a busy timeout, and schema
+versioning; malformed saved state aborts loading instead of being skipped.
+One-shot mode does not open this database. See ADR 0006.
 
 ## Integrations
 
 - Devin, via the `widevin` npm package (OAuth login, model discovery, streaming chat). See
   `docs/adr/0001-single-provider-devin-via-widevin.md`.
+- SQLite, via `better-sqlite3`, for local interactive session checkpoints. See
+  `docs/adr/0006-sqlite-session-checkpoints.md`.
 - Ink (`^6.8.0`) + React (`^19.2.0`) + `ink-text-input` (`^6.0.0`) +
   `ink-spinner` (`^5.0.0`) for the REPL's terminal UI, pulled forward from
   the replication plan's later "polished terminal UI" phase. See
@@ -272,6 +309,11 @@ persistence across restarts yet (a later phase adds save/resume).
   other local users/processes on shared machines.
 - Railgun never logs or prints the token itself; only the sign-in URL (which
   is not a secret on its own) is printed during login.
+- Conversation history and todos may contain sensitive local data. The SQLite
+  database is chmod'd to `0600` whenever it is opened, and strict codecs fail
+  closed on malformed or inconsistent rows rather than skipping them. The
+  database is not application-level encrypted; confidentiality relies on the
+  OS account and filesystem protections.
 - `run_shell_command` runs whatever command string the model provides via
   `execFile("bash", ["-c", command])` — a real arbitrary-code-execution
   surface, mitigated only by the interactive y/n approval gate
@@ -295,11 +337,27 @@ persistence across restarts yet (a later phase adds save/resume).
 
 ## Observability
 
-TBD
+- Human-readable startup status, selected model, the first committed full
+  session ID, and top-level failures are written to stderr. One-shot answer
+  text remains isolated on stdout for piping.
+- The REPL exposes checkpoint health directly: an `unsaved` status marker and
+  warning appear after a failed save, and a recovery line appears after the
+  next successful full-snapshot retry.
+- There are no structured logs, metrics, traces, telemetry exports, or remote
+  crash reports. `--list-sessions` is the supported local inspection surface;
+  corrupt state is reported as an actionable error rather than partially
+  displayed.
 
 ## Deployment
 
-TBD
+- Railgun is a single-user local Node.js CLI, run from source with pnpm or from
+  the compiled `dist/` output. It has no daemon, server, container, or remote
+  persistence service.
+- Node.js 22 or newer is required. Installation must provide a compatible
+  `better-sqlite3` native binary (downloaded or built by pnpm) for the host
+  platform.
+- Runtime state lives under `~/.railgun/`; project context is rebuilt from the
+  directory where each process is launched.
 
 ## Architectural Decision Records
 

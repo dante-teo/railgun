@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Box, render, Static, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
-import type { DevinMessage } from "widevin";
+import type { DevinContentPart, DevinMessage } from "widevin";
 import { runTurn } from "../agent/turn.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
@@ -21,11 +21,76 @@ import { Suggestions } from "./Suggestions.js";
 import { getGitStatus, formatCwd } from "./statusLine.js";
 import type { GitStatus } from "./statusLine.js";
 
-interface DisplayLine {
+export interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
   text: string;
   failed?: boolean;
 }
+
+export interface ReplSessionMetadata {
+  id: string;
+  model: string;
+  startedAt: string;
+}
+
+export interface ReplPersistenceOptions {
+  initialHistory?: readonly DevinMessage[];
+  initialTodos?: TodoState;
+  sessionMetadata?: ReplSessionMetadata;
+  checkpoint?: (messages: readonly DevinMessage[], todos: TodoState) => void;
+}
+
+export interface CheckpointAttempt {
+  unsaved: boolean;
+  recovered: boolean;
+  error?: string;
+}
+
+type UserMessage = DevinMessage & { role: "user" };
+const isUserMessage = (message: DevinMessage): message is UserMessage => message.role === "user";
+
+const userContentText = (message: UserMessage): string =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content.filter(part => part.type === "text").map(part => part.text).join(" ");
+
+const assistantContentText = (message: Extract<DevinMessage, { role: "assistant" }>): string =>
+  message.content.filter(part => part.type === "text").map(part => part.text).join("");
+
+export const historyToDisplayLines = (history: readonly DevinMessage[]): readonly DisplayLine[] => {
+  const groups = history.reduce<Array<{ user: string; assistant: string }>>((turns, message) => {
+    if (isUserMessage(message)) return [...turns, { user: userContentText(message), assistant: "" }];
+    if (message.role !== "assistant" || turns.length === 0) return turns;
+    const text = assistantContentText(message);
+    if (text === "") return turns;
+    const prior = turns.at(-1)!;
+    return [...turns.slice(0, -1), { ...prior, assistant: prior.assistant + text }];
+  }, []);
+  return groups.flatMap(({ user, assistant }) => [
+    { kind: "user" as const, text: user },
+    ...(assistant === "" ? [] : [{ kind: "assistant" as const, text: assistant }]),
+  ]);
+};
+
+export const createHydratedTodoStore = (todos: TodoState): TodoStore => createTodoStore(todos);
+
+export const attemptCheckpoint = (
+  checkpoint: (messages: readonly DevinMessage[], todos: TodoState) => void,
+  messages: readonly DevinMessage[],
+  todos: TodoState,
+  wasUnsaved: boolean,
+): CheckpointAttempt => {
+  try {
+    checkpoint(messages, todos);
+    return { unsaved: false, recovered: wasUnsaved };
+  } catch (error) {
+    return {
+      unsaved: true,
+      recovered: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+};
 
 const todoGlyph = (status: NormalizedTodoItem["status"]): string =>
   status === "completed" ? "[x]" : status === "cancelled" ? "[-]" : status === "in_progress" ? "[>]" : "[ ]";
@@ -58,12 +123,20 @@ export const TodoPanel = ({ todos, isLoading, skin }: { todos: TodoState; isLoad
 export const shouldAppendToolTranscriptLine = (name: string): boolean => name !== "todo";
 export const shouldShowToolLine = (name: string, isError: boolean): boolean => shouldAppendToolTranscriptLine(name) || isError;
 
-const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin: SkinConfig }): React.ReactElement => {
+const ChatApp = ({
+  session,
+  initialSkin,
+  persistence = {},
+}: {
+  session: DevinSession;
+  initialSkin: SkinConfig;
+  persistence?: ReplPersistenceOptions;
+}): React.ReactElement => {
   const { exit } = useApp();
   const { write: stdoutWrite } = useStdout();
   const [activeSkin, setActiveSkin] = useState<SkinConfig>(initialSkin);
-  const [history, setHistory] = useState<readonly DevinMessage[]>([]);
-  const [lines, setLines] = useState<readonly DisplayLine[]>([]);
+  const [history, setHistory] = useState<readonly DevinMessage[]>(persistence.initialHistory ?? []);
+  const [lines, setLines] = useState<readonly DisplayLine[]>(() => historyToDisplayLines(persistence.initialHistory ?? []));
   const [input, setInput] = useState("");
   const [inputKey, setInputKey] = useState(0);
   const [completionIndex, setCompletionIndex] = useState<number | null>(null);
@@ -77,8 +150,9 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
   const [toolLabel, setToolLabel] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const iterationBudgetRef = useRef(IterationBudget.create());
-  const todoStoreRef = useRef<TodoStore>(createTodoStore());
+  const todoStoreRef = useRef<TodoStore>(createHydratedTodoStore(persistence.initialTodos ?? []));
   const [todos, setTodos] = useState<TodoState>(todoStoreRef.current.read());
+  const [checkpointUnsaved, setCheckpointUnsaved] = useState(false);
   const [todoLoading, setTodoLoading] = useState(false);
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
@@ -186,6 +260,7 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
       setBusy(true);
       setStreaming("");
       setToolLabel(null);
+      const preTurnTodos = todoStoreRef.current.read();
 
       const outcome = await runTurn(
         session.devin,
@@ -206,10 +281,30 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
       );
 
       if (outcome.ok) {
+        const completedTodos = todoStoreRef.current.read();
         setHistory(outcome.messages);
-        setTodos(todoStoreRef.current.read());
+        setTodos(completedTodos);
         if (outcome.assistantText !== "") setLines(prev => [...prev, { kind: "assistant", text: outcome.assistantText }]);
+        if (persistence.checkpoint) {
+          const checkpoint = attemptCheckpoint(
+            persistence.checkpoint,
+            outcome.messages,
+            completedTodos,
+            checkpointUnsaved,
+          );
+          setCheckpointUnsaved(checkpoint.unsaved);
+          if (checkpoint.error) {
+            setLines(prev => [...prev, {
+              kind: "error",
+              text: `Session checkpoint was not saved (${checkpoint.error}). The completed turn is retained and will be retried.`,
+            }]);
+          } else if (checkpoint.recovered) {
+            setLines(prev => [...prev, { kind: "assistant", text: "Session checkpoint recovered." }]);
+          }
+        }
       } else {
+        todoStoreRef.current = createHydratedTodoStore(preTurnTodos);
+        setTodos(preTurnTodos);
         const message = describeDevinError(outcome.error) ?? String(outcome.error);
         setLines(prev => [...prev, { kind: "error", text: message }]);
       }
@@ -218,7 +313,7 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
       setBusy(false);
       setTodoLoading(false);
     },
-    [history, session, exit, stdoutWrite, confirmShellCommand, onToolStart, onToolComplete]
+    [history, session, persistence, checkpointUnsaved, exit, stdoutWrite, confirmShellCommand, onToolStart, onToolComplete]
   );
 
   return (
@@ -290,15 +385,22 @@ const ChatApp = ({ session, initialSkin }: { session: DevinSession; initialSkin:
             </Text>
           </>
         )}
+        {persistence.sessionMetadata && (
+          <>
+            <Text> · </Text>
+            <Text>{persistence.sessionMetadata.id.slice(0, 8)}</Text>
+          </>
+        )}
+        {checkpointUnsaved && <Text color={activeSkin.colors.error}> · unsaved</Text>}
       </Box>
     </Box>
   );
 };
 
-export const runRepl = async (session: DevinSession): Promise<void> => {
+export const runRepl = async (session: DevinSession, persistence?: ReplPersistenceOptions): Promise<void> => {
   const config = await loadConfig();
   const initialSkin = resolveSkin(config.skin) ?? DEFAULT_SKIN;
   printBanner(initialSkin);
-  const instance = render(<ChatApp session={session} initialSkin={initialSkin} />);
+  const instance = render(<ChatApp session={session} initialSkin={initialSkin} {...(persistence ? { persistence } : {})} />);
   await instance.waitUntilExit();
 };

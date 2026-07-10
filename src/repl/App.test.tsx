@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type React from "react";
-import { TodoPanel, shouldAppendToolTranscriptLine, shouldShowToolLine } from "./App.js";
+import type { DevinMessage } from "widevin";
+import {
+  TodoPanel,
+  attemptCheckpoint,
+  createHydratedTodoStore,
+  historyToDisplayLines,
+  shouldAppendToolTranscriptLine,
+  shouldShowToolLine,
+} from "./App.js";
 import { createTodoStore } from "../tools/todo.js";
 import { DEFAULT_SKIN } from "../skins.js";
 
@@ -58,5 +66,49 @@ describe("TodoPanel", () => {
     const glyphText = (items[0] as React.ReactElement<{ children: readonly unknown[] }>).props.children[0] as React.ReactElement<{ children: readonly unknown[] }>;
 
     expect(glyphText.props.children).toContain("[x]");
+  });
+});
+
+describe("persistent REPL hydration", () => {
+  it("groups historical assistant text with each user turn and omits tool frames", () => {
+    const history: readonly DevinMessage[] = [
+      { role: "user", content: "Find it" },
+      { role: "assistant", content: [{ type: "text", text: "Looking. " }, { type: "toolCall", id: "c1", name: "read_file", arguments: {} }] },
+      { role: "tool", toolCallId: "c1", content: "secret", isError: false },
+      { role: "assistant", content: [{ type: "thinking", thinking: "done" }, { type: "text", text: "Found it." }] },
+      { role: "user", content: [{ type: "text", text: "Thanks" }] },
+      { role: "assistant", content: [{ type: "text", text: "Welcome." }] },
+    ];
+
+    expect(historyToDisplayLines(history)).toEqual([
+      { kind: "user", text: "Find it" },
+      { kind: "assistant", text: "Looking. Found it." },
+      { kind: "user", text: "Thanks" },
+      { kind: "assistant", text: "Welcome." },
+    ]);
+  });
+
+  it("hydrates todos and can restore the pre-turn snapshot after a failed turn", () => {
+    const initial = [{ id: "a", content: "Original", status: "pending" }] as const;
+    let store = createHydratedTodoStore(initial);
+    store.write({ todos: [{ id: "b", content: "Side effect", status: "completed" }] });
+
+    store = createHydratedTodoStore(initial);
+    expect(store.read()).toEqual(initial);
+  });
+
+  it("marks save failures unsaved, retries the complete in-memory snapshot, and clears on recovery", () => {
+    const firstHistory = [{ role: "user", content: "one" }, { role: "assistant", content: [{ type: "text", text: "first" }] }] satisfies DevinMessage[];
+    const recoveredHistory = [...firstHistory, { role: "user", content: "two" }, { role: "assistant", content: [{ type: "text", text: "second" }] }] satisfies DevinMessage[];
+    const checkpoint = vi.fn()
+      .mockImplementationOnce(() => { throw new Error("disk full"); })
+      .mockImplementationOnce(() => {});
+
+    const failed = attemptCheckpoint(checkpoint, firstHistory, [], false);
+    const recovered = attemptCheckpoint(checkpoint, recoveredHistory, [], failed.unsaved);
+
+    expect(failed).toMatchObject({ unsaved: true, recovered: false, error: "disk full" });
+    expect(recovered).toEqual({ unsaved: false, recovered: true });
+    expect(checkpoint).toHaveBeenLastCalledWith(recoveredHistory, []);
   });
 });

@@ -4,15 +4,16 @@ A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousR
 core agent loop, built incrementally, phase by phase (see
 [`docs/PRODUCT.md`](docs/PRODUCT.md)). The REPL's agent can read and write
 files, list directories, run shell commands (the last gated behind an
-interactive y/n approval prompt), and maintain an in-memory flat todo
+interactive y/n approval prompt), and maintain a flat todo
 plan before answering, looping the conversation with Devin until it has a
 final text answer. The loop is hardened with
 parallel-safe tool batching, corrupted tool-call JSON self-healing,
 transient API retry, and a 90-step iteration budget. In the REPL that
 budget is shared for the process lifetime; in one-shot mode each invocation
 gets a fresh budget. Exhausting it is a graceful stop, not a failure.
-Conversation memory lasts for the process lifetime; no persistence across
-restarts yet. The REPL also has a CLI polish layer: a startup banner,
+Interactive conversations and todos are checkpointed to a private local
+SQLite database and can be resumed across restarts. The REPL also has a CLI
+polish layer: a startup banner,
 a themeable skin system (`default`/`mono`, switchable live and persisted
 to `~/.railgun/config.json`), slash commands (`/exit`, `/skin`, `/help`,
 `/clear`), and Tab-completion for those commands. A `.railgun.md` (or
@@ -41,7 +42,8 @@ pnpm install
 pnpm start
 ```
 
-`pnpm start` with no arguments opens a scrolling Ink chat REPL:
+`pnpm start` with no arguments opens a fresh scrolling Ink chat REPL. The
+session becomes durable after its first successful turn:
 
 - **Startup banner**: a bordered banner prints once, before the REPL
   renders, showing the agent name and a welcome message in the active
@@ -51,9 +53,10 @@ pnpm start
   `~/.railgun/devin-token` (mode `0600`).
 - **Later runs**: the cached token is reused — no browser prompt.
 - Type a message and press Enter to send it; the reply streams into the
-  scrollback. Every prior turn in the session is sent as context on the next
-  turn, so the REPL remembers the whole conversation for the process's
-  lifetime (not across restarts — see `docs/ARCHITECTURE.md`).
+  scrollback. Every prior turn is sent as context on the next turn. After
+  each successful turn, messages and todos are atomically checkpointed to
+  `~/.railgun/state.db`; the full session ID prints after the first save and
+  its short form remains in the status line.
 - Ask something that requires reading a file in the working directory
   (e.g. `"What does notes.txt say?"`) and the REPL calls `read_file`
   automatically and uses its contents to answer. While the tool runs, a
@@ -71,8 +74,8 @@ pnpm start
   status glyphs (`[ ]`/`[>]`/`[x]`/`[-]`). While a todo update is in
   flight, an empty panel shows a `Crafting todos` spinner. Todo activity
   is intentionally not echoed as normal `✓ todo ...` transcript lines.
-  Todo state is in-memory only for the current REPL process; it is not
-  saved or restored across restarts.
+  Interactive todo state is saved with the conversation and restored on
+  resume. One-shot todo state remains invocation-local.
 - Ask it to run a shell command (e.g. `"run echo hello in the shell"`) and
   the REPL freezes the text input and prints
   `Run shell command: <command> [y/n]`; press `y` to run it and feed the
@@ -100,6 +103,48 @@ pnpm start
   one-line error into the transcript and the REPL stays open for the next
   message — it does not exit the process. Fix a bad token with
   `rm ~/.railgun/devin-token` and rerun `pnpm start` to log in again.
+  Todo changes from the failed turn are rolled back, though file and shell
+  side effects already performed by tools cannot be undone.
+- **Checkpoint error**: a completed turn stays usable in memory and the
+  status line shows `unsaved`. The next successful turn retries the complete
+  pending snapshot; a recovery message appears once persistence succeeds.
+
+### Saved sessions
+
+```sh
+pnpm start --resume <session-id>
+pnpm start --resume
+pnpm start --list-sessions
+```
+
+`--resume <session-id>` restores that conversation and its todos. Railgun
+requires the saved model to still be available and fails clearly instead of
+switching models. Bare `--resume` opens a newest-first keyboard chooser: use
+Up/Down to highlight a session (navigation wraps at either end) and press
+Enter to resume it; Escape or Ctrl-C cancels successfully.
+`--list-sessions` prints the detailed table without authenticating to Devin.
+If there are no sessions, both commands print `No saved sessions.` and exit
+successfully. Resumes rebuild the system prompt, project context, and personal
+identity from the current launch directory and start with a fresh 90-step
+process budget. Historical user/assistant text is restored to scrollback;
+historical tool frames are intentionally not reconstructed.
+
+Missing IDs, corrupt saved state, database failures, and unavailable saved
+models exit nonzero with an actionable error. Treat `state.db` as private
+application state rather than editing it manually; stop Railgun before making
+a backup so the database and its WAL are consistent.
+
+### Manual persistence smoke test
+
+1. Run `pnpm start`, complete a memorable turn, and copy the printed session
+   ID.
+2. Exit with `/exit`, then run `pnpm start --resume <session-id>` and ask a
+   follow-up that depends on the remembered turn.
+3. Run bare `pnpm start --resume`, move with Up/Down, and press Enter to resume.
+4. Run `pnpm start --list-sessions` and confirm sessions appear newest-first
+   with model, message count, full ID, and preview fields.
+5. Run a `--print` question and confirm a second `--list-sessions` produces the
+   same saved-session list.
 
 ### One-shot / scripting mode
 
@@ -137,15 +182,18 @@ blocking, interactive prompt: piping stdin closed or non-interactive
 hanging, but leaving stdin open and unanswered (e.g. a backgrounded process
 with no controlling terminal) blocks indefinitely until answered.
 
-Any other positional argument without `--print`/`-p` is a usage error:
-`pnpm start "no flag"` prints `Usage: railgun [--print|-p <question>]` to
+One-shot mode never opens the session database and never creates or updates a
+saved session.
+
+Any other positional argument is a usage error. `pnpm start "no flag"` prints
+the supported `--print`, `--resume`, and `--list-sessions` usage to
 stderr and exits non-zero without launching anything.
 
 ## Development
 
 ```sh
 pnpm run typecheck   # tsc --noEmit
-pnpm test            # vitest run — covers src/agent/*.ts's turn/dispatch/recovery/projectContext logic, src/security/threatPatterns.ts, src/tools/*, src/repl/* pure helpers, and src/skins.ts, src/commands.ts, src/config.ts
+pnpm test            # vitest run — includes real temporary-SQLite persistence tests and CLI/REPL/session coverage
 pnpm run build       # compile src/ to dist/
 ```
 

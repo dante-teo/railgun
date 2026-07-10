@@ -1,0 +1,231 @@
+import { chmod, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { DevinMessage } from "widevin";
+import {
+  SessionCorruptionError,
+  createSessionStore,
+  type SessionCheckpoint,
+} from "./sessionStore.js";
+
+const startedAt = "2026-07-10T01:02:03.000Z";
+const todos = [{ id: "phase-12", content: "Persist sessions", status: "in_progress" }] as const;
+const messages: readonly DevinMessage[] = [
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "  Remember   this session  " },
+      { type: "image", data: "base64-data", mimeType: "image/png" },
+    ],
+  },
+  {
+    role: "assistant",
+    responseId: "response-1",
+    content: [
+      { type: "thinking", thinking: "inspect", thinkingSignature: "sig" },
+      { type: "toolCall", id: "call-1", name: "read_file", arguments: { path: "notes.txt" } },
+    ],
+  },
+  { role: "tool", toolCallId: "call-1", content: "contents", isError: true },
+  { role: "assistant", content: [{ type: "text", text: "Done." }] },
+];
+
+const checkpoint = (overrides: Partial<SessionCheckpoint> = {}): SessionCheckpoint => ({
+  id: "session-a",
+  model: "model-a",
+  startedAt,
+  messages,
+  todos,
+  ...overrides,
+});
+
+describe("createSessionStore", () => {
+  let dir: string;
+  let path: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "railgun-session-store-"));
+    path = join(dir, "nested", "state.db");
+  });
+
+  afterEach(async () => {
+    await chmod(dir, 0o700).catch(() => {});
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("initializes the versioned schema, owner-only database, and reopens cleanly", async () => {
+    const store = createSessionStore(path);
+    expect(store.listSessions()).toEqual([]);
+    store.close();
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    const db = new Database(path, { readonly: true });
+    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").pluck().all())
+      .toEqual(["messages", "sessions"]);
+    db.close();
+
+    const reopened = createSessionStore(path);
+    expect(reopened.listSessions()).toEqual([]);
+    reopened.close();
+  });
+
+  it("round-trips every supported message field and normalized todos exactly", () => {
+    const store = createSessionStore(path);
+    const saved = store.saveCheckpoint(checkpoint());
+
+    expect(saved.id).toBe("session-a");
+    expect(store.loadSession("session-a")).toEqual({
+      id: "session-a",
+      model: "model-a",
+      startedAt,
+      messages,
+      todos,
+    });
+    store.close();
+  });
+
+  it("preserves an omitted optional tool error flag and tool content parts", () => {
+    const store = createSessionStore(path);
+    const optionalMessages: readonly DevinMessage[] = [
+      { role: "user", content: "show image" },
+      { role: "assistant", content: [{ type: "toolCall", id: "image-1", name: "image", arguments: null }] },
+      { role: "tool", toolCallId: "image-1", content: [{ type: "image", data: "abc", mimeType: "image/webp" }] },
+      { role: "assistant", content: [{ type: "text", text: "shown" }] },
+    ];
+
+    store.saveCheckpoint(checkpoint({ id: "optional", messages: optionalMessages }));
+
+    expect(store.loadSession("optional")?.messages).toEqual(optionalMessages);
+    store.close();
+  });
+
+  it("creates no session before the first checkpoint and preserves its model while appending", () => {
+    const store = createSessionStore(path);
+    expect(store.listSessions()).toEqual([]);
+
+    store.saveCheckpoint(checkpoint({ messages: messages.slice(0, 4) }));
+    const appended = [...messages, { role: "user", content: "Again" }, { role: "assistant", content: [{ type: "text", text: "Yes" }] }] satisfies DevinMessage[];
+    store.saveCheckpoint(checkpoint({ messages: appended, todos: [] }));
+
+    expect(store.loadSession("session-a")?.model).toBe("model-a");
+    expect(store.loadSession("session-a")?.messages).toEqual(appended);
+    expect(store.loadSession("session-a")?.todos).toEqual([]);
+    store.close();
+  });
+
+  it("makes complete-snapshot retries idempotent", () => {
+    const store = createSessionStore(path);
+    store.saveCheckpoint(checkpoint());
+    store.saveCheckpoint(checkpoint());
+
+    expect(store.listSessions()[0]?.messageCount).toBe(messages.length);
+    store.close();
+  });
+
+  it("rolls back the lazy session row and all messages when a transaction fails", () => {
+    const store = createSessionStore(path);
+    const external = new Database(path);
+    external.exec(`CREATE TRIGGER reject_second_message BEFORE INSERT ON messages
+      WHEN NEW.ordinal = 1 BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
+    external.close();
+
+    expect(() => store.saveCheckpoint(checkpoint())).toThrow(/injected failure/);
+    expect(store.listSessions()).toEqual([]);
+    store.close();
+  });
+
+  it("lists newest sessions first with counts and collapsed, truncated previews", () => {
+    const store = createSessionStore(path);
+    store.saveCheckpoint(checkpoint({ id: "older", startedAt: "2026-07-09T00:00:00.000Z" }));
+    store.saveCheckpoint(checkpoint({
+      id: "newer",
+      startedAt: "2026-07-10T00:00:00.000Z",
+      messages: [
+        { role: "user", content: "  A   preview\nthat is deliberately much longer than the configured display limit for session summaries.  " },
+        { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      ],
+    }));
+
+    const summaries = store.listSessions();
+    expect(summaries.map(summary => summary.id)).toEqual(["newer", "older"]);
+    expect(summaries[0]).toMatchObject({ model: "model-a", messageCount: 2 });
+    expect(summaries[0]?.firstUserPreview).toBe("A preview that is deliberately much longer than the configured display…");
+    expect(summaries[0]?.startedAtLocal).toBe(new Date("2026-07-10T00:00:00.000Z").toLocaleString());
+    store.close();
+  });
+
+  it("returns undefined for a missing session", () => {
+    const store = createSessionStore(path);
+    expect(store.loadSession("missing")).toBeUndefined();
+    store.close();
+  });
+
+  it("fails closed with a session-specific corruption error", () => {
+    const store = createSessionStore(path);
+    store.saveCheckpoint(checkpoint());
+    store.close();
+
+    const db = new Database(path);
+    db.prepare("UPDATE messages SET content_json = ? WHERE session_id = ? AND ordinal = 0")
+      .run("{broken", "session-a");
+    db.close();
+
+    const reopened = createSessionStore(path);
+    expect(() => reopened.loadSession("session-a")).toThrow(SessionCorruptionError);
+    expect(() => reopened.loadSession("session-a")).toThrow(/session-a/);
+    reopened.close();
+  });
+
+  it("rejects a structurally valid transcript with an impossible role sequence", () => {
+    const store = createSessionStore(path);
+    store.saveCheckpoint(checkpoint());
+    store.close();
+
+    const db = new Database(path);
+    db.prepare(`UPDATE messages SET role = 'assistant', content_json = ?, response_id = NULL
+      WHERE session_id = ? AND ordinal = 0`)
+      .run(JSON.stringify([{ type: "text", text: "assistant cannot start a transcript" }]), "session-a");
+    db.close();
+
+    const reopened = createSessionStore(path);
+    expect(() => reopened.loadSession("session-a")).toThrow(/session-a.*role sequence/i);
+    reopened.close();
+  });
+
+  it("rejects duplicate tool-call IDs in one assistant message", () => {
+    const store = createSessionStore(path);
+    const duplicateCalls: readonly DevinMessage[] = [
+      { role: "user", content: "go" },
+      { role: "assistant", content: [
+        { type: "toolCall", id: "duplicate", name: "first", arguments: {} },
+        { type: "toolCall", id: "duplicate", name: "second", arguments: {} },
+      ] },
+      { role: "tool", toolCallId: "duplicate", content: "done" },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ];
+
+    expect(() => store.saveCheckpoint(checkpoint({ id: "duplicate", messages: duplicateCalls })))
+      .toThrow(/duplicate tool call id/i);
+    expect(store.loadSession("duplicate")).toBeUndefined();
+    store.close();
+  });
+
+  it("rejects todo JSON that is valid but not normalized", () => {
+    const store = createSessionStore(path);
+    store.saveCheckpoint(checkpoint());
+    store.close();
+
+    const db = new Database(path);
+    db.prepare("UPDATE sessions SET todos_json = ? WHERE id = ?")
+      .run(JSON.stringify([{ id: " spaced ", content: "todo", status: "pending" }]), "session-a");
+    db.close();
+
+    const reopened = createSessionStore(path);
+    expect(() => reopened.loadSession("session-a")).toThrow(/session-a.*normalized todo/i);
+    reopened.close();
+  });
+});

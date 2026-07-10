@@ -15,6 +15,44 @@ describe("formatLocalDate", () => {
 });
 
 describe("initDevinSession", () => {
+  it("selects an explicitly required saved model instead of the default", async () => {
+    vi.doMock("widevin", () => ({
+      createFileTokenStore: () => ({ get: async () => "fake-token" }),
+      createDevinProvider: () => ({
+        login: async () => {},
+        listModels: async () => [{ id: "default-model" }, { id: "saved-model" }],
+      }),
+    }));
+    vi.doMock("./openBrowser.js", () => ({ openUrlInBrowser: async () => {} }));
+    vi.doMock("./agent/projectContext.js", () => ({
+      loadProjectContext: async () => null,
+      loadSoulIdentity: async () => null,
+    }));
+    vi.doMock("./agent/systemPrompt.js", () => ({ buildSystemPrompt: () => [] }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { initDevinSession } = await import("./session.js");
+    const session = await initDevinSession("saved-model");
+
+    expect(session.model.id).toBe("saved-model");
+  });
+
+  it("fails rather than silently switching when a saved model is unavailable", async () => {
+    vi.doMock("widevin", () => ({
+      createFileTokenStore: () => ({ get: async () => "fake-token" }),
+      createDevinProvider: () => ({
+        login: async () => {},
+        listModels: async () => [{ id: "different-model" }],
+      }),
+    }));
+    vi.doMock("./openBrowser.js", () => ({ openUrlInBrowser: async () => {} }));
+
+    const { initDevinSession } = await import("./session.js");
+    await expect(initDevinSession("missing-model")).rejects.toThrow(
+      /Saved model "missing-model" is unavailable.*different-model/,
+    );
+  });
+
   it("passes projectContext and soulIdentity from loaders to buildSystemPrompt", async () => {
     vi.doMock("widevin", () => ({
       createFileTokenStore: () => ({ get: async () => "fake-token" }),

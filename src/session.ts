@@ -19,7 +19,7 @@ const padDatePart = (value: number): string => String(value).padStart(2, "0");
 export const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
-export const initDevinSession = async (): Promise<DevinSession> => {
+export const initDevinSession = async (requiredModelId?: string): Promise<DevinSession> => {
   const tokenStore = createFileTokenStore(TOKEN_PATH);
   const devin = createDevinProvider({ tokenStore, openBrowser: openUrlInBrowser });
 
@@ -28,7 +28,13 @@ export const initDevinSession = async (): Promise<DevinSession> => {
   }
 
   const models = await devin.listModels();
-  const model = models[0];
+  const model = requiredModelId === undefined
+    ? models[0]
+    : models.find(candidate => candidate.id === requiredModelId);
+  if (requiredModelId !== undefined && !model) {
+    const available = models.map(candidate => candidate.id).join(", ") || "none";
+    throw new Error(`Saved model "${requiredModelId}" is unavailable. Available models: ${available}.`);
+  }
   if (!model) throw new Error("Devin returned no available models");
   console.error(`Using model: ${model.id}`);
 
