@@ -1,6 +1,6 @@
 import type { ExtensionRunner } from "./extensions/runner.js";
 import { createExtensionRunner } from "./extensions/runner.js";
-import { loadExtensions, registerExtensionTools } from "./extensions/loader.js";
+import { loadExtensions, registerExtensionTools, createExtensionAPI } from "./extensions/loader.js";
 import { homedir } from "node:os";
 import { registry } from "./tools/index.js";
 import { randomUUID } from "node:crypto";
@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import type { AppConfig } from "./config.js";
+import { createMcpExtension, parseMcpServers } from "./extensions/mcp/index.js";
 import { describeDevinError } from "./errors.js";
 import { runLoginCommand, runLogoutCommand } from "./auth.js";
 import { runOneShot } from "./oneShot.js";
@@ -135,7 +136,7 @@ const defaultDependencies: CliDependencies = {
 const resolveSessionTrust = async (
   mode: { approve?: boolean; noApprove?: boolean },
   dependencies: CliDependencies,
-): Promise<{ decision: TrustDecision; store: ProjectTrustStore }> => {
+): Promise<{ decision: TrustDecision; store: ProjectTrustStore; config: AppConfig }> => {
   const config = await dependencies.loadConfig();
   const store = dependencies.createNewTrustStore();
   const decision = await resolveProjectTrust(process.cwd(), store, {
@@ -144,7 +145,7 @@ const resolveSessionTrust = async (
     defaultTrust: config.defaultProjectTrust,
     promptTrustChoice: dependencies.promptTrustChoice,
   });
-  return { decision, store };
+  return { decision, store, config };
 };
 
 const persistenceOptions = (
@@ -194,13 +195,28 @@ const withStore = async <T>(
 
 // Creates, wires, and loads extensions for one session. The returned runner is already
 // primed; caller is responsible for emitting session_start/session_shutdown around the run.
-const bootstrapExtensions = async (sessionId: string): Promise<ExtensionRunner> => {
+// Returns a cleanup fn that kills MCP child processes on shutdown.
+const bootstrapExtensions = async (
+  sessionId: string,
+  config: AppConfig,
+): Promise<{ runner: ExtensionRunner; cleanup: () => void }> => {
   const runner = createExtensionRunner();
   runner.onExtensionError(err => console.error("[extension error]", err.extension, err.event, err.error));
   // TODO: gate on project trust
   await loadExtensions(runner, { cwd: process.cwd(), homeDir: homedir(), trusted: true });
+
+  // MCP: load configured servers as extension tools
+  const mcpServers = parseMcpServers(config.mcpServers);
+  let mcpCleanup: (() => void) | undefined;
+  if (Object.keys(mcpServers).length > 0) {
+    const mcpFactory = createMcpExtension(mcpServers);
+    const api = createExtensionAPI(runner, "mcp");
+    const handle = await mcpFactory(api);
+    mcpCleanup = handle.close;
+  }
+
   registerExtensionTools(runner, registry, sessionId);
-  return runner;
+  return { runner, cleanup: mcpCleanup ?? (() => {}) };
 };
 
 export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies = defaultDependencies): Promise<void> => {
@@ -218,36 +234,44 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
   }
 
   if (mode.kind === "print") {
-    const { decision } = await resolveSessionTrust(mode, dependencies);
-    const runner = await bootstrapExtensions("oneshot");
-    await runner.emitSessionStart({ type: "session_start", reason: "new" });
-    await dependencies.runOneShot(mode.question, runner);
-    await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    const { decision, config } = await resolveSessionTrust(mode, dependencies);
+    const { runner, cleanup } = await bootstrapExtensions("oneshot", config);
+    try {
+      await runner.emitSessionStart({ type: "session_start", reason: "new" });
+      await dependencies.runOneShot(mode.question, runner);
+      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    } finally {
+      cleanup();
+    }
     return;
   }
 
   if (mode.kind === "fresh") {
-    const { decision, store: trustStore } = await resolveSessionTrust(mode, dependencies);
+    const { decision, store: trustStore, config } = await resolveSessionTrust(mode, dependencies);
     const session = await dependencies.initFreshSession();
     if (session === undefined) return;
     const sessionId = dependencies.randomId();
-    const runner = await bootstrapExtensions(sessionId);
-    await runner.emitSessionStart({ type: "session_start", reason: "new" });
-    await withStore(dependencies, async store => {
-      const persisted: PersistedSession = {
-        id: sessionId,
-        model: session.model.id,
-        startedAt: dependencies.now().toISOString(),
-        messages: [],
-        todos: [],
-      };
-      await dependencies.runRepl(session, persistenceOptions(
-        persisted,
-        store,
-        () => dependencies.stderr(`Session saved: ${persisted.id}`),
-      ), runner, decision, trustStore);
-    });
-    await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    const { runner, cleanup } = await bootstrapExtensions(sessionId, config);
+    try {
+      await runner.emitSessionStart({ type: "session_start", reason: "new" });
+      await withStore(dependencies, async store => {
+        const persisted: PersistedSession = {
+          id: sessionId,
+          model: session.model.id,
+          startedAt: dependencies.now().toISOString(),
+          messages: [],
+          todos: [],
+        };
+        await dependencies.runRepl(session, persistenceOptions(
+          persisted,
+          store,
+          () => dependencies.stderr(`Session saved: ${persisted.id}`),
+        ), runner, decision, trustStore);
+      });
+      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    } finally {
+      cleanup();
+    }
     return;
   }
 
@@ -260,7 +284,7 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
   }
 
   if (mode.kind === "resume") {
-    const { decision, store: trustStore } = await resolveSessionTrust(mode, dependencies);
+    const { decision, store: trustStore, config } = await resolveSessionTrust(mode, dependencies);
     await withStore(dependencies, async store => {
       let id = mode.id;
       if (id === undefined) {
@@ -274,10 +298,14 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
       }
       const persisted = store.loadSession(id);
       if (!persisted) throw new Error(`No saved session found with ID "${id}". Run railgun --list-sessions to see available sessions.`);
-      const runner = await bootstrapExtensions(persisted.id);
-      await runner.emitSessionStart({ type: "session_start", reason: "resume" });
-      await runPersistedRepl(persisted, store, dependencies, runner, decision, trustStore);
-      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+      const { runner, cleanup } = await bootstrapExtensions(persisted.id, config);
+      try {
+        await runner.emitSessionStart({ type: "session_start", reason: "resume" });
+        await runPersistedRepl(persisted, store, dependencies, runner, decision, trustStore);
+        await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+      } finally {
+        cleanup();
+      }
     });
     return;
   }

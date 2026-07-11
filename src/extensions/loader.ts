@@ -12,7 +12,7 @@ export interface LoadExtensionsOptions {
   readonly trusted: boolean;
 }
 
-const createExtensionAPI = (runner: ExtensionRunner, source: string): ExtensionAPI => ({
+export const createExtensionAPI = (runner: ExtensionRunner, source: string): ExtensionAPI => ({
   on: (event, handler) => runner.on(event, handler, source),
   registerTool: (tool) => runner.registerTool(tool),
   registerCommand: () => { /* stub — future surface */ },

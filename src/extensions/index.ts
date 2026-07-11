@@ -17,3 +17,4 @@ export type {
 } from "./types.js";
 export { createExtensionRunner } from "./runner.js";
 export type { ExtensionRunner } from "./runner.js";
+export { createExtensionAPI, registerExtensionTools } from "./loader.js";

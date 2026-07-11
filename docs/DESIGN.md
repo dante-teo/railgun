@@ -83,6 +83,24 @@ pretty JSON without crossing authentication, SQLite, file-creation, or TUI
 boundaries. Unknown fields remain visible and preserved; invalid configuration
 fails in place rather than being repaired.
 
+The optional `mcpServers` object configures MCP (Model Context Protocol) servers.
+Each key is a server name; each value is `{ command: string, args?: string[],
+env?: Record<string, string> }`. Railgun spawns each configured server at
+session startup (stdio transport only), discovers its tools, and registers them
+as `mcp__<server>__<tool>` in the tool registry. One failing server logs an error
+but does not block startup. Example:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  }
+}
+```
+
 The optional `defaultProjectTrust` field controls the project trust gate:
 `"ask"` (default) prompts interactively before each new untrusted project's
 first session; `"always"` trusts every project without prompting; `"never"`

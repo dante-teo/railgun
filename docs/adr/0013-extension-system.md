@@ -75,8 +75,11 @@ without invoking the registry. The `"extension"` toolset is added to
 `ENABLED_TOOLSETS` so extension-registered tool schemas are included in every
 `streamChat` request.
 
-**Bootstrap in `cli.ts`:** `bootstrapExtensions(sessionId)` creates the runner,
-wires an error listener, loads extensions, and registers extension tools. It is
+**Bootstrap in `cli.ts`:** `bootstrapExtensions(sessionId, config)` creates the runner,
+wires an error listener, loads filesystem extensions, then programmatically bootstraps
+MCP servers from the injected `AppConfig` (see ADR-0014), and registers all extension
+tools into the core registry. It returns `{ runner, cleanup }` where `cleanup()` kills
+MCP child processes; callers wrap session work in `try/finally { cleanup() }`. It is
 called once per session for the `fresh`, `resume`, and `print` modes (the
 `login`, `logout`, `config`, and `list` modes have no session and load no
 extensions). `session_start` is emitted after bootstrap, before the REPL or
@@ -111,3 +114,8 @@ enables it.
 - `registerCommand`, `registerShortcut`, `registerFlag`, and `registerProvider`
   are no-ops. They exist only to keep extension factory code forward-compatible
   with future API surfaces without requiring an API version bump.
+- The `createExtensionAPI` function was private to `loader.ts` during Phase 23.
+  Phase 24 exports it so `bootstrapExtensions` can create an `ExtensionAPI` for
+  the programmatic MCP extension without routing through the filesystem loader.
+  This is the only public surface added to `loader.ts`; the rest of the loader
+  API is unchanged.

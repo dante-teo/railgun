@@ -17,7 +17,18 @@ goes toward agent logic instead of provider plumbing (see
 **Current phase — Phase 29 (cron scheduler):**
 Phase 29 adds a `railgun cron` command that runs the agent automatically on a schedule without human input. Jobs are defined in `~/.railgun/cron/jobs.json` as a JSON array of objects with `id`, `schedule` (cron expression), `prompt`, and `lastRun` (epoch ms or null). A background loop wakes every 60 seconds, parses each schedule with `cron-parser` to find the last firing time before now, and runs any job whose `lastRun` is before that time (or null). Each job fires a fresh `createAgentSession` with a 30-step iteration budget, shell commands denied by default unless `approvalMode` is `"off"` in `config.json`, and no session persistence — output is logged to stderr. After all due jobs in a cycle complete, `lastRun` is atomically written back to `jobs.json` via `write-file-atomic`. The loop runs until SIGINT or SIGTERM, which are each forwarded to an `AbortController`; the signal propagates through the sleep primitive (built with `Promise.withResolvers()`) so the process exits without waiting out the current interval. Extensions are not loaded in cron mode. `src/cron/jobs.ts` owns job types, disk I/O, and `isDue`; `src/cron/scheduler.ts` owns `tick` (sequential per-cycle run), `runCronJob` (session construction and event collection), and `startScheduler` (the main loop).
 
-**Previous phase — Phase 23 (extension system):**
+**Phase 24 (MCP client support):**
+Phase 24 adds MCP (Model Context Protocol) client support as a built-in
+programmatic extension, letting the agent use tools from external MCP servers
+configured in `~/.railgun/config.json`. Add a `mcpServers` object whose keys
+are server names and values are `{ command, args?, env? }` entries (stdio
+transport only); on startup Railgun spawns each server as a child process,
+handshakes over JSON-RPC, discovers its tools, and registers them with prefixed
+names (`mcp__<server>__<tool>`) via the Phase 23 `registerTool` surface. One
+broken server logs an error but does not prevent the agent from starting.
+Child processes are killed in `try/finally` on session shutdown. See ADR-0014.
+
+**Phase 23 (extension system):**
 Phase 23 adds an extension system that lets outside code observe and intercept
 the agent's lifecycle without editing core source. Extensions live in
 `~/.railgun/extensions/` (global) and `.railgun/extensions/` (project-local,
@@ -33,7 +44,7 @@ transform or consume user text before the agent sees it). `ExtensionRunner`
 session startup; `registerExtensionTools` inserts extension-registered tools
 into the core registry under a new `"extension"` toolset. All three session
 modes — fresh REPL, resume, and one-shot — bootstrap extensions before the
-session runs and emit `session_start`/`session_shutdown` around it. See ADR-0014.
+session runs and emit `session_start`/`session_shutdown` around it. See ADR-0013.
 
 Phase 22 adds automatic working-directory snapshots before file-mutating tool
 calls and a `/rollback` REPL command to undo the agent's last round of
@@ -443,6 +454,25 @@ protocol failures, and unrelated errors fail immediately.
   tool result contains `"Blocked by extension"`; (3) edit the latency logger
   to throw inside its handler — confirm the tool still executes, stderr shows
   the extension error, and the process does not crash.
+  Phase 24: `src/extensions/mcp/naming.test.ts` proves `sanitizeForToolName`
+  lowercasing, special-char replacement, consecutive-underscore collapse, and
+  leading/trailing strip; `makeUniquePrefixedName` prefix format, deduplication
+  suffix, cross-server name independence, and same-sanitized-name collision
+  within a server. `src/extensions/mcp/config.test.ts` proves `parseMcpServers`
+  returns `{}` for non-objects, parses valid `command`/`args`/`env`, skips
+  entries without a string `command`, and filters non-string `env`/`args`
+  values. `src/extensions/mcp/connection.test.ts` connects to a real
+  subprocess fixture, discovers its tools, calls `echo` and verifies the
+  returned string, rejects on a non-existent binary, and rejects pending RPC
+  calls when the server exits unexpectedly. `src/extensions/mcp/index.test.ts`
+  verifies prefixed tool registration, multi-server fan-out, degraded startup
+  when one server fails (others still load), `close()` propagation, and that
+  `execute` calls `conn.call` with the original (unprefixed) tool name. Manual
+  smoke test: add `{"mcpServers":{"filesystem":{"command":"npx","args":["-y",
+  "@modelcontextprotocol/server-filesystem","/tmp"]}}}` to
+  `~/.railgun/config.json`, run `pnpm start`, and confirm tools prefixed
+  `mcp__filesystem__` appear in the startup tool list; then change the command
+  to a typo and confirm the agent still starts with an `[mcp]` error on stderr.
 
 ## Open Questions
 
@@ -450,7 +480,7 @@ protocol failures, and unrelated errors fail immediately.
   order, beyond the replication plan's suggested sequence — deferred
   until each phase is actually started. Interrupt and steering queues shipped
   in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
-  Phase 18; the clarify tool shipped in Phase 19; command risk gate and smart approval shipped in Phase 21; shadow-git checkpoints and `/rollback` shipped in Phase 22; the extension system shipped in Phase 23.
+  Phase 18; the clarify tool shipped in Phase 19; command risk gate and smart approval shipped in Phase 21; shadow-git checkpoints and `/rollback` shipped in Phase 22; the extension system shipped in Phase 23; MCP client support shipped in Phase 24.
 - Project-local extension trust gating: the `trusted` parameter is wired but
   unconditionally `true`; a future phase should gate it on an explicit user
   opt-in (e.g. `railgun trust` command or a `~/.railgun/trusted-projects` list).
