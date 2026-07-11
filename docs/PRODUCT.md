@@ -14,46 +14,63 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
- **Current phase — Phase 22 (shadow-git checkpoints and `/rollback`):**
- Phase 22 adds automatic working-directory snapshots before file-mutating tool
- calls and a `/rollback` REPL command to undo the agent's last round of
- changes. Before the first `write_file` or approved `run_shell_command` in a
- user turn, a `CheckpointGuard` calls `snapshot`, which stages all files into a
- per-project shadow git repository at `~/.railgun/checkpoints/<cwd-hash>/` and
- commits them. Subsequent `beforeMutation` calls within the same turn are
- no-ops; `resetTurn` re-arms the guard for the next turn. `/rollback` calls
- `git checkout HEAD -- .` against the shadow repo, restoring the working tree
- to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
- 
- Phase 21 (not shown here — see replication plan) added the shell-command
- approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/trust.json` persists trust decisions keyed by canonical path, with ancestor-directory inheritance; `--approve`/`-a` and `--no-approve`/`-na` CLI flags override for one invocation; `/trust` REPL command updates the decision mid-session; `defaultProjectTrust: "ask"|"always"|"never"` in `config.json` short-circuits the prompt. Trust is plumbing-only in Phase 20 — no project-local resources are gated yet. See ADR-0013.
-   Phase 22: `src/checkpoint.test.ts` proves `shadowGitDir` determinism,
-   `snapshot` creates a commit in a fresh shadow repo, a second snapshot when
-   nothing changed is a no-op (covered by `--allow-empty`), `rollback` restores
-   overwritten and deleted files to their pre-snapshot content, rollback against
-   a missing shadow repo throws, `createCheckpointGuard.beforeMutation` takes
-   exactly one commit per turn (duplicates are no-ops), and `resetTurn` re-arms
-   the guard so the next `beforeMutation` takes a second commit;
-   `src/tools/writeFile.test.ts` proves `checkpointGuard.beforeMutation` is
-   invoked exactly once when the guard is present in `ToolContext`;
-   `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
-   returned by `findMatches`.
-   Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded
-   directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after
-   `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk,
-   `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting
-   `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision
-   load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves
-   `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits,
-   `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and
-   `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result;
-   `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on
-   `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`.
-   `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume
-   modes, rejection on login/logout/config/list modes, and both-flags-together throwing
-   `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included
-   in the persisted output of `setConfiguredModel`, and is rejected for values outside the
-   `"ask"/"always"/"never"` set. See ADR-0013.
+**Current phase — Phase 23 (extension system):**
+Phase 23 adds an extension system that lets outside code observe and intercept
+the agent's lifecycle without editing core source. Extensions live in
+`~/.railgun/extensions/` (global) and `.railgun/extensions/` (project-local,
+currently loaded unconditionally). An extension default-exports a factory
+`(api: ExtensionAPI) => void | Promise<void>` and registers handlers via
+`api.on()` and new LLM-callable tools via `api.registerTool()`. Five typed
+events form a discriminated union: `tool_call` (can block — fail-closed per
+call on handler throws), `tool_result` (can rewrite content/isError),
+`session_start`, `session_shutdown` (observers only), and `input` (can
+transform or consume user text before the agent sees it). `ExtensionRunner`
+(`src/extensions/runner.ts`) manages handler dispatch and error isolation;
+`loadExtensions` (`src/extensions/loader.ts`) discovers and imports modules at
+session startup; `registerExtensionTools` inserts extension-registered tools
+into the core registry under a new `"extension"` toolset. All three session
+modes — fresh REPL, resume, and one-shot — bootstrap extensions before the
+session runs and emit `session_start`/`session_shutdown` around it. See ADR-0014.
+
+Phase 22 adds automatic working-directory snapshots before file-mutating tool
+calls and a `/rollback` REPL command to undo the agent's last round of
+changes. Before the first `write_file` or approved `run_shell_command` in a
+user turn, a `CheckpointGuard` calls `snapshot`, which stages all files into a
+per-project shadow git repository at `~/.railgun/checkpoints/<cwd-hash>/` and
+commits them. Subsequent `beforeMutation` calls within the same turn are
+no-ops; `resetTurn` re-arms the guard for the next turn. `/rollback` calls
+`git checkout HEAD -- .` against the shadow repo, restoring the working tree
+to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
+
+Phase 21 (not shown here — see replication plan) added the shell-command
+approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/trust.json` persists trust decisions keyed by canonical path, with ancestor-directory inheritance; `--approve`/`-a` and `--no-approve`/`-na` CLI flags override for one invocation; `/trust` REPL command updates the decision mid-session; `defaultProjectTrust: "ask"|"always"|"never"` in `config.json` short-circuits the prompt. Trust is plumbing-only in Phase 20 — no project-local resources are gated yet. See ADR-0013.
+  Phase 22: `src/checkpoint.test.ts` proves `shadowGitDir` determinism,
+  `snapshot` creates a commit in a fresh shadow repo, a second snapshot when
+  nothing changed is a no-op (covered by `--allow-empty`), `rollback` restores
+  overwritten and deleted files to their pre-snapshot content, rollback against
+  a missing shadow repo throws, `createCheckpointGuard.beforeMutation` takes
+  exactly one commit per turn (duplicates are no-ops), and `resetTurn` re-arms
+  the guard so the next `beforeMutation` takes a second commit;
+  `src/tools/writeFile.test.ts` proves `checkpointGuard.beforeMutation` is
+  invoked exactly once when the guard is present in `ToolContext`;
+  `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
+  returned by `findMatches`.
+  Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded
+  directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after
+  `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk,
+  `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting
+  `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision
+  load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves
+  `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits,
+  `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and
+  `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result;
+  `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on
+  `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`.
+  `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume
+  modes, rejection on login/logout/config/list modes, and both-flags-together throwing
+  `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included
+  in the persisted output of `setConfiguredModel`, and is rejected for values outside the
+  `"ask"/"always"/"never"` set. See ADR-0013.
 
 Phase 19 adds a `clarify` tool (`src/tools/clarify.ts`) that lets the agent ask the user a clarifying question — with optional numbered multiple-choice answers — instead of guessing when information is missing. The design is callback-based: the tool itself is platform-agnostic; the actual user-interaction mechanism is injected as `ClarifyCallback` (`src/tools/registry.ts`) via `AgentDependencies.clarifyCallback` and threaded through `RunTurnOptions` into `ToolContext`. In the REPL (`src/repl/App.tsx`) the callback uses `Promise.withResolvers` and a ref, mirroring the existing `confirmShellCommand` pattern: an `❓` prompt box renders above the composer, number keys `1`–`4` pick choices (with the composer unfocused to prevent digit bleed-through), Enter submits a freeform typed answer, and Escape resolves with `[user declined to answer]`. In one-shot mode (`src/oneShot.ts`) the callback blocks on `readline`/`process.stdin`. Ctrl+C during a clarify prompt resolves it with `[user declined to answer]` and aborts cleanly. The `"clarify"` toolset is always enabled alongside `"file"`, `"terminal"`, and `"planning"`. The system prompt (`src/agent/systemPrompt.ts`) instructs the model to use `clarify` before irreversible actions when information is missing and to offer choices when the options are clear and few.
 
@@ -402,6 +419,27 @@ protocol failures, and unrelated errors fail immediately.
   agent to run `rm -rf /` — blocked immediately, no prompt; ask for `ls` — runs
   immediately, no prompt; ask for `sudo echo hi` — approval prompt fires; approve
   it, then ask for `sudo ls` — runs without re-prompting (session-approved).
+  Phase 23: `src/extensions/runner.test.ts` proves `emitToolCall`'s
+  fail-closed propagation, first-blocker short-circuit, non-blocking
+  passthrough, `emitToolResult`'s per-handler error isolation and
+  later-wins content/isError accumulation, `emitInput`'s transform chain and
+  `"handled"` short-circuit, and session lifecycle observers that catch throws
+  without propagating; `src/extensions/loader.test.ts` proves `.js` file
+  loading, subdirectory `index.js` loading, non-ts/js file skipping, per-module
+  error isolation with continued loading, `trusted:false` skipping the
+  project-local directory, and stub API no-ops; `src/agent/turn.test.ts`
+  adds three integration tests: a blocking `tool_call` handler produces a
+  `"Blocked by extension"` error tool result, a `tool_result` handler
+  that rewrites content changes the tool message seen by the model, and a
+  throwing `tool_call` handler produces an error tool result without crashing
+  the agent. Manual smoke tests: (1) create `~/.railgun/extensions/latency-logger.js`
+  with a `tool_result` handler logging `[latency] <toolName> took <N>ms` to
+  stderr — run `pnpm start -p "List the files"` and confirm the latency line
+  appears; (2) create `~/.railgun/extensions/no-shell.js` that blocks
+  `run_shell_command` — run `pnpm start -p "Run: echo hello"` and confirm the
+  tool result contains `"Blocked by extension"`; (3) edit the latency logger
+  to throw inside its handler — confirm the tool still executes, stderr shows
+  the extension error, and the process does not crash.
 
 ## Open Questions
 
@@ -409,4 +447,7 @@ protocol failures, and unrelated errors fail immediately.
   order, beyond the replication plan's suggested sequence — deferred
   until each phase is actually started. Interrupt and steering queues shipped
   in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
-  Phase 18; the clarify tool shipped in Phase 19; command risk gate and smart approval shipped in Phase 21; shadow-git checkpoints and `/rollback` shipped in Phase 22.
+  Phase 18; the clarify tool shipped in Phase 19; command risk gate and smart approval shipped in Phase 21; shadow-git checkpoints and `/rollback` shipped in Phase 22; the extension system shipped in Phase 23.
+- Project-local extension trust gating: the `trusted` parameter is wired but
+  unconditionally `true`; a future phase should gate it on an explicit user
+  opt-in (e.g. `railgun trust` command or a `~/.railgun/trusted-projects` list).

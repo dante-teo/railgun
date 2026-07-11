@@ -11,6 +11,7 @@ import { registry } from "../tools/index.js";
 import { createTodoStore } from "../tools/todo.js";
 import { CORRUPTION_MARKER } from "./toolDispatch.js";
 import { IterationBudget, ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
+import { createExtensionRunner } from "../extensions/runner.js";
 
 const { readFileMock } = vi.hoisted(() => ({ readFileMock: vi.fn() }));
 
@@ -603,5 +604,107 @@ describe("runTurn", () => {
       expect(events.filter(e => e.type === "compaction_start")).toEqual([{ type: "compaction_start", reason: "overflow" }]);
       expect(events.filter(e => e.type === "compaction_end")).toEqual([{ type: "compaction_end", reason: "overflow" }]);
     });
+  });
+});
+
+describe("runTurn with extensionRunner", () => {
+
+  // Register a simple echo tool for extension tests
+  beforeEach(() => {
+    registry.register({
+      name: "ext_echo",
+      toolset: "extension",
+      schema: { name: "ext_echo", description: "echos input", inputSchema: {} },
+      handler: async (args) => ({
+        content: `echo: ${JSON.stringify(args)}`,
+        isError: false,
+      }),
+    });
+  });
+
+  it("a tool_call handler that blocks produces 'Blocked by extension' result with isError:true", async () => {
+    const runner = createExtensionRunner();
+    runner.on("tool_call", ({ toolName }) => {
+      if (toolName === "ext_echo") return { block: true as const, reason: "blocked in test" };
+    }, "test-ext");
+
+    const devin = fakeProvider([
+      [
+        { type: "toolcall_delta", id: "call-1", delta: "{}" },
+        { type: "toolcall_end", id: "call-1", name: "ext_echo", arguments: {} }
+      ],
+      [{ type: "text_delta", delta: "done" }]
+    ]);
+
+    const outcome = await runTurn(
+      devin, "model-1", 1_000_000, defaultSystemPrompt, [], "go", defaultBudget(), approveAll,
+      undefined, { extensionRunner: runner }
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    const toolMsg = outcome.messages.find(m => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    if (!toolMsg || toolMsg.role !== "tool") throw new Error("expected tool message");
+    expect(toolMsg.isError).toBe(true);
+    expect(typeof toolMsg.content === "string" && toolMsg.content.includes("Blocked by extension")).toBe(true);
+    expect(typeof toolMsg.content === "string" && toolMsg.content.includes("blocked in test")).toBe(true);
+  });
+
+  it("a tool_result handler that rewrites content changes the tool message content", async () => {
+    const runner = createExtensionRunner();
+    runner.on("tool_result", () => ({ content: "rewritten by extension" }), "test-ext");
+
+    const devin = fakeProvider([
+      [
+        { type: "toolcall_delta", id: "call-1", delta: "{}" },
+        { type: "toolcall_end", id: "call-1", name: "ext_echo", arguments: {} }
+      ],
+      [{ type: "text_delta", delta: "done" }]
+    ]);
+
+    const outcome = await runTurn(
+      devin, "model-1", 1_000_000, defaultSystemPrompt, [], "go", defaultBudget(), approveAll,
+      undefined, { extensionRunner: runner }
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    const toolMsg = outcome.messages.find(m => m.role === "tool");
+    expect(toolMsg?.content).toBe("rewritten by extension");
+  });
+
+  it("a throwing tool_call handler produces an error tool result for that call, not a process crash", async () => {
+    const runner = createExtensionRunner();
+    runner.on("tool_call", () => { throw new Error("extension crashed"); }, "test-ext");
+
+    const devin = fakeProvider([
+      [
+        { type: "toolcall_delta", id: "call-1", delta: "{}" },
+        { type: "toolcall_end", id: "call-1", name: "ext_echo", arguments: {} }
+      ],
+      [{ type: "text_delta", delta: "done" }]
+    ]);
+
+    const outcome = await runTurn(
+      devin, "model-1", 1_000_000, defaultSystemPrompt, [], "go", defaultBudget(), approveAll,
+      undefined, { extensionRunner: runner }
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    const toolMsg = outcome.messages.find(m => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    if (!toolMsg || toolMsg.role !== "tool") throw new Error("expected tool message");
+    expect(toolMsg.isError).toBe(true);
+    expect(typeof toolMsg.content === "string" && toolMsg.content.includes("Error")).toBe(true);
+  });
+
+  it("existing tests are unaffected when extensionRunner is omitted (undefined)", async () => {
+    const devin = fakeProvider([[{ type: "text_delta", delta: "no-op" }]]);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.assistantText).toBe("no-op");
   });
 });

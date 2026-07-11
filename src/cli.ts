@@ -1,3 +1,8 @@
+import type { ExtensionRunner } from "./extensions/runner.js";
+import { createExtensionRunner } from "./extensions/runner.js";
+import { loadExtensions, registerExtensionTools } from "./extensions/loader.js";
+import { homedir } from "node:os";
+import { registry } from "./tools/index.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,8 +46,8 @@ export interface CliDependencies {
   initSession: (requiredModelId?: string) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
-  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore) => Promise<void>;
-  runOneShot: (question: string, trustDecision?: TrustDecision) => Promise<void>;
+  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore) => Promise<void>;
+  runOneShot: (question: string, extensionRunner?: ExtensionRunner) => Promise<void>;
   createNewTrustStore: () => ProjectTrustStore;
   promptTrustChoice: (cwd: string) => Promise<TrustChoice>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
@@ -156,12 +161,13 @@ const runPersistedRepl = async (
   persisted: PersistedSession,
   store: SessionStore,
   dependencies: CliDependencies,
-  trustDecision: TrustDecision,
-  trustStore: ProjectTrustStore,
+  extensionRunner?: ExtensionRunner,
+  trustDecision?: TrustDecision,
+  trustStore?: ProjectTrustStore,
   onFirstSave?: () => void,
 ): Promise<void> => {
   const session = await dependencies.initSession(persisted.model);
-  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave), trustDecision, trustStore);
+  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave), extensionRunner, trustDecision, trustStore);
 };
 
 const withStore = async <T>(
@@ -174,6 +180,17 @@ const withStore = async <T>(
   } finally {
     store.close();
   }
+};
+
+// Creates, wires, and loads extensions for one session. The returned runner is already
+// primed; caller is responsible for emitting session_start/session_shutdown around the run.
+const bootstrapExtensions = async (sessionId: string): Promise<ExtensionRunner> => {
+  const runner = createExtensionRunner();
+  runner.onExtensionError(err => console.error("[extension error]", err.extension, err.event, err.error));
+  // TODO: gate on project trust
+  await loadExtensions(runner, { cwd: process.cwd(), homeDir: homedir(), trusted: true });
+  registerExtensionTools(runner, registry, sessionId);
+  return runner;
 };
 
 export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies = defaultDependencies): Promise<void> => {
@@ -192,7 +209,10 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
 
   if (mode.kind === "print") {
     const { decision } = await resolveSessionTrust(mode, dependencies);
-    await dependencies.runOneShot(mode.question, decision);
+    const runner = await bootstrapExtensions("oneshot");
+    await runner.emitSessionStart({ type: "session_start", reason: "new" });
+    await dependencies.runOneShot(mode.question, runner);
+    await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     return;
   }
 
@@ -200,9 +220,12 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     const { decision, store: trustStore } = await resolveSessionTrust(mode, dependencies);
     const session = await dependencies.initFreshSession();
     if (session === undefined) return;
+    const sessionId = dependencies.randomId();
+    const runner = await bootstrapExtensions(sessionId);
+    await runner.emitSessionStart({ type: "session_start", reason: "new" });
     await withStore(dependencies, async store => {
       const persisted: PersistedSession = {
-        id: dependencies.randomId(),
+        id: sessionId,
         model: session.model.id,
         startedAt: dependencies.now().toISOString(),
         messages: [],
@@ -212,8 +235,9 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
         persisted,
         store,
         () => dependencies.stderr(`Session saved: ${persisted.id}`),
-      ), decision, trustStore);
+      ), runner, decision, trustStore);
     });
+    await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     return;
   }
 
@@ -240,7 +264,10 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
       }
       const persisted = store.loadSession(id);
       if (!persisted) throw new Error(`No saved session found with ID "${id}". Run railgun --list-sessions to see available sessions.`);
-      await runPersistedRepl(persisted, store, dependencies, decision, trustStore);
+      const runner = await bootstrapExtensions(persisted.id);
+      await runner.emitSessionStart({ type: "session_start", reason: "resume" });
+      await runPersistedRepl(persisted, store, dependencies, runner, decision, trustStore);
+      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     });
     return;
   }

@@ -7,6 +7,7 @@ import type { TurnOutcome } from "./turn.js";
 import { runTurn } from "./turn.js";
 import type { AgentEvent, AgentEventListener } from "./events.js";
 import { createMessageQueues } from "./queue.js";
+import type { ExtensionRunner } from "../extensions/runner.js";
 
 export interface AgentDependencies {
   readonly devin: DevinProvider;
@@ -21,6 +22,7 @@ export interface AgentDependencies {
   readonly commandApprovalMode?: CommandApprovalMode;
   readonly sessionApprovals?: Set<string>;
   readonly reviewerModel?: string;
+  readonly extensionRunner?: ExtensionRunner;
 }
 
 export interface AgentRunInput {
@@ -85,6 +87,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.sessionApprovals !== undefined ? { sessionApprovals: dependencies.sessionApprovals } : {}),
           ...(dependencies.reviewerModel !== undefined ? { reviewerModel: dependencies.reviewerModel } : {}),
           ...(dependencies.todoStore ? { todoStore: dependencies.todoStore } : {}),
+          ...(dependencies.extensionRunner ? { extensionRunner: dependencies.extensionRunner } : {}),
         },
       );
     } finally {

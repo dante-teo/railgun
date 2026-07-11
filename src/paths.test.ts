@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CONFIG_PATH,
+  EXTENSIONS_PATH,
   SOUL_PATH,
   STATE_PATH,
   TOKEN_PATH,
@@ -17,8 +18,9 @@ describe("application paths", () => {
       state: "/home/test/.railgun/state.db",
       soul: "/home/test/.railgun/SOUL.md",
       trust: "/home/test/.railgun/trust.json",
+      extensions: "/home/test/.railgun/extensions",
     });
-    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, trust: TRUST_PATH })
+    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, trust: TRUST_PATH, extensions: EXTENSIONS_PATH })
       .toEqual(pathsForHome(getHomeDir()));
   });
 });

@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { startSpinner } from "./spinner.js";
 import { buildToolLabel } from "./tools/toolLabel.js";
 import { createTodoStore } from "./tools/todo.js";
+import type { ExtensionRunner } from "./extensions/runner.js";
 
 const confirmShellCommand = async (command: string): Promise<boolean> => {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -32,7 +33,7 @@ const clarifyCallback = async (question: string, choices?: string[]): Promise<st
   }
 };
 
-export const runOneShot = async (question: string): Promise<void> => {
+export const runOneShot = async (question: string, extensionRunner?: ExtensionRunner): Promise<void> => {
   const session = await initFreshDevinSession();
   if (session === undefined) return;
   const { devin, model, systemPrompt } = session;
@@ -45,6 +46,7 @@ export const runOneShot = async (question: string): Promise<void> => {
     commandApprovalMode: config.approvalMode ?? "manual",
     sessionApprovals,
     ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
+    ...(extensionRunner ? { extensionRunner } : {}),
   });
 
   const activeStops = new Map<string, (isError: boolean) => void>();
@@ -77,7 +79,13 @@ export const runOneShot = async (question: string): Promise<void> => {
     }
   });
 
-  const outcome = await agentSession.run({ history: [], text: question });
+  let text = question;
+  if (extensionRunner) {
+    const inputResult = await extensionRunner.emitInput({ type: "input", text, source: "cli" });
+    if (inputResult.action === "handled") return;
+    if (inputResult.action === "transform") text = inputResult.text ?? text;
+  }
+  const outcome = await agentSession.run({ history: [], text });
   if (outcome.ok) {
     process.stdout.write("\n");
   } else if (!("aborted" in outcome)) {

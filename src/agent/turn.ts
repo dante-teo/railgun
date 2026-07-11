@@ -10,6 +10,7 @@ import { ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
 import { runCompaction, shouldCompact } from "./compaction.js";
 import type { UsageTotals } from "./compaction.js";
 import type { AgentEvent, ToolResult } from "./events.js";
+import type { ExtensionRunner } from "../extensions/runner.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
@@ -18,7 +19,7 @@ export type TurnOutcome =
 
 export const STOPPED_BY_USER = "[stopped by user]";
 
-const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify"] as const;
+const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension"] as const;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }
@@ -35,6 +36,7 @@ export interface RunTurnOptions {
   commandApprovalMode?: CommandApprovalMode;
   sessionApprovals?: Set<string>;
   reviewerModel?: string;
+  extensionRunner?: ExtensionRunner;
 }
 
 const pushMessage = async (
@@ -54,7 +56,8 @@ const runStep = async (
   messages: DevinMessage[],
   context: ToolContext,
   allTextParts: string[],
-  doEmit: (event: AgentEvent) => Promise<void>
+  doEmit: (event: AgentEvent) => Promise<void>,
+  extensionRunner?: ExtensionRunner
 ): Promise<StepResult> => {
   const textParts: string[] = [];
   const rawArgsById = new Map<string, string>();
@@ -148,8 +151,40 @@ const runStep = async (
     }
     const results = await Promise.all(validCalls.map(async call => {
       if (context.signal.aborted) return { result: { content: STOPPED_BY_USER, isError: true }, completed: false };
-      const result = await registry.run(call.name, call.arguments, context);
-      return { result, completed: !context.signal.aborted };
+      try {
+        if (extensionRunner) {
+          const before = await extensionRunner.emitToolCall({
+            type: "tool_call",
+            toolCallId: call.id,
+            toolName: call.name,
+            input: call.arguments as Record<string, unknown>,
+          });
+          if (before.block) {
+            return { result: { content: `Blocked by extension: ${before.reason ?? ""}`, isError: true }, completed: true };
+          }
+        }
+        const start = Date.now();
+        const raw = await registry.run(call.name, call.arguments, context);
+        const durationMs = Date.now() - start;
+        let content = raw.content;
+        let isError = raw.isError;
+        if (extensionRunner) {
+          const after = await extensionRunner.emitToolResult({
+            type: "tool_result",
+            toolCallId: call.id,
+            toolName: call.name,
+            input: call.arguments as Record<string, unknown>,
+            content,
+            isError,
+            durationMs,
+          });
+          if (after.content !== undefined) content = after.content;
+          if (after.isError !== undefined) isError = after.isError;
+        }
+        return { result: { content, isError }, completed: !context.signal.aborted };
+      } catch (err) {
+        return { result: { content: `Error: ${String(err)}`, isError: true }, completed: true };
+      }
     }));
     for (const [i, call] of validCalls.entries()) {
       const settled = results[i];
@@ -171,12 +206,53 @@ const runStep = async (
         continue;
       }
       await doEmit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments });
-      const result = await registry.run(call.name, call.arguments, context);
-      const toolResult: ToolResult = { toolCallId: call.id, content: result.content, isError: result.isError };
-      await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result: toolResult });
-      const toolMessage: DevinMessage = { role: "tool", toolCallId: call.id, content: result.content, isError: result.isError };
-      await pushMessage(messages, doEmit, toolMessage);
-      toolResults.push(toolResult);
+      try {
+        if (extensionRunner) {
+          const before = await extensionRunner.emitToolCall({
+            type: "tool_call",
+            toolCallId: call.id,
+            toolName: call.name,
+            input: call.arguments as Record<string, unknown>,
+          });
+          if (before.block) {
+            const blocked = { content: `Blocked by extension: ${before.reason ?? ""}`, isError: true };
+            const blockedResult: ToolResult = { toolCallId: call.id, ...blocked };
+            await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result: blockedResult });
+            await pushMessage(messages, doEmit, { role: "tool", toolCallId: call.id, ...blocked });
+            toolResults.push(blockedResult);
+            continue;
+          }
+        }
+        const start = Date.now();
+        const raw = await registry.run(call.name, call.arguments, context);
+        const durationMs = Date.now() - start;
+        let content = raw.content;
+        let isError = raw.isError;
+        if (extensionRunner) {
+          const after = await extensionRunner.emitToolResult({
+            type: "tool_result",
+            toolCallId: call.id,
+            toolName: call.name,
+            input: call.arguments as Record<string, unknown>,
+            content,
+            isError,
+            durationMs,
+          });
+          if (after.content !== undefined) content = after.content;
+          if (after.isError !== undefined) isError = after.isError;
+        }
+        const toolResult: ToolResult = { toolCallId: call.id, content, isError };
+        await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result: toolResult });
+        const toolMessage: DevinMessage = { role: "tool", toolCallId: call.id, content, isError };
+        await pushMessage(messages, doEmit, toolMessage);
+        toolResults.push(toolResult);
+      } catch (err) {
+        const errContent = `Error: ${String(err)}`;
+        const errResult: ToolResult = { toolCallId: call.id, content: errContent, isError: true };
+        await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result: errResult });
+        await pushMessage(messages, doEmit, { role: "tool", toolCallId: call.id, content: errContent, isError: true });
+        toolResults.push(errResult);
+      }
     }
   }
 
@@ -235,7 +311,7 @@ export const runTurn = async (
       turnEndedThisAttempt = false;
       await doEmit({ type: "turn_start" });
       const outcome = await callDevinWithRecovery(
-        () => runStep(devin, model, systemPrompt, messages, context, allTextParts, doEmit),
+        () => runStep(devin, model, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner),
         () => compress("overflow")
       );
       await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });

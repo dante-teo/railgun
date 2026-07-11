@@ -13,7 +13,10 @@ transient API retry, automatic context compaction, and a 90-step
 iteration budget. In the REPL that budget is shared for the process lifetime; in one-shot mode each invocation
 gets a fresh budget. Exhausting it is a graceful stop, not a failure.
 Interactive conversations and todos are checkpointed to a private local
-SQLite database and can be resumed across restarts. The REPL is a full-screen,
+SQLite database and can be resumed across restarts. An extension system lets
+outside code hook the agent lifecycle — block or observe tool calls, rewrite
+results, intercept user input, and register new LLM-callable tools — by
+placing `.js` or `.ts` files in `~/.railgun/extensions/`. The REPL is a full-screen,
 resize-aware Ink interface with automatic mint-light/mint-dark appearance,
 Markdown replies, transcript history navigation, a multiline composer, slash
 commands (`/exit`, `/help`, `/clear`, `/model`, `/compact`), and Tab completion. A `.railgun.md` (or
@@ -221,8 +224,63 @@ while `--session` limits the switch to the current REPL run. `/model <name>`
 switches directly without the picker.
 
 All application files derive from the fixed `~/.railgun` home: `config.json`,
-`devin-token`, `state.db`, and `SOUL.md`. There are no profiles or home-path
+`devin-token`, `state.db`, `SOUL.md`, and `extensions/`. There are no profiles or home-path
 overrides.
+
+### Extensions
+
+Drop a `.js` or `.ts` file (or a subdirectory with an `index.js`/`index.ts`) into
+`~/.railgun/extensions/` to hook into the agent's lifecycle. Each extension
+default-exports a factory function:
+
+```js
+export default function myExtension(api) {
+  // Block a specific tool
+  api.on("tool_call", ({ toolName }) => {
+    if (toolName === "run_shell_command") {
+      return { block: true, reason: "Shell blocked by extension." };
+    }
+  });
+
+  // Log tool durations
+  api.on("tool_result", ({ toolName, durationMs, isError }) => {
+    process.stderr.write(`[ext] ${toolName} ${durationMs}ms ${isError ? "err" : "ok"}\n`);
+  });
+
+  // Intercept user input
+  api.on("input", ({ text }) => {
+    if (text.startsWith("!")) {
+      process.stderr.write(`[ext] suppressed command: ${text}\n`);
+      return { action: "handled" };          // silently consume, agent never sees it
+    }
+    // or: return { action: "transform", text: text.toUpperCase() };
+  });
+
+  // Register a new LLM-callable tool
+  api.registerTool({
+    name: "current_time",
+    description: "Returns the current ISO timestamp.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    execute: async () => ({ content: new Date().toISOString() }),
+  });
+}
+```
+
+**Event reference:**
+
+| Event | When | Handler can return |
+|---|---|---|
+| `tool_call` | Before every tool dispatch | `{ block: true, reason? }` to block; `void` to pass through |
+| `tool_result` | After every tool dispatch | `{ content?, isError? }` overrides; `void` to pass through |
+| `input` | Before each user message reaches the agent | `{ action: "transform", text? }` to rewrite; `{ action: "handled" }` to consume silently |
+| `session_start` | Once per session, before the REPL/one-shot starts | `void` (observer only) |
+| `session_shutdown` | Once per session, after the REPL/one-shot exits | `void` (observer only) |
+
+**Error isolation:** a throwing `tool_call` handler fails that single call closed (the agent gets an error tool result) without crashing the session. All other handler throws are caught, logged to stderr as `[extension error]`, and do not affect remaining handlers.
+
+**Trust:** project-local extensions (`.railgun/extensions/` in the working directory) are loaded alongside global ones. There is no sandbox — extension code runs with the same OS process privileges as Railgun.
+
+**Development runtime:** `pnpm start` runs under `tsx`, so `.ts` extension files import directly. A compiled `dist/` build requires pre-compiled `.js` extensions.
 
 ### Saved sessions
 

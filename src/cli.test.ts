@@ -164,7 +164,7 @@ describe("dispatchCli", () => {
       initialHistory: expect.any(Array),
       initialTodos: [],
       sessionMetadata: expect.objectContaining({ id: "saved" }),
-    }), expect.anything(), expect.anything());
+    }), expect.anything(), expect.anything(), expect.anything());
   });
 
   it("fails actionably for a missing direct session without initializing Devin", async () => {

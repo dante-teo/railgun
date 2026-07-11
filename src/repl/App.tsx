@@ -34,6 +34,7 @@ import type { Theme, ThemeMode } from "./theme.js";
 import { createViewport, reduceViewport, visibleViewportRows } from "./viewport.js";
 import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js";
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
+import type { ExtensionRunner } from "../extensions/runner.js";
 
 const TRUST_CHOICES: Readonly<Record<string, TrustChoice>> = {
   "1": "trust", "2": "trust-parent", "3": "trust-session", "4": "deny", "5": "deny-session",
@@ -247,7 +248,7 @@ interface ModelPickerState {
 
 
 const ChatApp = ({
-  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd,
+  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner,
 }: {
   readonly session: DevinSession;
   readonly initialMode: ThemeMode;
@@ -256,6 +257,7 @@ const ChatApp = ({
   readonly initialTrustDecision?: TrustDecision;
   readonly trustStore?: ProjectTrustStore;
   readonly cwd?: string;
+  readonly extensionRunner?: ExtensionRunner;
 }): React.ReactElement => {
   const { exit } = useApp();
   const { stdin } = useStdin();
@@ -486,7 +488,7 @@ const ChatApp = ({
   }, []);
 
   const handleSubmit = useCallback(async (value: string) => {
-    const text = value.trim();
+    let text = value.trim();
     if (text === "") return;
     if (pendingClarify !== null && pendingClarifyRef.current !== null) {
       pendingClarifyRef.current.resolve(text);
@@ -586,6 +588,12 @@ const ChatApp = ({
       }
     }
 
+    if (extensionRunner) {
+      const inputResult = await extensionRunner.emitInput({ type: "input", text, source: "cli" });
+      if (inputResult.action === "handled") return;
+      if (inputResult.action === "transform") text = inputResult.text ?? text;
+    }
+
     setLines(previous => [...previous, { kind: "user", text }]);
     setBusy(true);
     setStreaming("");
@@ -605,6 +613,7 @@ const ChatApp = ({
       commandApprovalMode: approvalMode,
       sessionApprovals: sessionApprovalsRef.current,
       ...(reviewerModel !== undefined ? { reviewerModel } : {}),
+      ...(extensionRunner ? { extensionRunner } : {}),
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
@@ -664,7 +673,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, exit, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
+  }, [activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {
@@ -766,6 +775,7 @@ const ChatApp = ({
 export const runRepl = async (
   session: DevinSession,
   persistence?: ReplPersistenceOptions,
+  extensionRunner?: ExtensionRunner,
   trustDecision?: TrustDecision,
   trustStore?: ProjectTrustStore,
 ): Promise<void> => {
@@ -778,7 +788,15 @@ export const runRepl = async (
       runWithMouseTracking(sequence => process.stdout.write(sequence), useAlternateScreen, async () => {
         const cwd = process.cwd();
         const instance = render(
-          <ChatApp session={session} initialMode={initialMode} themeController={themeController} {...(persistence ? { persistence } : {})} {...(trustDecision !== undefined ? { initialTrustDecision: trustDecision } : {})} {...(trustStore !== undefined ? { trustStore, cwd } : {})} />,
+          <ChatApp
+            session={session}
+            initialMode={initialMode}
+            themeController={themeController}
+            {...(persistence ? { persistence } : {})}
+            {...(extensionRunner ? { extensionRunner } : {})}
+            {...(trustDecision !== undefined ? { initialTrustDecision: trustDecision } : {})}
+            {...(trustStore !== undefined ? { trustStore, cwd } : {})}
+          />,
           {
             exitOnCtrlC: false,
             isScreenReaderEnabled: screenReaderEnabled,
