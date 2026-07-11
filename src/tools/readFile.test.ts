@@ -8,6 +8,8 @@ import "./readFile.js";
 
 const context: ToolContext = {
   signal: new AbortController().signal,
+  commandApprovalMode: "manual",
+  sessionApprovals: new Set<string>(),
   confirmShellCommand: async () => {
     throw new Error("read_file must not request shell approval");
   }

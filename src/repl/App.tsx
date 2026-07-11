@@ -14,7 +14,8 @@ import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import { buildSessionCore } from "../session.js";
 import type { DevinSession } from "../session.js";
-import { setConfiguredModel } from "../config.js";
+import { loadConfig, setConfiguredModel } from "../config.js";
+import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { toolLineIcon, approvalColor } from "./toolLineStyle.js";
 import { ModelRow, resolveModelCommand } from "./ModelChooser.js";
@@ -292,7 +293,16 @@ const ChatApp = ({
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   const [trustDecision, setTrustDecision] = useState<TrustDecision>(initialTrustDecision ?? { status: "unknown" });
   const [pendingTrust, setPendingTrust] = useState(false);
+  const [approvalMode, setApprovalMode] = useState<CommandApprovalMode>("manual");
+  const [reviewerModel, setReviewerModel] = useState<string | undefined>(undefined);
+  const sessionApprovalsRef = useRef(new Set<string>());
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
+  useEffect(() => {
+    void loadConfig().then(c => {
+      if (c.approvalMode) setApprovalMode(c.approvalMode);
+      if (c.reviewerModel) setReviewerModel(c.reviewerModel);
+    }).catch(console.error);
+  }, []);
 
   const composerHeight = composerRows(draft, columns, rows);
   const suggestionCount = completionMatches.length > 1 ? completionMatches.length : liveMatches.length;
@@ -592,6 +602,9 @@ const ChatApp = ({
       todoStore: todoStoreRef.current,
       checkpointGuard,
       clarifyCallback,
+      commandApprovalMode: approvalMode,
+      sessionApprovals: sessionApprovalsRef.current,
+      ...(reviewerModel !== undefined ? { reviewerModel } : {}),
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {

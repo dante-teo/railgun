@@ -5,6 +5,8 @@ import "./clarify.js";
 
 const makeContext = (clarifyCallback?: ToolContext["clarifyCallback"]): ToolContext => ({
   signal: new AbortController().signal,
+  commandApprovalMode: "manual",
+  sessionApprovals: new Set<string>(),
   confirmShellCommand: async () => {
     throw new Error("clarify must not request shell approval");
   },
@@ -68,6 +70,8 @@ describe("clarify", () => {
     controller.abort();
     const context: ToolContext = {
       signal: controller.signal,
+      commandApprovalMode: "manual",
+      sessionApprovals: new Set<string>(),
       confirmShellCommand: async () => false,
       clarifyCallback: async () => "never called",
     };

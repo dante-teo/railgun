@@ -6,6 +6,8 @@ import { CONFIG_PATH } from "./paths.js";
 export interface AppConfig {
   readonly model: string | null;
   readonly defaultProjectTrust: "ask" | "always" | "never";
+  readonly approvalMode?: "manual" | "smart" | "off";
+  readonly reviewerModel?: string;
   readonly [key: string]: unknown;
 }
 
@@ -57,6 +59,14 @@ const validateConfig = (value: unknown, path: string): AppConfig => {
   const trust = merged.defaultProjectTrust;
   if (trust !== "ask" && trust !== "always" && trust !== "never") {
     throw new ConfigError(path, '"defaultProjectTrust" must be "ask", "always", or "never"');
+  }
+  const approvalMode = merged.approvalMode;
+  if (approvalMode !== undefined && approvalMode !== "manual" && approvalMode !== "smart" && approvalMode !== "off") {
+    throw new ConfigError(path, '"approvalMode" must be "manual", "smart", or "off"');
+  }
+  const reviewerModel = merged.reviewerModel;
+  if (reviewerModel !== undefined && (typeof reviewerModel !== "string" || reviewerModel.length === 0 || /\s/.test(reviewerModel))) {
+    throw new ConfigError(path, '"reviewerModel" must be a non-empty string without whitespace');
   }
   return merged as AppConfig;
 };

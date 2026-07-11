@@ -4,6 +4,8 @@ import type { ToolContext } from "./registry.js";
 
 const noopContext: ToolContext = {
   signal: new AbortController().signal,
+  commandApprovalMode: "manual",
+  sessionApprovals: new Set<string>(),
   confirmShellCommand: async () => {
     throw new Error("confirmShellCommand should not be called in these tests");
   }

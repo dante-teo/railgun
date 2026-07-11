@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { initFreshDevinSession } from "./session.js";
 import { createAgentSession } from "./agent/agentSession.js";
+import { loadConfig } from "./config.js";
 import { startSpinner } from "./spinner.js";
 import { buildToolLabel } from "./tools/toolLabel.js";
 import { createTodoStore } from "./tools/todo.js";
@@ -35,9 +36,15 @@ export const runOneShot = async (question: string): Promise<void> => {
   const session = await initFreshDevinSession();
   if (session === undefined) return;
   const { devin, model, systemPrompt } = session;
+  const config = await loadConfig();
   const todoStore = createTodoStore();
+  const sessionApprovals = new Set<string>();
   const agentSession = createAgentSession({
-    devin, model: model.id, contextWindow: model.contextWindow, systemPrompt, confirmShellCommand, clarifyCallback, todoStore,
+    devin, model: model.id, contextWindow: model.contextWindow, systemPrompt,
+    confirmShellCommand, clarifyCallback, todoStore,
+    commandApprovalMode: config.approvalMode ?? "manual",
+    sessionApprovals,
+    ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
   });
 
   const activeStops = new Map<string, (isError: boolean) => void>();

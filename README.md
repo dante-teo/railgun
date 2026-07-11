@@ -3,10 +3,11 @@
 A from-scratch TypeScript replication of [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s
 core agent loop, built incrementally, phase by phase (see
 [`docs/PRODUCT.md`](docs/PRODUCT.md)). The REPL's agent can read and write
-files, list directories, run shell commands (the last gated behind an
-interactive y/n approval prompt), and maintain a flat todo
-plan before answering, looping the conversation with Devin until it has a
-final text answer. The loop is hardened with
+files, list directories, run shell commands (gated behind a three-tier risk
+classifier — catastrophic commands blocked unconditionally, dangerous ones
+requiring approval or LLM review, safe ones running immediately), and maintain
+a flat todo plan before answering, looping the conversation with Devin until it
+has a final text answer. The loop is hardened with
 parallel-safe tool batching, corrupted tool-call JSON self-healing,
 transient API retry, automatic context compaction, and a 90-step
 iteration budget. In the REPL that budget is shared for the process lifetime; in one-shot mode each invocation
@@ -55,6 +56,10 @@ session becomes durable after its first successful turn:
   source. A missing file has the effective default `{ "model": null }`, which
   selects the first model returned by Devin. Unknown fields are preserved;
   malformed files and invalid recognized values fail without automatic repair.
+  Optional recognized fields: `model` (string or null), `approvalMode`
+  (`"manual"` | `"smart"` | `"off"`, default `"manual"`), and `reviewerModel`
+  (string — the Devin model ID used for smart-mode LLM review; defaults to the
+  session model when absent).
 - **Authentication**: a nonempty, trimmed `DEVIN_TOKEN` takes precedence for
   this process and is never persisted. Otherwise Railgun reuses
   `~/.railgun/devin-token` (mode `0600`), opening browser sign-in only when
@@ -96,14 +101,22 @@ session becomes durable after its first successful turn:
   is intentionally not echoed as normal `✓ todo ...` transcript lines.
   Interactive todo state is saved with the conversation and restored on
   resume. One-shot todo state remains invocation-local.
-- Ask it to run a shell command (e.g. `"run echo hello in the shell"`) and
-  the REPL freezes the text input and prints
-  `Run shell command: <command> [y/n]`; press `y` to run it and feed the
-  real output back to the agent, or `n`/`Esc` to decline (the agent gets
-  told the command was not approved and answers accordingly). Ctrl+C while
-  approval or agent work is active cancels that run without closing Railgun;
-  an approved shell's complete POSIX process group is terminated. Completed
-  side effects and todo changes remain, while queued steering is discarded.
+- Ask it to run a shell command and it passes through a three-tier risk gate
+  before anything executes. **Hardline** commands (`rm -rf /`, `mkfs.*`,
+  `shutdown`/`reboot`, fork bombs, `dd of=/dev/<disk>`) are refused immediately
+  with no prompt, regardless of configuration. **Dangerous** commands (`rm -r*`,
+  `sudo`, `git push --force`, `DROP TABLE`, block-device redirects,
+  world-writable `chmod`, `curl | bash`) go through the configured approval
+  tier: `"manual"` (default) freezes the composer and shows
+  `APPROVAL · Run shell command: <command> [y/n]` — press `y` to run, `n`/Esc
+  to decline; `"smart"` consults an LLM reviewer first and only falls through
+  to the human prompt when the reviewer is uncertain; `"off"` skips the prompt
+  (hardline blocks still apply). **Safe** commands run immediately. Once a
+  pattern class is approved in a session (e.g. `sudo`), that class is not
+  re-prompted for the rest of the conversation. Ctrl+C while approval or agent
+  work is active cancels that run without closing Railgun; an approved shell's
+  complete POSIX process group is terminated. Completed side effects and todo
+  changes remain, while queued steering is discarded.
 - A REPL session has one shared 90-step iteration budget across all turns.
   Each Devin/tool-call round consumes one step. If the budget is exhausted,
   the assistant prints
@@ -185,9 +198,15 @@ pnpm start config
 
 `config` prints the effective configuration as pretty JSON. It is an exact,
 read-only subcommand: extra arguments are usage errors, and it does not
-authenticate, open SQLite, create files, or enter the TUI. Set `model` to an
-exact Devin model ID to use it for new REPL and one-shot sessions; set it to
-`null` to use Devin's first available model.
+authenticate, open SQLite, create files, or enter the TUI. Recognized fields:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string \| null | `null` | Devin model ID to use for new sessions; `null` selects Devin's first available model |
+| `approvalMode` | `"manual"` \| `"smart"` \| `"off"` | `"manual"` | Shell command approval tier: manual y/n prompt, LLM review, or no prompt (hardline blocks always apply) |
+| `reviewerModel` | string | _(session model)_ | Devin model ID used for smart-mode LLM review; omit to use the same model as the session |
+
+Unknown fields are preserved on read and write. Malformed files and invalid recognized values fail without automatic repair.
 
 If a configured model disappears, an interactive launch opens the themed,
 resize-aware model chooser. Up/Down wraps, Enter atomically saves the selected

@@ -2,6 +2,7 @@ import type { DevinAssistantContentPart, DevinMessage, DevinProvider } from "wid
 import { registry } from "../tools/index.js";
 import type { ToolContext, ClarifyCallback } from "../tools/index.js";
 import type { TodoStore } from "../tools/todo.js";
+import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from "./toolDispatch.js";
 import { callDevinWithRecovery } from "./recovery.js";
 import type { IterationBudget } from "./iterationBudget.js";
@@ -31,6 +32,9 @@ export interface RunTurnOptions {
   takeFollowUps?: () => readonly string[];
   clearQueues?: () => number;
   checkpointGuard?: { beforeMutation: () => void };
+  commandApprovalMode?: CommandApprovalMode;
+  sessionApprovals?: Set<string>;
+  reviewerModel?: string;
 }
 
 const pushMessage = async (
@@ -202,6 +206,13 @@ export const runTurn = async (
     ...(options?.todoStore !== undefined ? { todoStore: options.todoStore } : {}),
     ...(options?.clarifyCallback !== undefined ? { clarifyCallback: options.clarifyCallback } : {}),
     ...(options?.checkpointGuard ? { checkpointGuard: options.checkpointGuard } : {}),
+    commandApprovalMode: options?.commandApprovalMode ?? "manual",
+    // Note: callers that omit sessionApprovals get an ephemeral Set scoped to this turn;
+    // session-approval persistence requires the caller to supply and retain the same Set across turns.
+    sessionApprovals: options?.sessionApprovals ?? new Set<string>(),
+    devin,
+    ...(options?.reviewerModel !== undefined ? { reviewerModel: options.reviewerModel } : {}),
+    ...(options?.todoStore ? { todoStore: options.todoStore } : {}),
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;

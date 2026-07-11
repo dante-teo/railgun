@@ -37,8 +37,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
 | API failure recovery (`src/agent/recovery.ts`) | Treats credential rejection/401 as reauthentication, retries HTTP 408/429/5xx and fetch-style transport failures up to 3 attempts with 500ms/1000ms delays, classifies HTTP 413 as `compress_and_retry` (awaits an optional `compress` callback and retries without incrementing the backoff attempt counter, itself capped at 3 compression attempts), and fails other client/protocol/unrelated errors immediately | Solo project |
 | Context compaction (`src/agent/compaction.ts`) | Ports Codex's (`openai/codex`) history-summarization algorithm: `runCompaction` sends the conversation plus a fixed summarization prompt to Devin (no tools), retrying with the oldest message dropped on a 413 until one request message remains; `selectRecentUserTexts`/`truncateMiddleTokens` keep a token-budgeted (20 000-token), newest-first selection of prior user turns, truncating the oldest kept message's middle with a `"…N tokens truncated…"` marker rather than dropping it outright; `buildCompactedMessage` merges the selected texts and the model's handoff summary into a single `role: "user"` message (Railgun's stricter `sessionStore.ts` transcript alternation forbids Codex's multi-message replacement shape — see `docs/adr/0010-...md`); `shouldCompact` triggers at 90% of the model's context window | Solo project |
-| Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `ToolContext` carries the run-scoped signal, optional `clarifyCallback` (`ClarifyCallback`), and optional `todoStore`; `run` refuses already-aborted work, dispatches handlers, and converts unknown names or thrown failures into error results | Solo project |
-| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo,clarify}.ts`) | Six self-registering tools: file I/O, caller-owned todo planning, `run_shell_command`, and `clarify`; shell execution is approval-gated, detached into a POSIX process group, sent `SIGTERM` on abort, then `SIGKILL` after a two-second grace period; `clarify` routes a question (with optional up-to-4 choices) to the injected `ClarifyCallback` and returns `{ question, answer }` JSON; file/terminal tools expose compact activity-label metadata | Solo project |
+| Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `ToolContext` carries the run-scoped `signal`, required `commandApprovalMode` and `sessionApprovals` fields for the risk gate, optional `devin`/`reviewerModel` for smart-approval LLM calls, and optional `clarifyCallback` (`ClarifyCallback`); `run` refuses already-aborted work, dispatches handlers, and converts unknown names or thrown failures into error results | Solo project |
+| Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo,clarify}.ts`) | Six self-registering tools: file I/O, caller-owned todo planning, `run_shell_command`, and `clarify`; shell execution is routed through `checkCommandApproval` first — hardline-blocked commands return immediately as errors, safe commands execute directly, and dangerous commands go through configurable approval (manual y/n prompt, LLM smart review, or off); approved dangerous patterns are added to the per-session `sessionApprovals` set so the same class does not re-prompt within one conversation; the shell child is detached into a POSIX process group, sent `SIGTERM` on abort, then `SIGKILL` after a two-second grace period; `clarify` routes a question (with optional up-to-4 choices) to the injected `ClarifyCallback` and returns `{ question, answer }` JSON | Solo project |
 | Todo store (`src/tools/todo.ts`) | Pure normalization/reducer logic plus a tiny stateful `createTodoStore()` boundary. Todos are flat, ordered by priority, globally deduplicated by id (last-occurrence-wins), bounded to 256 total items, truncate content above 4000 chars, normalize bad status to `pending`, coerce malformed items to placeholders, support partial-field merge-by-id, and expose `formatForInjection()` for pending/in-progress work only | Solo project |
 | Tool activity labels (`src/tools/toolLabel.ts`) | Pure `buildToolLabel(name, args)` — turns a dispatched call's name+args into a one-line verb-based label (`"Reading <path>"`, `"Running <command>"`) via each tool's registered `verb`/`previewArgKey`, falling back to raw name+JSON for unlabeled/unregistered tools; whitespace-collapsed and truncated to 60 chars | Solo project |
 | Checkpoint manager (`src/checkpoint.ts`) | Shadow-git checkpoint system: `shadowGitDir` derives a per-project path under `~/.railgun/checkpoints/<cwd-hash>/`, `ensureShadowRepo` idempotently initializes a non-bare git repo there, `snapshot` stages and commits the full working tree before the first file-mutating tool call each turn, `rollback` restores it via `git checkout HEAD -- .`; `createCheckpointGuard` wraps these into a per-turn guard (`beforeMutation` snapshots once then no-ops; `resetTurn` re-arms) threaded through `ToolContext` → `RunTurnOptions` → `AgentDependencies` | Solo project |
@@ -56,6 +56,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Status line helpers (`src/repl/statusLine.ts`) | Pure `formatCwd(cwd)` (homedir → `~` shortening) and async `getGitStatus(cwd)` (branch name + dirty detection via `execFile("git", ...)`) — consumed once on mount by `App.tsx`'s status bar; returns `{ branch: null, dirty: false }` outside a git repo or on any `git` error | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✔`/`✘` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line; `oneShot.ts` tracks at most one animated spinner slot at a time (per-call `tool_execution_start`/`tool_execution_end` events since Phase 18), falling back to a static, non-animated log line plus a manually-written `✔`/`✘` line for any additional concurrent call | Solo project |
 | Threat pattern scanner (`src/security/threatPatterns.ts`) | Pure, id-tagged regex list (`CONTEXT_THREAT_PATTERNS`, 10 curated patterns covering prompt injection, role hijack, HTML hidden-element injection, system-prompt leak, and safety-bypass phrasing) plus `scanForThreats(content)` returning matched pattern ids; no I/O, bounded filler `(?:\w+\s+){0,8}` prevents catastrophic backtracking | Solo project |
+| Command risk classifier (`src/security/commandApproval.ts`) | Pure `checkCommandApproval(command, mode, sessionApprovals)` returning one of three `ApprovalRequirement` variants: `forbidden` (5 hardline patterns — always blocked regardless of mode), `skip` (no match, already session-approved, or mode `"off"`), or `needs_approval` (7 dangerous patterns in manual/smart mode); exports `stripShellComments` to remove `# …` comment tails while respecting single/double quoting — used by the smart reviewer to reduce prompt-injection surface | Solo project |
+| Smart approval reviewer (`src/security/smartApproval.ts`) | `smartApprove(devin, reviewerModel, command, flagReason)` sends the comment-stripped command plus flag reason to a Devin LLM call with a security-reviewer system prompt and parses the response as `"approve" \| "deny" \| "escalate"`; fail-safe: any error or unparseable response returns `"escalate"` so the human prompt is never silently skipped on failure | Solo project |
 | Project context loader (`src/agent/projectContext.ts`) | Discovers and loads a project's context file (`.railgun.md`/`RAILGUN.md` walking to the git root, falling back to `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, `.cursorrules` in cwd only — first readable non-empty file wins, with case-variant aliases exhausted per directory before walking up or moving to the next candidate group), plus `~/.railgun/SOUL.md` as persistent identity; truncates with a 70/30 head/tail split at 20 000 chars, then scans the retained head and tail independently for injection via `scanForThreats` (blocked files produce a `[BLOCKED: ...]` placeholder that does not fall through to the next candidate); exports `loadProjectContext(cwd)` and `loadSoulIdentity()` | Solo project |
 
 ## Data Flow
@@ -101,11 +103,11 @@ This document records the intended system architecture for Railgun. Keep it curr
    than UTC serialization, and every environment value is JSON-serialized
    before insertion into the prompt so paths or model ids containing
    control characters cannot create extra system-prompt instructions.
-3. `runOneShot` creates a fresh in-memory `TodoStore`, then calls
-   `createAgentSession` (`src/agent/agentSession.ts`) with that store — the
-   session's default `iterationBudget` (via `createAgent`) matches the
-   90-step budget `runOneShot` used to construct explicitly — and a
-   `confirmShellCommand` built from
+3. `runOneShot` reads `~/.railgun/config.json` to extract `approvalMode` and
+   (optionally) `reviewerModel`, creates a fresh in-memory `TodoStore` and a
+   fresh `Set<string>` for session approvals, then calls `createAgentSession`
+   with those values plus the session's default `iterationBudget` (via
+   `createAgent`) and a `confirmShellCommand` built from
    `node:readline/promises`: it opens a `readline` interface on
    `process.stdin`/`process.stderr`, prompts
    `Run shell command: <command>\nType "yes" to run, anything else to cancel: `,
@@ -113,7 +115,11 @@ This document records the intended system architecture for Railgun. Keep it curr
    `"yes"` (closed/EOF stdin resolves immediately to an empty answer, i.e.
    declined; open-but-silent stdin blocks until answered — see
    `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md`'s
-   context for why this matters for CI/scripted invocations).
+   context for why this matters for CI/scripted invocations). Before this
+   prompt is ever shown, `run_shell_command`'s handler passes the command
+   through `checkCommandApproval` — hardline commands are blocked immediately,
+   safe commands bypass the prompt, dangerous commands enter the configured
+   approval tier. See ADR-0013.
 4. `message_update` events carrying `text_delta` stream to stdout as
    `createAgentSession` runs its rounds via `runOneShot`'s subscription.
    Each round's dispatched tool call(s) also fire `tool_execution_start`/
@@ -205,9 +211,16 @@ This document records the intended system architecture for Railgun. Keep it curr
    reporting; non-TTY and screen-reader runs do neither. Ink renders a
    full-height `ChatApp`, and alternate-screen, mouse, theme, and native-resource
    cleanup are guaranteed by `finally` boundaries around `waitUntilExit()`.
-3. `ChatApp` owns one process-lifetime `IterationBudget` and hydrated
-   `TodoStore`. Each submitted message creates an `AgentSession` over
-   authoritative history, a subscribed event handler, approval, and those shared stores. While it runs, Enter
+3. `ChatApp` owns one process-lifetime `IterationBudget`, hydrated `TodoStore`,
+   and a `useRef<Set<string>>` for session approvals that persists across all
+   turns in the session. On mount it reads `~/.railgun/config.json` to set
+   `approvalMode` and `reviewerModel` state; this is fire-and-forget with a
+   `.catch(console.error)` so a malformed config surfaces in the console but
+   does not abort startup. Each submitted message creates an `AgentSession` over
+   authoritative history, a subscribed event handler, approval, and those shared
+   stores — the current `approvalMode`, `sessionApprovals` ref, and (if
+   configured) `reviewerModel` are forwarded so the risk gate in
+   `run_shell_command` can enforce the correct policy. While it runs, Enter
    queues steering and Ctrl+C aborts; idle queue operations and concurrent runs
    are rejected. Success checkpoints the complete history/todo snapshot; save
    failure retains it in memory for retry. Ordinary failure restores pre-turn
@@ -321,13 +334,25 @@ One-shot mode does not create or use checkpoints.
   database is not application-level encrypted; confidentiality relies on the
   OS account and filesystem protections.
 - `run_shell_command` runs whatever command string the model provides via
-  `spawn("bash", ["-c", command])` — a real arbitrary-code-execution
-  surface, mitigated only by the interactive y/n approval gate
-  (`ToolContext.confirmShellCommand`) in front of every invocation, in
-  both the REPL and one-shot mode. There is no allowlist/sandboxing; the
-  approval prompt is the only authorization control. On macOS/Linux the child
-  is detached into its own process group so cancelling the run terminates the
-  whole shell tree with `SIGTERM`, escalating to `SIGKILL` after two seconds.
+  `spawn("bash", ["-c", command])` — a real arbitrary-code-execution surface.
+  Phase 21 adds a three-tier risk gate (`src/security/commandApproval.ts`)
+  before any shell is spawned: **hardline** patterns (5 regex rules — `rm -rf /`,
+  `mkfs.*`, `shutdown`/`reboot`, fork bombs, `dd of=/dev/<disk>`) are blocked
+  unconditionally and cannot be overridden by configuration; **dangerous**
+  patterns (7 rules — `rm -r*`, `sudo`, `git push --force`, `DROP TABLE`,
+  block-device redirects, world-writable `chmod`, `curl | bash`) route through
+  the configurable approval tier; **safe** commands execute immediately with no
+  prompt. The approval tier's behavior is set by `approvalMode` in
+  `~/.railgun/config.json`: `"manual"` (default) shows the interactive y/n
+  prompt, `"off"` skips the prompt (hardline blocks still apply), and `"smart"`
+  calls an LLM reviewer (`src/security/smartApproval.ts`) that can approve,
+  deny, or escalate to the human prompt. Shell comments are stripped before
+  the command is sent to the reviewer (`stripShellComments`) to reduce the
+  prompt-injection surface; the reviewer is fail-safe and always escalates on
+  any error. Approved pattern classes are recorded in a per-session
+  `Set<string>` so re-approval is not needed within one conversation. On
+  macOS/Linux the child runs in a detached process group; cancellation sends
+  `SIGTERM` to the group, escalating to `SIGKILL` after two seconds.
 - Project context files (`.railgun.md`/`RAILGUN.md`, `AGENTS.md`/`agents.md`,
   `CLAUDE.md`/`claude.md`, `.cursorrules`) and `~/.railgun/SOUL.md` are untrusted user-authored
   content injected into the system prompt. Before inclusion, each file is
@@ -377,4 +402,4 @@ One-shot mode does not create or use checkpoints.
 
 ## Architectural Decision Records
 
-Architecture decisions are tracked in `docs/adr/`. Use short, dated records for decisions that meaningfully affect structure, dependencies, operations, or long-term maintenance.
+Architecture decisions are tracked in `docs/adr/`. Use short, dated records for decisions that meaningfully affect structure, dependencies, operations, or long-term maintenance. See `docs/adr/0013-command-risk-gate-and-smart-approval.md` for the Phase 21 risk-gate design.

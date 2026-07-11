@@ -1,4 +1,5 @@
-import type { DevinTool } from "widevin";
+import type { DevinProvider, DevinTool } from "widevin";
+import type { CommandApprovalMode } from "../security/commandApproval.js";
 
 export type ClarifyCallback = (question: string, choices?: string[]) => Promise<string>;
 
@@ -7,6 +8,10 @@ export interface ToolContext {
   signal: AbortSignal;
   clarifyCallback?: ClarifyCallback;
   checkpointGuard?: { beforeMutation: () => void };
+  commandApprovalMode: CommandApprovalMode;
+  sessionApprovals: Set<string>;
+  devin?: DevinProvider;
+  reviewerModel?: string;
   todoStore?: {
     read(): unknown;
     write(input: { todos?: unknown; merge?: unknown }): unknown;

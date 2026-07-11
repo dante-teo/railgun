@@ -60,6 +60,48 @@ describe("loadConfig", () => {
   });
 });
 
+describe("approvalMode validation", () => {
+  it.each(["manual", "smart", "off"])("accepts valid approvalMode %j", async mode => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, approvalMode: mode }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ approvalMode: mode });
+  });
+
+  it("rejects invalid approvalMode", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, approvalMode: "yolo" }));
+    await expect(loadConfig(path)).rejects.toThrow(/approvalMode/);
+  });
+
+  it("preserves approvalMode through mergeConfig round-trip", () => {
+    expect(mergeConfig({ model: null }, { approvalMode: "smart" })).toMatchObject({ approvalMode: "smart" });
+  });
+
+  it("accepts valid reviewerModel", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, reviewerModel: "some-model" }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ reviewerModel: "some-model" });
+  });
+
+  it("rejects empty reviewerModel", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, reviewerModel: "" }));
+    await expect(loadConfig(path)).rejects.toThrow(/reviewerModel/);
+  });
+
+  it("rejects reviewerModel with whitespace", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, reviewerModel: "model with space" }));
+    await expect(loadConfig(path)).rejects.toThrow(/reviewerModel/);
+  });
+
+  it("accepts config with both approvalMode and reviewerModel", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, approvalMode: "smart", reviewerModel: "reviewer-model" }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ approvalMode: "smart", reviewerModel: "reviewer-model" });
+  });
+});
+
 describe("setConfiguredModel", () => {
   it("atomically replaces the model while preserving user fields and formatting the file", async () => {
     path = join(directory, "home", "config.json");

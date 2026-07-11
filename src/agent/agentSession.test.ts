@@ -25,6 +25,8 @@ const fakeProvider = (rounds: readonly FakeRound[]): DevinProvider => {
 const dependencies = (devin: DevinProvider) => ({
   devin, model: "model", contextWindow: 100_000, systemPrompt: [] as const,
   confirmShellCommand: async () => true,
+  commandApprovalMode: "manual" as const,
+  sessionApprovals: new Set<string>(),
 });
 
 describe("createAgentSession", () => {

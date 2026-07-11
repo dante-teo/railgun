@@ -1,4 +1,5 @@
 import type { DevinMessage, DevinProvider } from "widevin";
+import type { CommandApprovalMode } from "../security/commandApproval.js";
 import type { TodoStore } from "../tools/todo.js";
 import type { ClarifyCallback } from "../tools/registry.js";
 import { IterationBudget } from "./iterationBudget.js";
@@ -17,6 +18,9 @@ export interface AgentDependencies {
   readonly todoStore?: TodoStore;
   readonly iterationBudget?: () => IterationBudget;
   readonly checkpointGuard?: { beforeMutation: () => void; resetTurn: () => void };
+  readonly commandApprovalMode?: CommandApprovalMode;
+  readonly sessionApprovals?: Set<string>;
+  readonly reviewerModel?: string;
 }
 
 export interface AgentRunInput {
@@ -77,6 +81,10 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.todoStore !== undefined ? { todoStore: dependencies.todoStore } : {}),
           ...(dependencies.clarifyCallback !== undefined ? { clarifyCallback: dependencies.clarifyCallback } : {}),
           ...(dependencies.checkpointGuard ? { checkpointGuard: dependencies.checkpointGuard } : {}),
+          ...(dependencies.commandApprovalMode !== undefined ? { commandApprovalMode: dependencies.commandApprovalMode } : {}),
+          ...(dependencies.sessionApprovals !== undefined ? { sessionApprovals: dependencies.sessionApprovals } : {}),
+          ...(dependencies.reviewerModel !== undefined ? { reviewerModel: dependencies.reviewerModel } : {}),
+          ...(dependencies.todoStore ? { todoStore: dependencies.todoStore } : {}),
         },
       );
     } finally {

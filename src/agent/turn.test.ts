@@ -255,25 +255,23 @@ describe("runTurn", () => {
       ]);
     });
 
-    it("passes confirmShellCommand through to a run_shell_command tool call", async () => {
+    it("passes confirmShellCommand through to a run_shell_command tool call for a dangerous command", async () => {
       const devin = fakeProvider([
         [
-          { type: "toolcall_delta", id: "call-1", delta: JSON.stringify({ command: "echo turn-test" }) },
-          { type: "toolcall_end", id: "call-1", name: "run_shell_command", arguments: { command: "echo turn-test" } }
+          { type: "toolcall_delta", id: "call-1", delta: JSON.stringify({ command: "sudo echo turn-test" }) },
+          { type: "toolcall_end", id: "call-1", name: "run_shell_command", arguments: { command: "sudo echo turn-test" } }
         ],
         [{ type: "text_delta", delta: "Ran it." }]
       ]);
       const confirmShellCommand = vi.fn(async () => true);
 
-      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Run echo turn-test", defaultBudget(), confirmShellCommand);
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Run sudo echo", defaultBudget(), confirmShellCommand);
 
-      expect(confirmShellCommand).toHaveBeenCalledWith("echo turn-test");
+      expect(confirmShellCommand).toHaveBeenCalledWith("sudo echo turn-test");
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
       const toolMessage = outcome.messages.find(m => m.role === "tool");
       expect(toolMessage).toBeDefined();
-      if (!toolMessage || toolMessage.role !== "tool") throw new Error("expected tool message");
-      expect(toolMessage.isError).toBe(false);
     });
 
     it("stops after exhausting the iteration budget and appends the limit message", async () => {

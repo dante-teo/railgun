@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { checkCommandApproval } from "../security/commandApproval.js";
+import { smartApprove } from "../security/smartApproval.js";
 import { registry } from "./registry.js";
 import type { ToolRunResult } from "./registry.js";
 
@@ -78,7 +80,7 @@ registry.register({
   previewArgKey: "command",
   schema: {
     name: "run_shell_command",
-    description: "Run a shell command and return its output. Requires human approval before running.",
+    description: "Run a shell command and return its output. Safe commands run immediately; dangerous commands require approval or are blocked.",
     inputSchema: {
       type: "object",
       properties: { command: { type: "string" } },
@@ -90,10 +92,35 @@ registry.register({
     if (command === undefined) {
       return { content: 'Error: run_shell_command requires a string "command" argument', isError: true };
     }
+
+    const requirement = checkCommandApproval(command, context.commandApprovalMode, context.sessionApprovals);
+
+    if (requirement.kind === "forbidden") {
+      return { content: requirement.reason, isError: true };
+    }
+
+    if (requirement.kind === "skip") {
+      return execShell(command, context.signal);
+    }
+
+    // needs_approval
+    if (context.commandApprovalMode === "smart" && context.devin !== undefined && context.reviewerModel !== undefined) {
+      const verdict = await smartApprove(context.devin, context.reviewerModel, command, requirement.reason);
+      if (verdict === "approve") {
+        context.sessionApprovals.add(requirement.patternId);
+        return execShell(command, context.signal);
+      }
+      if (verdict === "deny") {
+        return { content: `Smart approval denied: ${requirement.reason}`, isError: true };
+      }
+      // escalate — fall through to human prompt
+    }
+
     const approved = await awaitApproval(() => context.confirmShellCommand(command), context.signal);
     if (context.signal.aborted) return STOPPED_RESULT;
     if (!approved) return { content: `Command not approved: ${command}`, isError: true };
     context.checkpointGuard?.beforeMutation();
+    context.sessionApprovals.add(requirement.patternId);
     return execShell(command, context.signal);
   }
 });

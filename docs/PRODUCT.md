@@ -378,6 +378,30 @@ protocol failures, and unrelated errors fail immediately.
   returned by `findMatches`.
   Phase 19: `src/tools/clarify.test.ts` proves all six handler cases — missing question arg, absent callback, open-ended callback call returning `{ question, answer }` JSON, choices callback call, max-4 truncation, and abort-before-call returning the stopped message; `src/agent/systemPrompt.test.ts` proves the clarify guidance string is present in the generated prompt; full suite (42 files / 421 tests) passes with zero regressions; `pnpm typecheck` passes clean under `exactOptionalPropertyTypes: true` and `noUncheckedIndexedAccess: true`.
   Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk, `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`. `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume modes, rejection on login/logout/config/list modes, and both-flags-together throwing `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included in the persisted output of `setConfiguredModel`, and is rejected for values outside the `"ask"/"always"/"never"` set. See ADR-0013.
+  Phase 21: `src/security/commandApproval.test.ts` proves hardline blocks for
+  `rm -rf /`, `mkfs.*`, fork bombs, and `dd of=/dev/<disk>`, that hardline
+  overrides `"off"` and `"smart"` modes, dangerous-pattern detection for
+  `rm -r*`/`sudo`/`git push --force`/`curl | sh`, safe command pass-through for
+  `ls`/`echo`/`cat`, session-approval bypass (pattern in set → skip), mode
+  `"off"` bypass (dangerous but not hardline → skip), and mode `"smart"`
+  returning `needs_approval` (LLM call is the caller's responsibility);
+  `src/security/commandApproval.test.ts` also covers `stripShellComments` for
+  trailing comments, single-quoted and double-quoted `#` preservation, and
+  multiline stripping. `src/security/smartApproval.test.ts` proves correct
+  verdict mapping (`APPROVE`→`approve`, `DENY`→`deny`, `ESCALATE`→`escalate`),
+  fail-safe escalation on garbage output and stream errors, whitespace/case
+  tolerance, and comment stripping before the reviewer sees the command.
+  `src/tools/runShell.test.ts` adds gate integration tests: `rm -rf /` forbidden
+  in `"off"` mode (hardline wins), safe `echo` runs without confirmation in
+  `"manual"` mode, `sudo` prompts in `"manual"` mode, `git push --force` skips
+  confirmation in `"off"` mode, session-approved `rm_recursive` skips re-prompt,
+  and human approval adds `"sudo"` to the session approvals set. `src/config.test.ts`
+  covers valid `approvalMode` values, invalid-value rejection, `reviewerModel`
+  validation, and round-trip preservation through `mergeConfig`. Manual smoke
+  test: set `~/.railgun/config.json` to `{"approvalMode":"manual"}`, ask the
+  agent to run `rm -rf /` — blocked immediately, no prompt; ask for `ls` — runs
+  immediately, no prompt; ask for `sudo echo hi` — approval prompt fires; approve
+  it, then ask for `sudo ls` — runs without re-prompting (session-approved).
 
 ## Open Questions
 
@@ -385,4 +409,4 @@ protocol failures, and unrelated errors fail immediately.
   order, beyond the replication plan's suggested sequence — deferred
   until each phase is actually started. Interrupt and steering queues shipped
   in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
-  Phase 18; the clarify tool shipped in Phase 19; shadow-git checkpoints and `/rollback` shipped in Phase 22.
+  Phase 18; the clarify tool shipped in Phase 19; command risk gate and smart approval shipped in Phase 21; shadow-git checkpoints and `/rollback` shipped in Phase 22.

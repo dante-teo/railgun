@@ -4,6 +4,8 @@ import { createTodoStore } from "./todo.js";
 
 const noopContext = (store = createTodoStore()) => ({
   signal: new AbortController().signal,
+  commandApprovalMode: "manual" as const,
+  sessionApprovals: new Set<string>(),
   confirmShellCommand: async () => {
     throw new Error("confirmShellCommand should not be called");
   },
