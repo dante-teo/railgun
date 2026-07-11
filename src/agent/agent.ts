@@ -14,6 +14,7 @@ export interface AgentDependencies {
   readonly confirmShellCommand: (command: string) => Promise<boolean>;
   readonly todoStore?: TodoStore;
   readonly iterationBudget?: () => IterationBudget;
+  readonly checkpointGuard?: { beforeMutation: () => void; resetTurn: () => void };
 }
 
 export interface AgentRunInput {
@@ -72,6 +73,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           takeFollowUps: queues.takeFollowUps,
           clearQueues: queues.clear,
           ...(dependencies.todoStore ? { todoStore: dependencies.todoStore } : {}),
+          ...(dependencies.checkpointGuard ? { checkpointGuard: dependencies.checkpointGuard } : {}),
         },
       );
     } finally {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,5 +53,15 @@ describe("write_file", () => {
       content: 'Error: write_file requires a string "path" argument',
       isError: true
     });
+  });
+
+  it("invokes checkpointGuard.beforeMutation before writing", async () => {
+    const beforeMutation = vi.fn();
+    const guardContext: ToolContext = {
+      ...context,
+      checkpointGuard: { beforeMutation },
+    };
+    await registry.run("write_file", { path: join(dir, "guarded.txt"), content: "data" }, guardContext);
+    expect(beforeMutation).toHaveBeenCalledOnce();
   });
 });

@@ -31,6 +31,7 @@ import { parseMouseWheel } from "./mouse.js";
 import { ThemeController, themeForMode } from "./theme.js";
 import type { Theme, ThemeMode } from "./theme.js";
 import { createViewport, reduceViewport, visibleViewportRows } from "./viewport.js";
+import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js";
 
 export interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
@@ -262,6 +263,7 @@ const ChatApp = ({
   const [completionIndex, setCompletionIndex] = useState<number | null>(null);
   const [completionMatches, setCompletionMatches] = useState<readonly string[]>([]);
   const liveMatches = useMemo(() => (draft.startsWith("/") && !draft.includes(" ") ? findMatches(draft) : []), [draft]);
+  const checkpointGuard = useMemo(() => createCheckpointGuard(process.cwd()), []);
   const [streaming, setStreaming] = useState("");
   const streamSegmentsRef = useRef(createStreamSegments());
   const [busy, setBusy] = useState(false);
@@ -430,7 +432,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback" }]);
         return;
       }
       if (command === "/clear") {
@@ -489,6 +491,15 @@ const ChatApp = ({
         }
         return;
       }
+      if (command === "/rollback") {
+        try {
+          rollback(shadowGitDir(process.cwd()), process.cwd());
+          setLines(previous => [...previous, { kind: "assistant", text: "Rolled back to the last checkpoint." }]);
+        } catch (error) {
+          setLines(previous => [...previous, { kind: "error", text: `Rollback failed: ${error instanceof Error ? error.message : String(error)}` }]);
+        }
+        return;
+      }
     }
 
     setLines(previous => [...previous, { kind: "user", text }]);
@@ -505,6 +516,7 @@ const ChatApp = ({
       confirmShellCommand,
       iterationBudget: () => iterationBudgetRef.current,
       todoStore: todoStoreRef.current,
+      checkpointGuard,
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
@@ -529,6 +541,7 @@ const ChatApp = ({
       }
     });
     activeAgentRef.current = agentSession;
+    checkpointGuard.resetTurn();
     const outcome = await agentSession.run({ history, text });
     activeAgentRef.current = null;
     unsubscribe();
@@ -563,7 +576,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeSession, busy, checkpointUnsaved, confirmShellCommand, exit, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingCommand, persistence, stdoutWrite]);
+  }, [activeSession, busy, checkpointGuard, checkpointUnsaved, confirmShellCommand, exit, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {

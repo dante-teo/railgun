@@ -41,10 +41,11 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo}.ts`) | Five self-registering tools: file I/O, caller-owned todo planning, and `run_shell_command`; shell execution is approval-gated, detached into a POSIX process group, sent `SIGTERM` on abort, then `SIGKILL` after a two-second grace period if still alive; file/terminal tools expose compact activity-label metadata | Solo project |
 | Todo store (`src/tools/todo.ts`) | Pure normalization/reducer logic plus a tiny stateful `createTodoStore()` boundary. Todos are flat, ordered by priority, globally deduplicated by id (last-occurrence-wins), bounded to 256 total items, truncate content above 4000 chars, normalize bad status to `pending`, coerce malformed items to placeholders, support partial-field merge-by-id, and expose `formatForInjection()` for pending/in-progress work only | Solo project |
 | Tool activity labels (`src/tools/toolLabel.ts`) | Pure `buildToolLabel(name, args)` — turns a dispatched call's name+args into a one-line verb-based label (`"Reading <path>"`, `"Running <command>"`) via each tool's registered `verb`/`previewArgKey`, falling back to raw name+JSON for unlabeled/unregistered tools; whitespace-collapsed and truncated to 60 chars | Solo project |
+| Checkpoint manager (`src/checkpoint.ts`) | Shadow-git checkpoint system: `shadowGitDir` derives a per-project path under `~/.railgun/checkpoints/<cwd-hash>/`, `ensureShadowRepo` idempotently initializes a non-bare git repo there, `snapshot` stages and commits the full working tree before the first file-mutating tool call each turn, `rollback` restores it via `git checkout HEAD -- .`; `createCheckpointGuard` wraps these into a per-turn guard (`beforeMutation` snapshots once then no-ops; `resetTurn` re-arms) threaded through `ToolContext` → `RunTurnOptions` → `AgentDependencies` | Solo project |
 | Theme system (`src/repl/theme.ts`) | Immutable exact mint-light/mint-dark semantic palettes plus a `ThemeController` around `os-theme`; terminal-over-OS resolution, live terminal events, OS-event terminal re-query, deduplication, failure fallback, and resource cleanup | Solo project |
 | Viewport/composer/lifecycle (`src/repl/{viewport,composer,lifecycle,mouse,terminalSize}.ts`) | Pure viewport and composer actions, SGR mouse parsing, shared resize observation, and guaranteed alternate-screen/mouse-mode boundaries; resize preserves prior bottom-follow state and unseen cues reserve a rendered row | Solo project |
 | Streaming transcript (`src/repl/streamingTranscript.ts`) | Pure segment state that accumulates deltas, flushes narration before tools and queued-user injection, and returns only the uncommitted final/aborted assistant suffix | Solo project |
-| Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, and `/compact` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
+| Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, `/compact`, and `/rollback` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
 | Markdown (`src/repl/markdown.ts`) | `markdansi` adapter for wrapped GFM replies, links, tables, lists, and mint-themed fenced code boxes; called only for completed assistant text | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure themed Ink component rendering slash-command matches and selection | Solo project |
 | Session chooser (`src/repl/SessionChooser.tsx`) | Full-screen, live-themed, resize-aware startup selector for bare `--resume`/`-r`; shared synchronous input state preserves rapid navigation before Enter, Up/Down wraps, and Escape/Ctrl-C cancels before Devin initialization | Solo project |
@@ -221,13 +222,15 @@ This document records the intended system architecture for Railgun. Keep it curr
    Ctrl+U clearing, active-run steering, modal approval focus, protocol-response filtering,
    and one-to-six-row sizing. Enhanced keyboard reporting is enabled without a
    capability-query input leak only for known supporting terminals.
-6. `/exit`, `/help`, `/clear`, `/model`, and `/compact` are handled before
-   agent dispatch. `/exit` resolves Ink, `/help` appends the current
-   command list, `/clear` clears the canvas without discarding
-   authoritative conversation state, and `/compact` runs `runCompaction`
-   directly (bypassing `runTurn`/`callDevinWithRecovery`), replaces
-   `history` with the single compacted message plus a synthetic
-   assistant acknowledgement, and attempts a checkpoint save.
+6. `/exit`, `/help`, `/clear`, `/model`, `/compact`, and `/rollback` are
+   handled before agent dispatch. `/exit` resolves Ink, `/help` appends the
+   current command list, `/clear` clears the canvas without discarding
+   authoritative conversation state, `/compact` runs `runCompaction` directly
+   (bypassing `runTurn`/`callDevinWithRecovery`), replaces `history` with the
+   single compacted message plus a synthetic assistant acknowledgement, and
+   attempts a checkpoint save. `/rollback` calls `rollback(shadowGitDir(cwd),
+   cwd)` from `src/checkpoint.ts` to restore the working tree to the last
+   shadow-git commit.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
@@ -268,6 +271,12 @@ a missing or whitespace-only file is silently ignored. The session database,
 and todo snapshots. It uses WAL, foreign keys, a busy timeout, and schema
 versioning; malformed saved state aborts loading instead of being skipped.
 One-shot mode does not open this database. See ADR 0006.
+
+Shadow-git checkpoint directories live at
+`~/.railgun/checkpoints/<12-char-sha256-of-cwd>/`. One directory per project
+cwd, initialized as a non-bare git repo on first use. No file-mode restriction
+is applied — checkpoint repos contain only project file snapshots, no secrets.
+One-shot mode does not create or use checkpoints.
 
 ## Integrations
 

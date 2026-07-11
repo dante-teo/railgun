@@ -29,6 +29,7 @@ export interface RunTurnOptions {
   takeSteer?: () => string | undefined;
   takeFollowUps?: () => readonly string[];
   clearQueues?: () => number;
+  checkpointGuard?: { beforeMutation: () => void };
 }
 
 const pushMessage = async (
@@ -194,9 +195,12 @@ export const runTurn = async (
   const messages: DevinMessage[] = [...history, initialUserMessage];
   const allTextParts: string[] = [];
   const signal = options?.signal ?? new AbortController().signal;
-  const context: ToolContext = options?.todoStore
-    ? { confirmShellCommand, signal, todoStore: options.todoStore }
-    : { confirmShellCommand, signal };
+  const context: ToolContext = {
+    confirmShellCommand,
+    signal,
+    ...(options?.todoStore ? { todoStore: options.todoStore } : {}),
+    ...(options?.checkpointGuard ? { checkpointGuard: options.checkpointGuard } : {}),
+  };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;
   const compress = async (reason: "threshold" | "overflow"): Promise<void> => {

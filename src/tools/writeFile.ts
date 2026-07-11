@@ -27,13 +27,14 @@ registry.register({
       required: ["path", "content"]
     }
   },
-  handler: async (args) => {
+  handler: async (args, context) => {
     const path = extractPath(args);
     const content = extractContent(args);
     if (path === undefined) return { content: 'Error: write_file requires a string "path" argument', isError: true };
     if (content === undefined) {
       return { content: 'Error: write_file requires a string "content" argument', isError: true };
     }
+    context.checkpointGuard?.beforeMutation();
     try {
       await writeFile(path, content, "utf-8");
       return { content: `Wrote ${content.length} bytes to ${path}`, isError: false };

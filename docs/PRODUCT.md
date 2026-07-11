@@ -14,7 +14,20 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 18 (event bus & consumers):**
+**Current phase — Phase 22 (shadow-git checkpoints and `/rollback`):**
+Phase 22 adds automatic working-directory snapshots before file-mutating tool
+calls and a `/rollback` REPL command to undo the agent's last round of
+changes. Before the first `write_file` or approved `run_shell_command` in a
+user turn, a `CheckpointGuard` calls `snapshot`, which stages all files into a
+per-project shadow git repository at `~/.railgun/checkpoints/<cwd-hash>/` and
+commits them. Subsequent `beforeMutation` calls within the same turn are
+no-ops; `resetTurn` re-arms the guard for the next turn. `/rollback` calls
+`git checkout HEAD -- .` against the shadow repo, restoring the working tree
+to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
+
+Phase 21 (not shown here — see replication plan) added the shell-command
+approval gate. Phase 20 added project context threat-pattern scanning.
+
 Phase 18 replaces `src/agent/turn.ts`'s `LoopCallbacks` with a typed,
 two-layer event stream: `src/agent/agent.ts`'s low-level `Agent` now emits a
 raw `AgentEvent` union (`agent_start`/`agent_end`, `turn_start`/`turn_end`,
@@ -317,6 +330,17 @@ protocol failures, and unrelated errors fail immediately.
   `run()` call across normal/aborted/fatal-error outcomes, and that
   `steer`/`followUp` on an idle session throw without mutating the queue
   mirror or emitting `queue_update`.
+  Phase 22: `src/checkpoint.test.ts` proves `shadowGitDir` determinism,
+  `snapshot` creates a commit in a fresh shadow repo, a second snapshot when
+  nothing changed is a no-op (covered by `--allow-empty`), `rollback` restores
+  overwritten and deleted files to their pre-snapshot content, rollback against
+  a missing shadow repo throws, `createCheckpointGuard.beforeMutation` takes
+  exactly one commit per turn (duplicates are no-ops), and `resetTurn` re-arms
+  the guard so the next `beforeMutation` takes a second commit;
+  `src/tools/writeFile.test.ts` proves `checkpointGuard.beforeMutation` is
+  invoked exactly once when the guard is present in `ToolContext`;
+  `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
+  returned by `findMatches`.
 
 ## Open Questions
 
@@ -324,4 +348,4 @@ protocol failures, and unrelated errors fail immediately.
   order, beyond the replication plan's suggested sequence — deferred
   until each phase is actually started. Interrupt and steering queues shipped
   in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
-  Phase 18.
+  Phase 18; shadow-git checkpoints and `/rollback` shipped in Phase 22.

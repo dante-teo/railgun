@@ -3,6 +3,7 @@ import type { DevinTool } from "widevin";
 export interface ToolContext {
   confirmShellCommand: (command: string) => Promise<boolean>;
   signal: AbortSignal;
+  checkpointGuard?: { beforeMutation: () => void };
   todoStore?: {
     read(): unknown;
     write(input: { todos?: unknown; merge?: unknown }): unknown;

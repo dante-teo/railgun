@@ -36,9 +36,10 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
   unseen-row cue reserves one visible transcript row.
-- `/exit`, `/help`, `/clear`, `/model`, and `/compact` are the available
-  commands. Shell approval uses
-  `y`, `n`, or Escape.
+- `/exit`, `/help`, `/clear`, `/model`, `/compact`, and `/rollback` are the
+  available commands. `/rollback` restores the working directory to the
+  snapshot taken before the agent's last file-mutating tool call (no-op if no
+  snapshot exists yet this session). Shell approval uses `y`, `n`, or Escape.
 - Completed replies use GFM Markdown with wrapped prose, lists, links, tables,
   and themed fenced-code boxes with language labels. Streaming fragments remain
   plain until completion.
