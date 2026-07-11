@@ -7,6 +7,7 @@ import type { ToolContext } from "./registry.js";
 import "./readFile.js";
 
 const context: ToolContext = {
+  signal: new AbortController().signal,
   confirmShellCommand: async () => {
     throw new Error("read_file must not request shell approval");
   }

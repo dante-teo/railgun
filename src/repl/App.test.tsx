@@ -10,6 +10,7 @@ import {
   historyToDisplayLines,
   shouldAppendToolTranscriptLine,
   shouldShowToolLine,
+  transcriptJustification,
 } from "./App.js";
 import { createTodoStore } from "../tools/todo.js";
 import { THEMES } from "./theme.js";
@@ -72,6 +73,12 @@ describe("TodoPanel", () => {
 });
 
 describe("TranscriptLine", () => {
+  it("keeps short transcript slices adjacent to the composer without moving full pages", () => {
+    expect(transcriptJustification(2, false, 10)).toBe("flex-end");
+    expect(transcriptJustification(9, true, 10)).toBe("flex-start");
+    expect(transcriptJustification(10, false, 10)).toBe("flex-start");
+  });
+
   it("uses the same fixed role gutter for user and assistant bodies", () => {
     const userRow = displayLineToTranscriptRows({ kind: "user", text: "hello" }, THEMES.light, 80)[0]!;
     const assistantRow = displayLineToTranscriptRows({ kind: "assistant", text: "hello" }, THEMES.light, 80)[0]!;

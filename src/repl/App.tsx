@@ -3,7 +3,8 @@ import { Box, render, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { MultilineInput } from "ink-multiline-input";
 import Spinner from "ink-spinner";
 import type { DevinMessage, DevinModel } from "widevin";
-import { runTurn } from "../agent/turn.js";
+import { createAgent } from "../agent/agent.js";
+import type { Agent } from "../agent/agent.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { COMPACTION_ACK_MESSAGE, runCompaction } from "../agent/compaction.js";
 import { describeDevinError } from "../errors.js";
@@ -23,7 +24,7 @@ import type { GitStatus } from "./statusLine.js";
 import { appendStreamDelta, createStreamSegments, finishStreamSegments, flushStreamSegment } from "./streamingTranscript.js";
 import { useTerminalSize } from "./terminalSize.js";
 import { composerRows, enhancedKeyboardMode, replaceComposerDraft, sanitizeComposerInput, shouldHandleComposerEvent } from "./composer.js";
-import { runInAlternateScreen, runWithMouseTracking, shouldUseAlternateScreen } from "./lifecycle.js";
+import { ctrlCAction, hasCtrlCAbortTarget, runInAlternateScreen, runWithMouseTracking, shouldUseAlternateScreen } from "./lifecycle.js";
 import { renderAssistantMarkdown } from "./markdown.js";
 import { parseMouseWheel } from "./mouse.js";
 import { ThemeController, themeForMode } from "./theme.js";
@@ -199,6 +200,13 @@ export const TranscriptLine = ({ line, theme, width }: { readonly line: DisplayL
   </Box>
 );
 
+export const transcriptJustification = (
+  visibleRows: number,
+  hasUnseenCue: boolean,
+  viewportRows: number,
+): "flex-start" | "flex-end" =>
+  visibleRows + (hasUnseenCue ? 1 : 0) < viewportRows ? "flex-end" : "flex-start";
+
 const StatusBar = ({
   theme, session, gitStatus, metadata, unsaved, viewportOffset, viewportRows, totalRows,
 }: {
@@ -256,6 +264,8 @@ const ChatApp = ({
   const [streaming, setStreaming] = useState("");
   const streamSegmentsRef = useRef(createStreamSegments());
   const [busy, setBusy] = useState(false);
+  const activeAgentRef = useRef<Agent | null>(null);
+  const [queuedSteer, setQueuedSteer] = useState(false);
   const [toolLabel, setToolLabel] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const iterationBudgetRef = useRef(IterationBudget.create());
@@ -300,6 +310,15 @@ const ChatApp = ({
     else if (key.pageDown) dispatchViewport({ type: "page-down" });
     else if (key.home) dispatchViewport({ type: "home" });
     else if (key.end) dispatchViewport({ type: "end" });
+  });
+
+  useInput((input, key) => {
+    if (!(key.ctrl && input.toLowerCase() === "c")) return;
+    if (ctrlCAction(hasCtrlCAbortTarget(activeAgentRef.current, pendingApprovalRef.current)) === "exit") { exit(); return; }
+    activeAgentRef.current?.abort();
+    pendingApprovalRef.current?.resolve(false);
+    pendingApprovalRef.current = null;
+    setPendingCommand(null);
   });
 
   const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
@@ -366,7 +385,7 @@ const ChatApp = ({
     setCompletionIndex(next.index);
   }, { isActive: !busy && pendingCommand === null });
 
-  const onToolStart = useCallback((name: string, args: unknown) => {
+  const flushStreamingLine = useCallback(() => {
     const flushed = flushStreamSegment(streamSegmentsRef.current);
     streamSegmentsRef.current = flushed.state;
     if (flushed.line !== null) {
@@ -374,9 +393,13 @@ const ChatApp = ({
       setLines(previous => [...previous, { kind: "assistant", text: line }]);
     }
     setStreaming("");
+  }, []);
+
+  const onToolStart = useCallback((name: string, args: unknown) => {
+    flushStreamingLine();
     if (name === "todo") setTodoLoading(true);
     setToolLabel(buildToolLabel(name, args, "start"));
-  }, []);
+  }, [flushStreamingLine]);
 
   const onToolComplete = useCallback((name: string, args: unknown, isError: boolean) => {
     setToolLabel(null);
@@ -395,6 +418,11 @@ const ChatApp = ({
     setDraft("");
     setCompletionIndex(null);
     setCompletionMatches([]);
+    if (busy && pendingCommand === null && activeAgentRef.current !== null) {
+      activeAgentRef.current.steer(text);
+      setQueuedSteer(true);
+      return;
+    }
     if (text.startsWith("/")) {
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
@@ -466,10 +494,15 @@ const ChatApp = ({
     streamSegmentsRef.current = createStreamSegments();
     setToolLabel(null);
     const preTurnTodos = todoStoreRef.current.read();
-    const outcome = await runTurn(
-      activeSession.devin, activeSession.model.id, activeSession.model.contextWindow, activeSession.systemPrompt, history, text,
-      iterationBudgetRef.current, confirmShellCommand,
-      {
+    const agent = createAgent({
+      devin: activeSession.devin,
+      model: activeSession.model.id,
+      contextWindow: activeSession.model.contextWindow,
+      systemPrompt: activeSession.systemPrompt,
+      confirmShellCommand,
+      iterationBudget: () => iterationBudgetRef.current,
+      todoStore: todoStoreRef.current,
+      callbacks: {
         onDelta: delta => {
           const next = appendStreamDelta(streamSegmentsRef.current, delta);
           streamSegmentsRef.current = next;
@@ -480,9 +513,16 @@ const ChatApp = ({
         onCompact: () => {
           setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
         },
+        onQueueInjected: injected => {
+          flushStreamingLine();
+          setQueuedSteer(false);
+          setLines(previous => [...previous, { kind: "user", text: injected }]);
+        },
       },
-      { todoStore: todoStoreRef.current },
-    );
+    });
+    activeAgentRef.current = agent;
+    const outcome = await agent.run({ history, text });
+    activeAgentRef.current = null;
 
     if (outcome.ok) {
       const completedTodos = todoStoreRef.current.read();
@@ -499,6 +539,12 @@ const ChatApp = ({
           setLines(previous => [...previous, { kind: "assistant", text: "Session checkpoint recovered." }]);
         }
       }
+    } else if ("aborted" in outcome) {
+      setHistory(outcome.messages);
+      setTodos(todoStoreRef.current.read());
+      const interruptedSegment = finishStreamSegments(outcome.assistantText, streamSegmentsRef.current);
+      if (interruptedSegment !== "") setLines(previous => [...previous, { kind: "assistant", text: interruptedSegment }]);
+      setLines(previous => [...previous, { kind: "assistant", text: `Stopped by user${outcome.cancelledQueued > 0 ? ` · cancelled ${outcome.cancelledQueued} queued message${outcome.cancelledQueued === 1 ? "" : "s"}` : ""}.` }]);
     } else {
       todoStoreRef.current = createHydratedTodoStore(preTurnTodos);
       setTodos(preTurnTodos);
@@ -507,7 +553,8 @@ const ChatApp = ({
     setStreaming("");
     setBusy(false);
     setTodoLoading(false);
-  }, [activeSession, checkpointUnsaved, confirmShellCommand, exit, history, onToolComplete, onToolStart, persistence, stdoutWrite]);
+    setQueuedSteer(false);
+  }, [activeSession, busy, checkpointUnsaved, confirmShellCommand, exit, flushStreamingLine, history, onToolComplete, onToolStart, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {
@@ -530,7 +577,14 @@ const ChatApp = ({
   return (
     <Box flexDirection="column" width={columns} height={rows}>
       <Header theme={theme} />
-      <Box flexDirection="column" flexGrow={1} height={transcriptRows} overflow="hidden" paddingX={1}>
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        height={transcriptRows}
+        overflow="hidden"
+        paddingX={1}
+        justifyContent={transcriptJustification(visibleRows.length, viewport.unseen > 0, viewport.viewportRows)}
+      >
         {visibleRows.map((row, index) => <TranscriptRowLine key={`${viewport.offset + index}-${row.kind}`} row={row} theme={theme} />)}
         {viewport.unseen > 0 && <Text color={theme.warning}>↓ {viewport.unseen} unseen output row{viewport.unseen === 1 ? "" : "s"} · End to follow</Text>}
       </Box>
@@ -538,6 +592,7 @@ const ChatApp = ({
       {pendingCommand !== null && (
         <Box backgroundColor={theme.warningSurface} paddingX={1}><Text color={approvalColor(theme)}>APPROVAL · Run shell command: {pendingCommand} [y/n]</Text></Box>
       )}
+      {queuedSteer && <Text color={theme.warning}>Queued · steering will apply at the next boundary</Text>}
       {(completionMatches.length > 1 || liveMatches.length > 0) && (
         <Suggestions items={completionMatches.length > 1 ? completionMatches : liveMatches} selectedIndex={completionIndex ?? -1} theme={theme} />
       )}
@@ -561,8 +616,8 @@ const ChatApp = ({
           onSubmit={value => { void handleSubmit(value); }}
           rows={composerHeight}
           maxRows={composerHeight}
-          focus={!busy && pendingCommand === null && modelPicker === null}
-          placeholder={busy ? "Agent is working…" : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
+          focus={pendingCommand === null && modelPicker === null}
+          placeholder={busy ? "Steer the active run…" : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
           textStyle={{ color: theme.text }}
           highlightStyle={{ color: theme.text }}
           keyBindings={{
@@ -588,7 +643,7 @@ export const runRepl = async (session: DevinSession, persistence?: ReplPersisten
         const instance = render(
           <ChatApp session={session} initialMode={initialMode} themeController={themeController} {...(persistence ? { persistence } : {})} />,
           {
-            exitOnCtrlC: true,
+            exitOnCtrlC: false,
             isScreenReaderEnabled: screenReaderEnabled,
             kittyKeyboard: { mode: enhancedKeyboardMode(process.env), flags: ["disambiguateEscapeCodes"] },
           },

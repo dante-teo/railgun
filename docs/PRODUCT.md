@@ -14,8 +14,19 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 16 (context compaction):**
-Phase 16 closes the gap ADR-0004 deferred at Phase 5: `src/agent/recovery.ts`'s
+**Current phase — Phase 17 (interrupt and steering queues):**
+Phase 17 introduces a functional `createAgent` lifecycle with one abort
+controller per run, guarded `run`/`abort`/`steer`/`followUp` operations, FIFO
+steering injected one message per assistant/tool boundary, and follow-ups
+drained only when the run would otherwise settle. Ctrl+C cancels active
+provider/tool/approval work without exiting the REPL; idle Ctrl+C exits.
+Cancellation retains the submitted user message, streamed assistant text,
+completed tools and todo mutations, adds stopped tool results where protocol
+pairing requires them, and clears queued input with a visible cancellation
+count. Approved POSIX shells run in detached process groups and receive
+SIGTERM followed by SIGKILL after a two-second grace period. See ADR-0011.
+
+Phase 16 closed the gap ADR-0004 deferred at Phase 5: `src/agent/recovery.ts`'s
 `RecoveryAction` gains a 4th member, `"compress_and_retry"`, and HTTP 413
 (payload too large) now triggers it instead of failing the turn immediately.
 `src/agent/compaction.ts` (new) ports OpenAI Codex CLI's history-summarization
@@ -270,11 +281,19 @@ protocol failures, and unrelated errors fail immediately.
   no backoff delay, and both compression-attempt exhaustion and the
   no-`compress`-callback fallback rethrowing; a manual smoke test round-trips
   `/compact`'s exact compacted-summary-plus-ack output through a real
-  `sessionStore.ts` checkpoint without `SessionCorruptionError`.
+  `sessionStore.ts` checkpoint without `SessionCorruptionError`. Phase 17:
+  `src/agent/{queue,agent}.test.ts` covers immutable queue order/cleanup,
+  lifecycle guards, boundary injection, provider abort, protocol-valid empty
+  assistant settlement, and reuse after cancellation; turn and registry tests
+  cover stopped sequential/parallel tool results and required run signals;
+  `src/tools/runShell.test.ts` covers approval abort/failure and live shell
+  termination; REPL lifecycle and streaming-transcript tests cover Ctrl+C
+  target selection, chronological steering injection, and non-duplicating
+  abort settlement.
 
 ## Open Questions
 
 - Which later phases (GUIs, messaging gateways) get built, and in what
   order, beyond the replication plan's suggested sequence — deferred
-  until each phase is actually started. Context compression shipped in
-  Phase 16.
+  until each phase is actually started. Interrupt and steering queues shipped
+  in Phase 17.

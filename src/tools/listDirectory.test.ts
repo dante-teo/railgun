@@ -7,6 +7,7 @@ import type { ToolContext } from "./registry.js";
 import "./listDirectory.js";
 
 const context: ToolContext = {
+  signal: new AbortController().signal,
   confirmShellCommand: async () => {
     throw new Error("list_directory must not request shell approval");
   }

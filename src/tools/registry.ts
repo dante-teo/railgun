@@ -2,6 +2,7 @@ import type { DevinTool } from "widevin";
 
 export interface ToolContext {
   confirmShellCommand: (command: string) => Promise<boolean>;
+  signal: AbortSignal;
   todoStore?: {
     read(): unknown;
     write(input: { todos?: unknown; merge?: unknown }): unknown;
@@ -47,6 +48,7 @@ export const createToolRegistry = (): ToolRegistry => {
   const get = (name: string): RegisteredTool | undefined => tools.get(name);
 
   const run = async (name: string, args: unknown, context: ToolContext): Promise<ToolRunResult> => {
+    if (context.signal.aborted) return { content: "[stopped by user]", isError: true };
     const tool = tools.get(name);
     if (!tool) return { content: `Error: unknown tool "${name}"`, isError: true };
     try {

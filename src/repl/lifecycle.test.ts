@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runInAlternateScreen, runWithMouseTracking, shouldUseAlternateScreen } from "./lifecycle.js";
+import { ctrlCAction, hasCtrlCAbortTarget, runInAlternateScreen, runWithMouseTracking, shouldUseAlternateScreen } from "./lifecycle.js";
 
 describe("alternate screen lifecycle", () => {
   it("enters and leaves for interactive TTY output", async () => {
@@ -15,6 +15,16 @@ describe("alternate screen lifecycle", () => {
     expect(shouldUseAlternateScreen(true, false)).toBe(true);
     expect(shouldUseAlternateScreen(true, true)).toBe(false);
     expect(shouldUseAlternateScreen(false, false)).toBe(false);
+  });
+});
+
+describe("Ctrl+C lifecycle", () => {
+  it("aborts interruptible work and exits when no abort target exists", () => {
+    expect(hasCtrlCAbortTarget({}, null)).toBe(true);
+    expect(hasCtrlCAbortTarget(null, {})).toBe(true);
+    expect(hasCtrlCAbortTarget(null, null)).toBe(false);
+    expect(ctrlCAction(true)).toBe("abort");
+    expect(ctrlCAction(false)).toBe("exit");
   });
 });
 

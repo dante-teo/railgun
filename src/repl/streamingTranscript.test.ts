@@ -32,4 +32,28 @@ describe("streaming transcript segments", () => {
   it("uses a synthetic final answer when no streamed segment exists", () => {
     expect(finishStreamSegments("Iteration limit reached.", createStreamSegments())).toBe("Iteration limit reached.");
   });
+
+  it("keeps a queued user message after the assistant boundary it follows", () => {
+    const transcript: string[] = [];
+    let stream = appendStreamDelta(createStreamSegments(), "First response.");
+    const boundary = flushStreamSegment(stream);
+    stream = boundary.state;
+    if (boundary.line) transcript.push(`AGENT ${boundary.line}`);
+    transcript.push("USER steer here");
+    stream = appendStreamDelta(stream, "Second response.");
+    transcript.push(`AGENT ${finishStreamSegments("First response.Second response.", stream)}`);
+
+    expect(transcript).toEqual([
+      "AGENT First response.",
+      "USER steer here",
+      "AGENT Second response.",
+    ]);
+  });
+
+  it("returns only the unflushed suffix when an interrupted run already displayed narration", () => {
+    const flushed = flushStreamSegment(appendStreamDelta(createStreamSegments(), "Before tool.")).state;
+    const interrupted = appendStreamDelta(flushed, "After tool.");
+
+    expect(finishStreamSegments("Before tool.After tool.", interrupted)).toBe("After tool.");
+  });
 });

@@ -62,7 +62,11 @@ session becomes durable after its first successful turn:
 - Type a message and press Enter to send it; Shift+Enter inserts a newline in
   terminals supporting enhanced keyboard reporting. The composer grows from
   one through six rows (and caps lower in short terminals), preserves multiline
-  paste, and keeps its draft while busy or awaiting approval. Tab completes an
+  paste, and remains active while the agent works so Enter can queue steering
+  for the next assistant/tool boundary. A temporary queued indicator appears
+  immediately; the normal `YOU` row is appended only when the steering message
+  enters model history. The composer is modal and disabled only during shell
+  approval or model selection. Tab completes an
   active slash suggestion and moves the cursor to the completed value's end;
   otherwise it is reserved for future message enqueue. `Ctrl+U` clears the
   complete draft.
@@ -96,7 +100,10 @@ session becomes durable after its first successful turn:
   the REPL freezes the text input and prints
   `Run shell command: <command> [y/n]`; press `y` to run it and feed the
   real output back to the agent, or `n`/`Esc` to decline (the agent gets
-  told the command was not approved and answers accordingly).
+  told the command was not approved and answers accordingly). Ctrl+C while
+  approval or agent work is active cancels that run without closing Railgun;
+  an approved shell's complete POSIX process group is terminated. Completed
+  side effects and todo changes remain, while queued steering is discarded.
 - A REPL session has one shared 90-step iteration budget across all turns.
   Each Devin/tool-call round consumes one step. If the budget is exhausted,
   the assistant prints
@@ -110,7 +117,8 @@ session becomes durable after its first successful turn:
   visible row when new output arrives while scrolled up. New output and terminal
   resizes continue following only when the viewport was already at the bottom.
 - Slash commands:
-  - `/exit` (or `Ctrl+C`) — quit the REPL.
+  - `/exit` — quit the REPL. Ctrl+C exits when no agent/approval is active;
+    otherwise it cancels the active run and returns to the composer.
   - `/help` — print the list of available commands.
   - `/clear` — clear the terminal canvas without discarding conversation state.
   - `/model` — open an interactive model picker (Up/Down to navigate, Enter to switch and save, Esc to cancel).

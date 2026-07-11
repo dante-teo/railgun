@@ -27,8 +27,11 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   is available. The composer grows from one to six rows and caps lower in short
   terminals. Paste may contain multiple lines.
 - Tab completes an active slash suggestion. Otherwise it is consumed as the
-  reserved future enqueue binding. Busy and approval states disable editing
-  without deleting the draft. `Ctrl+U` clears the draft.
+  reserved future enqueue binding. The composer remains editable during
+  ordinary model/tool work; Enter queues steering for the next completed
+  assistant/tool boundary, with a temporary acknowledgement until its `YOU`
+  row is injected in chronological order. Shell approval and model selection
+  remain modal. `Ctrl+U` clears the draft.
 - The mouse wheel scrolls transcript history by rows. PageUp/PageDown move by
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
@@ -42,6 +45,8 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
 - Generic thinking and live tool states use animated mint activity rows. Agent
   narration is committed before a following compact tool row, preserving the
   chronological event sequence instead of pinning active text below tools.
+  Short transcript slices bottom-align against the composer; full pages remain
+  top-aligned for stable scrolling.
 
 ## Lifecycle and accessibility
 
@@ -50,6 +55,12 @@ screen and restore it on every exit path. Non-TTY output and
 `INK_SCREEN_READER=true` skip the alternate screen. The screen-reader path uses
 Ink's accessible rendering; all controls remain keyboard-only and all status
 meaning has a textual cue.
+
+Ctrl+C cancels an active agent or approval rather than exiting. Cancellation
+retains streamed assistant text and completed tools/todos, displays the stop as
+UI metadata, and returns to the same session. With no cancellable target,
+Ctrl+C exits normally. Shell approval freezes composer input; approved POSIX
+shell work is terminated as a process group on cancellation.
 
 ## Session chooser
 

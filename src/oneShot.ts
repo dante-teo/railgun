@@ -36,7 +36,7 @@ export const runOneShot = async (question: string): Promise<void> => {
   }, { todoStore });
   if (outcome.ok) {
     process.stdout.write("\n");
-  } else {
+  } else if (!("aborted" in outcome)) {
     throw outcome.error;
   }
 };

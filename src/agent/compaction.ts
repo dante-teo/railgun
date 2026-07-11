@@ -88,7 +88,8 @@ export const runCompaction = async (
   devin: DevinProvider,
   model: string,
   systemPrompt: readonly string[],
-  messages: readonly DevinMessage[]
+  messages: readonly DevinMessage[],
+  signal?: AbortSignal,
 ): Promise<{ messages: readonly DevinMessage[]; usage: UsageTotals | undefined }> => {
   let requestMessages: DevinMessage[] = [...messages, { role: "user", content: SUMMARIZATION_PROMPT }];
   let summaryText = "";
@@ -97,7 +98,10 @@ export const runCompaction = async (
   for (;;) {
     summaryText = "";
     try {
-      for await (const event of devin.streamChat({ model, messages: requestMessages, systemPrompt })) {
+      for await (const event of devin.streamChat({
+        model, messages: requestMessages, systemPrompt,
+        ...(signal ? { signal } : {}),
+      })) {
         if (event.type === "text_delta") summaryText += event.delta;
         if (event.type === "usage") lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
       }

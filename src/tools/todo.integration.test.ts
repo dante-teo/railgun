@@ -3,6 +3,7 @@ import { registry } from "./index.js";
 import { createTodoStore } from "./todo.js";
 
 const noopContext = (store = createTodoStore()) => ({
+  signal: new AbortController().signal,
   confirmShellCommand: async () => {
     throw new Error("confirmShellCommand should not be called");
   },

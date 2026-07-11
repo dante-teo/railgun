@@ -6,6 +6,11 @@ export const DISABLE_MOUSE_TRACKING = "\u001b[?1006l\u001b[?1000l";
 export const shouldUseAlternateScreen = (isTTY: boolean, screenReaderEnabled: boolean): boolean =>
   isTTY && !screenReaderEnabled;
 
+export const ctrlCAction = (isBusy: boolean): "abort" | "exit" => isBusy ? "abort" : "exit";
+
+export const hasCtrlCAbortTarget = (agent: unknown | null, approval: unknown | null): boolean =>
+  agent !== null || approval !== null;
+
 const runWithTerminalMode = async <T>(
   write: (sequence: string) => unknown,
   enabled: boolean,
