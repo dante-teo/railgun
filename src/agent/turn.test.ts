@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { DevinProvider, DevinStreamEvent } from "widevin";
 import { DevinApiError } from "widevin";
 import { runTurn } from "./turn.js";
+import type { AgentEvent } from "./events.js";
 import { registry } from "../tools/index.js";
 import { createTodoStore } from "../tools/todo.js";
 import { CORRUPTION_MARKER } from "./toolDispatch.js";
@@ -50,7 +51,7 @@ const fakeProvider = (rounds: readonly FakeRound[]): FakeProvider => {
 };
 
 describe("runTurn", () => {
-  it("accumulates text_delta events, streams via onDelta, and appends user+assistant messages", async () => {
+  it("accumulates text_delta events, streams via message_update text_delta events, and appends user+assistant messages", async () => {
     const devin = fakeProvider([
       [
         { type: "text_delta", delta: "Hel" },
@@ -60,8 +61,8 @@ describe("runTurn", () => {
     ]);
     const deltas: string[] = [];
 
-    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
-      onDelta: d => deltas.push(d)
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, async event => {
+      if (event.type === "message_update" && event.streamEvent.type === "text_delta") deltas.push(event.streamEvent.delta);
     });
 
     expect(outcome.ok).toBe(true);
@@ -396,11 +397,11 @@ describe("runTurn", () => {
       expect(outcome.ok).toBe(true);
     });
 
-    it("fires onToolStart before onToolComplete for a sequential read_file call", async () => {
+    it("emits tool_execution_start before tool_execution_end for a sequential read_file call", async () => {
       const filePath = join(dir, "secret.txt");
       await writeFile(filePath, "the secret is 42", "utf-8");
-      const onToolStart = vi.fn();
-      const onToolComplete = vi.fn();
+      const events: AgentEvent[] = [];
+      const emit = async (e: AgentEvent) => { events.push(e); };
 
       const devin = fakeProvider([
         [
@@ -410,25 +411,23 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll, {
-        onToolStart,
-        onToolComplete
-      });
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll, emit);
 
       expect(outcome.ok).toBe(true);
-      expect(onToolStart).toHaveBeenCalledExactlyOnceWith("read_file", { path: filePath });
-      expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("read_file", { path: filePath }, false);
-      const [startOrder] = onToolStart.mock.invocationCallOrder;
-      const [completeOrder] = onToolComplete.mock.invocationCallOrder;
-      expect(startOrder).toBeDefined();
-      expect(completeOrder).toBeDefined();
-      if (startOrder === undefined || completeOrder === undefined) throw new Error("unreachable");
-      expect(startOrder).toBeLessThan(completeOrder);
+      const startIndex = events.findIndex(e =>
+        e.type === "tool_execution_start" && e.toolCallId === "call-1" && e.toolName === "read_file" && JSON.stringify(e.args) === JSON.stringify({ path: filePath })
+      );
+      const endIndex = events.findIndex(e =>
+        e.type === "tool_execution_end" && e.toolCallId === "call-1" && e.toolName === "read_file" &&
+        JSON.stringify(e.result) === JSON.stringify({ toolCallId: "call-1", content: "the secret is 42", isError: false })
+      );
+      expect(startIndex).toBeGreaterThanOrEqual(0);
+      expect(endIndex).toBeGreaterThan(startIndex);
     });
 
-    it("fires onToolStart/onToolComplete with empty args and isError true for a corrupted tool call", async () => {
-      const onToolStart = vi.fn();
-      const onToolComplete = vi.fn();
+    it("emits tool_execution_start/tool_execution_end with empty args and isError true for a corrupted tool call", async () => {
+      const events: AgentEvent[] = [];
+      const emit = async (e: AgentEvent) => { events.push(e); };
       const runSpy = vi.spyOn(registry, "run");
       try {
         const devin = fakeProvider([
@@ -439,27 +438,27 @@ describe("runTurn", () => {
           [{ type: "text_delta", delta: "ok" }]
         ]);
 
-        const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
-          onToolStart,
-          onToolComplete
-        });
+        const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, emit);
 
         expect(outcome.ok).toBe(true);
-        expect(onToolStart).toHaveBeenCalledExactlyOnceWith("read_file", {});
-        expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("read_file", {}, true);
+        expect(events).toContainEqual({ type: "tool_execution_start", toolCallId: "call-1", toolName: "read_file", args: {} });
+        expect(events).toContainEqual({
+          type: "tool_execution_end", toolCallId: "call-1", toolName: "read_file",
+          result: { toolCallId: "call-1", content: CORRUPTION_MARKER, isError: true }
+        });
         expect(runSpy).not.toHaveBeenCalled();
       } finally {
         runSpy.mockRestore();
       }
     });
 
-    it("collapses a parallel batch into a single __batch__ onToolStart/onToolComplete pair", async () => {
+    it("emits an independent tool_execution_start/tool_execution_end pair per call in a parallel batch", async () => {
       const fileA = join(dir, "a.txt");
       const fileB = join(dir, "b.txt");
       await writeFile(fileA, "AAA", "utf-8");
       await writeFile(fileB, "BBB", "utf-8");
-      const onToolStart = vi.fn();
-      const onToolComplete = vi.fn();
+      const events: AgentEvent[] = [];
+      const emit = async (e: AgentEvent) => { events.push(e); };
 
       const devin = fakeProvider([
         [
@@ -471,16 +470,25 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll, {
-        onToolStart,
-        onToolComplete
-      });
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll, emit);
 
       expect(outcome.ok).toBe(true);
-      expect(onToolStart).toHaveBeenCalledExactlyOnceWith("__batch__", { count: 2 });
-      expect(onToolComplete).toHaveBeenCalledExactlyOnceWith("__batch__", { count: 2 }, false);
-      expect(onToolStart).not.toHaveBeenCalledWith("read_file", expect.anything());
-      expect(onToolComplete).not.toHaveBeenCalledWith("read_file", expect.anything(), expect.anything());
+      const starts = events.filter(e => e.type === "tool_execution_start");
+      expect(starts).toHaveLength(2);
+      expect(starts).toContainEqual({ type: "tool_execution_start", toolCallId: "call-1", toolName: "read_file", args: { path: fileA } });
+      expect(starts).toContainEqual({ type: "tool_execution_start", toolCallId: "call-2", toolName: "read_file", args: { path: fileB } });
+
+      const lastStartIndex = Math.max(...events.map((e, i) => (e.type === "tool_execution_start" ? i : -1)));
+      const firstEndIndex = events.findIndex(e => e.type === "tool_execution_end");
+      expect(firstEndIndex).toBeGreaterThan(lastStartIndex);
+
+      const ends = events.filter(e => e.type === "tool_execution_end");
+      expect(ends).toHaveLength(2);
+      for (const end of ends) {
+        if (end.type !== "tool_execution_end") throw new Error("unreachable");
+        expect(end.result.toolCallId).toBe(end.toolCallId);
+        expect(end.result.isError).toBe(false);
+      }
     });
 
     it("updates the caller-owned todo store from a todo tool call", async () => {
@@ -539,7 +547,7 @@ describe("runTurn", () => {
       expect(finalRequestMessages[0]?.content).toContain("Summary of the conversation.");
     });
 
-    it("fires onCompact when compaction happens", async () => {
+    it("fires compaction_start/compaction_end with reason threshold when proactive compaction happens", async () => {
       const devin = fakeProvider([
         [
           { type: "usage", inputTokens: 950, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -549,12 +557,14 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "Summary." }],
         [{ type: "text_delta", delta: "Done." }]
       ]);
-      const onCompact = vi.fn();
+      const events: AgentEvent[] = [];
+      const emit = async (e: AgentEvent) => { events.push(e); };
 
-      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, { onCompact });
+      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, emit);
 
       expect(outcome.ok).toBe(true);
-      expect(onCompact).toHaveBeenCalledTimes(1);
+      expect(events.filter(e => e.type === "compaction_start")).toEqual([{ type: "compaction_start", reason: "threshold" }]);
+      expect(events.filter(e => e.type === "compaction_end")).toEqual([{ type: "compaction_end", reason: "threshold" }]);
     });
 
     it("does not compact when usage stays below the 90% threshold", async () => {
@@ -582,15 +592,18 @@ describe("runTurn", () => {
         ],
         [{ type: "text_delta", delta: "Final answer." }]
       ]);
-      const onCompact = vi.fn();
 
-      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, { onCompact });
+      const events: AgentEvent[] = [];
+      const emit = async (e: AgentEvent) => { events.push(e); };
+
+      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, emit);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
       expect(outcome.assistantText).toBe("Final answer.");
       expect(devin.streamChatRequests).toHaveLength(4);
-      expect(onCompact).toHaveBeenCalledTimes(1);
+      expect(events.filter(e => e.type === "compaction_start")).toEqual([{ type: "compaction_start", reason: "overflow" }]);
+      expect(events.filter(e => e.type === "compaction_end")).toEqual([{ type: "compaction_end", reason: "overflow" }]);
     });
   });
 });

@@ -14,7 +14,24 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 17 (interrupt and steering queues):**
+**Current phase — Phase 18 (event bus & consumers):**
+Phase 18 replaces `src/agent/turn.ts`'s `LoopCallbacks` with a typed,
+two-layer event stream: `src/agent/agent.ts`'s low-level `Agent` now emits a
+raw `AgentEvent` union (`agent_start`/`agent_end`, `turn_start`/`turn_end`,
+`message_start`/`message_update`/`message_end`, `tool_execution_start`/
+`tool_execution_end`, `compaction_start`/`compaction_end`) via `subscribe`,
+and a new `src/agent/agentSession.ts`'s `createAgentSession` wraps it,
+re-emitting the raw stream plus session-only `agent_settled` and
+`queue_update` events. Per-call `tool_execution_start`/`tool_execution_end`
+events (correlated by real `toolCallId`) replace the old `"__batch__"`
+sentinel a parallel batch used to collapse into; the `Promise.all` barrier
+is preserved (all calls start, then all settle — never interleaved).
+`src/oneShot.ts`'s spinner and `src/repl/App.tsx`'s
+streaming/tool-label/compaction-ack/queue-injection rendering both migrated
+from passing callbacks to subscribing on the session object, letting
+multiple independent consumers observe the same running turn. See
+ADR-0012.
+
 Phase 17 introduces a functional `createAgent` lifecycle with one abort
 controller per run, guarded `run`/`abort`/`steer`/`followUp` operations, FIFO
 steering injected one message per assistant/tool boundary, and follow-ups
@@ -201,10 +218,11 @@ protocol failures, and unrelated errors fail immediately.
   exhaustion directly, while `src/agent/turn.test.ts` proves the turn loop
   consumes only the allowed number of outer rounds and appends the friendly
   limit message to returned history; Phase 7: `src/agent/turn.test.ts`'s
-  three new callback tests prove `onToolStart`/`onToolComplete` fire in
-  order for a sequential call, fire once with empty args and
-  `isError: true` for a corrupted call, and collapse to a single
-  `"__batch__"` pair — never firing per-call — for a parallel batch;
+  three new event tests prove `tool_execution_start`/`tool_execution_end`
+  fire in order for a sequential call, fire once with empty args and
+  `isError: true` for a corrupted call, and fire an independent per-call
+  pair — correlated by `toolCallId`, never collapsed to a `"__batch__"`
+  sentinel — for a parallel batch;
   `src/tools/toolLabel.test.ts` proves `buildToolLabel`'s verb+arg
   formatting for the labeled file/terminal tools plus its unregistered-tool,
   missing/non-string-preview-arg, whitespace-collapsing, and
@@ -289,11 +307,21 @@ protocol failures, and unrelated errors fail immediately.
   `src/tools/runShell.test.ts` covers approval abort/failure and live shell
   termination; REPL lifecycle and streaming-transcript tests cover Ctrl+C
   target selection, chronological steering injection, and non-duplicating
-  abort settlement.
+  abort settlement. Phase 18: `src/agent/agentSession.test.ts` proves two
+  independent subscribers observe the identical ordered `AgentSessionEvent`
+  sequence for a run with a tool call (including the full
+  `agent_start`→…→`agent_settled` order), that unsubscribing one listener
+  never affects another still-subscribed one, that `queue_update` fires
+  once on `steer` enqueue and again once the injected message's
+  `message_start` dequeues it, that `agent_settled` fires exactly once per
+  `run()` call across normal/aborted/fatal-error outcomes, and that
+  `steer`/`followUp` on an idle session throw without mutating the queue
+  mirror or emitting `queue_update`.
 
 ## Open Questions
 
 - Which later phases (GUIs, messaging gateways) get built, and in what
   order, beyond the replication plan's suggested sequence — deferred
   until each phase is actually started. Interrupt and steering queues shipped
-  in Phase 17.
+  in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
+  Phase 18.

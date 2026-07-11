@@ -8,6 +8,7 @@ import type { IterationBudget } from "./iterationBudget.js";
 import { ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
 import { runCompaction, shouldCompact } from "./compaction.js";
 import type { UsageTotals } from "./compaction.js";
+import type { AgentEvent, ToolResult } from "./events.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
@@ -19,17 +20,8 @@ export const STOPPED_BY_USER = "[stopped by user]";
 const ENABLED_TOOLSETS = ["file", "terminal", "planning"] as const;
 
 type StepResult =
-  | { done: true; assistantText: string; usage: UsageTotals | undefined }
-  | { done: false; usage: UsageTotals | undefined };
-
-export interface LoopCallbacks {
-  onDelta?: (delta: string) => void;
-  onToolStart?: (name: string, args: unknown) => void;
-  onToolComplete?: (name: string, args: unknown, isError: boolean) => void;
-  onCompact?: () => void;
-  onQueueInjected?: (text: string, kind: "steer" | "followUp") => void;
-  onAbort?: (cancelledQueued: number) => void;
-}
+  | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }
+  | { done: false; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] };
 
 export interface RunTurnOptions {
   todoStore?: TodoStore;
@@ -39,6 +31,16 @@ export interface RunTurnOptions {
   clearQueues?: () => number;
 }
 
+const pushMessage = async (
+  messages: DevinMessage[],
+  doEmit: (event: AgentEvent) => Promise<void>,
+  message: DevinMessage
+): Promise<void> => {
+  messages.push(message);
+  await doEmit({ type: "message_start", message });
+  await doEmit({ type: "message_end", message });
+};
+
 const runStep = async (
   devin: DevinProvider,
   model: string,
@@ -46,7 +48,7 @@ const runStep = async (
   messages: DevinMessage[],
   context: ToolContext,
   allTextParts: string[],
-  callbacks?: LoopCallbacks
+  doEmit: (event: AgentEvent) => Promise<void>
 ): Promise<StepResult> => {
   const textParts: string[] = [];
   const rawArgsById = new Map<string, string>();
@@ -54,6 +56,8 @@ const runStep = async (
   const todoInjection = context.todoStore?.formatForInjection();
   const prompt = todoInjection && todoInjection.length > 0 ? [...systemPrompt, todoInjection] : systemPrompt;
   let lastUsage: UsageTotals | undefined;
+
+  await doEmit({ type: "message_start", message: { role: "assistant", content: [] } });
 
   try {
     for await (const event of devin.streamChat({
@@ -63,9 +67,11 @@ const runStep = async (
       systemPrompt: prompt,
       signal: context.signal,
     })) {
+      if (event.type !== "usage" && event.type !== "done") {
+        await doEmit({ type: "message_update", streamEvent: event });
+      }
       if (event.type === "text_delta") {
         textParts.push(event.delta);
-        callbacks?.onDelta?.(event.delta);
       }
       if (event.type === "toolcall_delta") {
         rawArgsById.set(event.id, (rawArgsById.get(event.id) ?? "") + event.delta);
@@ -83,6 +89,12 @@ const runStep = async (
       messages.push({ role: "assistant", content: [{ type: "text", text: partialText }] });
       allTextParts.push(partialText);
     }
+    await doEmit({
+      type: "message_end",
+      message: partialText !== ""
+        ? { role: "assistant", content: [{ type: "text", text: partialText }] }
+        : { role: "assistant", content: [] },
+    });
     throw error;
   }
 
@@ -97,19 +109,26 @@ const runStep = async (
       : { id, name, corrupted: true as const };
   });
 
-  messages.push({ role: "assistant", content: assistantParts });
+  const assistantMessage: DevinMessage = { role: "assistant", content: assistantParts };
+  messages.push(assistantMessage);
+  await doEmit({ type: "message_end", message: assistantMessage });
+
+  const toolResults: ToolResult[] = [];
 
   if (resolved.length === 0) {
     allTextParts.push(...textParts);
-    return { done: true, assistantText: allTextParts.join(""), usage: lastUsage };
+    return { done: true, assistantText: allTextParts.join(""), usage: lastUsage, message: assistantMessage, toolResults };
   }
   allTextParts.push(...textParts);
 
   for (const call of resolved) {
     if (call.corrupted) {
-      callbacks?.onToolStart?.(call.name, {});
-      callbacks?.onToolComplete?.(call.name, {}, true);
-      messages.push({ role: "tool", toolCallId: call.id, content: CORRUPTION_MARKER, isError: true });
+      await doEmit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: {} });
+      const result: ToolResult = { toolCallId: call.id, content: CORRUPTION_MARKER, isError: true };
+      await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result });
+      const toolMessage: DevinMessage = { role: "tool", toolCallId: call.id, content: CORRUPTION_MARKER, isError: true };
+      await pushMessage(messages, doEmit, toolMessage);
+      toolResults.push(result);
     }
   }
 
@@ -118,34 +137,44 @@ const runStep = async (
   );
 
   if (shouldParallelizeToolBatch(validCalls)) {
-    callbacks?.onToolStart?.("__batch__", { count: validCalls.length });
+    for (const call of validCalls) {
+      await doEmit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments });
+    }
     const results = await Promise.all(validCalls.map(async call => {
       if (context.signal.aborted) return { result: { content: STOPPED_BY_USER, isError: true }, completed: false };
       const result = await registry.run(call.name, call.arguments, context);
       return { result, completed: !context.signal.aborted };
     }));
-    validCalls.forEach((call, i) => {
+    for (const [i, call] of validCalls.entries()) {
       const settled = results[i];
       if (settled) {
-        const result = settled.completed ? settled.result : { content: STOPPED_BY_USER, isError: true };
-        messages.push({ role: "tool", toolCallId: call.id, content: result.content, isError: result.isError });
+        const outcome = settled.completed ? settled.result : { content: STOPPED_BY_USER, isError: true };
+        const result: ToolResult = { toolCallId: call.id, content: outcome.content, isError: outcome.isError };
+        await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result });
+        const toolMessage: DevinMessage = { role: "tool", toolCallId: call.id, content: result.content, isError: result.isError };
+        await pushMessage(messages, doEmit, toolMessage);
+        toolResults.push(result);
       }
-    });
-    callbacks?.onToolComplete?.("__batch__", { count: validCalls.length }, false);
+    }
   } else {
     for (const call of validCalls) {
       if (context.signal.aborted) {
-        messages.push({ role: "tool", toolCallId: call.id, content: STOPPED_BY_USER, isError: true });
+        const toolMessage: DevinMessage = { role: "tool", toolCallId: call.id, content: STOPPED_BY_USER, isError: true };
+        await pushMessage(messages, doEmit, toolMessage);
+        toolResults.push({ toolCallId: call.id, content: STOPPED_BY_USER, isError: true });
         continue;
       }
-      callbacks?.onToolStart?.(call.name, call.arguments);
+      await doEmit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments });
       const result = await registry.run(call.name, call.arguments, context);
-      callbacks?.onToolComplete?.(call.name, call.arguments, result.isError);
-      messages.push({ role: "tool", toolCallId: call.id, content: result.content, isError: result.isError });
+      const toolResult: ToolResult = { toolCallId: call.id, content: result.content, isError: result.isError };
+      await doEmit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result: toolResult });
+      const toolMessage: DevinMessage = { role: "tool", toolCallId: call.id, content: result.content, isError: result.isError };
+      await pushMessage(messages, doEmit, toolMessage);
+      toolResults.push(toolResult);
     }
   }
 
-  return { done: false, usage: lastUsage };
+  return { done: false, usage: lastUsage, message: assistantMessage, toolResults };
 };
 
 export const runTurn = async (
@@ -157,60 +186,83 @@ export const runTurn = async (
   userText: string,
   iterationBudget: IterationBudget,
   confirmShellCommand: (command: string) => Promise<boolean>,
-  callbacks?: LoopCallbacks,
+  emit?: (event: AgentEvent) => Promise<void>,
   options?: RunTurnOptions
 ): Promise<TurnOutcome> => {
-  const messages: DevinMessage[] = [...history, { role: "user", content: userText }];
+  const doEmit = emit ?? (async () => {});
+  const initialUserMessage: DevinMessage = { role: "user", content: userText };
+  const messages: DevinMessage[] = [...history, initialUserMessage];
   const allTextParts: string[] = [];
   const signal = options?.signal ?? new AbortController().signal;
   const context: ToolContext = options?.todoStore
     ? { confirmShellCommand, signal, todoStore: options.todoStore }
     : { confirmShellCommand, signal };
   let compactedThisRound = false;
-  const compress = async (): Promise<void> => {
+  let turnEndedThisAttempt = false;
+  const compress = async (reason: "threshold" | "overflow"): Promise<void> => {
+    await doEmit({ type: "compaction_start", reason });
     const result = await runCompaction(devin, model, systemPrompt, messages, signal);
     messages.length = 0;
     messages.push(...result.messages);
     compactedThisRound = true;
-    callbacks?.onCompact?.();
+    await doEmit({ type: "compaction_end", reason });
   };
+
+  await doEmit({ type: "agent_start" });
+  await doEmit({ type: "message_start", message: initialUserMessage });
+  await doEmit({ type: "message_end", message: initialUserMessage });
 
   try {
     while (iterationBudget.consume()) {
       compactedThisRound = false;
+      turnEndedThisAttempt = false;
+      await doEmit({ type: "turn_start" });
       const outcome = await callDevinWithRecovery(
-        () => runStep(devin, model, systemPrompt, messages, context, allTextParts, callbacks),
-        compress
+        () => runStep(devin, model, systemPrompt, messages, context, allTextParts, doEmit),
+        () => compress("overflow")
       );
+      await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });
+      turnEndedThisAttempt = true;
       if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
       const steer = options?.takeSteer?.();
       if (steer !== undefined) {
-        messages.push({ role: "user", content: steer });
-        callbacks?.onQueueInjected?.(steer, "steer");
+        const steerMessage: DevinMessage = { role: "user", content: steer };
+        await pushMessage(messages, doEmit, steerMessage);
         continue;
       }
       if (outcome.done) {
         const followUps = options?.takeFollowUps?.() ?? [];
-        if (followUps.length === 0) return { ok: true, messages, assistantText: outcome.assistantText };
-        followUps.forEach(text => {
-          messages.push({ role: "user", content: text });
-          callbacks?.onQueueInjected?.(text, "followUp");
-        });
+        if (followUps.length === 0) {
+          await doEmit({ type: "agent_end", messages });
+          return { ok: true, messages, assistantText: outcome.assistantText };
+        }
+        for (const text of followUps) {
+          const followUpMessage: DevinMessage = { role: "user", content: text };
+          await pushMessage(messages, doEmit, followUpMessage);
+        }
         continue;
       }
-      if (!compactedThisRound && shouldCompact(outcome.usage, contextWindow)) await compress();
+      if (!compactedThisRound && shouldCompact(outcome.usage, contextWindow)) await compress("threshold");
     }
   } catch (error) {
     if (signal.aborted) {
       const cancelledQueued = options?.clearQueues?.() ?? 0;
-      callbacks?.onAbort?.(cancelledQueued);
       const partialText = allTextParts.join("");
-      if (messages.at(-1)?.role === "user") messages.push({ role: "assistant", content: [] });
+      if (!turnEndedThisAttempt) {
+        if (messages.at(-1)?.role === "user") {
+          const closer: DevinMessage = { role: "assistant", content: [] };
+          await pushMessage(messages, doEmit, closer);
+        }
+        await doEmit({ type: "turn_end", message: messages.at(-1)!, toolResults: [] });
+      }
+      await doEmit({ type: "agent_end", messages });
       return { ok: false, aborted: true, messages, assistantText: partialText, cancelledQueued };
     }
     return { ok: false, error };
   }
 
-  messages.push({ role: "assistant", content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }] });
+  const limitMessage: DevinMessage = { role: "assistant", content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }] };
+  await pushMessage(messages, doEmit, limitMessage);
+  await doEmit({ type: "agent_end", messages });
   return { ok: true, messages, assistantText: ITERATION_LIMIT_MESSAGE };
 };

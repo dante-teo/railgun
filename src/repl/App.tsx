@@ -3,12 +3,13 @@ import { Box, render, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { MultilineInput } from "ink-multiline-input";
 import Spinner from "ink-spinner";
 import type { DevinMessage, DevinModel } from "widevin";
-import { createAgent } from "../agent/agent.js";
-import type { Agent } from "../agent/agent.js";
+import { createAgentSession } from "../agent/agentSession.js";
+import type { AgentSession } from "../agent/agentSession.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { COMPACTION_ACK_MESSAGE, runCompaction } from "../agent/compaction.js";
 import { describeDevinError } from "../errors.js";
 import { buildToolLabel } from "../tools/toolLabel.js";
+import type { ToolResult } from "../agent/events.js";
 import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import { buildSessionCore } from "../session.js";
@@ -264,9 +265,10 @@ const ChatApp = ({
   const [streaming, setStreaming] = useState("");
   const streamSegmentsRef = useRef(createStreamSegments());
   const [busy, setBusy] = useState(false);
-  const activeAgentRef = useRef<Agent | null>(null);
+  const activeAgentRef = useRef<AgentSession | null>(null);
   const [queuedSteer, setQueuedSteer] = useState(false);
-  const [toolLabel, setToolLabel] = useState<string | null>(null);
+  const [toolLabels, setToolLabels] = useState<ReadonlyMap<string, string>>(new Map());
+  const toolLabelTextRef = useRef(new Map<string, string>());
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const iterationBudgetRef = useRef(IterationBudget.create());
   const todoStoreRef = useRef<TodoStore>(createHydratedTodoStore(persistence.initialTodos ?? []));
@@ -285,12 +287,12 @@ const ChatApp = ({
   const pickerRows = modelPicker ? pickerVisibleCount * 3 + 1 : 0;
   const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + 1;
   const transcriptRows = Math.max(1, rows - 3 - lowerRows);
-  const ephemeralLine: DisplayLine | undefined = busy
-    ? toolLabel !== null
-      ? { kind: "tool", text: toolLabel, pending: true }
-      : { kind: "assistant", text: streaming, partial: true }
-    : undefined;
-  const transcriptLines = ephemeralLine ? [...lines, ephemeralLine] : lines;
+  const ephemeralLines: readonly DisplayLine[] = busy
+    ? toolLabels.size > 0
+      ? [...toolLabels.values()].map(text => ({ kind: "tool" as const, text, pending: true }))
+      : [{ kind: "assistant" as const, text: streaming, partial: true }]
+    : [];
+  const transcriptLines = ephemeralLines.length > 0 ? [...lines, ...ephemeralLines] : lines;
   const physicalTranscriptRows = transcriptLines.flatMap(line => displayLineToTranscriptRows(line, theme, columns));
   const [viewport, dispatchViewport] = useReducer(reduceViewport, createViewport(physicalTranscriptRows.length, transcriptRows));
   useEffect(() => dispatchViewport({ type: "resize", viewportRows: transcriptRows }), [transcriptRows]);
@@ -395,20 +397,21 @@ const ChatApp = ({
     setStreaming("");
   }, []);
 
-  const onToolStart = useCallback((name: string, args: unknown) => {
+  const onToolExecutionStart = useCallback((toolCallId: string, toolName: string, args: unknown) => {
     flushStreamingLine();
-    if (name === "todo") setTodoLoading(true);
-    setToolLabel(buildToolLabel(name, args, "start"));
+    if (toolName === "todo") setTodoLoading(true);
+    const label = buildToolLabel(toolName, args);
+    toolLabelTextRef.current.set(toolCallId, label);
+    setToolLabels(previous => { const next = new Map(previous); next.set(toolCallId, label); return next; });
   }, [flushStreamingLine]);
 
-  const onToolComplete = useCallback((name: string, args: unknown, isError: boolean) => {
-    setToolLabel(null);
-    if (!shouldAppendToolTranscriptLine(name)) {
-      setTodoLoading(false);
-      setTodos(todoStoreRef.current.read());
-    }
-    if (shouldShowToolLine(name, isError)) {
-      setLines(previous => [...previous, { kind: "tool", text: buildToolLabel(name, args, "complete"), failed: isError }]);
+  const onToolExecutionEnd = useCallback((toolCallId: string, toolName: string, result: ToolResult) => {
+    const label = toolLabelTextRef.current.get(toolCallId) ?? toolName;
+    toolLabelTextRef.current.delete(toolCallId);
+    setToolLabels(previous => { const next = new Map(previous); next.delete(toolCallId); return next; });
+    if (!shouldAppendToolTranscriptLine(toolName)) { setTodoLoading(false); setTodos(todoStoreRef.current.read()); }
+    if (shouldShowToolLine(toolName, result.isError)) {
+      setLines(previous => [...previous, { kind: "tool", text: label, failed: result.isError }]);
     }
   }, []);
 
@@ -492,9 +495,9 @@ const ChatApp = ({
     setBusy(true);
     setStreaming("");
     streamSegmentsRef.current = createStreamSegments();
-    setToolLabel(null);
+    setToolLabels(new Map());
     const preTurnTodos = todoStoreRef.current.read();
-    const agent = createAgent({
+    const agentSession = createAgentSession({
       devin: activeSession.devin,
       model: activeSession.model.id,
       contextWindow: activeSession.model.contextWindow,
@@ -502,27 +505,33 @@ const ChatApp = ({
       confirmShellCommand,
       iterationBudget: () => iterationBudgetRef.current,
       todoStore: todoStoreRef.current,
-      callbacks: {
-        onDelta: delta => {
-          const next = appendStreamDelta(streamSegmentsRef.current, delta);
-          streamSegmentsRef.current = next;
-          setStreaming(next.segment);
-        },
-        onToolStart,
-        onToolComplete,
-        onCompact: () => {
-          setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
-        },
-        onQueueInjected: injected => {
+    });
+    let sawInitialUserMessage = false;
+    const unsubscribe = agentSession.subscribe(event => {
+      if (event.type === "message_update" && event.streamEvent.type === "text_delta") {
+        const next = appendStreamDelta(streamSegmentsRef.current, event.streamEvent.delta);
+        streamSegmentsRef.current = next;
+        setStreaming(next.segment);
+      } else if (event.type === "tool_execution_start") {
+        onToolExecutionStart(event.toolCallId, event.toolName, event.args);
+      } else if (event.type === "tool_execution_end") {
+        onToolExecutionEnd(event.toolCallId, event.toolName, event.result);
+      } else if (event.type === "compaction_end") {
+        setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
+      } else if (event.type === "message_start" && event.message.role === "user") {
+        if (!sawInitialUserMessage) {
+          sawInitialUserMessage = true;
+        } else if (typeof event.message.content === "string") {
           flushStreamingLine();
           setQueuedSteer(false);
-          setLines(previous => [...previous, { kind: "user", text: injected }]);
-        },
-      },
+          setLines(previous => [...previous, { kind: "user", text: event.message.content as string }]);
+        }
+      }
     });
-    activeAgentRef.current = agent;
-    const outcome = await agent.run({ history, text });
+    activeAgentRef.current = agentSession;
+    const outcome = await agentSession.run({ history, text });
     activeAgentRef.current = null;
+    unsubscribe();
 
     if (outcome.ok) {
       const completedTodos = todoStoreRef.current.read();
@@ -554,7 +563,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeSession, busy, checkpointUnsaved, confirmShellCommand, exit, flushStreamingLine, history, onToolComplete, onToolStart, pendingCommand, persistence, stdoutWrite]);
+  }, [activeSession, busy, checkpointUnsaved, confirmShellCommand, exit, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {

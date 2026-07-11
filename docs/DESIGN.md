@@ -42,7 +42,9 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
 - Completed replies use GFM Markdown with wrapped prose, lists, links, tables,
   and themed fenced-code boxes with language labels. Streaming fragments remain
   plain until completion.
-- Generic thinking and live tool states use animated mint activity rows. Agent
+- Generic thinking and live tool states use animated mint activity rows — one
+  row per in-flight tool call, so a concurrent batch renders as that many
+  simultaneous rows rather than a single collapsed count. Agent
   narration is committed before a following compact tool row, preserving the
   chronological event sequence instead of pinning active text below tools.
   Short transcript slices bottom-align against the composer; full pages remain

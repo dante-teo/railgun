@@ -1,8 +1,9 @@
 import type { DevinMessage, DevinProvider } from "widevin";
 import type { TodoStore } from "../tools/todo.js";
 import { IterationBudget } from "./iterationBudget.js";
-import type { LoopCallbacks, TurnOutcome } from "./turn.js";
+import type { TurnOutcome } from "./turn.js";
 import { runTurn } from "./turn.js";
+import type { AgentEvent, AgentEventListener } from "./events.js";
 import { createMessageQueues } from "./queue.js";
 
 export interface AgentDependencies {
@@ -11,7 +12,6 @@ export interface AgentDependencies {
   readonly contextWindow: number;
   readonly systemPrompt: readonly string[];
   readonly confirmShellCommand: (command: string) => Promise<boolean>;
-  readonly callbacks?: LoopCallbacks;
   readonly todoStore?: TodoStore;
   readonly iterationBudget?: () => IterationBudget;
 }
@@ -26,10 +26,11 @@ export interface Agent {
   readonly abort: () => void;
   readonly steer: (text: string) => void;
   readonly followUp: (text: string) => void;
+  readonly subscribe: (listener: AgentEventListener) => () => void;
   readonly isRunning: boolean;
 }
 
-const normalizedText = (text: string): string => {
+export const normalizedText = (text: string): string => {
   const trimmed = text.trim();
   if (trimmed === "") throw new Error("Queued messages must not be empty");
   return trimmed;
@@ -37,7 +38,18 @@ const normalizedText = (text: string): string => {
 
 export const createAgent = (dependencies: AgentDependencies): Agent => {
   const queues = createMessageQueues();
+  const listeners = new Set<AgentEventListener>();
   let controller: AbortController | undefined;
+
+  const processEvents = async (event: AgentEvent): Promise<void> => {
+    for (const listener of listeners) {
+      try {
+        await listener(event);
+      } catch (err) {
+        console.error("Event listener failed:", err);
+      }
+    }
+  };
 
   const requireRunning = (): void => {
     if (controller === undefined) throw new Error("Agent is not running");
@@ -53,7 +65,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
         dependencies.devin, dependencies.model, dependencies.contextWindow, dependencies.systemPrompt,
         normalized.history, normalizedText(normalized.text),
         (dependencies.iterationBudget ?? IterationBudget.create)(), dependencies.confirmShellCommand,
-        dependencies.callbacks,
+        processEvents,
         {
           signal: currentController.signal,
           takeSteer: queues.takeSteer,
@@ -73,6 +85,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
     abort: () => controller?.abort(new DOMException("Stopped by user", "AbortError")),
     steer: (text: string) => { requireRunning(); queues.enqueueSteer(normalizedText(text)); },
     followUp: (text: string) => { requireRunning(); queues.enqueueFollowUp(normalizedText(text)); },
+    subscribe: (listener: AgentEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
     get isRunning() { return controller !== undefined; },
   });
 };
