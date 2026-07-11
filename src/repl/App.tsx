@@ -37,6 +37,7 @@ import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js"
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
+import { expandSkillCommand } from "../skills.js";
 
 const TRUST_CHOICES: Readonly<Record<string, TrustChoice>> = {
   "1": "trust", "2": "trust-parent", "3": "trust-session", "4": "deny", "5": "deny-session",
@@ -520,7 +521,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback, /trust, /branch [--summary] [id], /fork" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback, /trust, /branch [--summary] [id], /fork, /skill:<name>" }]);
         return;
       }
       if (command === "/clear") {
@@ -672,6 +673,16 @@ const ChatApp = ({
           setLines(prev => [...prev, { kind: "error", text: `Fork failed: ${error instanceof Error ? error.message : String(error)}` }]);
         }
         return;
+      }
+      if (command.startsWith("/skill:")) {
+        const skillExpansion = expandSkillCommand(text, activeSession.skillIndex ?? new Map());
+        if (skillExpansion === null) { return; }
+        if (skillExpansion.kind === "error") {
+          setLines(prev => [...prev, { kind: "error", text: skillExpansion.message }]);
+          return;
+        }
+        text = skillExpansion.content;
+        // Fall through to the agent turn below
       }
     }
 

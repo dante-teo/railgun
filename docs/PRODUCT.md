@@ -61,6 +61,13 @@ optional `referenceMaxTokens` (positive integer). New file:
 `moa_reference_start`, `moa_reference_end`, `moa_aggregating`. See
 `docs/adr/0014-mixture-of-agents.md`.
 
+**Phase 28 (skills system):**
+Phase 28 adds a skills system that lets the agent learn new domain-specific abilities from Markdown files with YAML frontmatter. Skills live in `~/.railgun/skills/` (global only for now; project-local gating is a future phase). A skill file is a `.md` file containing a YAML front-matter block followed by its instruction body; a skill can also be a directory containing `SKILL.md` where the directory name becomes the skill's name. Three front-matter fields are recognized: `name` (optional override, must match `/^[a-z0-9-]{1,64}$/`), `description` (required, ≤ 1024 chars, injected into the system prompt), and `disable-model-invocation` (boolean, default `false` — when `true` the skill is hidden from the model's context but still available via `/skill:<name>`).
+
+At session startup `buildSessionCore` calls `loadSkills()`, which scans `~/.railgun/skills/` synchronously, parses every valid skill file, deduplicates by name (first-found wins), and builds an index. `formatSkillsForPrompt` renders the index as an `<available_skills>` XML block appended to the system prompt; descriptions and paths are XML-attribute-escaped. The model calls `skill_view(name)` (a new `"skills"`-toolset tool) to load a skill's full instruction body on demand.
+
+The `/skill:<name> [args]` REPL slash command bypasses the model for explicitly invoking a skill: the user's input is expanded into a `<skill name="..." location="...">` XML block (plus any trailing args), and the result is sent directly to the agent turn as the user message. Unknown skill names show a red error line. `/help` lists the command. See ADR-0015.
+
 **Phase 23 (extension system):**
 Phase 23 adds an extension system that lets outside code observe and intercept
 the agent's lifecycle without editing core source. Extensions live in
@@ -122,6 +129,7 @@ to `{ kind: "rpc" }`, `--mode rpc --approve` throws `CliUsageError`, bare
 `initSession` and `loadConfig` are called, `runRpc` is called with the session
 and config, and the session store is never opened. Full suite: 52 test files,
 592 tests, zero regressions; `pnpm typecheck` clean.
+  Phase 28: `src/skills.test.ts` proves `splitFrontmatter` correctly handles LF and CRLF opening fences (CRLF offset is 5, not 4, so frontmatter does not contain a leading `\n`), no-fence input returns the full body, and a missing closing `---` produces no frontmatter; `parseSkillFile` returns a valid `SkillMeta` for well-formed files, infers `name` from directory (for `SKILL.md`) or filename, returns `null` with a `[skills]`-prefixed warning for missing description, invalid name, or overlength description, and respects `disable-model-invocation: true`; `discoverSkills` returns `[]` for a non-existent directory, stops recursion at a `SKILL.md` directory root (no nested skills discovered), finds `.md` files at any level, and skips non-`.md` files; `buildSkillIndex` builds a deduplication map with first-loaded-wins semantics and warns on collision; `formatSkillsForPrompt` returns `""` for an empty index, excludes disabled-model-invocation skills, produces correct `<available_skills>` XML, and escapes `&`/`"`/`<`/`>` in description attributes; `expandSkillCommand` returns `null` for non-`/skill:` input, an `{ kind: "error" }` discriminant for unknown names, `{ kind: "expanded" }` with the full XML body for known skills, and appends trailing args after `</skill>`. `src/tools/skillView.test.ts` proves `skill_view` returns the body for a known name, an error for an unknown name, and an error when the `name` argument is absent. `src/paths.test.ts` proves `SKILLS_PATH` is derived from the same Railgun home as all other paths.
 
 Phase 22 adds automatic working-directory snapshots before file-mutating tool
 calls and a `/rollback` REPL command to undo the agent's last round of

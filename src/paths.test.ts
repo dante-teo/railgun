@@ -3,6 +3,7 @@ import {
   CONFIG_PATH,
   CRON_PATH,
   EXTENSIONS_PATH,
+  SKILLS_PATH,
   SOUL_PATH,
   STATE_PATH,
   TOKEN_PATH,
@@ -21,8 +22,9 @@ describe("application paths", () => {
       trust: "/home/test/.railgun/trust.json",
       extensions: "/home/test/.railgun/extensions",
       cron: "/home/test/.railgun/cron/jobs.json",
+      skills: "/home/test/.railgun/skills",
     });
-    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, trust: TRUST_PATH, extensions: EXTENSIONS_PATH, cron: CRON_PATH })
+    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, trust: TRUST_PATH, extensions: EXTENSIONS_PATH, cron: CRON_PATH, skills: SKILLS_PATH })
       .toEqual(pathsForHome(getHomeDir()));
   });
 });

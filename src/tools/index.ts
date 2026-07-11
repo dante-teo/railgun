@@ -5,8 +5,10 @@ import "./runShell.js";
 import "./todo.js";
 import "./clarify.js";
 import "./memory.js";
+import "./skillView.js";
 
 export { registry } from "./registry.js";
 export type { ToolContext, ToolRunResult, RegisteredTool, ToolRegistry, ClarifyCallback } from "./registry.js";
 export type { TodoStore } from "./todo.js";
 export type { MemoryStore } from "../persistence/memoryStore.js";
+export { setSkillIndex } from "./skillView.js";
