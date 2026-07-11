@@ -22,7 +22,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Component | Responsibility | Owner |
 | --- | --- | --- |
 | CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for `config`, `login`, `logout`, fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; config/auth commands return before SQLite/session/TUI boundaries | Solo project — no formal ownership split |
-| Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, and SOUL paths from one fixed Railgun home; recursively merges defaults with user JSON, validates recognized fields, preserves unknown fields, and atomically persists model replacements | Solo project |
+| Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, SOUL, and trust paths from one fixed Railgun home; recursively merges defaults with user JSON, validates recognized fields (`model`, `defaultProjectTrust`), preserves unknown fields, and atomically persists model replacements | Solo project |
 | Authentication boundary (`src/auth.ts`) | Selects trimmed process-local `DEVIN_TOKEN` or the file cache, wraps model discovery and async streaming with source-aware 401 invalidation, and implements fresh-login verification plus idempotent cached logout without exposing token contents | Solo project |
 | Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, keeps resumes on an exact saved model, applies configuration to fresh sessions, coordinates interactive missing-model recovery before session construction, loads context/identity, and builds the system prompt once; exports `buildSessionCore` for silent mid-REPL session rebuilds during `/model` switches | Solo project |
 | Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: versioned schema setup, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, and atomic idempotent full-snapshot checkpoints | Solo project |
@@ -45,12 +45,14 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Theme system (`src/repl/theme.ts`) | Immutable exact mint-light/mint-dark semantic palettes plus a `ThemeController` around `os-theme`; terminal-over-OS resolution, live terminal events, OS-event terminal re-query, deduplication, failure fallback, and resource cleanup | Solo project |
 | Viewport/composer/lifecycle (`src/repl/{viewport,composer,lifecycle,mouse,terminalSize}.ts`) | Pure viewport and composer actions, SGR mouse parsing, shared resize observation, and guaranteed alternate-screen/mouse-mode boundaries; resize preserves prior bottom-follow state and unseen cues reserve a rendered row | Solo project |
 | Streaming transcript (`src/repl/streamingTranscript.ts`) | Pure segment state that accumulates deltas, flushes narration before tools and queued-user injection, and returns only the uncommitted final/aborted assistant suffix | Solo project |
-| Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, `/compact`, and `/rollback` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
+  | Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, and `/trust` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
+  | Trust gate (`src/trust.ts`) | `TrustChoice`/`TrustDecision`/`ProjectTrustStore` types; `createProjectTrustStore` (ancestor-walk resolution, sync DI for path/readFile/writeFile, persists to `TRUST_PATH` via `writeFileSync` with mode `0600`); `resolveProjectTrust` (resolution order: CLI flags → config default → persisted store → interactive prompt); `promptTrustChoiceReadline` (five-choice readline prompt on stderr, fires before Ink starts); `assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards (not yet called — reserved for Phases 23/28) | Solo project |
+  6. `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, and `/trust` are handled before agent dispatch. `/exit` resolves Ink, `/help` appends the current command list, `/clear` clears the canvas without discarding authoritative conversation state, `/compact` runs `runCompaction` directly (bypassing `runTurn`/`callDevinWithRecovery`), replaces `history` with the single compacted message plus a synthetic assistant acknowledgement, and attempts a checkpoint save. `/rollback` calls `rollback(shadowGitDir(cwd), cwd)` from `src/checkpoint.ts` to restore the working tree to the last shadow-git commit. The `/trust` command opens a five-key picker (keys `1`–`5`, Escape to cancel) within the running Ink REPL; on a valid choice it calls `trustStore.set(cwd, choice)`, updates the in-session `TrustDecision` state, and appends a confirmation line to the transcript.
 | Markdown (`src/repl/markdown.ts`) | `markdansi` adapter for wrapped GFM replies, links, tables, lists, and mint-themed fenced code boxes; called only for completed assistant text | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure themed Ink component rendering slash-command matches and selection | Solo project |
 | Session chooser (`src/repl/SessionChooser.tsx`) | Full-screen, live-themed, resize-aware startup selector for bare `--resume`/`-r`; shared synchronous input state preserves rapid navigation before Enter, Up/Down wraps, and Escape/Ctrl-C cancels before Devin initialization | Solo project |
 | Model chooser (`src/repl/ModelChooser.tsx`) | Full-screen missing-model recovery for interactive fresh sessions; reuses the session chooser's input state and pure input/window helpers plus the alternate-screen/theme lifecycle while rendering model-specific capability rows; exports `resolveModelCommand` (pure command parser returning show/switch/error) and `ModelRow` for inline REPL `/model` picker | Solo project |
-| Ink REPL (`src/repl/App.tsx`) | Full-height multi-turn UI with repaintable transcript, sticky todos/approval/suggestions/composer, viewport history, Markdown completion rendering, tool feedback, persistence hydration/checkpoint hooks, inline `/model` picker with keyboard navigation, live model switching via `buildSessionCore`, and status segments | Solo project |
+| Ink REPL (`src/repl/App.tsx`) | Full-height multi-turn UI with repaintable transcript, sticky todos/approval/suggestions/composer, viewport history, Markdown completion rendering, tool feedback, persistence hydration/checkpoint hooks, inline `/model` picker with keyboard navigation, live model switching via `buildSessionCore`, in-REPL `/trust` picker for updating the session trust decision, and status segments | Solo project |
 | Status line helpers (`src/repl/statusLine.ts`) | Pure `formatCwd(cwd)` (homedir → `~` shortening) and async `getGitStatus(cwd)` (branch name + dirty detection via `execFile("git", ...)`) — consumed once on mount by `App.tsx`'s status bar; returns `{ branch: null, dirty: false }` outside a git repo or on any `git` error | Solo project |
 | One-shot terminal spinner (`src/spinner.ts`) | `startSpinner(label)` writes a cycling braille frame to `process.stderr` on an interval and returns a `stop(isError)` closure that clears it and writes a final `✔`/`✘` line — the one-shot path's stderr-only equivalent of the REPL's `ink-spinner` line; `oneShot.ts` tracks at most one animated spinner slot at a time (per-call `tool_execution_start`/`tool_execution_end` events since Phase 18), falling back to a static, non-animated log line plus a manually-written `✔`/`✘` line for any additional concurrent call | Solo project |
 | Threat pattern scanner (`src/security/threatPatterns.ts`) | Pure, id-tagged regex list (`CONTEXT_THREAT_PATTERNS`, 10 curated patterns covering prompt injection, role hijack, HTML hidden-element injection, system-prompt leak, and safety-bypass phrasing) plus `scanForThreats(content)` returning matched pattern ids; no I/O, bounded filler `(?:\w+\s+){0,8}` prevents catastrophic backtracking | Solo project |
@@ -62,7 +64,10 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 1. `src/cli.ts` detects `--print`/`-p`, takes the remaining argv as the
    question (default `"Hello!"`), and calls `runOneShot`.
-2. `runOneShot` calls `initFreshDevinSession` (`src/session.ts`), which loads
+2. Before session initialization, `resolveProjectTrust` resolves the project trust
+    decision (see the trust gate component description above); the `TrustDecision`
+    is threaded through as plumbing — no resources are gated in Phase 20.
+    `runOneShot` calls `initFreshDevinSession` (`src/session.ts`), which loads
    configuration and asks the authentication boundary for a provider. A
    trimmed nonempty `DEVIN_TOKEN`
    uses a process-local memory store and takes precedence without reading or
@@ -162,7 +167,8 @@ This document records the intended system architecture for Railgun. Keep it curr
    Enter returns the selected ID, and Escape/Ctrl-C returns no selection. The
    CLI awaits this result before any Devin login or model discovery.
 4. A confirmed resume loads the strict persisted snapshot, then calls
-   `initDevinSession(saved.model)`. The exact model is required; Railgun never
+   `initDevinSession(saved.model)`. For all three session-starting modes (fresh, resume, one-shot/print), trust
+   resolution runs before session or database initialization. The exact model is required; Railgun never
    silently switches an old conversation to another model. `runRepl` receives
    the complete saved messages, normalized todos, immutable session metadata,
    and the full-snapshot checkpoint callback. The system prompt, project
@@ -222,15 +228,9 @@ This document records the intended system architecture for Railgun. Keep it curr
    Ctrl+U clearing, active-run steering, modal approval focus, protocol-response filtering,
    and one-to-six-row sizing. Enhanced keyboard reporting is enabled without a
    capability-query input leak only for known supporting terminals.
-6. `/exit`, `/help`, `/clear`, `/model`, `/compact`, and `/rollback` are
-   handled before agent dispatch. `/exit` resolves Ink, `/help` appends the
-   current command list, `/clear` clears the canvas without discarding
-   authoritative conversation state, `/compact` runs `runCompaction` directly
-   (bypassing `runTurn`/`callDevinWithRecovery`), replaces `history` with the
-   single compacted message plus a synthetic assistant acknowledgement, and
-   attempts a checkpoint save. `/rollback` calls `rollback(shadowGitDir(cwd),
-   cwd)` from `src/checkpoint.ts` to restore the working tree to the last
-   shadow-git commit.
+  | Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, and `/trust` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
+  | Trust gate (`src/trust.ts`) | `TrustChoice`/`TrustDecision`/`ProjectTrustStore` types; `createProjectTrustStore` (ancestor-walk resolution, sync DI for path/readFile/writeFile, persists to `TRUST_PATH` via `writeFileSync` with mode `0600`); `resolveProjectTrust` (resolution order: CLI flags → config default → persisted store → interactive prompt); `promptTrustChoiceReadline` (five-choice readline prompt on stderr, fires before Ink starts); `assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards (not yet called — reserved for Phases 23/28) | Solo project |
+  6. `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, and `/trust` are handled before agent dispatch. `/exit` resolves Ink, `/help` appends the current command list, `/clear` clears the canvas without discarding authoritative conversation state, `/compact` runs `runCompaction` directly (bypassing `runTurn`/`callDevinWithRecovery`), replaces `history` with the single compacted message plus a synthetic assistant acknowledgement, and attempts a checkpoint save. `/rollback` calls `rollback(shadowGitDir(cwd), cwd)` from `src/checkpoint.ts` to restore the working tree to the last shadow-git commit. The `/trust` command opens a five-key picker (keys `1`–`5`, Escape to cancel) within the running Ink REPL; on a valid choice it calls `trustStore.set(cwd, choice)`, updates the in-session `TrustDecision` state, and appends a confirmation line to the transcript.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
@@ -246,8 +246,8 @@ shipped in Phase 7 via `LoopCallbacks`, replaced in Phase 18 by a typed
 ## Persistence
 
 `getHomeDir()` fixes the application home at `~/.railgun`; config, token, state,
-and SOUL paths are derived from it. `config.json` is the single configuration
-source. Missing files use `{ "model": null }`; unknown fields are retained and
+SOUL, and trust paths are derived from it. `config.json` is the single configuration
+source. Missing files use `{ "model": null, "defaultProjectTrust": "ask" }`; unknown fields are retained and
 model recovery writes two-space JSON with a trailing newline atomically.
 
 A single file, `~/.railgun/devin-token` (mode `0600`), holds the optional cached
@@ -258,7 +258,19 @@ cleared by Railgun. An optional file, `~/.railgun/SOUL.md` (no file-mode
 restriction — user-authored text, not a secret), is read once at session
 startup by `loadSoulIdentity` (`src/agent/projectContext.ts`) and its
 content injected as a `# Persistent Identity` block in the system prompt;
-a missing or whitespace-only file is silently ignored. The session database,
+a missing or whitespace-only file is silently ignored.
+
+`~/.railgun/trust.json` (mode `0600`) persists per-project trust decisions,
+keyed by canonical absolute directory path. Ancestor-directory inheritance
+applies: trusting `/a/b` implicitly trusts any subdirectory. `trust-parent`
+writes to `path.dirname(canonicalPath)`. Session-only choices (`trust-session`,
+`deny-session`) are never written to disk. The file is created lazily on the
+first persisted choice; a missing file means no stored decisions. Both the
+trust store and `assertProjectTrustedForRead`/`assertProjectTrustedForInstall`
+guards live in `src/trust.ts`; the guards are not yet called in Phase 20
+(reserved for Phases 23/28).
+
+The session database,
 `~/.railgun/state.db` (mode `0600`), stores interactive sessions, messages,
 and todo snapshots. It uses WAL, foreign keys, a busy timeout, and schema
 versioning; malformed saved state aborts loading instead of being skipped.
@@ -328,6 +340,14 @@ One-shot mode does not create or use checkpoints.
   scanning ensures no unscanned content reaches the prompt. A match replaces
   the entire file with a `[BLOCKED: ...]` placeholder; blocked files do not
   fall through to lower-precedence candidates, preventing precedence probing.
+- Project trust (`~/.railgun/trust.json`, mode `0600`) gates future loading of
+  project-local config, extensions, and skills. The trust gate (`src/trust.ts`)
+  runs before session initialization; untrusted projects will have no local
+  resources loaded once those resources exist (Phases 23/28). CLI flags
+  `--approve`/`-a` and `--no-approve`/`-na` bypass the persisted store for one
+  invocation. `defaultProjectTrust: "always"` in `config.json` disables the gate
+  globally (opt-in). The five-choice `/trust` REPL command lets users change the
+  in-session decision.
 - Compliance is an operational responsibility, not a code-enforced one — see
   `docs/adr/0001-single-provider-devin-via-widevin.md`.
 

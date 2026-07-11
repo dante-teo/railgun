@@ -8,6 +8,7 @@ export const pathsForHome = (home: string) => ({
   token: join(home, "devin-token"),
   state: join(home, "state.db"),
   soul: join(home, "SOUL.md"),
+  trust: join(home, "trust.json"),
 } as const);
 
 const paths = pathsForHome(getHomeDir());
@@ -16,3 +17,4 @@ export const CONFIG_PATH = paths.config;
 export const TOKEN_PATH = paths.token;
 export const STATE_PATH = paths.state;
 export const SOUL_PATH = paths.soul;
+export const TRUST_PATH = paths.trust;

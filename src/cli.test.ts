@@ -3,6 +3,8 @@ import type { DevinSession } from "./session.js";
 import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
 import { dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
+import type { ProjectTrustStore, TrustChoice, TrustDecision } from "./trust.js";
+
 
 const summary = (id: string): SessionSummary => ({
   id,
@@ -27,15 +29,22 @@ const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
 
 const fakeSession = { model: { id: "model-a" } } as DevinSession;
 
+const fakeTrustStore = (): ProjectTrustStore => ({
+  get: vi.fn((): TrustDecision => ({ status: "trusted", scope: "persisted" })),
+  set: vi.fn((): TrustDecision => ({ status: "trusted", scope: "persisted" })),
+});
+
 const dependencies = (store = fakeStore()): CliDependencies => ({
   createStore: vi.fn(() => store),
-  loadConfig: vi.fn(async (): Promise<AppConfig> => ({ model: null })),
+  createNewTrustStore: vi.fn(fakeTrustStore),
+  loadConfig: vi.fn(async (): Promise<AppConfig> => ({ model: null, defaultProjectTrust: "ask" })),
   initFreshSession: vi.fn(async () => fakeSession),
   initSession: vi.fn(async () => fakeSession),
   runLogin: vi.fn(async () => {}),
   runLogout: vi.fn(async () => {}),
   runRepl: vi.fn(async () => {}),
   runOneShot: vi.fn(async () => {}),
+  promptTrustChoice: vi.fn(async (): Promise<TrustChoice> => "trust"),
   selectSession: vi.fn(async () => undefined),
   randomId: vi.fn(() => "fresh-id"),
   now: vi.fn(() => new Date("2026-07-10T00:00:00.000Z")),
@@ -56,24 +65,42 @@ describe("parseCliArgs", () => {
     [["login"], { kind: "login" }],
     [["logout"], { kind: "logout" }],
     [["config"], { kind: "config" }],
+    [["--approve"], { kind: "fresh", approve: true }],
+    [["-a"], { kind: "fresh", approve: true }],
+    [["--no-approve"], { kind: "fresh", noApprove: true }],
+    [["-na"], { kind: "fresh", noApprove: true }],
+    [["--approve", "--print", "hello"], { kind: "print", question: "hello", approve: true }],
+    [["--resume", "abc", "--no-approve"], { kind: "resume", id: "abc", noApprove: true }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
 
-  it.each([["extra"], ["login", "extra"], ["logout", "extra"], ["config", "extra"], ["--resume", "a", "b"], ["-r", "a", "b"], ["--list-sessions", "extra"], ["--unknown"]])
-    ("rejects invalid arguments %j", (...args) => {
-      expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
-    });
+  it.each([
+    ["extra"],
+    ["login", "extra"],
+    ["logout", "extra"],
+    ["config", "extra"],
+    ["--resume", "a", "b"],
+    ["-r", "a", "b"],
+    ["--list-sessions", "extra"],
+    ["--unknown"],
+    ["login", "--approve"],
+    ["--approve", "--no-approve"],
+    ["--list-sessions", "-a"],
+  ])("rejects invalid arguments %j", (...args) => {
+    expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
+  });
 });
+
 
 describe("dispatchCli", () => {
   it("prints effective pretty configuration without authentication, SQLite, file writes, or TUI startup", async () => {
     const deps = dependencies();
-    vi.mocked(deps.loadConfig).mockResolvedValue({ model: null, future: { kept: true } });
+    vi.mocked(deps.loadConfig).mockResolvedValue({ model: null, future: { kept: true }, defaultProjectTrust: "ask" });
 
     await dispatchCli({ kind: "config" }, deps);
 
-    expect(deps.stdout).toHaveBeenCalledWith('{\n  "model": null,\n  "future": {\n    "kept": true\n  }\n}');
+    expect(deps.stdout).toHaveBeenCalledWith('{\n  "model": null,\n  "future": {\n    "kept": true\n  },\n  "defaultProjectTrust": "ask"\n}');
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.createStore).not.toHaveBeenCalled();
     expect(deps.initFreshSession).not.toHaveBeenCalled();
@@ -97,7 +124,7 @@ describe("dispatchCli", () => {
   it("keeps print mode stateless and never opens the session database", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "print", question: "hello" }, deps);
-    expect(deps.runOneShot).toHaveBeenCalledWith("hello");
+    expect(deps.runOneShot).toHaveBeenCalledWith("hello", expect.anything());
     expect(deps.createStore).not.toHaveBeenCalled();
     expect(deps.initSession).not.toHaveBeenCalled();
   });
@@ -137,7 +164,7 @@ describe("dispatchCli", () => {
       initialHistory: expect.any(Array),
       initialTodos: [],
       sessionMetadata: expect.objectContaining({ id: "saved" }),
-    }));
+    }), expect.anything(), expect.anything());
   });
 
   it("fails actionably for a missing direct session without initializing Devin", async () => {

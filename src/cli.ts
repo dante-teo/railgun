@@ -13,13 +13,15 @@ import type { ReplPersistenceOptions } from "./repl/App.js";
 import { runSessionChooser } from "./repl/SessionChooser.js";
 import { initDevinSession, initFreshDevinSession } from "./session.js";
 import type { DevinSession } from "./session.js";
+import { createProjectTrustStore, resolveProjectTrust, promptTrustChoiceReadline } from "./trust.js";
+import type { TrustChoice, TrustDecision, ProjectTrustStore } from "./trust.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] | railgun login | railgun logout | railgun config";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config";
 
 export type CliMode =
-  | { kind: "fresh" }
-  | { kind: "print"; question: string }
-  | { kind: "resume"; id?: string }
+  | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
+  | { kind: "print"; question: string; approve?: boolean; noApprove?: boolean }
+  | { kind: "resume"; id?: string; approve?: boolean; noApprove?: boolean }
   | { kind: "list" }
   | { kind: "login" }
   | { kind: "logout" }
@@ -39,8 +41,10 @@ export interface CliDependencies {
   initSession: (requiredModelId?: string) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
-  runRepl: (session: DevinSession, options?: ReplPersistenceOptions) => Promise<void>;
-  runOneShot: (question: string) => Promise<void>;
+  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore) => Promise<void>;
+  runOneShot: (question: string, trustDecision?: TrustDecision) => Promise<void>;
+  createNewTrustStore: () => ProjectTrustStore;
+  promptTrustChoice: (cwd: string) => Promise<TrustChoice>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
   randomId: () => string;
   now: () => Date;
@@ -49,15 +53,41 @@ export interface CliDependencies {
 }
 
 export const parseCliArgs = (args: readonly string[]): CliMode => {
-  if (args.length === 0) return { kind: "fresh" };
-  const [flag, ...rest] = args;
-  if (flag === "login" && rest.length === 0) return { kind: "login" };
-  if (flag === "logout" && rest.length === 0) return { kind: "logout" };
-  if (flag === "config" && rest.length === 0) return { kind: "config" };
-  if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!" };
-  if (flag === "--list-sessions" && rest.length === 0) return { kind: "list" };
+  let approve = false;
+  let noApprove = false;
+
+  const filteredArgs: string[] = [];
+  for (const arg of args) {
+    if (arg === "--approve" || arg === "-a") { approve = true; }
+    else if (arg === "--no-approve" || arg === "-na") { noApprove = true; }
+    else { filteredArgs.push(arg); }
+  }
+
+  if (approve && noApprove) throw new CliUsageError();
+
+  const trustFlags = { ...(approve && { approve: true as const }), ...(noApprove && { noApprove: true as const }) };
+
+  if (filteredArgs.length === 0) return { kind: "fresh", ...trustFlags };
+  const [flag, ...rest] = filteredArgs;
+  if (flag === "login" && rest.length === 0) {
+    if (approve || noApprove) throw new CliUsageError();
+    return { kind: "login" };
+  }
+  if (flag === "logout" && rest.length === 0) {
+    if (approve || noApprove) throw new CliUsageError();
+    return { kind: "logout" };
+  }
+  if (flag === "config" && rest.length === 0) {
+    if (approve || noApprove) throw new CliUsageError();
+    return { kind: "config" };
+  }
+  if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!", ...trustFlags };
+  if (flag === "--list-sessions" && rest.length === 0) {
+    if (approve || noApprove) throw new CliUsageError();
+    return { kind: "list" };
+  }
   if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
-    return rest[0] === undefined ? { kind: "resume" } : { kind: "resume", id: rest[0] };
+    return rest[0] === undefined ? { kind: "resume", ...trustFlags } : { kind: "resume", id: rest[0], ...trustFlags };
   }
   throw new CliUsageError();
 };
@@ -78,11 +108,28 @@ const defaultDependencies: CliDependencies = {
   runLogout: runLogoutCommand,
   runRepl,
   runOneShot,
+  createNewTrustStore: createProjectTrustStore,
+  promptTrustChoice: promptTrustChoiceReadline,
   selectSession: runSessionChooser,
   randomId: randomUUID,
   now: () => new Date(),
   stdout: console.log,
   stderr: console.error,
+};
+
+const resolveSessionTrust = async (
+  mode: { approve?: boolean; noApprove?: boolean },
+  dependencies: CliDependencies,
+): Promise<{ decision: TrustDecision; store: ProjectTrustStore }> => {
+  const config = await dependencies.loadConfig();
+  const store = dependencies.createNewTrustStore();
+  const decision = await resolveProjectTrust(process.cwd(), store, {
+    ...(mode.approve && { cliApprove: true as const }),
+    ...(mode.noApprove && { cliNoApprove: true as const }),
+    defaultTrust: config.defaultProjectTrust,
+    promptTrustChoice: dependencies.promptTrustChoice,
+  });
+  return { decision, store };
 };
 
 const persistenceOptions = (
@@ -109,10 +156,12 @@ const runPersistedRepl = async (
   persisted: PersistedSession,
   store: SessionStore,
   dependencies: CliDependencies,
+  trustDecision: TrustDecision,
+  trustStore: ProjectTrustStore,
   onFirstSave?: () => void,
 ): Promise<void> => {
   const session = await dependencies.initSession(persisted.model);
-  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave));
+  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave), trustDecision, trustStore);
 };
 
 const withStore = async <T>(
@@ -140,12 +189,15 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     dependencies.stdout(JSON.stringify(await dependencies.loadConfig(), null, 2));
     return;
   }
+
   if (mode.kind === "print") {
-    await dependencies.runOneShot(mode.question);
+    const { decision } = await resolveSessionTrust(mode, dependencies);
+    await dependencies.runOneShot(mode.question, decision);
     return;
   }
 
   if (mode.kind === "fresh") {
+    const { decision, store: trustStore } = await resolveSessionTrust(mode, dependencies);
     const session = await dependencies.initFreshSession();
     if (session === undefined) return;
     await withStore(dependencies, async store => {
@@ -160,32 +212,38 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
         persisted,
         store,
         () => dependencies.stderr(`Session saved: ${persisted.id}`),
-      ));
+      ), decision, trustStore);
     });
     return;
   }
 
-  await withStore(dependencies, async store => {
-    if (mode.kind === "list") {
+  if (mode.kind === "list") {
+    await withStore(dependencies, async store => {
       const sessions = store.listSessions();
       dependencies.stdout(sessions.length === 0 ? "No saved sessions." : formatSessionTable(sessions));
-      return;
-    }
+    });
+    return;
+  }
 
-    let id = mode.id;
-    if (id === undefined) {
-      const sessions = store.listSessions();
-      if (sessions.length === 0) {
-        dependencies.stdout("No saved sessions.");
-        return;
+  if (mode.kind === "resume") {
+    const { decision, store: trustStore } = await resolveSessionTrust(mode, dependencies);
+    await withStore(dependencies, async store => {
+      let id = mode.id;
+      if (id === undefined) {
+        const sessions = store.listSessions();
+        if (sessions.length === 0) {
+          dependencies.stdout("No saved sessions.");
+          return;
+        }
+        id = await dependencies.selectSession(sessions);
+        if (id === undefined) return;
       }
-      id = await dependencies.selectSession(sessions);
-      if (id === undefined) return;
-    }
-    const persisted = store.loadSession(id);
-    if (!persisted) throw new Error(`No saved session found with ID "${id}". Run railgun --list-sessions to see available sessions.`);
-    await runPersistedRepl(persisted, store, dependencies);
-  });
+      const persisted = store.loadSession(id);
+      if (!persisted) throw new Error(`No saved session found with ID "${id}". Run railgun --list-sessions to see available sessions.`);
+      await runPersistedRepl(persisted, store, dependencies, decision, trustStore);
+    });
+    return;
+  }
 };
 
 export const main = async (args = process.argv.slice(2)): Promise<void> => {

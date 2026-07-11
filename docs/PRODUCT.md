@@ -14,19 +14,46 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 22 (shadow-git checkpoints and `/rollback`):**
-Phase 22 adds automatic working-directory snapshots before file-mutating tool
-calls and a `/rollback` REPL command to undo the agent's last round of
-changes. Before the first `write_file` or approved `run_shell_command` in a
-user turn, a `CheckpointGuard` calls `snapshot`, which stages all files into a
-per-project shadow git repository at `~/.railgun/checkpoints/<cwd-hash>/` and
-commits them. Subsequent `beforeMutation` calls within the same turn are
-no-ops; `resetTurn` re-arms the guard for the next turn. `/rollback` calls
-`git checkout HEAD -- .` against the shadow repo, restoring the working tree
-to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
-
-Phase 21 (not shown here — see replication plan) added the shell-command
-approval gate. Phase 20 added project context threat-pattern scanning.
+ **Current phase — Phase 22 (shadow-git checkpoints and `/rollback`):**
+ Phase 22 adds automatic working-directory snapshots before file-mutating tool
+ calls and a `/rollback` REPL command to undo the agent's last round of
+ changes. Before the first `write_file` or approved `run_shell_command` in a
+ user turn, a `CheckpointGuard` calls `snapshot`, which stages all files into a
+ per-project shadow git repository at `~/.railgun/checkpoints/<cwd-hash>/` and
+ commits them. Subsequent `beforeMutation` calls within the same turn are
+ no-ops; `resetTurn` re-arms the guard for the next turn. `/rollback` calls
+ `git checkout HEAD -- .` against the shadow repo, restoring the working tree
+ to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
+ 
+ Phase 21 (not shown here — see replication plan) added the shell-command
+ approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/trust.json` persists trust decisions keyed by canonical path, with ancestor-directory inheritance; `--approve`/`-a` and `--no-approve`/`-na` CLI flags override for one invocation; `/trust` REPL command updates the decision mid-session; `defaultProjectTrust: "ask"|"always"|"never"` in `config.json` short-circuits the prompt. Trust is plumbing-only in Phase 20 — no project-local resources are gated yet. See ADR-0013.
+   Phase 22: `src/checkpoint.test.ts` proves `shadowGitDir` determinism,
+   `snapshot` creates a commit in a fresh shadow repo, a second snapshot when
+   nothing changed is a no-op (covered by `--allow-empty`), `rollback` restores
+   overwritten and deleted files to their pre-snapshot content, rollback against
+   a missing shadow repo throws, `createCheckpointGuard.beforeMutation` takes
+   exactly one commit per turn (duplicates are no-ops), and `resetTurn` re-arms
+   the guard so the next `beforeMutation` takes a second commit;
+   `src/tools/writeFile.test.ts` proves `checkpointGuard.beforeMutation` is
+   invoked exactly once when the guard is present in `ToolContext`;
+   `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
+   returned by `findMatches`.
+   Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded
+   directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after
+   `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk,
+   `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting
+   `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision
+   load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves
+   `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits,
+   `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and
+   `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result;
+   `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on
+   `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`.
+   `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume
+   modes, rejection on login/logout/config/list modes, and both-flags-together throwing
+   `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included
+   in the persisted output of `setConfiguredModel`, and is rejected for values outside the
+   `"ask"/"always"/"never"` set. See ADR-0013.
 
 Phase 19 adds a `clarify` tool (`src/tools/clarify.ts`) that lets the agent ask the user a clarifying question — with optional numbered multiple-choice answers — instead of guessing when information is missing. The design is callback-based: the tool itself is platform-agnostic; the actual user-interaction mechanism is injected as `ClarifyCallback` (`src/tools/registry.ts`) via `AgentDependencies.clarifyCallback` and threaded through `RunTurnOptions` into `ToolContext`. In the REPL (`src/repl/App.tsx`) the callback uses `Promise.withResolvers` and a ref, mirroring the existing `confirmShellCommand` pattern: an `❓` prompt box renders above the composer, number keys `1`–`4` pick choices (with the composer unfocused to prevent digit bleed-through), Enter submits a freeform typed answer, and Escape resolves with `[user declined to answer]`. In one-shot mode (`src/oneShot.ts`) the callback blocks on `readline`/`process.stdin`. Ctrl+C during a clarify prompt resolves it with `[user declined to answer]` and aborts cleanly. The `"clarify"` toolset is always enabled alongside `"file"`, `"terminal"`, and `"planning"`. The system prompt (`src/agent/systemPrompt.ts`) instructs the model to use `clarify` before irreversible actions when information is missing and to offer choices when the options are clear and few.
 
@@ -202,6 +229,12 @@ protocol failures, and unrelated errors fail immediately.
 5. Run `pnpm start config` to inspect effective configuration without side
    effects. Hand-edit `~/.railgun/config.json` to choose the exact default model
    for new sessions, or use `null` for Devin's first returned model.
+6. On the first run in an untrusted project directory, Railgun prompts for trust on stderr before the
+   REPL starts. Choose an option (Trust, Trust parent, Trust session-only, Deny, Deny session-only);
+   persisted choices are remembered in `~/.railgun/trust.json`. Pass `--approve`/`-a` to trust for a
+   single invocation, or `--no-approve`/`-na` to deny. Set `"defaultProjectTrust": "always"` in
+   `~/.railgun/config.json` to skip the prompt globally. Use `/trust` inside a running REPL to update
+   the decision mid-session.
 
 ## Success Metrics
 
@@ -344,6 +377,7 @@ protocol failures, and unrelated errors fail immediately.
   `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
   returned by `findMatches`.
   Phase 19: `src/tools/clarify.test.ts` proves all six handler cases — missing question arg, absent callback, open-ended callback call returning `{ question, answer }` JSON, choices callback call, max-4 truncation, and abort-before-call returning the stopped message; `src/agent/systemPrompt.test.ts` proves the clarify guidance string is present in the generated prompt; full suite (42 files / 421 tests) passes with zero regressions; `pnpm typecheck` passes clean under `exactOptionalPropertyTypes: true` and `noUncheckedIndexedAccess: true`.
+  Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk, `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`. `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume modes, rejection on login/logout/config/list modes, and both-flags-together throwing `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included in the persisted output of `setConfiguredModel`, and is rejected for values outside the `"ask"/"always"/"never"` set. See ADR-0013.
 
 ## Open Questions
 

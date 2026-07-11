@@ -138,14 +138,14 @@ describe("initFreshDevinSession", () => {
   it("uses Devin's first returned model when config.model is null", async () => {
     mockBootstrap([model("provider-first"), model("second")]);
     const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({ config: { model: null } })).resolves.toMatchObject({ model: { id: "provider-first" } });
+    await expect(initFreshDevinSession({ config: { model: null, defaultProjectTrust: "ask" } })).resolves.toMatchObject({ model: { id: "provider-first" } });
   });
 
   it("uses an available exact configured model without opening the chooser", async () => {
     mockBootstrap([model("first"), model("configured")]);
     const selectModel = vi.fn();
     const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({ config: { model: "configured" }, selectModel }))
+    await expect(initFreshDevinSession({ config: { model: "configured", defaultProjectTrust: "ask" }, selectModel }))
       .resolves.toMatchObject({ model: { id: "configured" } });
     expect(selectModel).not.toHaveBeenCalled();
   });
@@ -159,7 +159,7 @@ describe("initFreshDevinSession", () => {
     const persistModel = vi.fn(async () => { events.push("persist"); });
     const { initFreshDevinSession } = await import("./session.js");
     const session = await initFreshDevinSession({
-      config: { model: "missing" },
+      config: { model: "missing", defaultProjectTrust: "ask" },
       interactive: true,
       selectModel: vi.fn(async () => "replacement"),
       persistModel,
@@ -175,7 +175,7 @@ describe("initFreshDevinSession", () => {
     const persistModel = vi.fn();
     const { initFreshDevinSession } = await import("./session.js");
     await expect(initFreshDevinSession({
-      config: { model: "missing" }, interactive: true,
+      config: { model: "missing", defaultProjectTrust: "ask" }, interactive: true,
       selectModel: vi.fn(async () => undefined), persistModel,
     })).resolves.toBeUndefined();
     expect(persistModel).not.toHaveBeenCalled();
@@ -187,7 +187,7 @@ describe("initFreshDevinSession", () => {
     mockBootstrap([model("available")], { loadProjectContext: build, loadSoulIdentity: build });
     const { initFreshDevinSession } = await import("./session.js");
     await expect(initFreshDevinSession({
-      config: { model: "missing" }, interactive: true,
+      config: { model: "missing", defaultProjectTrust: "ask" }, interactive: true,
       selectModel: vi.fn(async () => "available"),
       persistModel: vi.fn(async () => { throw new Error("disk full"); }),
     })).rejects.toThrow("disk full");
@@ -197,7 +197,7 @@ describe("initFreshDevinSession", () => {
   it("fails actionably without an interactive TTY", async () => {
     mockBootstrap([model("one"), model("two")]);
     const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({ config: { model: "missing" }, interactive: false })).rejects.toThrow(
+    await expect(initFreshDevinSession({ config: { model: "missing", defaultProjectTrust: "ask" }, interactive: false })).rejects.toThrow(
       /Configured model "missing" is unavailable.*one, two.*interactively/i,
     );
   });

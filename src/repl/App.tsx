@@ -32,6 +32,11 @@ import { ThemeController, themeForMode } from "./theme.js";
 import type { Theme, ThemeMode } from "./theme.js";
 import { createViewport, reduceViewport, visibleViewportRows } from "./viewport.js";
 import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js";
+import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
+
+const TRUST_CHOICES: Readonly<Record<string, TrustChoice>> = {
+  "1": "trust", "2": "trust-parent", "3": "trust-session", "4": "deny", "5": "deny-session",
+};
 
 export interface DisplayLine {
   kind: "user" | "assistant" | "error" | "tool";
@@ -241,12 +246,15 @@ interface ModelPickerState {
 
 
 const ChatApp = ({
-  session, initialMode, themeController, persistence = {},
+  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd,
 }: {
   readonly session: DevinSession;
   readonly initialMode: ThemeMode;
   readonly themeController: ThemeController;
   readonly persistence?: ReplPersistenceOptions;
+  readonly initialTrustDecision?: TrustDecision;
+  readonly trustStore?: ProjectTrustStore;
+  readonly cwd?: string;
 }): React.ReactElement => {
   const { exit } = useApp();
   const { stdin } = useStdin();
@@ -282,6 +290,8 @@ const ChatApp = ({
   const pendingClarifyRef = useRef<{ resolve: (answer: string) => void } | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
+  const [trustDecision, setTrustDecision] = useState<TrustDecision>(initialTrustDecision ?? { status: "unknown" });
+  const [pendingTrust, setPendingTrust] = useState(false);
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
 
   const composerHeight = composerRows(draft, columns, rows);
@@ -289,8 +299,9 @@ const ChatApp = ({
   const todoRows = todos.length === 0 && !todoLoading ? 0 : todos.length + 2;
   const pickerVisibleCount = modelPicker ? Math.max(1, Math.min(modelPicker.models.length, Math.floor((rows - 15) / 3))) : 0;
   const pickerRows = modelPicker ? pickerVisibleCount * 3 + 1 : 0;
-  const clarifyRows = pendingClarify ? 2 + (pendingClarify.choices?.length ?? 0) : 0;
-  const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + 1;
+   const clarifyRows = pendingClarify ? 2 + (pendingClarify.choices?.length ?? 0) : 0;
+   const trustPickerRows = pendingTrust ? 10 : 0;
+   const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + trustPickerRows + 1;
   const transcriptRows = Math.max(1, rows - 3 - lowerRows);
   const ephemeralLines: readonly DisplayLine[] = busy
     ? toolLabels.size > 0
@@ -406,6 +417,20 @@ const ChatApp = ({
     }
   }, { isActive: modelPicker !== null });
 
+  useInput((input, key) => {
+    if (!pendingTrust) return;
+    const choice = TRUST_CHOICES[input];
+    if (choice !== undefined && trustStore !== undefined) {
+      const newDecision = trustStore.set(cwd ?? process.cwd(), choice);
+      setTrustDecision(newDecision);
+      setPendingTrust(false);
+      const scopeLabel = "scope" in newDecision ? (newDecision.scope === "persisted" ? " (persisted)" : " (session only)") : "";
+      setLines(previous => [...previous, { kind: "assistant", text: `Trust decision updated: ${newDecision.status}${scopeLabel}.` }]);
+    } else if (key.escape) {
+      setPendingTrust(false);
+    }
+  }, { isActive: pendingTrust });
+
   const completeSuggestion = useCallback(() => {
     const next = nextCompletionState(completionMatches, completionIndex, liveMatches, "tab");
     setCompletionMatches(next.frozenMatches);
@@ -472,7 +497,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback, /trust" }]);
         return;
       }
       if (command === "/clear") {
@@ -537,6 +562,15 @@ const ChatApp = ({
           setLines(previous => [...previous, { kind: "assistant", text: "Rolled back to the last checkpoint." }]);
         } catch (error) {
           setLines(previous => [...previous, { kind: "error", text: `Rollback failed: ${error instanceof Error ? error.message : String(error)}` }]);
+        }
+        return;
+      }
+      if (command === "/trust") {
+        if (trustStore === undefined) {
+          const statusText = trustDecision.status === "unknown" ? "unknown" : `${trustDecision.status} (${trustDecision.scope})`;
+          setLines(previous => [...previous, { kind: "assistant", text: `Current trust status: ${statusText}. (Trust store not available in this session.)` }]);
+        } else {
+          setPendingTrust(true);
         }
         return;
       }
@@ -679,6 +713,18 @@ const ChatApp = ({
           </Box>
         );
       })()}
+      {pendingTrust && (
+        <Box flexDirection="column" borderStyle="single" borderColor={theme.border} paddingX={1}>
+          <Text color={theme.accent}>Trust project folder {cwd ?? process.cwd()}?</Text>
+          <Text color={theme.dim}>This allows railgun to load .railgun/ settings, extensions, and skills.</Text>
+          <Text>  1. Trust</Text>
+          <Text>  2. Trust parent folder</Text>
+          <Text>  3. Trust (this session only)</Text>
+          <Text>  4. Do not trust</Text>
+          <Text>  5. Do not trust (this session only)</Text>
+          <Text color={theme.dim}>Press 1-5 to choose · Esc to cancel</Text>
+        </Box>
+      )}
       <Box borderStyle="round" borderColor={theme.border} paddingX={1} height={composerHeight + 2}>
         <Text color={theme.accent}>❯ </Text>
         <MultilineInput
@@ -688,8 +734,8 @@ const ChatApp = ({
           onSubmit={value => { void handleSubmit(value); }}
           rows={composerHeight}
           maxRows={composerHeight}
-          focus={pendingCommand === null && modelPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0)}
-          placeholder={busy ? (pendingClarify ? "Type your answer…" : "Steer the active run…") : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
+           focus={pendingCommand === null && modelPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0) && !pendingTrust}
+           placeholder={busy ? (pendingClarify ? "Type your answer…" : "Steer the active run…") : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : pendingTrust ? "Choosing trust…" : "Message Railgun"}
           textStyle={{ color: theme.text }}
           highlightStyle={{ color: theme.text }}
           keyBindings={{
@@ -704,7 +750,12 @@ const ChatApp = ({
   );
 };
 
-export const runRepl = async (session: DevinSession, persistence?: ReplPersistenceOptions): Promise<void> => {
+export const runRepl = async (
+  session: DevinSession,
+  persistence?: ReplPersistenceOptions,
+  trustDecision?: TrustDecision,
+  trustStore?: ProjectTrustStore,
+): Promise<void> => {
   const themeController = new ThemeController();
   const initialMode = await themeController.start();
   const screenReaderEnabled = process.env["INK_SCREEN_READER"] === "true";
@@ -712,8 +763,9 @@ export const runRepl = async (session: DevinSession, persistence?: ReplPersisten
   try {
     await runInAlternateScreen(sequence => process.stdout.write(sequence), useAlternateScreen, () =>
       runWithMouseTracking(sequence => process.stdout.write(sequence), useAlternateScreen, async () => {
+        const cwd = process.cwd();
         const instance = render(
-          <ChatApp session={session} initialMode={initialMode} themeController={themeController} {...(persistence ? { persistence } : {})} />,
+          <ChatApp session={session} initialMode={initialMode} themeController={themeController} {...(persistence ? { persistence } : {})} {...(trustDecision !== undefined ? { initialTrustDecision: trustDecision } : {})} {...(trustStore !== undefined ? { trustStore, cwd } : {})} />,
           {
             exitOnCtrlC: false,
             isScreenReaderEnabled: screenReaderEnabled,

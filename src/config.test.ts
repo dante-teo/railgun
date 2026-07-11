@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("loadConfig", () => {
   it("uses the effective defaults when the file is missing without creating it", async () => {
-    await expect(loadConfig(path)).resolves.toEqual({ model: null });
+    await expect(loadConfig(path)).resolves.toEqual({ model: null, defaultProjectTrust: "ask" });
     await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -35,7 +35,7 @@ describe("loadConfig", () => {
 
   it.each([null, "devin-model"])('accepts model %j', async model => {
     await writeFile(path = join(directory, "config.json"), JSON.stringify({ model, unknown: { keep: true } }));
-    await expect(loadConfig(path)).resolves.toEqual({ model, unknown: { keep: true } });
+    await expect(loadConfig(path)).resolves.toEqual({ model, defaultProjectTrust: "ask", unknown: { keep: true } });
   });
 
   it.each([
@@ -46,6 +46,7 @@ describe("loadConfig", () => {
     ["a whitespace model", '{"model":"  x  "}'],
     ["a model containing whitespace", '{"model":"model id"}'],
     ["a non-string model", '{"model":42}'],
+    ["an invalid defaultProjectTrust", '{"defaultProjectTrust":"sometimes"}'],
   ])("rejects %s and identifies the config path", async (_label, contents) => {
     path = join(directory, "config.json");
     await writeFile(path, contents);
@@ -70,8 +71,8 @@ describe("setConfiguredModel", () => {
 
     await setConfiguredModel("replacement", path, { atomicWrite });
 
-    expect(atomicWrite).toHaveBeenLastCalledWith(path, '{\n  "model": "replacement",\n  "unknown": {\n    "keep": true\n  }\n}\n');
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ model: "replacement", unknown: { keep: true } });
+    expect(atomicWrite).toHaveBeenLastCalledWith(path, '{\n  "model": "replacement",\n  "defaultProjectTrust": "ask",\n  "unknown": {\n    "keep": true\n  }\n}\n');
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ model: "replacement", defaultProjectTrust: "ask", unknown: { keep: true } });
   });
 
   it("does not invoke the writer or alter an invalid config", async () => {

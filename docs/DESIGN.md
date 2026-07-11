@@ -36,10 +36,10 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
   unseen-row cue reserves one visible transcript row.
-- `/exit`, `/help`, `/clear`, `/model`, `/compact`, and `/rollback` are the
+- `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, and `/trust` are the
   available commands. `/rollback` restores the working directory to the
   snapshot taken before the agent's last file-mutating tool call (no-op if no
-  snapshot exists yet this session). Shell approval uses `y`, `n`, or Escape.
+  snapshot exists yet this session). The `/trust` command opens a five-key numbered picker within the running REPL (keys `1`–`5` for Trust / Trust parent / Trust session-only / Deny / Deny session-only; Escape to cancel without changing). Choosing a persisted option writes to `~/.railgun/trust.json`; session-only options take effect for the process lifetime only. Shell approval uses `y`, `n`, or Escape.
   Clarify prompts use number keys `1`–`4` to pick a displayed choice, Enter to
   submit a freeform typed answer, or Escape to decline. When choices are shown
   the composer unfocuses so number keystrokes reach only the clarify handler;
@@ -77,11 +77,18 @@ Enter confirms the latest highlight even before React repaints it.
 ## Configuration and model recovery
 
 `~/.railgun/config.json` is active as the single configuration source. Its
-effective default is `{ "model": null }`: fresh REPL and one-shot sessions use
+effective default is `{ "model": null, "defaultProjectTrust": "ask" }`: fresh REPL and one-shot sessions use
 Devin's first returned model. `railgun config` renders the recursively merged,
 pretty JSON without crossing authentication, SQLite, file-creation, or TUI
 boundaries. Unknown fields remain visible and preserved; invalid configuration
 fails in place rather than being repaired.
+
+The optional `defaultProjectTrust` field controls the project trust gate:
+`"ask"` (default) prompts interactively before each new untrusted project's
+first session; `"always"` trusts every project without prompting; `"never"`
+denies every project without prompting. Per-project decisions are persisted
+in `~/.railgun/trust.json`; `--approve`/`-a` and `--no-approve`/`-na`
+override for a single invocation.
 
 A configured string requests that exact model for fresh sessions. When it is
 missing, interactive TTY launches show a model chooser using the resume
