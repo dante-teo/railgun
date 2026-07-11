@@ -2,7 +2,7 @@ import React from "react";
 import { renderToString } from "ink";
 import { describe, expect, it } from "vitest";
 import type { DevinModel } from "widevin";
-import { ModelRow, modelMetadata } from "./ModelChooser.js";
+import { ModelRow, modelMetadata, resolveModelCommand } from "./ModelChooser.js";
 import {
   createSelectionInputState,
   moveSelection,
@@ -54,5 +54,89 @@ describe("ModelRow", () => {
     expect(rendered).toContain("reasoning");
     expect(rendered).toContain("200k context");
     expect(modelMetadata(model)).toContain("16k output");
+  });
+});
+
+const alpha: DevinModel = {
+  id: "alpha-model",
+  name: "Alpha",
+  provider: "devin",
+  baseUrl: "https://example.test",
+  input: ["text"],
+  supportsTools: true,
+  reasoning: false,
+  contextWindow: 100_000,
+  maxTokens: 8_000,
+};
+
+const beta: DevinModel = {
+  id: "beta-model",
+  name: "Beta",
+  provider: "devin",
+  baseUrl: "https://example.test",
+  input: ["text", "image"],
+  supportsTools: true,
+  reasoning: true,
+  contextWindow: 200_000,
+  maxTokens: 16_000,
+};
+
+const testModels: readonly DevinModel[] = [alpha, beta];
+
+describe("resolveModelCommand", () => {
+  it("shows current model and numbered list when called with no arg", () => {
+    const result = resolveModelCommand(undefined, testModels, "alpha-model");
+    expect(result.kind).toBe("show");
+    if (result.kind !== "show") throw new Error("unreachable");
+    expect(result.lines[0]).toBe("Current model: alpha-model");
+    expect(result.lines).toHaveLength(3 + testModels.length);
+    expect(result.lines[3]).toContain("1.");
+    expect(result.lines[3]).toContain("alpha-model");
+    expect(result.lines[4]).toContain("2.");
+    expect(result.lines[4]).toContain("beta-model");
+    expect(result.sessionOnly).toBe(false);
+  });
+
+  it("resolves by exact model id with persist=true", () => {
+    const result = resolveModelCommand("beta-model", testModels, "alpha-model");
+    expect(result).toEqual({ kind: "switch", model: beta, persist: true });
+  });
+
+  it("resolves by 1-based numeric index", () => {
+    const result = resolveModelCommand("2", testModels, "alpha-model");
+    expect(result).toEqual({ kind: "switch", model: beta, persist: true });
+  });
+
+  it("returns error for unknown model name", () => {
+    const result = resolveModelCommand("nonexistent", testModels, "alpha-model");
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") throw new Error("unreachable");
+    expect(result.message).toContain("nonexistent");
+    expect(result.message).toContain("alpha-model");
+    expect(result.message).toContain("beta-model");
+  });
+
+  it("returns error for out-of-range index", () => {
+    const result = resolveModelCommand("99", testModels, "alpha-model");
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") throw new Error("unreachable");
+    expect(result.message).toContain("99");
+  });
+
+  it("switches with persist=false when --session flag is present", () => {
+    const result = resolveModelCommand("beta-model --session", testModels, "alpha-model");
+    expect(result).toEqual({ kind: "switch", model: beta, persist: false });
+  });
+
+  it("handles --session flag before model name", () => {
+    const result = resolveModelCommand("--session beta-model", testModels, "alpha-model");
+    expect(result).toEqual({ kind: "switch", model: beta, persist: false });
+  });
+
+  it("opens picker with sessionOnly when bare --session is passed", () => {
+    const result = resolveModelCommand("--session", testModels, "alpha-model");
+    expect(result.kind).toBe("show");
+    if (result.kind !== "show") throw new Error("unreachable");
+    expect(result.sessionOnly).toBe(true);
   });
 });

@@ -14,17 +14,18 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 14 (central configuration and model recovery):**
-Phase 14 activates `~/.railgun/config.json` as the single configuration source,
-with `{ "model": null }` selecting Devin's first returned model. The exact,
-read-only `config` subcommand prints effective pretty JSON without authentication,
-SQLite, file creation, or TUI startup. Fresh REPL and one-shot sessions honor an
-exact configured model; unavailable models can be replaced through a themed
-interactive chooser that atomically persists the selection before startup.
-Non-interactive recovery fails actionably, cancellation is a successful no-op,
-and resumes stay pinned to their recorded models. Config, token, state, and SOUL
-paths now derive from one fixed `~/.railgun` home function. General model
-switching remains deferred to Phase 15.
+**Current phase — Phase 15 (REPL model switching):**
+Phase 15 adds the `/model` slash command to the interactive REPL. Bare
+`/model` opens an inline interactive picker — Up/Down to navigate the
+available models, Enter to switch and save as the new default, Escape to
+cancel. `/model <name-or-index>` switches directly without the picker and
+persists the selection to `~/.railgun/config.json` as the new default for
+all future sessions. `/model <name-or-index> --session` or the picker
+opened via `/model --session` switches only for the current REPL run
+without touching the persisted default. Conversation history and todos are
+unaffected by a switch. Resumed sessions remain pinned to their originally
+recorded model — the Phase 14 resume-pinning invariant is preserved by
+construction.
 
 Phase 13 added exact `login` and `logout` subcommands, process-local
 `DEVIN_TOKEN` support, source-aware rejection handling, and precise retry

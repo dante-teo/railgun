@@ -2,17 +2,21 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Box, render, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { MultilineInput } from "ink-multiline-input";
 import Spinner from "ink-spinner";
-import type { DevinMessage } from "widevin";
+import type { DevinMessage, DevinModel } from "widevin";
 import { runTurn } from "../agent/turn.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { describeDevinError } from "../errors.js";
 import { buildToolLabel } from "../tools/toolLabel.js";
 import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
+import { buildSessionCore } from "../session.js";
 import type { DevinSession } from "../session.js";
+import { setConfiguredModel } from "../config.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { toolLineIcon, approvalColor } from "./toolLineStyle.js";
+import { ModelRow, resolveModelCommand } from "./ModelChooser.js";
 import { Suggestions } from "./Suggestions.js";
+import { moveSelection, selectionListWindow } from "./SessionChooser.js";
 import { getGitStatus, formatCwd } from "./statusLine.js";
 import type { GitStatus } from "./statusLine.js";
 import { appendStreamDelta, createStreamSegments, finishStreamSegments, flushStreamSegment } from "./streamingTranscript.js";
@@ -218,6 +222,12 @@ const StatusBar = ({
     </Box>
   );
 };
+interface ModelPickerState {
+  readonly models: readonly DevinModel[];
+  readonly selectedIndex: number;
+  readonly sessionOnly: boolean;
+}
+
 
 const ChatApp = ({
   session, initialMode, themeController, persistence = {},
@@ -234,6 +244,7 @@ const ChatApp = ({
   const [mode, setMode] = useState(initialMode);
   const theme = themeForMode(mode);
   useEffect(() => themeController.subscribe(setMode), [themeController]);
+  const [activeSession, setActiveSession] = useState(session);
   const [history, setHistory] = useState<readonly DevinMessage[]>(persistence.initialHistory ?? []);
   const [lines, setLines] = useState<readonly DisplayLine[]>(() => historyToDisplayLines(persistence.initialHistory ?? []));
   const [draft, setDraft] = useState("");
@@ -253,12 +264,15 @@ const ChatApp = ({
   const [todoLoading, setTodoLoading] = useState(false);
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
+  const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
 
   const composerHeight = composerRows(draft, columns, rows);
   const suggestionCount = completionMatches.length > 1 ? completionMatches.length : liveMatches.length;
   const todoRows = todos.length === 0 && !todoLoading ? 0 : todos.length + 2;
-  const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + 1;
+  const pickerVisibleCount = modelPicker ? Math.max(1, Math.min(modelPicker.models.length, Math.floor((rows - 15) / 3))) : 0;
+  const pickerRows = modelPicker ? pickerVisibleCount * 3 + 1 : 0;
+  const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + 1;
   const transcriptRows = Math.max(1, rows - 3 - lowerRows);
   const ephemeralLine: DisplayLine | undefined = busy
     ? toolLabel !== null
@@ -303,6 +317,37 @@ const ChatApp = ({
     pendingApprovalRef.current = null;
     setPendingCommand(null);
   }, { isActive: pendingCommand !== null });
+
+  useInput((_input, key) => {
+    if (!modelPicker) return;
+    if (key.upArrow) {
+      setModelPicker({ ...modelPicker, selectedIndex: moveSelection(modelPicker.selectedIndex, modelPicker.models.length, "up") });
+    } else if (key.downArrow) {
+      setModelPicker({ ...modelPicker, selectedIndex: moveSelection(modelPicker.selectedIndex, modelPicker.models.length, "down") });
+    } else if (key.return) {
+      const chosen = modelPicker.models[modelPicker.selectedIndex];
+      if (!chosen) return;
+      const persist = !modelPicker.sessionOnly;
+      setModelPicker(null);
+      setBusy(true);
+      void (async () => {
+        try {
+          const rebuilt = await buildSessionCore(activeSession.devin, chosen);
+          if (persist) await setConfiguredModel(chosen.id);
+          setActiveSession(rebuilt);
+          setLines(previous => [...previous, { kind: "assistant", text: persist
+            ? `Switched to ${chosen.id} and saved as your default.`
+            : `Using ${chosen.id} for this session only (not saved).` }]);
+        } catch (error) {
+          setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+        } finally {
+          setBusy(false);
+        }
+      })();
+    } else if (key.escape) {
+      setModelPicker(null);
+    }
+  }, { isActive: modelPicker !== null });
 
   const completeSuggestion = useCallback(() => {
     const next = nextCompletionState(completionMatches, completionIndex, liveMatches, "tab");
@@ -350,14 +395,40 @@ const ChatApp = ({
     setCompletionIndex(null);
     setCompletionMatches([]);
     if (text.startsWith("/")) {
-      const { command } = parseSlashCommand(text);
+      const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model" }]);
         return;
       }
       if (command === "/clear") {
         stdoutWrite("\u001b[2J\u001b[H");
+        return;
+      }
+      if (command === "/model") {
+        try {
+          const models = await activeSession.devin.listModels();
+          const result = resolveModelCommand(arg, models, activeSession.model.id);
+          if (result.kind === "show") {
+            const activeIndex = models.findIndex(m => m.id === activeSession.model.id);
+            setModelPicker({ models, selectedIndex: Math.max(0, activeIndex), sessionOnly: result.sessionOnly });
+          } else if (result.kind === "error") {
+            setLines(previous => [...previous, { kind: "error", text: result.message }]);
+          } else {
+            try {
+              const rebuilt = await buildSessionCore(activeSession.devin, result.model);
+              if (result.persist) await setConfiguredModel(result.model.id);
+              setActiveSession(rebuilt);
+              setLines(previous => [...previous, { kind: "assistant", text: result.persist
+                ? `Switched to ${result.model.id} and saved as your default.`
+                : `Using ${result.model.id} for this session only (not saved).` }]);
+            } catch (error) {
+              setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+            }
+          }
+        } catch (error) {
+          setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+        }
         return;
       }
     }
@@ -369,7 +440,7 @@ const ChatApp = ({
     setToolLabel(null);
     const preTurnTodos = todoStoreRef.current.read();
     const outcome = await runTurn(
-      session.devin, session.model.id, session.systemPrompt, history, text,
+      activeSession.devin, activeSession.model.id, activeSession.systemPrompt, history, text,
       iterationBudgetRef.current, confirmShellCommand,
       {
         onDelta: delta => {
@@ -406,7 +477,7 @@ const ChatApp = ({
     setStreaming("");
     setBusy(false);
     setTodoLoading(false);
-  }, [checkpointUnsaved, confirmShellCommand, exit, history, onToolComplete, onToolStart, persistence, session, stdoutWrite]);
+  }, [activeSession, checkpointUnsaved, confirmShellCommand, exit, history, onToolComplete, onToolStart, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {
@@ -440,6 +511,17 @@ const ChatApp = ({
       {(completionMatches.length > 1 || liveMatches.length > 0) && (
         <Suggestions items={completionMatches.length > 1 ? completionMatches : liveMatches} selectedIndex={completionIndex ?? -1} theme={theme} />
       )}
+      {modelPicker !== null && (() => {
+        const window = selectionListWindow(modelPicker.selectedIndex, modelPicker.models.length, pickerVisibleCount);
+        return (
+          <Box flexDirection="column">
+            <Text color={theme.dim}> ↑/↓ select · Enter switch{modelPicker.sessionOnly ? " (session only)" : " and save"} · Esc cancel</Text>
+            {modelPicker.models.slice(window.start, window.end).map((model, visibleIndex) => (
+              <ModelRow key={model.id} model={model} selected={window.start + visibleIndex === modelPicker.selectedIndex} theme={theme} columns={columns} />
+            ))}
+          </Box>
+        );
+      })()}
       <Box borderStyle="round" borderColor={theme.border} paddingX={1} height={composerHeight + 2}>
         <Text color={theme.accent}>❯ </Text>
         <MultilineInput
@@ -449,8 +531,8 @@ const ChatApp = ({
           onSubmit={value => { void handleSubmit(value); }}
           rows={composerHeight}
           maxRows={composerHeight}
-          focus={!busy && pendingCommand === null}
-          placeholder={busy ? "Agent is working…" : pendingCommand ? "Awaiting approval…" : "Message Railgun"}
+          focus={!busy && pendingCommand === null && modelPicker === null}
+          placeholder={busy ? "Agent is working…" : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
           textStyle={{ color: theme.text }}
           highlightStyle={{ color: theme.text }}
           keyBindings={{
@@ -460,7 +542,7 @@ const ChatApp = ({
           useCustomInput={useComposerInput}
         />
       </Box>
-      <StatusBar theme={theme} session={session} gitStatus={gitStatus} {...(persistence.sessionMetadata ? { metadata: persistence.sessionMetadata } : {})} unsaved={checkpointUnsaved} viewportOffset={viewport.offset} viewportRows={viewport.viewportRows} totalRows={viewport.totalRows} />
+      <StatusBar theme={theme} session={activeSession} gitStatus={gitStatus} {...(persistence.sessionMetadata ? { metadata: persistence.sessionMetadata } : {})} unsaved={checkpointUnsaved} viewportOffset={viewport.offset} viewportRows={viewport.viewportRows} totalRows={viewport.totalRows} />
     </Box>
   );
 };

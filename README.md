@@ -113,6 +113,10 @@ session becomes durable after its first successful turn:
   - `/exit` (or `Ctrl+C`) — quit the REPL.
   - `/help` — print the list of available commands.
   - `/clear` — clear the terminal canvas without discarding conversation state.
+  - `/model` — open an interactive model picker (Up/Down to navigate, Enter to switch and save, Esc to cancel).
+  - `/model <name-or-index>` — switch the active model directly and save as the new default.
+  - `/model <name-or-index> --session` — switch for this session only (not saved).
+  - `/model --session` — open the picker; the selected model applies to this session only.
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
   `Esc` to dismiss the dropdown.
@@ -173,8 +177,11 @@ replacement before startup continues, and Escape/Ctrl-C cancels successfully
 without changing configuration or starting a session. A non-interactive launch
 instead exits nonzero and lists the unavailable ID, available IDs, and how to
 launch interactively. Resumed conversations remain pinned to their recorded
-model and never use this recovery path. General model switching is deferred to
-Phase 15.
+model and never use this recovery path. The REPL's `/model` command opens an
+inline interactive picker (Up/Down, Enter, Esc) to switch the active model
+live; by default the choice persists to `config.json` for all future sessions,
+while `--session` limits the switch to the current REPL run. `/model <name>`
+switches directly without the picker.
 
 All application files derive from the fixed `~/.railgun` home: `config.json`,
 `devin-token`, `state.db`, and `SOUL.md`. There are no profiles or home-path

@@ -202,3 +202,25 @@ describe("initFreshDevinSession", () => {
     );
   });
 });
+
+describe("buildSessionCore", () => {
+  it("builds a session without logging to console.error", async () => {
+    mockBootstrap([model("core-model")]);
+    // dynamic import required: vi.doMock re-wires module graph per test
+    const { buildSessionCore } = await import("./session.js");
+    const devin = {
+      login: async () => "token",
+      setToken: async () => {},
+      clearToken: async () => {},
+      listModels: async () => [model("core-model")],
+      streamChat: async function* () { yield { type: "done" as const, reason: "stop" as const }; },
+    } satisfies DevinProvider;
+
+    const session = await buildSessionCore(devin, model("core-model"));
+
+    expect(session.model.id).toBe("core-model");
+    expect(session.devin).toBe(devin);
+    expect(Array.isArray(session.systemPrompt)).toBe(true);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+});

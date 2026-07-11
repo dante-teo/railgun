@@ -19,9 +19,7 @@ const padDatePart = (value: number): string => String(value).padStart(2, "0");
 export const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
-const buildSession = async (devin: DevinProvider, model: DevinModel): Promise<DevinSession> => {
-  console.error(`Using model: ${model.id}`);
-
+export const buildSessionCore = async (devin: DevinProvider, model: DevinModel): Promise<DevinSession> => {
   const cwd = process.cwd();
   const [projectContext, soulIdentity] = await Promise.all([
     loadProjectContext(cwd),
@@ -40,6 +38,11 @@ const buildSession = async (devin: DevinProvider, model: DevinModel): Promise<De
   });
 
   return { devin, model, systemPrompt };
+};
+
+const buildSession = async (devin: DevinProvider, model: DevinModel): Promise<DevinSession> => {
+  console.error(`Using model: ${model.id}`);
+  return buildSessionCore(devin, model);
 };
 
 const availableIds = (models: readonly DevinModel[]): string =>

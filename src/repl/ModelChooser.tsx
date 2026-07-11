@@ -18,6 +18,43 @@ export const modelMetadata = (model: DevinModel): string => [
   `${compactCount(model.maxTokens)} output`,
 ].join(" · ");
 
+export type ModelCommandResult =
+  | { kind: "show"; lines: readonly string[]; sessionOnly: boolean }
+  | { kind: "switch"; model: DevinModel; persist: boolean }
+  | { kind: "error"; message: string };
+
+export const resolveModelCommand = (
+  arg: string | undefined,
+  models: readonly DevinModel[],
+  activeModelId: string,
+): ModelCommandResult => {
+  const tokens = (arg ?? "").split(" ").filter(token => token !== "");
+  const sessionOnly = tokens.includes("--session");
+  const requestedName = tokens.find(token => token !== "--session");
+
+  if (requestedName === undefined) {
+    return {
+      kind: "show",
+      sessionOnly,
+      lines: [
+        `Current model: ${activeModelId}`,
+        "",
+        "Available models:",
+        ...models.map((model, index) => `  ${index + 1}. ${modelMetadata(model)}`),
+      ],
+    };
+  }
+
+  const chosen = models.find(model => model.id === requestedName)
+    ?? models[Number.parseInt(requestedName, 10) - 1];
+  if (!chosen) {
+    const available = models.map(model => model.id).join(", ") || "none";
+    return { kind: "error", message: `No such model: ${requestedName}. Available models: ${available}.` };
+  }
+
+  return { kind: "switch", model: chosen, persist: !sessionOnly };
+};
+
 interface ModelRowProps {
   readonly model: DevinModel;
   readonly selected: boolean;
