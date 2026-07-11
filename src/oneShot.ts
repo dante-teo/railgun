@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { initFreshDevinSession } from "./session.js";
 import { createAgentSession } from "./agent/agentSession.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, parseMoAPreset } from "./config.js";
 import { startSpinner } from "./spinner.js";
 import { buildToolLabel } from "./tools/toolLabel.js";
 import { createTodoStore } from "./tools/todo.js";
@@ -51,6 +51,15 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
     ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
     ...(extensionRunner ? { extensionRunner } : {}),
     ...(memoryStore ? { memoryStore } : {}),
+    ...((() => {
+      const presetName = config.activeMoaPreset;
+      if (typeof presetName !== "string" || presetName.length === 0) return {};
+      const presets = config.moaPresets;
+      if (!presets) return {};
+      const raw = presets[presetName];
+      if (raw === undefined) return {};
+      try { return { moaPreset: parseMoAPreset(presetName, raw) }; } catch { return {}; }
+    })()),
   });
 
   const activeStops = new Map<string, (isError: boolean) => void>();
@@ -80,6 +89,13 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
         staticLabels.delete(event.toolCallId);
         process.stderr.write(`${event.result.isError ? "✘" : "✔"} ${label}\n`);
       }
+    } else if (event.type === "moa_reference_start") {
+      process.stderr.write(`⟐ MoA reference ${event.index + 1}/${event.count} (${event.model})...\n`);
+    } else if (event.type === "moa_reference_end") {
+      const summary = event.text.startsWith("[failed:") ? "[failed]" : event.text.slice(0, 80);
+      process.stderr.write(`  ↳ ${event.model}: ${summary}\n`);
+    } else if (event.type === "moa_aggregating") {
+      process.stderr.write(`⟐ Aggregating from ${event.refCount} reference${event.refCount === 1 ? "" : "s"}...\n`);
     }
   });
 

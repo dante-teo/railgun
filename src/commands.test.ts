@@ -3,8 +3,8 @@ import { matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOW
 
 describe("KNOWN_COMMANDS", () => {
   it("contains commands without the removed skin override", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust"]);
+     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
+     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
   });
 });
 
@@ -67,8 +67,8 @@ describe("parseSlashCommand", () => {
 });
 describe("findMatches", () => {
   it("returns all commands for '/'", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust"]);
+     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
+     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
   });
 
   it("returns no matches for '/sk'", () => {
@@ -92,8 +92,8 @@ describe("findMatches", () => {
     expect(findMatches("/help")).toEqual(["/help"]);
   });
 
-  it("returns ['/model'] for the unique prefix '/mo'", () => {
-    expect(findMatches("/mo")).toEqual(["/model"]);
+  it("returns ['/model', '/moa'] for the shared prefix '/mo'", () => {
+    expect(findMatches("/mo")).toEqual(["/model", "/moa"]);
   });
 });
 

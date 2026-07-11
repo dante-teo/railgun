@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { DevinProvider, DevinStreamEvent } from "widevin";
 import { DevinApiError } from "widevin";
 import { runTurn } from "./turn.js";
+import type { MoAPreset } from "./moa.js";
 import type { AgentEvent } from "./events.js";
 import { registry } from "../tools/index.js";
 import { createTodoStore } from "../tools/todo.js";
@@ -706,5 +707,151 @@ describe("runTurn with extensionRunner", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.assistantText).toBe("no-op");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runTurn with MoA
+// ---------------------------------------------------------------------------
+
+describe("runTurn with MoA", () => {
+  const defaultSystemPrompt = ["test system prompt"] as const;
+  const defaultBudget = () => IterationBudget.create();
+  const approveAll = async () => true;
+
+  const dualPreset: MoAPreset = {
+    name: "dual",
+    referenceModels: [{ model: "ref-1" }, { model: "ref-2" }],
+    aggregator: { model: "agg-model" },
+  };
+
+  it("emits moa_reference_start, moa_reference_end, moa_aggregating events before turn_start, then completes", async () => {
+    // round 0: ref-1 advisory, round 1: ref-2 advisory, round 2: aggregator turn
+    const devin = fakeProvider([
+      [{ type: "text_delta", delta: "ref1 advice" }, { type: "done", reason: "stop" }],
+      [{ type: "text_delta", delta: "ref2 advice" }, { type: "done", reason: "stop" }],
+      [{ type: "text_delta", delta: "aggregated answer" }, { type: "done", reason: "stop" }],
+    ]);
+
+    const events: AgentEvent[] = [];
+    const outcome = await runTurn(
+      devin, "default-model", 1_000_000, defaultSystemPrompt, [], "Hello",
+      defaultBudget(), approveAll,
+      async event => { events.push(event); },
+      { moaPreset: dualPreset },
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.assistantText).toBe("aggregated answer");
+
+    const eventTypes = events.map(e => e.type);
+    const refStartIdx = eventTypes.indexOf("moa_reference_start");
+    const aggIdx = eventTypes.indexOf("moa_aggregating");
+    const turnStartIdx = eventTypes.indexOf("turn_start");
+
+    expect(refStartIdx).toBeGreaterThanOrEqual(0);
+    expect(aggIdx).toBeGreaterThan(refStartIdx);
+    expect(turnStartIdx).toBeGreaterThan(aggIdx);
+
+    const refStartEvents = events.filter(e => e.type === "moa_reference_start");
+    expect(refStartEvents).toHaveLength(2);
+    const refEndEvents = events.filter(e => e.type === "moa_reference_end");
+    expect(refEndEvents).toHaveLength(2);
+    const aggEvents = events.filter(e => e.type === "moa_aggregating");
+    expect(aggEvents).toHaveLength(1);
+  });
+
+  it("injects MoA guidance as a user message in the aggregator's streamChat request", async () => {
+    const devin = fakeProvider([
+      [{ type: "text_delta", delta: "ref1" }, { type: "done", reason: "stop" }],
+      [{ type: "text_delta", delta: "ref2" }, { type: "done", reason: "stop" }],
+      [{ type: "text_delta", delta: "answer" }, { type: "done", reason: "stop" }],
+    ]);
+
+    const outcome = await runTurn(
+      devin, "default-model", 1_000_000, defaultSystemPrompt, [], "Hello",
+      defaultBudget(), approveAll, undefined,
+      { moaPreset: dualPreset },
+    );
+
+    expect(outcome.ok).toBe(true);
+    // 3 streamChat calls: ref-1, ref-2, aggregator
+    expect(devin.streamChatRequests).toHaveLength(3);
+    const aggRequest = devin.streamChatRequests[2];
+    expect(aggRequest).toBeDefined();
+    if (!aggRequest) throw new Error("no agg request");
+    // Find the MoA guidance user message in the aggregator's request messages
+    const guidanceMsg = aggRequest.messages.find(
+      m => m.role === "user" && typeof m.content === "string" && m.content.includes("Mixture of Agents")
+    );
+    expect(guidanceMsg).toBeDefined();
+  });
+
+  it("completes with ok:true when one reference fails", async () => {
+    const devin = fakeProvider([
+      { throws: new Error("model unavailable") },
+      [{ type: "text_delta", delta: "ref2 advice" }, { type: "done", reason: "stop" }],
+      [{ type: "text_delta", delta: "answer despite failure" }, { type: "done", reason: "stop" }],
+    ]);
+
+    const outcome = await runTurn(
+      devin, "default-model", 1_000_000, defaultSystemPrompt, [], "Hello",
+      defaultBudget(), approveAll, undefined,
+      { moaPreset: dualPreset },
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.assistantText).toBe("answer despite failure");
+    // Verify the guidance injected contains a [failed: marker
+    const aggRequest = devin.streamChatRequests[2];
+    if (!aggRequest) throw new Error("no agg request");
+    const guidanceMsg = aggRequest.messages.find(
+      m => m.role === "user" && typeof m.content === "string" && m.content.includes("[failed:")
+    );
+    expect(guidanceMsg).toBeDefined();
+  });
+
+  it("uses aggregator model override from preset for the acting streamChat call", async () => {
+    const overridePreset: MoAPreset = {
+      name: "override",
+      referenceModels: [{ model: "ref-only" }],
+      aggregator: { model: "override-model" },
+    };
+
+    const devin = fakeProvider([
+      [{ type: "text_delta", delta: "ref" }, { type: "done", reason: "stop" }],
+      [{ type: "text_delta", delta: "agg" }, { type: "done", reason: "stop" }],
+    ]);
+
+    const outcome = await runTurn(
+      devin, "default-model", 1_000_000, defaultSystemPrompt, [], "Hello",
+      defaultBudget(), approveAll, undefined,
+      { moaPreset: overridePreset },
+    );
+
+    expect(outcome.ok).toBe(true);
+    // round 0 = ref-only, round 1 = aggregator
+    expect(devin.streamChatRequests).toHaveLength(2);
+    expect(devin.streamChatRequests[0]?.model).toBe("ref-only");
+    expect(devin.streamChatRequests[1]?.model).toBe("override-model");
+  });
+
+  it("runs normally without MoA when moaPreset is not provided", async () => {
+    const devin = fakeProvider([
+      [{ type: "text_delta", delta: "normal answer" }, { type: "done", reason: "stop" }],
+    ]);
+
+    const outcome = await runTurn(
+      devin, "default-model", 1_000_000, defaultSystemPrompt, [], "Hello",
+      defaultBudget(), approveAll,
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.assistantText).toBe("normal answer");
+    expect(devin.streamChatRequests).toHaveLength(1);
+    expect(devin.streamChatRequests[0]?.model).toBe("default-model");
   });
 });

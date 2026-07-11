@@ -14,7 +14,8 @@ import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import { buildSessionCore } from "../session.js";
 import type { DevinSession } from "../session.js";
-import { loadConfig, setConfiguredModel } from "../config.js";
+import { loadConfig, parseMoAPreset, setConfiguredModel } from "../config.js";
+import type { MoAPreset } from "../agent/moa.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { toolLineIcon, approvalColor } from "./toolLineStyle.js";
@@ -218,7 +219,7 @@ export const transcriptJustification = (
   visibleRows + (hasUnseenCue ? 1 : 0) < viewportRows ? "flex-end" : "flex-start";
 
 const StatusBar = ({
-  theme, session, gitStatus, metadata, unsaved, viewportOffset, viewportRows, totalRows,
+  theme, session, gitStatus, metadata, unsaved, viewportOffset, viewportRows, totalRows, activeMoaPreset,
 }: {
   readonly theme: Theme;
   readonly session: DevinSession;
@@ -228,11 +229,13 @@ const StatusBar = ({
   readonly viewportOffset: number;
   readonly viewportRows: number;
   readonly totalRows: number;
+  readonly activeMoaPreset?: MoAPreset | null;
 }): React.ReactElement => {
   const position = totalRows === 0 ? "0/0" : `${Math.min(totalRows, viewportOffset + 1)}–${Math.min(totalRows, viewportOffset + viewportRows)}/${totalRows}`;
   return (
     <Box backgroundColor={theme.statusSurface} paddingX={1} height={1}>
       <Text color={theme.accent} wrap="truncate-end">{session.model.id}</Text>
+      {activeMoaPreset && <Text color={theme.warning}> · MoA: {activeMoaPreset.name}</Text>}
       <Text color={theme.muted}> · {formatCwd(process.cwd())}</Text>
       {gitStatus.branch !== null && <Text color={gitStatus.dirty ? theme.warning : theme.success}> · {gitStatus.branch}{gitStatus.dirty ? "*" : ""}</Text>}
       {metadata && <Text color={theme.muted}> · {metadata.id.slice(0, 8)}</Text>}
@@ -299,6 +302,7 @@ const ChatApp = ({
   const [pendingTrust, setPendingTrust] = useState(false);
   const [approvalMode, setApprovalMode] = useState<CommandApprovalMode>("manual");
   const [reviewerModel, setReviewerModel] = useState<string | undefined>(undefined);
+  const [activeMoaPreset, setActiveMoaPreset] = useState<MoAPreset | null>(null);
   const sessionApprovalsRef = useRef(new Set<string>());
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
   useEffect(() => {
@@ -588,6 +592,32 @@ const ChatApp = ({
         }
         return;
       }
+      if (command === "/moa") {
+        try {
+          const moaConfig = await loadConfig();
+          if (!arg || arg === "") {
+            const presetNames = Object.keys(moaConfig.moaPresets ?? {});
+            const status = activeMoaPreset !== null ? `MoA active: ${activeMoaPreset.name}` : "MoA is off";
+            const available = presetNames.length > 0 ? ` Available presets: ${presetNames.join(", ")}` : " No presets configured.";
+            setLines(previous => [...previous, { kind: "assistant", text: `${status}.${available}` }]);
+          } else if (arg === "off") {
+            setActiveMoaPreset(null);
+            setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated." }]);
+          } else {
+            const presets = moaConfig.moaPresets;
+            if (!presets || !(arg in presets)) {
+              setLines(previous => [...previous, { kind: "error", text: `Unknown MoA preset: "${arg}". Available: ${Object.keys(presets ?? {}).join(", ") || "none"}` }]);
+            } else {
+              const preset = parseMoAPreset(arg, presets[arg]);
+              setActiveMoaPreset(preset);
+              setLines(previous => [...previous, { kind: "assistant", text: `MoA activated: ${arg} (${preset.referenceModels.length} references → ${preset.aggregator.model})` }]);
+            }
+          }
+        } catch (error) {
+          setLines(previous => [...previous, { kind: "error", text: `MoA error: ${error instanceof Error ? error.message : String(error)}` }]);
+        }
+        return;
+      }
     }
 
     if (extensionRunner) {
@@ -617,6 +647,7 @@ const ChatApp = ({
       ...(reviewerModel !== undefined ? { reviewerModel } : {}),
       ...(extensionRunner ? { extensionRunner } : {}),
       ...(memoryStore ? { memoryStore } : {}),
+      ...(activeMoaPreset !== null ? { moaPreset: activeMoaPreset } : {}),
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
@@ -630,13 +661,30 @@ const ChatApp = ({
         onToolExecutionEnd(event.toolCallId, event.toolName, event.result);
       } else if (event.type === "compaction_end") {
         setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
+      } else if (event.type === "moa_reference_start") {
+        setLines(previous => [...previous, { kind: "assistant", text: `⟐ MoA reference ${event.index + 1}/${event.count} (${event.model})...` }]);
+      } else if (event.type === "moa_reference_end") {
+        const summary = event.text.startsWith("[failed:")
+          ? "[failed]"
+          : event.text.slice(0, 80);
+        setLines(previous => {
+          const updated = [...previous];
+          const last = updated.at(-1);
+          if (last !== undefined && last.kind === "assistant" && last.text.startsWith(`⟐ MoA reference ${event.index + 1}/`)) {
+            updated[updated.length - 1] = { kind: "assistant", text: `⟐ MoA reference ${event.index + 1} (${event.model}): ${summary}` };
+          }
+          return updated;
+        });
+      } else if (event.type === "moa_aggregating") {
+        setLines(previous => [...previous, { kind: "assistant", text: `⟐ Aggregating from ${event.refCount} reference${event.refCount === 1 ? "" : "s"}...` }]);
       } else if (event.type === "message_start" && event.message.role === "user") {
         if (!sawInitialUserMessage) {
           sawInitialUserMessage = true;
         } else if (typeof event.message.content === "string") {
+          const userText = event.message.content;
           flushStreamingLine();
           setQueuedSteer(false);
-          setLines(previous => [...previous, { kind: "user", text: event.message.content as string }]);
+          setLines(previous => [...previous, { kind: "user", text: userText }]);
         }
       }
     });
@@ -676,7 +724,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
+  }, [activeMoaPreset, activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {
@@ -770,7 +818,7 @@ const ChatApp = ({
           useCustomInput={useComposerInput}
         />
       </Box>
-      <StatusBar theme={theme} session={activeSession} gitStatus={gitStatus} {...(persistence.sessionMetadata ? { metadata: persistence.sessionMetadata } : {})} unsaved={checkpointUnsaved} viewportOffset={viewport.offset} viewportRows={viewport.viewportRows} totalRows={viewport.totalRows} />
+      <StatusBar theme={theme} session={activeSession} gitStatus={gitStatus} {...(persistence.sessionMetadata ? { metadata: persistence.sessionMetadata } : {})} unsaved={checkpointUnsaved} viewportOffset={viewport.offset} viewportRows={viewport.viewportRows} totalRows={viewport.totalRows} activeMoaPreset={activeMoaPreset} />
     </Box>
   );
 };

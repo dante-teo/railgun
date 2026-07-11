@@ -1,6 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import writeFileAtomic from "write-file-atomic";
+import type { MoAPreset } from "./agent/moa.js";
 import { CONFIG_PATH } from "./paths.js";
 
 export interface AppConfig {
@@ -8,6 +9,8 @@ export interface AppConfig {
   readonly defaultProjectTrust: "ask" | "always" | "never";
   readonly approvalMode?: "manual" | "smart" | "off";
   readonly reviewerModel?: string;
+  readonly moaPresets?: Record<string, unknown>;
+  readonly activeMoaPreset?: string;
   readonly [key: string]: unknown;
 }
 
@@ -68,7 +71,65 @@ const validateConfig = (value: unknown, path: string): AppConfig => {
   if (reviewerModel !== undefined && (typeof reviewerModel !== "string" || reviewerModel.length === 0 || /\s/.test(reviewerModel))) {
     throw new ConfigError(path, '"reviewerModel" must be a non-empty string without whitespace');
   }
+  const moaPresets = merged.moaPresets;
+  if (moaPresets !== undefined) {
+    if (!isObject(moaPresets)) throw new ConfigError(path, '"moaPresets" must be an object');
+    for (const [presetName, presetValue] of Object.entries(moaPresets)) {
+      try {
+        parseMoAPreset(presetName, presetValue);
+      } catch (error) {
+        const detail = error instanceof ConfigError ? error.message.replace(/^[^:]+: /, "") : (error instanceof Error ? error.message : String(error));
+        throw new ConfigError(path, `moaPresets["${presetName}"]: ${detail}`);
+      }
+    }
+  }
+  const activeMoaPreset = merged.activeMoaPreset;
+  if (activeMoaPreset !== undefined && (typeof activeMoaPreset !== "string" || activeMoaPreset.length === 0)) {
+    throw new ConfigError(path, '"activeMoaPreset" must be a non-empty string');
+  }
+  if (typeof activeMoaPreset === "string" && isObject(moaPresets) && !(activeMoaPreset in moaPresets)) {
+    throw new ConfigError(path, `"activeMoaPreset" refers to unknown preset "${activeMoaPreset}"`);
+  }
   return merged as AppConfig;
+};
+
+export const parseMoAPreset = (name: string, raw: unknown): MoAPreset => {
+  const p = (field: string): string => `moaPresets["${name}"].${field}`;
+  if (!isObject(raw)) throw new ConfigError("moaPresets config", `moaPresets["${name}"] must be an object`);
+
+  const parseModelSlot = (slot: unknown, field: string) => {
+    if (!isObject(slot)) throw new ConfigError("moaPresets config", `${field} must be an object`);
+    const model = slot["model"];
+    if (typeof model !== "string" || model.length === 0) {
+      throw new ConfigError("moaPresets config", `${field}.model must be a non-empty string`);
+    }
+    const temperature = slot["temperature"];
+    if (temperature !== undefined && typeof temperature !== "number") {
+      throw new ConfigError("moaPresets config", `${field}.temperature must be a number`);
+    }
+    return { model, ...(temperature !== undefined ? { temperature } : {}) };
+  };
+
+  const refModels = raw["referenceModels"];
+  if (!Array.isArray(refModels)) throw new ConfigError("moaPresets config", `${p("referenceModels")} must be an array`);
+  if (refModels.length === 0) throw new ConfigError("moaPresets config", `${p("referenceModels")} must not be empty`);
+  if (refModels.length > 8) throw new ConfigError("moaPresets config", `${p("referenceModels")} must have at most 8 entries`);
+  const referenceModels = refModels.map((slot: unknown, i: number) =>
+    parseModelSlot(slot, p(`referenceModels[${i}]`))
+  );
+
+  const aggregator = parseModelSlot(raw["aggregator"], p("aggregator"));
+
+  const referenceMaxTokens = raw["referenceMaxTokens"];
+  if (referenceMaxTokens !== undefined && (typeof referenceMaxTokens !== "number" || referenceMaxTokens <= 0)) {
+    throw new ConfigError("moaPresets config", `${p("referenceMaxTokens")} must be a positive number`);
+  }
+  return {
+    name,
+    referenceModels,
+    aggregator,
+    ...(referenceMaxTokens !== undefined ? { referenceMaxTokens } : {}),
+  };
 };
 
 const isMissingFile = (error: unknown): boolean =>

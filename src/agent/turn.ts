@@ -12,6 +12,8 @@ import { runCompaction, shouldCompact } from "./compaction.js";
 import type { UsageTotals } from "./compaction.js";
 import type { AgentEvent, ToolResult } from "./events.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
+import type { MoAPreset, ReferenceCallbacks } from "./moa.js";
+import { runReferences, buildAggregatorGuidance } from "./moa.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
@@ -39,6 +41,7 @@ export interface RunTurnOptions {
   reviewerModel?: string;
   extensionRunner?: ExtensionRunner;
   memoryStore?: MemoryStore;
+  moaPreset?: MoAPreset;
 }
 
 const pushMessage = async (
@@ -274,6 +277,7 @@ export const runTurn = async (
   options?: RunTurnOptions
 ): Promise<TurnOutcome> => {
   const doEmit = emit ?? (async () => {});
+  const effectiveModel = options?.moaPreset?.aggregator.model ?? model;
   const initialUserMessage: DevinMessage = { role: "user", content: userText };
   const messages: DevinMessage[] = [...history, initialUserMessage];
   const allTextParts: string[] = [];
@@ -307,13 +311,27 @@ export const runTurn = async (
   await doEmit({ type: "message_start", message: initialUserMessage });
   await doEmit({ type: "message_end", message: initialUserMessage });
 
+  if (options?.moaPreset) {
+    const preset = options.moaPreset;
+    const callbacks: ReferenceCallbacks = {
+      onStart: async (index, count, model) => doEmit({ type: "moa_reference_start", index, count, model }),
+      onEnd: async (index, model, text) => doEmit({ type: "moa_reference_end", index, model, text }),
+    };
+    const refs = await runReferences(devin, preset, messages, signal, callbacks);
+    const guidance = buildAggregatorGuidance(refs);
+    await doEmit({ type: "moa_aggregating", aggregator: preset.aggregator.model, refCount: refs.length });
+    // Guidance is private context for the aggregator — not a real user message.
+    // Skip pushMessage (which emits message_start/end) to keep the event stream clean.
+    messages.push({ role: "user", content: guidance });
+  }
+
   try {
     while (iterationBudget.consume()) {
       compactedThisRound = false;
       turnEndedThisAttempt = false;
       await doEmit({ type: "turn_start" });
       const outcome = await callDevinWithRecovery(
-        () => runStep(devin, model, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner),
+        () => runStep(devin, effectiveModel, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner),
         () => compress("overflow")
       );
       await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });

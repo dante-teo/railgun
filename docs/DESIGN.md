@@ -36,10 +36,7 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
   unseen-row cue reserves one visible transcript row.
-- `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, and `/trust` are the
-  available commands. `/rollback` restores the working directory to the
-  snapshot taken before the agent's last file-mutating tool call (no-op if no
-  snapshot exists yet this session). The `/trust` command opens a five-key numbered picker within the running REPL (keys `1`–`5` for Trust / Trust parent / Trust session-only / Deny / Deny session-only; Escape to cancel without changing). Choosing a persisted option writes to `~/.railgun/trust.json`; session-only options take effect for the process lifetime only. Shell approval uses `y`, `n`, or Escape.
+- `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, `/moa`, and `/trust` are the available commands. `/moa` activates or deactivates Mixture of Agents mode for the session. `/moa <preset-name>` loads the named preset from `config.json`'s `moaPresets` and begins prepending advisory reference context to every subsequent turn. `/moa off` deactivates MoA. Bare `/moa` reports the current status and lists available presets. The active preset name appears in the status bar when MoA is on. `/rollback` restores the working directory to the snapshot taken before the agent's last file-mutating tool call (no-op if no snapshot exists yet this session). The `/trust` command opens a five-key numbered picker within the running REPL (keys `1`–`5` for Trust / Trust parent / Trust session-only / Deny / Deny session-only; Escape to cancel without changing). Choosing a persisted option writes to `~/.railgun/trust.json`; session-only options take effect for the process lifetime only. Shell approval uses `y`, `n`, or Escape.
   Clarify prompts use number keys `1`–`4` to pick a displayed choice, Enter to
   submit a freeform typed answer, or Escape to decline. When choices are shown
   the composer unfocuses so number keystrokes reach only the clarify handler;
@@ -107,6 +104,8 @@ first session; `"always"` trusts every project without prompting; `"never"`
 denies every project without prompting. Per-project decisions are persisted
 in `~/.railgun/trust.json`; `--approve`/`-a` and `--no-approve`/`-na`
 override for a single invocation.
+
+The optional `moaPresets` key defines named Mixture of Agents presets, each with a `referenceModels` array (up to 8 entries, each `{model, temperature?}`), an `aggregator` `{model, temperature?}`, and an optional positive `referenceMaxTokens`. The optional `activeMoaPreset` key names the default preset for one-shot mode (`--print`/`-p`); REPL sessions activate a preset at runtime with `/moa <preset-name>`. Preset validation at config load time rejects missing required fields, non-positive token caps, and `activeMoaPreset` pointing to an unknown preset name. Unknown extra keys inside a preset are preserved (forward-compatible).
 
 A configured string requests that exact model for fresh sessions. When it is
 missing, interactive TTY launches show a model chooser using the resume

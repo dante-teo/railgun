@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ConfigError, loadConfig, mergeConfig, setConfiguredModel } from "./config.js";
+import { ConfigError, loadConfig, mergeConfig, parseMoAPreset, setConfiguredModel } from "./config.js";
 
 let directory: string;
 let path: string;
@@ -124,5 +124,136 @@ describe("setConfiguredModel", () => {
     await expect(setConfiguredModel("replacement", path, { atomicWrite })).rejects.toBeInstanceOf(ConfigError);
     expect(atomicWrite).not.toHaveBeenCalled();
     expect(await readFile(path, "utf8")).toBe("not-json");
+  });
+});
+
+describe("moaPresets validation", () => {
+  it("accepts a valid moaPresets config", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({
+      model: null,
+      moaPresets: {
+        dual: {
+          referenceModels: [{ model: "ref-a" }, { model: "ref-b" }],
+          aggregator: { model: "agg-model" },
+          referenceMaxTokens: 600,
+        },
+      },
+    }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ moaPresets: { dual: expect.any(Object) } });
+  });
+
+  it("accepts moaPresets with no referenceMaxTokens", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({
+      model: null,
+      moaPresets: {
+        simple: {
+          referenceModels: [{ model: "ref" }],
+          aggregator: { model: "agg" },
+        },
+      },
+    }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ moaPresets: expect.any(Object) });
+  });
+
+  it("rejects moaPresets with missing referenceModels", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({
+      model: null,
+      moaPresets: { bad: { aggregator: { model: "agg" } } },
+    }));
+    await expect(loadConfig(path)).rejects.toThrow(/referenceModels/);
+  });
+
+  it("rejects moaPresets with missing aggregator.model", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({
+      model: null,
+      moaPresets: { bad: { referenceModels: [{ model: "ref" }], aggregator: {} } },
+    }));
+    await expect(loadConfig(path)).rejects.toThrow(/aggregator/);
+  });
+
+  it("rejects moaPresets with non-numeric referenceMaxTokens", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({
+      model: null,
+      moaPresets: {
+        bad: { referenceModels: [{ model: "ref" }], aggregator: { model: "agg" }, referenceMaxTokens: "many" },
+      },
+    }));
+    await expect(loadConfig(path)).rejects.toThrow(/referenceMaxTokens/);
+  });
+
+  it("rejects more than 8 reference models", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({
+      model: null,
+      moaPresets: {
+        toobig: {
+          referenceModels: Array.from({ length: 9 }, (_, i) => ({ model: `ref-${i}` })),
+          aggregator: { model: "agg" },
+        },
+      },
+    }));
+    await expect(loadConfig(path)).rejects.toThrow(/at most 8/);
+  });
+});
+
+describe("parseMoAPreset", () => {
+  it("returns typed MoAPreset for valid input", () => {
+    const result = parseMoAPreset("dual", {
+      referenceModels: [{ model: "ref-a" }, { model: "ref-b" }],
+      aggregator: { model: "agg" },
+      referenceMaxTokens: 500,
+    });
+    expect(result.name).toBe("dual");
+    expect(result.referenceModels).toHaveLength(2);
+    expect(result.aggregator.model).toBe("agg");
+    expect(result.referenceMaxTokens).toBe(500);
+  });
+
+  it("ignores unknown extra keys (forward-compatible)", () => {
+    const result = parseMoAPreset("future", {
+      referenceModels: [{ model: "ref", unknownField: true }],
+      aggregator: { model: "agg", anotherField: "x" },
+      futureOption: 42,
+    });
+    expect(result.name).toBe("future");
+    expect(result.referenceModels[0]?.model).toBe("ref");
+  });
+
+  it("throws ConfigError for non-object input", () => {
+    expect(() => parseMoAPreset("bad", "not-an-object")).toThrow(ConfigError);
+  });
+
+  it("throws ConfigError for missing referenceModels", () => {
+    expect(() => parseMoAPreset("bad", { aggregator: { model: "agg" } })).toThrow(ConfigError);
+  });
+
+  it("throws ConfigError for empty referenceModels array", () => {
+    expect(() => parseMoAPreset("bad", { referenceModels: [], aggregator: { model: "agg" } })).toThrow(ConfigError);
+  });
+
+  it("throws ConfigError for missing aggregator.model", () => {
+    expect(() => parseMoAPreset("bad", { referenceModels: [{ model: "r" }], aggregator: {} })).toThrow(ConfigError);
+  });
+
+  it("throws ConfigError for non-numeric referenceMaxTokens", () => {
+    expect(() => parseMoAPreset("bad", {
+      referenceModels: [{ model: "r" }],
+      aggregator: { model: "a" },
+      referenceMaxTokens: "lots",
+    })).toThrow(ConfigError);
+  });
+
+  it("accepts optional temperature on model slots", () => {
+    const result = parseMoAPreset("warm", {
+      referenceModels: [{ model: "ref", temperature: 0.7 }],
+      aggregator: { model: "agg", temperature: 0.5 },
+    });
+    expect(result.referenceModels[0]?.temperature).toBe(0.7);
+    expect(result.aggregator.temperature).toBe(0.5);
   });
 });

@@ -1,3 +1,4 @@
+import type { MoAPreset } from "./moa.js";
 import type { DevinMessage, DevinProvider } from "widevin";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import type { TodoStore } from "../tools/todo.js";
@@ -25,6 +26,7 @@ export interface AgentDependencies {
   readonly reviewerModel?: string;
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
+  readonly moaPreset?: MoAPreset;
 }
 
 export interface AgentRunInput {
@@ -90,6 +92,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.reviewerModel !== undefined ? { reviewerModel: dependencies.reviewerModel } : {}),
           ...(dependencies.extensionRunner ? { extensionRunner: dependencies.extensionRunner } : {}),
           ...(dependencies.memoryStore !== undefined ? { memoryStore: dependencies.memoryStore } : {}),
+          ...(dependencies.moaPreset ? { moaPreset: dependencies.moaPreset } : {}),
         },
       );
     } finally {

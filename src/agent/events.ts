@@ -17,6 +17,9 @@ export type AgentEvent =
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
   | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: ToolResult }
   | { type: "compaction_start"; reason: "threshold" | "overflow" }
-  | { type: "compaction_end"; reason: "threshold" | "overflow" };
+  | { type: "compaction_end"; reason: "threshold" | "overflow" }
+  | { type: "moa_reference_start"; index: number; count: number; model: string }
+  | { type: "moa_reference_end"; index: number; model: string; text: string }
+  | { type: "moa_aggregating"; aggregator: string; refCount: number };
 
 export type AgentEventListener = (event: AgentEvent) => void | Promise<void>;

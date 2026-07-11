@@ -42,6 +42,25 @@ one-shot/print) now open the session database to read memories. The `SessionStor
 exposes a `readonly db` handle so `MemoryStore` can share the same SQLite connection
 without opening a second one.
 
+**Phase 32 (Mixture of Agents):**
+Phase 32 adds an opt-in Mixture of Agents (MoA) mode. When active, every user
+turn fans out parallel advisory calls to a configurable set of reference models
+before the acting aggregator model decides its next step. Each reference model
+receives a stripped, tool-free view of the conversation and is asked to give
+analysis, next-steps, and risk notes. Their responses are collected and
+injected as a private guidance user message appended to the conversation before
+the aggregator's first round. A failed reference produces a labelled
+`[failed: ...]` note and never crashes the turn. MoA is activated for the
+current session with `/moa <preset-name>` and deactivated with `/moa off`; a
+persistent default for one-shot mode is configured via `activeMoaPreset` in
+`config.json`. Configuration: `moaPresets` is a top-level `config.json` key
+mapping preset names to objects with `referenceModels` (array of
+`{model, temperature?}`, at most 8), `aggregator` ({model, temperature?}), and
+optional `referenceMaxTokens` (positive integer). New file:
+`src/agent/moa.ts`. Three new `AgentEvent` variants:
+`moa_reference_start`, `moa_reference_end`, `moa_aggregating`. See
+`docs/adr/0014-mixture-of-agents.md`.
+
 **Phase 23 (extension system):**
 Phase 23 adds an extension system that lets outside code observe and intercept
 the agent's lifecycle without editing core source. Extensions live in
@@ -557,6 +576,33 @@ protocol failures, and unrelated errors fail immediately.
   migrated to v2 (memories table created, `user_version` bumped). Manual smoke
   test: tell the agent a fact in session 1, quit, start a new fresh session (no
   `--resume`), ask about the fact — agent answers correctly from memory.
+  Phase 32: `src/agent/moa.test.ts` (new) proves `truncateToolResult`
+  under/over budget passthrough and head+tail omission,
+  `buildReferenceMessages` text extraction for user/assistant/tool messages,
+  tool-call rendering, tool-result folding into preceding assistant content,
+  synthetic advisory message appended when conversation ends on an assistant
+  turn, and empty-conversation fallback; `buildAggregatorGuidance` label
+  formatting, per-reference blocks, and advisory framing;
+  `injectMoAGuidance` appends without mutating the input array;
+  `runOneReference` collects text_delta events, uses
+  `REFERENCE_SYSTEM_PROMPT` and no tools, passes temperature from slot,
+  returns a labelled failure note on provider error without throwing, breaks
+  early at the char budget, and passes `maxTokens` to `streamChat`;
+  `runReferences` fans out in parallel and preserves order with mixed
+  success/failure. `src/config.test.ts` (extended) proves valid `moaPresets`
+  round-trips, missing `referenceModels`/`aggregator.model` and
+  non-numeric/non-positive `referenceMaxTokens` reject with `ConfigError`,
+  more-than-8 models reject, `parseMoAPreset` ignores unknown extra keys,
+  and `activeMoaPreset` pointing to a nonexistent preset rejects at load
+  time. `src/agent/turn.test.ts` (extended) proves:
+  `moa_reference_start`/`moa_reference_end`/`moa_aggregating` events fire
+  before `turn_start`; the aggregator's `streamChat` request messages
+  contain the injected guidance user message with "Mixture of Agents"; one
+  failed reference still produces `ok: true` with `[failed:` in the
+  guidance; the aggregator model override from `preset.aggregator.model`
+  is used for the acting `streamChat` call; and no MoA code runs when
+  `moaPreset` is not provided. Full suite (49 files / 601 tests) passes;
+  `pnpm typecheck` clean.
 
 ## Open Questions
 
