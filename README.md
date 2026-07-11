@@ -403,6 +403,86 @@ the supported `login`, `logout`, `--print`, `--resume`/`-r`, and
 `--list-sessions` usage to
 stderr and exits non-zero without launching anything.
 
+### RPC mode
+
+```sh
+railgun --mode rpc
+```
+
+`--mode rpc` runs Railgun headlessly as one process per client. The protocol is
+JSONL over stdio: the client writes one JSON command per line to stdin, and the
+process writes responses and events as JSON lines to stdout. There is no shared
+socket server or gateway; each client spawns its own `railgun --mode rpc`
+process.
+
+Each command is a JSON object with a `type` field and an optional `id` field:
+
+| Command | Required fields | Description |
+|---|---|---|
+| `prompt` | `message` (string) | Start a new agent run with the given user message. |
+| `steer` | `message` (string) | Send a steering message while a run is in progress. |
+| `follow_up` | `message` (string) | Send a follow-up message while a run is in progress. |
+| `abort` | — | Cancel the current run. |
+| `get_state` | — | Return lightweight session state. |
+| `get_messages` | — | Return the current message transcript. |
+| `set_model` | `modelId` (string) | Switch to the given Devin model ID. |
+| `get_available_models` | — | Return the list of available Devin models. |
+| `compact` | — | Trigger manual context compaction. |
+| `set_auto_compaction` | `enabled` (boolean) | Enable or disable automatic context compaction (currently no-op). |
+
+Responses are JSON objects with the same `id` as the command (if any),
+`type: "response"`, `command` set to the command type, and a `success` boolean:
+
+```json
+{ "id": "1", "type": "response", "command": "prompt", "success": true }
+```
+
+When `success` is `false`, the response includes an `error` string instead of
+`data`. When `success` is `true`, `get_state`, `get_messages`, and
+`get_available_models` include a `data` object; other commands omit `data`.
+
+Events are raw `AgentSessionEvent` objects (no wrapper envelope) and are emitted
+as each occurs:
+
+- `agent_start`
+- `agent_end`
+- `turn_start`
+- `turn_end`
+- `message_start`
+- `message_update`
+- `message_end`
+- `tool_execution_start`
+- `tool_execution_end`
+- `compaction_start`
+- `compaction_end`
+- `agent_settled`
+- `queue_update`
+
+Only one prompt can be in flight at a time. A second `prompt` while a run is
+already running returns an error response with `success: false`. `steer`,
+`follow_up`, and `abort` work only while a run is in progress; sending them
+while idle returns an error response.
+
+When stdin reaches EOF, any in-flight run is aborted and the process exits
+cleanly. RPC mode does not persist sessions.
+
+Shell commands are auto-approved in RPC mode because there is no human at the
+terminal; the configured `approvalMode` still applies but the human confirmation
+callback always returns true. The `clarify` tool throws as a tool error and
+surfaces in the transcript.
+
+`--approve` and `--no-approve` are incompatible with `--mode rpc` and produce a
+usage error.
+
+Minimal example:
+
+```sh
+echo '{"id":"1","type":"prompt","message":"What is 2+2?"}' | railgun --mode rpc
+```
+
+This pipes a single command to the process and prints interleaved JSONL event
+and response lines to stdout.
+
 ## Development
 
 ```sh

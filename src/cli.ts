@@ -25,8 +25,10 @@ import type { DevinProvider, DevinModel } from "widevin";
 import { startScheduler } from "./cron/scheduler.js";
 import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memoryStore.js";
 import type { MemoryStore } from "./persistence/memoryStore.js";
+import { runRpcMode } from "./rpc/rpcMode.js";
+import type { RpcModeOptions } from "./rpc/rpcMode.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun --mode rpc";
 
 export type CliMode =
   | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
@@ -36,7 +38,8 @@ export type CliMode =
   | { kind: "login" }
   | { kind: "logout" }
   | { kind: "config" }
-  | { kind: "cron" };
+  | { kind: "cron" }
+  | { kind: "rpc" };
 
 export class CliUsageError extends Error {
   constructor() {
@@ -54,6 +57,7 @@ export interface CliDependencies {
   runLogout: () => Promise<void>;
   runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore, memoryStore?: MemoryStore) => Promise<void>;
   runOneShot: (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore) => Promise<void>;
+  runRpc: (options: RpcModeOptions) => Promise<void>;
   createNewTrustStore: () => ProjectTrustStore;
   promptTrustChoice: (cwd: string) => Promise<TrustChoice>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
@@ -105,6 +109,14 @@ export const parseCliArgs = (args: readonly string[]): CliMode => {
   if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
     return rest[0] === undefined ? { kind: "resume", ...trustFlags } : { kind: "resume", id: rest[0], ...trustFlags };
   }
+  if (flag === "--mode") {
+    if (rest.length !== 1) throw new CliUsageError();
+    if (rest[0] === "rpc") {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "rpc" };
+    }
+    throw new CliUsageError();
+  }
   throw new CliUsageError();
 };
 
@@ -124,6 +136,7 @@ const defaultDependencies: CliDependencies = {
   runLogout: runLogoutCommand,
   runRepl,
   runOneShot,
+  runRpc: runRpcMode,
   createNewTrustStore: createProjectTrustStore,
   promptTrustChoice: promptTrustChoiceReadline,
   selectSession: runSessionChooser,
@@ -343,6 +356,19 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     return;
   }
 
+  if (mode.kind === "rpc") {
+    const session = await dependencies.initSession();
+    const config = await dependencies.loadConfig();
+    const { runner, cleanup } = await bootstrapExtensions("rpc", config);
+    try {
+      await runner.emitSessionStart({ type: "session_start", reason: "new" });
+      await dependencies.runRpc({ session, config, stdin: process.stdin, stdout: process.stdout, extensionRunner: runner });
+      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    } finally {
+      cleanup();
+    }
+    return;
+  }
 };
 
 export const main = async (args = process.argv.slice(2)): Promise<void> => {

@@ -57,6 +57,7 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
   runLogout: vi.fn(async () => {}),
   runRepl: vi.fn(async () => {}),
   runOneShot: vi.fn(async () => {}),
+  runRpc: vi.fn(async () => {}),
   promptTrustChoice: vi.fn(async (): Promise<TrustChoice> => "trust"),
   selectSession: vi.fn(async () => undefined),
   randomId: vi.fn(() => "fresh-id"),
@@ -85,6 +86,7 @@ describe("parseCliArgs", () => {
     [["-na"], { kind: "fresh", noApprove: true }],
     [["--approve", "--print", "hello"], { kind: "print", question: "hello", approve: true }],
     [["--resume", "abc", "--no-approve"], { kind: "resume", id: "abc", noApprove: true }],
+    [["--mode", "rpc"], { kind: "rpc" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
@@ -101,6 +103,9 @@ describe("parseCliArgs", () => {
     ["login", "--approve"],
     ["--approve", "--no-approve"],
     ["--list-sessions", "-a"],
+    ["--mode", "rpc", "--approve"],
+    ["--mode"],
+    ["--mode", "unknown"],
   ])("rejects invalid arguments %j", (...args) => {
     expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
   });
@@ -202,6 +207,19 @@ describe("dispatchCli", () => {
     expect(deps.selectSession).toHaveBeenCalledOnce();
     expect(deps.initSession).toHaveBeenCalledWith("model-a", null);
     expect(deps.runRepl).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches rpc mode: initializes session and calls runRpc without opening the store", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "rpc" }, deps);
+    expect(deps.initSession).toHaveBeenCalledOnce();
+    expect(deps.loadConfig).toHaveBeenCalledOnce();
+    expect(deps.runRpc).toHaveBeenCalledWith(expect.objectContaining({
+      session: fakeSession,
+      config: expect.objectContaining({ model: null }),
+    }));
+    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.runRepl).not.toHaveBeenCalled();
   });
 });
 

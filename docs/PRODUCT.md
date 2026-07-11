@@ -14,7 +14,7 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 29 (cron scheduler):**
+**Current phase — Phase 33 (JSONL RPC protocol):**
 Phase 29 adds a `railgun cron` command that runs the agent automatically on a schedule without human input. Jobs are defined in `~/.railgun/cron/jobs.json` as a JSON array of objects with `id`, `schedule` (cron expression), `prompt`, and `lastRun` (epoch ms or null). A background loop wakes every 60 seconds, parses each schedule with `cron-parser` to find the last firing time before now, and runs any job whose `lastRun` is before that time (or null). Each job fires a fresh `createAgentSession` with a 30-step iteration budget, shell commands denied by default unless `approvalMode` is `"off"` in `config.json`, and no session persistence — output is logged to stderr. After all due jobs in a cycle complete, `lastRun` is atomically written back to `jobs.json` via `write-file-atomic`. The loop runs until SIGINT or SIGTERM, which are each forwarded to an `AbortController`; the signal propagates through the sleep primitive (built with `Promise.withResolvers()`) so the process exits without waiting out the current interval. Extensions are not loaded in cron mode. `src/cron/jobs.ts` owns job types, disk I/O, and `isDue`; `src/cron/scheduler.ts` owns `tick` (sequential per-cycle run), `runCronJob` (session construction and event collection), and `startScheduler` (the main loop).
 
 **Phase 24 (MCP client support):**
@@ -59,6 +59,50 @@ session startup; `registerExtensionTools` inserts extension-registered tools
 into the core registry under a new `"extension"` toolset. All three session
 modes — fresh REPL, resume, and one-shot — bootstrap extensions before the
 session runs and emit `session_start`/`session_shutdown` around it. See ADR-0013.
+
+Phase 33 adds a `--mode rpc` flag to the railgun CLI. The process accepts JSONL
+commands on stdin and emits typed responses plus `AgentSessionEvent` objects on
+stdout. Each GUI client or test script spawns `railgun --mode rpc` as a child
+process and drives it over stdio — one process per client, no shared gateway, no
+socket server. The protocol defines 10 `RpcCommand` types: `prompt` (fires an
+agent run with the accumulated history), `steer` and `follow_up` (injected during
+a run), `abort` (cancels an in-flight run), `get_state` (running flag, current
+model, message count, todo snapshot), `get_messages` (full accumulated history),
+`set_model` (swaps the model for subsequent prompts), `get_available_models`,
+`compact` (manual history compaction), and `set_auto_compaction`. Every response
+carries `{type:"response", command, success, id?}` plus a `data` field on success
+or `error` string on failure. `AgentSessionEvent` objects (all 13 variants) are
+forwarded as raw JSONL with no envelope. One prompt runs at a time; a second
+prompt while one is in-flight returns an error response immediately. stdin EOF
+aborts any in-flight run, awaits its completion, and exits cleanly. Shell
+commands are auto-approved in RPC mode (headless — no human at the terminal);
+the `clarify` tool throws, surfacing as a tool error in the transcript. No
+session persistence occurs in RPC mode. The `RpcClient` class
+(`src/rpc/rpcClient.ts`) provides a TypeScript consumer surface: it spawns the
+child process, assigns auto-incrementing ids, resolves/rejects `call()` promises
+when responses arrive, and forwards event objects to registered listeners.
+`src/rpc/jsonl.test.ts` proves `serializeJsonLine` round-trips through
+`JSON.parse`, `makeLineReader` splits on `0x0a` only (not U+2028/U+2029), handles
+chunked input across multiple data events, ignores empty lines, and detaches
+cleanly via the cleanup callback; `src/rpc/types.test.ts` confirms the
+discriminated union shapes compile and satisfy type constraints;
+`src/rpc/rpcMode.test.ts` proves `prompt` responds with success after the agent
+finishes, `agent_start` is emitted, `get_state` returns `running:false` with the
+correct model when idle, `get_messages` returns an empty array before any
+prompts, invalid JSON produces a `parse_error` response, a missing `type` field
+returns an error, a second concurrent prompt returns an error response while the
+first succeeds, `abort` during a run returns success, `steer` while not running
+returns an error, and `steer` while running returns success;
+`src/rpc/rpcClient.test.ts` proves the child is spawned with `--mode rpc`
+appended, `call()` resolves on a success response, rejects on an error response,
+non-response lines reach event listeners, unsubscribing removes the listener,
+`stop()` kills the child, out-of-order responses correlate correctly by id, and
+malformed JSON is silently ignored; `src/cli.test.ts` proves `--mode rpc` parses
+to `{ kind: "rpc" }`, `--mode rpc --approve` throws `CliUsageError`, bare
+`--mode` throws, and `--mode unknown` throws; the `dispatchCli` test proves
+`initSession` and `loadConfig` are called, `runRpc` is called with the session
+and config, and the session store is never opened. Full suite: 52 test files,
+592 tests, zero regressions; `pnpm typecheck` clean.
 
 Phase 22 adds automatic working-directory snapshots before file-mutating tool
 calls and a `/rollback` REPL command to undo the agent's last round of
@@ -283,6 +327,11 @@ protocol failures, and unrelated errors fail immediately.
 7. Tell the agent a fact you want remembered (e.g. "Remember that I hate coffee").
    Railgun calls `memory_write` to persist it. On the next fresh session (no `--resume`
    needed), ask about it and Railgun answers from the saved memory.
+8. Run `railgun --mode rpc` to start a headless agent process driven over stdio.
+   Write JSONL command objects to its stdin (e.g.
+   `{"id":"1","type":"prompt","message":"What is 2+2?"}`) and read
+   JSONL responses plus `AgentSessionEvent` objects from its stdout. Each client
+   spawns its own process — no shared server.
 
 ## Success Metrics
 
