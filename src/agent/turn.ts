@@ -1,6 +1,6 @@
 import type { DevinAssistantContentPart, DevinMessage, DevinProvider } from "widevin";
 import { registry } from "../tools/index.js";
-import type { ToolContext } from "../tools/index.js";
+import type { ToolContext, ClarifyCallback } from "../tools/index.js";
 import type { TodoStore } from "../tools/todo.js";
 import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from "./toolDispatch.js";
 import { callDevinWithRecovery } from "./recovery.js";
@@ -17,7 +17,7 @@ export type TurnOutcome =
 
 export const STOPPED_BY_USER = "[stopped by user]";
 
-const ENABLED_TOOLSETS = ["file", "terminal", "planning"] as const;
+const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify"] as const;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }
@@ -25,6 +25,7 @@ type StepResult =
 
 export interface RunTurnOptions {
   todoStore?: TodoStore;
+  clarifyCallback?: ClarifyCallback;
   signal?: AbortSignal;
   takeSteer?: () => string | undefined;
   takeFollowUps?: () => readonly string[];
@@ -198,7 +199,8 @@ export const runTurn = async (
   const context: ToolContext = {
     confirmShellCommand,
     signal,
-    ...(options?.todoStore ? { todoStore: options.todoStore } : {}),
+    ...(options?.todoStore !== undefined ? { todoStore: options.todoStore } : {}),
+    ...(options?.clarifyCallback !== undefined ? { clarifyCallback: options.clarifyCallback } : {}),
     ...(options?.checkpointGuard ? { checkpointGuard: options.checkpointGuard } : {}),
   };
   let compactedThisRound = false;

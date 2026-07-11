@@ -40,6 +40,11 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   available commands. `/rollback` restores the working directory to the
   snapshot taken before the agent's last file-mutating tool call (no-op if no
   snapshot exists yet this session). Shell approval uses `y`, `n`, or Escape.
+  Clarify prompts use number keys `1`–`4` to pick a displayed choice, Enter to
+  submit a freeform typed answer, or Escape to decline. When choices are shown
+  the composer unfocuses so number keystrokes reach only the clarify handler;
+  freeform-only prompts keep the composer focused. Both modes show an `❓`
+  prompt box above the composer with a contextual placeholder.
 - Completed replies use GFM Markdown with wrapped prose, lists, links, tables,
   and themed fenced-code boxes with language labels. Streaming fragments remain
   plain until completion.
@@ -59,11 +64,7 @@ screen and restore it on every exit path. Non-TTY output and
 Ink's accessible rendering; all controls remain keyboard-only and all status
 meaning has a textual cue.
 
-Ctrl+C cancels an active agent or approval rather than exiting. Cancellation
-retains streamed assistant text and completed tools/todos, displays the stop as
-UI metadata, and returns to the same session. With no cancellable target,
-Ctrl+C exits normally. Shell approval freezes composer input; approved POSIX
-shell work is terminated as a process group on cancellation.
+Ctrl+C cancels an active agent, shell approval, or clarify prompt rather than exiting. Cancellation retains streamed assistant text and completed tools/todos, displays the stop as UI metadata, and returns to the same session. Cancelling a clarify prompt resolves it with `[user declined to answer]` and aborts the agent turn. With no cancellable target, Ctrl+C exits normally. Shell approval freezes composer input; approved POSIX shell work is terminated as a process group on cancellation.
 
 ## Session chooser
 

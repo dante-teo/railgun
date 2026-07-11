@@ -34,6 +34,7 @@ export const buildSystemPrompt = ({
     "- Do not render a markdown checklist as a substitute for the todo tool.",
     "- Keep todo statuses current as work starts, completes, or is cancelled.",
     "- Respect the existing shell approval flow; shell commands may be declined by the user.",
+    "- Use the clarify tool to ask the user a question when you need information you cannot safely guess, especially before irreversible actions. Offer choices when the options are clear and few.",
     "- Keep tool use focused on the user's current task."
   ].join("\n"),
   [

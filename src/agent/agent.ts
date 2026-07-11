@@ -1,5 +1,6 @@
 import type { DevinMessage, DevinProvider } from "widevin";
 import type { TodoStore } from "../tools/todo.js";
+import type { ClarifyCallback } from "../tools/registry.js";
 import { IterationBudget } from "./iterationBudget.js";
 import type { TurnOutcome } from "./turn.js";
 import { runTurn } from "./turn.js";
@@ -12,6 +13,7 @@ export interface AgentDependencies {
   readonly contextWindow: number;
   readonly systemPrompt: readonly string[];
   readonly confirmShellCommand: (command: string) => Promise<boolean>;
+  readonly clarifyCallback?: ClarifyCallback;
   readonly todoStore?: TodoStore;
   readonly iterationBudget?: () => IterationBudget;
   readonly checkpointGuard?: { beforeMutation: () => void; resetTurn: () => void };
@@ -72,7 +74,8 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           takeSteer: queues.takeSteer,
           takeFollowUps: queues.takeFollowUps,
           clearQueues: queues.clear,
-          ...(dependencies.todoStore ? { todoStore: dependencies.todoStore } : {}),
+          ...(dependencies.todoStore !== undefined ? { todoStore: dependencies.todoStore } : {}),
+          ...(dependencies.clarifyCallback !== undefined ? { clarifyCallback: dependencies.clarifyCallback } : {}),
           ...(dependencies.checkpointGuard ? { checkpointGuard: dependencies.checkpointGuard } : {}),
         },
       );

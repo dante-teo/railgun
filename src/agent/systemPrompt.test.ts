@@ -60,6 +60,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Do not render a markdown checklist");
   });
 
+  it("includes clarify tool guidance in tool rules", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+
+    expect(prompt).toContain("clarify tool");
+    expect(prompt).toContain("cannot safely guess");
+  });
+
   it("appends project context as array entry [3] with exact header", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,

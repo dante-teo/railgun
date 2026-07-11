@@ -278,6 +278,8 @@ const ChatApp = ({
   const [checkpointUnsaved, setCheckpointUnsaved] = useState(false);
   const [todoLoading, setTodoLoading] = useState(false);
   const pendingApprovalRef = useRef<{ resolve: (approved: boolean) => void } | null>(null);
+  const [pendingClarify, setPendingClarify] = useState<{ question: string; choices?: string[] } | null>(null);
+  const pendingClarifyRef = useRef<{ resolve: (answer: string) => void } | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
@@ -287,7 +289,8 @@ const ChatApp = ({
   const todoRows = todos.length === 0 && !todoLoading ? 0 : todos.length + 2;
   const pickerVisibleCount = modelPicker ? Math.max(1, Math.min(modelPicker.models.length, Math.floor((rows - 15) / 3))) : 0;
   const pickerRows = modelPicker ? pickerVisibleCount * 3 + 1 : 0;
-  const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + 1;
+  const clarifyRows = pendingClarify ? 2 + (pendingClarify.choices?.length ?? 0) : 0;
+  const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + 1;
   const transcriptRows = Math.max(1, rows - 3 - lowerRows);
   const ephemeralLines: readonly DisplayLine[] = busy
     ? toolLabels.size > 0
@@ -318,11 +321,14 @@ const ChatApp = ({
 
   useInput((input, key) => {
     if (!(key.ctrl && input.toLowerCase() === "c")) return;
-    if (ctrlCAction(hasCtrlCAbortTarget(activeAgentRef.current, pendingApprovalRef.current)) === "exit") { exit(); return; }
+    if (ctrlCAction(hasCtrlCAbortTarget(activeAgentRef.current, pendingApprovalRef.current ?? pendingClarifyRef.current)) === "exit") { exit(); return; }
     activeAgentRef.current?.abort();
     pendingApprovalRef.current?.resolve(false);
     pendingApprovalRef.current = null;
     setPendingCommand(null);
+    pendingClarifyRef.current?.resolve("[user declined to answer]");
+    pendingClarifyRef.current = null;
+    setPendingClarify(null);
   });
 
   const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
@@ -331,6 +337,33 @@ const ChatApp = ({
     setPendingCommand(command);
     return promise;
   }, []);
+
+  const clarifyCallback = useCallback((question: string, choices?: string[]): Promise<string> => {
+    const { promise, resolve } = Promise.withResolvers<string>();
+    pendingClarifyRef.current = { resolve };
+    setPendingClarify({ question, ...(choices !== undefined ? { choices: choices.slice(0, 4) } : {}) });
+    return promise;
+  }, []);
+
+  useInput((input, key) => {
+    const pending = pendingClarifyRef.current;
+    const clarify = pendingClarify;
+    if (!pending || !clarify) return;
+    if (clarify.choices && clarify.choices.length > 0) {
+      const idx = parseInt(input, 10) - 1;
+      if (idx >= 0 && idx < clarify.choices.length) {
+        pending.resolve(clarify.choices[idx] ?? input);
+        pendingClarifyRef.current = null;
+        setPendingClarify(null);
+        return;
+      }
+    }
+    if (key.escape) {
+      pending.resolve("[user declined to answer]");
+      pendingClarifyRef.current = null;
+      setPendingClarify(null);
+    }
+  }, { isActive: pendingClarify !== null });
 
   useInput((input, key) => {
     const pending = pendingApprovalRef.current;
@@ -420,6 +453,13 @@ const ChatApp = ({
   const handleSubmit = useCallback(async (value: string) => {
     const text = value.trim();
     if (text === "") return;
+    if (pendingClarify !== null && pendingClarifyRef.current !== null) {
+      pendingClarifyRef.current.resolve(text);
+      pendingClarifyRef.current = null;
+      setPendingClarify(null);
+      setDraft("");
+      return;
+    }
     setDraft("");
     setCompletionIndex(null);
     setCompletionMatches([]);
@@ -517,6 +557,7 @@ const ChatApp = ({
       iterationBudget: () => iterationBudgetRef.current,
       todoStore: todoStoreRef.current,
       checkpointGuard,
+      clarifyCallback,
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
@@ -576,7 +617,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeSession, busy, checkpointGuard, checkpointUnsaved, confirmShellCommand, exit, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingCommand, persistence, stdoutWrite]);
+  }, [activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, exit, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {
@@ -614,6 +655,15 @@ const ChatApp = ({
       {pendingCommand !== null && (
         <Box backgroundColor={theme.warningSurface} paddingX={1}><Text color={approvalColor(theme)}>APPROVAL · Run shell command: {pendingCommand} [y/n]</Text></Box>
       )}
+      {pendingClarify !== null && (
+        <Box flexDirection="column" backgroundColor={theme.warningSurface} paddingX={1}>
+          <Text color={approvalColor(theme)}>❓ {pendingClarify.question}</Text>
+          {pendingClarify.choices?.map((c, i) => (
+            <Text key={i} color={approvalColor(theme)}>  {i + 1}. {c}</Text>
+          ))}
+          <Text color={theme.dim}>{pendingClarify.choices ? "Press 1-" + pendingClarify.choices.length + ", type your own answer, or Esc to skip" : "Type your answer and press Enter, or Esc to skip"}</Text>
+        </Box>
+      )}
       {queuedSteer && <Text color={theme.warning}>Queued · steering will apply at the next boundary</Text>}
       {(completionMatches.length > 1 || liveMatches.length > 0) && (
         <Suggestions items={completionMatches.length > 1 ? completionMatches : liveMatches} selectedIndex={completionIndex ?? -1} theme={theme} />
@@ -638,8 +688,8 @@ const ChatApp = ({
           onSubmit={value => { void handleSubmit(value); }}
           rows={composerHeight}
           maxRows={composerHeight}
-          focus={pendingCommand === null && modelPicker === null}
-          placeholder={busy ? "Steer the active run…" : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
+          focus={pendingCommand === null && modelPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0)}
+          placeholder={busy ? (pendingClarify ? "Type your answer…" : "Steer the active run…") : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
           textStyle={{ color: theme.text }}
           highlightStyle={{ color: theme.text }}
           keyBindings={{

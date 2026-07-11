@@ -28,6 +28,8 @@ to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
 Phase 21 (not shown here — see replication plan) added the shell-command
 approval gate. Phase 20 added project context threat-pattern scanning.
 
+Phase 19 adds a `clarify` tool (`src/tools/clarify.ts`) that lets the agent ask the user a clarifying question — with optional numbered multiple-choice answers — instead of guessing when information is missing. The design is callback-based: the tool itself is platform-agnostic; the actual user-interaction mechanism is injected as `ClarifyCallback` (`src/tools/registry.ts`) via `AgentDependencies.clarifyCallback` and threaded through `RunTurnOptions` into `ToolContext`. In the REPL (`src/repl/App.tsx`) the callback uses `Promise.withResolvers` and a ref, mirroring the existing `confirmShellCommand` pattern: an `❓` prompt box renders above the composer, number keys `1`–`4` pick choices (with the composer unfocused to prevent digit bleed-through), Enter submits a freeform typed answer, and Escape resolves with `[user declined to answer]`. In one-shot mode (`src/oneShot.ts`) the callback blocks on `readline`/`process.stdin`. Ctrl+C during a clarify prompt resolves it with `[user declined to answer]` and aborts cleanly. The `"clarify"` toolset is always enabled alongside `"file"`, `"terminal"`, and `"planning"`. The system prompt (`src/agent/systemPrompt.ts`) instructs the model to use `clarify` before irreversible actions when information is missing and to offer choices when the options are clear and few.
+
 Phase 18 replaces `src/agent/turn.ts`'s `LoopCallbacks` with a typed,
 two-layer event stream: `src/agent/agent.ts`'s low-level `Agent` now emits a
 raw `AgentEvent` union (`agent_start`/`agent_end`, `turn_start`/`turn_end`,
@@ -341,6 +343,7 @@ protocol failures, and unrelated errors fail immediately.
   invoked exactly once when the guard is present in `ToolContext`;
   `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
   returned by `findMatches`.
+  Phase 19: `src/tools/clarify.test.ts` proves all six handler cases — missing question arg, absent callback, open-ended callback call returning `{ question, answer }` JSON, choices callback call, max-4 truncation, and abort-before-call returning the stopped message; `src/agent/systemPrompt.test.ts` proves the clarify guidance string is present in the generated prompt; full suite (42 files / 421 tests) passes with zero regressions; `pnpm typecheck` passes clean under `exactOptionalPropertyTypes: true` and `noUncheckedIndexedAccess: true`.
 
 ## Open Questions
 
@@ -348,4 +351,4 @@ protocol failures, and unrelated errors fail immediately.
   order, beyond the replication plan's suggested sequence — deferred
   until each phase is actually started. Interrupt and steering queues shipped
   in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
-  Phase 18; shadow-git checkpoints and `/rollback` shipped in Phase 22.
+  Phase 18; the clarify tool shipped in Phase 19; shadow-git checkpoints and `/rollback` shipped in Phase 22.

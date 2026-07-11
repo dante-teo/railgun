@@ -1,8 +1,11 @@
 import type { DevinTool } from "widevin";
 
+export type ClarifyCallback = (question: string, choices?: string[]) => Promise<string>;
+
 export interface ToolContext {
   confirmShellCommand: (command: string) => Promise<boolean>;
   signal: AbortSignal;
+  clarifyCallback?: ClarifyCallback;
   checkpointGuard?: { beforeMutation: () => void };
   todoStore?: {
     read(): unknown;
