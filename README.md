@@ -8,14 +8,14 @@ interactive y/n approval prompt), and maintain a flat todo
 plan before answering, looping the conversation with Devin until it has a
 final text answer. The loop is hardened with
 parallel-safe tool batching, corrupted tool-call JSON self-healing,
-transient API retry, and a 90-step iteration budget. In the REPL that
-budget is shared for the process lifetime; in one-shot mode each invocation
+transient API retry, automatic context compaction, and a 90-step
+iteration budget. In the REPL that budget is shared for the process lifetime; in one-shot mode each invocation
 gets a fresh budget. Exhausting it is a graceful stop, not a failure.
 Interactive conversations and todos are checkpointed to a private local
 SQLite database and can be resumed across restarts. The REPL is a full-screen,
 resize-aware Ink interface with automatic mint-light/mint-dark appearance,
 Markdown replies, transcript history navigation, a multiline composer, slash
-commands (`/exit`, `/help`, `/clear`), and Tab completion. A `.railgun.md` (or
+commands (`/exit`, `/help`, `/clear`, `/model`, `/compact`), and Tab completion. A `.railgun.md` (or
 `RAILGUN.md`) found in the project tree (walking up to the git root), or
 an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the working directory,
 is loaded into the system prompt automatically at session startup — as is
@@ -117,6 +117,7 @@ session becomes durable after its first successful turn:
   - `/model <name-or-index>` — switch the active model directly and save as the new default.
   - `/model <name-or-index> --session` — switch for this session only (not saved).
   - `/model --session` — open the picker; the selected model applies to this session only.
+  - `/compact` — manually summarize and compact the current conversation history now, without waiting for the automatic 90%-context-window trigger. Prints `Compacted conversation history to stay under the context limit.` on success.
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
   `Esc` to dismiss the dropdown.
@@ -132,6 +133,14 @@ session becomes durable after its first successful turn:
 - **Checkpoint error**: a completed turn stays usable in memory and the
   status line shows `unsaved`. The next successful turn retries the complete
   pending snapshot; a recovery message appears once persistence succeeds.
+- **Context compaction**: after each turn step, if the model's reported
+  input+output token usage reaches 90% of its context window, Railgun
+  automatically summarizes the conversation and replaces history with a
+  single compacted message (recent user turns plus an LLM-generated
+  handoff summary), then continues the turn — the same mechanism the
+  manual `/compact` command triggers on demand. If Devin itself rejects a
+  request as too large (HTTP 413), Railgun compacts reactively and retries
+  the same request, up to 3 compaction attempts before giving up.
 
 ### Authentication commands
 
@@ -156,8 +165,9 @@ aliases.
 
 HTTP 401 is never retried. Railgun retries HTTP 408, 429, and 5xx responses and
 fetch-style transport failures up to three total attempts, waiting 500ms then
-1000ms. Other 4xx responses, protocol failures, and unrelated errors fail
-immediately.
+1000ms. HTTP 413 (payload too large) triggers context compaction and retry
+instead, up to 3 attempts, with no backoff delay. Other 4xx responses,
+protocol failures, and unrelated errors fail immediately.
 
 ### Configuration
 
@@ -252,6 +262,12 @@ Each `--print`/`-p` invocation gets its own fresh 90-step iteration budget.
 If it is exhausted, the limit message is printed as the successful answer
 text and the process exits normally.
 
+Automatic context compaction (see above) applies equally to `--print`/`-p`:
+usage crossing 90% of the model's context window triggers summarization
+mid-invocation, and a too-large request (HTTP 413) triggers reactive
+compaction and retry. The manual `/compact` slash command is REPL-only —
+one-shot mode has no interactive command surface.
+
 Todo planning in `--print`/`-p` operates silently on stdout: there is no
 persistent panel and todo results do not appear in the final answer text.
 The generic stderr tool spinner still fires for all tools including `todo`.
@@ -284,7 +300,8 @@ The Ink REPL UI is supported by automated tests for its pure state and
 rendering helpers, alongside tests for
 `src/agent/turn.ts` (turn/history loop), `src/agent/toolDispatch.ts`
 (parallel-batch safety, corrupted-JSON detection), `src/agent/recovery.ts`
-(API failure classification and retry), `src/agent/projectContext.ts`
+(API failure classification and retry), `src/agent/compaction.ts`
+(token-budgeted history summarization and truncation), `src/agent/projectContext.ts`
 (context-file discovery, git-root walk, injection scan, truncation,
 `SOUL.md` loading), `src/security/threatPatterns.ts` (injection-pattern
 matching), each tool's own handler logic in `src/tools/`,

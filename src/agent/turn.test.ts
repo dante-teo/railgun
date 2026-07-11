@@ -60,7 +60,7 @@ describe("runTurn", () => {
     ]);
     const deltas: string[] = [];
 
-    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
       onDelta: d => deltas.push(d)
     });
 
@@ -78,7 +78,7 @@ describe("runTurn", () => {
     const devin = fakeProvider([[{ type: "text_delta", delta: "ok" }]]);
     const systemPrompt = ["identity", "tool rules", "environment"] as const;
 
-    const outcome = await runTurn(devin, "model-1", systemPrompt, [], "Hi", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, systemPrompt, [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome.ok).toBe(true);
     expect(devin.streamChatRequests).toHaveLength(1);
@@ -99,7 +99,7 @@ describe("runTurn", () => {
     ]);
     const systemPrompt = ["stable", "cached"] as const;
 
-    const outcome = await runTurn(devin, "model-1", systemPrompt, [], "Hi", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, systemPrompt, [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome.ok).toBe(true);
     expect(devin.streamChatRequests).toHaveLength(3);
@@ -113,7 +113,7 @@ describe("runTurn", () => {
   it("exposes the planning todo tool to Devin", async () => {
     const devin = fakeProvider([[{ type: "text_delta", delta: "ok" }]]);
 
-    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome.ok).toBe(true);
     expect(devin.streamChatRequests[0]?.tools?.some(tool => tool.name === "todo")).toBe(true);
@@ -126,7 +126,7 @@ describe("runTurn", () => {
       { role: "assistant", content: [{ type: "text", text: "Nice to meet you, Alex" }] }
     ] as const;
 
-    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, priorHistory, "What is my name?", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, priorHistory, "What is my name?", defaultBudget(), approveAll);
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
@@ -138,7 +138,7 @@ describe("runTurn", () => {
     const boom = new DevinApiError("network blip", 400);
     const devin = fakeProvider([{ throws: boom }]);
 
-    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome).toEqual({ ok: false, error: boom });
   });
@@ -154,7 +154,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "ok" }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -178,7 +178,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "ok" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
       await vi.runAllTimersAsync();
       const outcome = await outcomePromise;
 
@@ -195,7 +195,7 @@ describe("runTurn", () => {
     const devin = fakeProvider([{ throws: err }]);
     const streamChat = vi.spyOn(devin, "streamChat");
 
-    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
 
     expect(outcome).toEqual({ ok: false, error: err });
     expect(streamChat).toHaveBeenCalledOnce();
@@ -207,7 +207,7 @@ describe("runTurn", () => {
     const streamChat = vi.spyOn(devin, "streamChat");
     const history = [{ role: "user", content: "prior" }] as const;
 
-    const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, history, "resubmit me", defaultBudget(), approveAll);
+    const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, history, "resubmit me", defaultBudget(), approveAll);
 
     expect(outcome).toEqual({ ok: false, error: err });
     expect(history).toEqual([{ role: "user", content: "prior" }]);
@@ -238,7 +238,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll);
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -264,7 +264,7 @@ describe("runTurn", () => {
       ]);
       const confirmShellCommand = vi.fn(async () => true);
 
-      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Run echo turn-test", defaultBudget(), confirmShellCommand);
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Run echo turn-test", defaultBudget(), confirmShellCommand);
 
       expect(confirmShellCommand).toHaveBeenCalledWith("echo turn-test");
       expect(outcome.ok).toBe(true);
@@ -284,7 +284,7 @@ describe("runTurn", () => {
       const devin = fakeProvider(rounds);
       const streamChatSpy = vi.spyOn(devin, "streamChat");
 
-      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Loop forever", budget, approveAll);
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Loop forever", budget, approveAll);
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
@@ -314,6 +314,7 @@ describe("runTurn", () => {
       const outcome = await runTurn(
         devin,
         "model-1",
+        1_000_000,
         defaultSystemPrompt,
         priorHistory,
         "What is the secret?",
@@ -345,7 +346,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll);
 
       // Both readFile calls must fire before either resolves -- genuine concurrency, not
       // "both eventually completed".
@@ -378,7 +379,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcomePromise = runTurn(devin, "model-1", defaultSystemPrompt, [], "Read the same file twice", defaultBudget(), approveAll);
+      const outcomePromise = runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Read the same file twice", defaultBudget(), approveAll);
 
       await vi.waitFor(() => expect(readFileMock).toHaveBeenCalledTimes(1));
       // The second read_file call cannot fire until this `await registry.run(...)` inside
@@ -409,7 +410,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "The secret is 42." }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll, {
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "What is the secret?", defaultBudget(), approveAll, {
         onToolStart,
         onToolComplete
       });
@@ -438,7 +439,7 @@ describe("runTurn", () => {
           [{ type: "text_delta", delta: "ok" }]
         ]);
 
-        const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
+        const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, {
           onToolStart,
           onToolComplete
         });
@@ -470,7 +471,7 @@ describe("runTurn", () => {
         [{ type: "text_delta", delta: "done" }]
       ]);
 
-      const outcome = await runTurn(devin, "model-1", defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll, {
+      const outcome = await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Read both files", defaultBudget(), approveAll, {
         onToolStart,
         onToolComplete
       });
@@ -495,6 +496,7 @@ describe("runTurn", () => {
       const outcome = await runTurn(
         devin,
         "model-1",
+        1_000_000,
         defaultSystemPrompt,
         [],
         "Track this",
@@ -506,6 +508,89 @@ describe("runTurn", () => {
 
       expect(outcome.ok).toBe(true);
       expect(todoStore.read()).toEqual([{ id: "a", content: "A", status: "pending" }]);
+    });
+  });
+
+  describe("compaction", () => {
+    it("proactively compacts when usage crosses the 90% threshold, then continues the turn", async () => {
+      const devin = fakeProvider([
+        [
+          { type: "text_delta", delta: "partial" },
+          { type: "usage", inputTokens: 950, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          { type: "toolcall_delta", id: "call-1", delta: "{}" },
+          { type: "toolcall_end", id: "call-1", name: "loop_forever", arguments: {} }
+        ],
+        [{ type: "text_delta", delta: "Summary of the conversation." }],
+        [{ type: "text_delta", delta: "Final answer." }]
+      ]);
+
+      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("expected ok");
+      expect(outcome.assistantText).toBe("partialFinal answer.");
+      expect(devin.streamChatRequests).toHaveLength(3);
+      const compactionRequestMessages = devin.streamChatRequests[1]?.messages ?? [];
+      const lastCompactionMessage = compactionRequestMessages.at(-1);
+      expect(lastCompactionMessage?.role).toBe("user");
+      expect(lastCompactionMessage?.content).toContain("CONTEXT CHECKPOINT COMPACTION");
+      const finalRequestMessages = devin.streamChatRequests[2]?.messages ?? [];
+      expect(finalRequestMessages[0]?.role).toBe("user");
+      expect(finalRequestMessages[0]?.content).toContain("Summary of the conversation.");
+    });
+
+    it("fires onCompact when compaction happens", async () => {
+      const devin = fakeProvider([
+        [
+          { type: "usage", inputTokens: 950, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          { type: "toolcall_delta", id: "call-1", delta: "{}" },
+          { type: "toolcall_end", id: "call-1", name: "loop_forever", arguments: {} }
+        ],
+        [{ type: "text_delta", delta: "Summary." }],
+        [{ type: "text_delta", delta: "Done." }]
+      ]);
+      const onCompact = vi.fn();
+
+      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, { onCompact });
+
+      expect(outcome.ok).toBe(true);
+      expect(onCompact).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not compact when usage stays below the 90% threshold", async () => {
+      const devin = fakeProvider([
+        [
+          { type: "usage", inputTokens: 100, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          { type: "text_delta", delta: "ok" }
+        ]
+      ]);
+
+      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll);
+
+      expect(outcome.ok).toBe(true);
+      expect(devin.streamChatRequests).toHaveLength(1);
+    });
+
+    it("does not double-compact when a reactive 413 retry still crosses the proactive threshold in the same round", async () => {
+      const devin = fakeProvider([
+        { throws: new DevinApiError("too large", 413) },
+        [{ type: "text_delta", delta: "compress summary" }],
+        [
+          { type: "usage", inputTokens: 950, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          { type: "toolcall_delta", id: "call-1", delta: "{}" },
+          { type: "toolcall_end", id: "call-1", name: "loop_forever", arguments: {} }
+        ],
+        [{ type: "text_delta", delta: "Final answer." }]
+      ]);
+      const onCompact = vi.fn();
+
+      const outcome = await runTurn(devin, "model-1", 1000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, { onCompact });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("expected ok");
+      expect(outcome.assistantText).toBe("Final answer.");
+      expect(devin.streamChatRequests).toHaveLength(4);
+      expect(onCompact).toHaveBeenCalledTimes(1);
     });
   });
 });

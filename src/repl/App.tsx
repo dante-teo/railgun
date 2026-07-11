@@ -5,6 +5,7 @@ import Spinner from "ink-spinner";
 import type { DevinMessage, DevinModel } from "widevin";
 import { runTurn } from "../agent/turn.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
+import { COMPACTION_ACK_MESSAGE, runCompaction } from "../agent/compaction.js";
 import { describeDevinError } from "../errors.js";
 import { buildToolLabel } from "../tools/toolLabel.js";
 import { createTodoStore, summarizeTodos } from "../tools/todo.js";
@@ -398,7 +399,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact" }]);
         return;
       }
       if (command === "/clear") {
@@ -431,6 +432,32 @@ const ChatApp = ({
         }
         return;
       }
+      if (command === "/compact") {
+        setBusy(true);
+        try {
+          const result = await runCompaction(activeSession.devin, activeSession.model.id, activeSession.systemPrompt, history);
+          const finalMessages: DevinMessage[] = [
+            ...result.messages,
+            { role: "assistant", content: [{ type: "text", text: COMPACTION_ACK_MESSAGE }] },
+          ];
+          setHistory(finalMessages);
+          setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
+          if (persistence.checkpoint) {
+            const checkpoint = attemptCheckpoint(persistence.checkpoint, finalMessages, todoStoreRef.current.read(), checkpointUnsaved);
+            setCheckpointUnsaved(checkpoint.unsaved);
+            if (checkpoint.error) {
+              setLines(previous => [...previous, { kind: "error", text: `Session checkpoint was not saved (${checkpoint.error}). The compacted history is retained and will be retried.` }]);
+            } else if (checkpoint.recovered) {
+              setLines(previous => [...previous, { kind: "assistant", text: "Session checkpoint recovered." }]);
+            }
+          }
+        } catch (error) {
+          setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? String(error) }]);
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
     }
 
     setLines(previous => [...previous, { kind: "user", text }]);
@@ -440,7 +467,7 @@ const ChatApp = ({
     setToolLabel(null);
     const preTurnTodos = todoStoreRef.current.read();
     const outcome = await runTurn(
-      activeSession.devin, activeSession.model.id, activeSession.systemPrompt, history, text,
+      activeSession.devin, activeSession.model.id, activeSession.model.contextWindow, activeSession.systemPrompt, history, text,
       iterationBudgetRef.current, confirmShellCommand,
       {
         onDelta: delta => {
@@ -450,6 +477,9 @@ const ChatApp = ({
         },
         onToolStart,
         onToolComplete,
+        onCompact: () => {
+          setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
+        },
       },
       { todoStore: todoStoreRef.current },
     );

@@ -6,6 +6,8 @@ import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from
 import { callDevinWithRecovery } from "./recovery.js";
 import type { IterationBudget } from "./iterationBudget.js";
 import { ITERATION_LIMIT_MESSAGE } from "./iterationBudget.js";
+import { runCompaction, shouldCompact } from "./compaction.js";
+import type { UsageTotals } from "./compaction.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
@@ -13,12 +15,15 @@ export type TurnOutcome =
 
 const ENABLED_TOOLSETS = ["file", "terminal", "planning"] as const;
 
-type StepResult = { done: true; assistantText: string } | { done: false };
+type StepResult =
+  | { done: true; assistantText: string; usage: UsageTotals | undefined }
+  | { done: false; usage: UsageTotals | undefined };
 
 export interface LoopCallbacks {
   onDelta?: (delta: string) => void;
   onToolStart?: (name: string, args: unknown) => void;
   onToolComplete?: (name: string, args: unknown, isError: boolean) => void;
+  onCompact?: () => void;
 }
 
 export interface RunTurnOptions {
@@ -39,6 +44,7 @@ const runStep = async (
   const toolOrder: { id: string; name: string }[] = [];
   const todoInjection = context.todoStore?.formatForInjection();
   const prompt = todoInjection && todoInjection.length > 0 ? [...systemPrompt, todoInjection] : systemPrompt;
+  let lastUsage: UsageTotals | undefined;
 
   for await (const event of devin.streamChat({
     model,
@@ -56,6 +62,9 @@ const runStep = async (
     if (event.type === "toolcall_end") {
       toolOrder.push({ id: event.id, name: event.name });
     }
+    if (event.type === "usage") {
+      lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+    }
   }
 
   const assistantParts: DevinAssistantContentPart[] = [];
@@ -72,7 +81,7 @@ const runStep = async (
   messages.push({ role: "assistant", content: assistantParts });
 
   if (resolved.length === 0) {
-    return { done: true, assistantText: allTextParts.concat(textParts).join("") };
+    return { done: true, assistantText: allTextParts.concat(textParts).join(""), usage: lastUsage };
   }
   allTextParts.push(...textParts);
 
@@ -105,12 +114,13 @@ const runStep = async (
     }
   }
 
-  return { done: false };
+  return { done: false, usage: lastUsage };
 };
 
 export const runTurn = async (
   devin: DevinProvider,
   model: string,
+  contextWindow: number,
   systemPrompt: readonly string[],
   history: readonly DevinMessage[],
   userText: string,
@@ -124,13 +134,24 @@ export const runTurn = async (
   const context: ToolContext = options?.todoStore
     ? { confirmShellCommand, todoStore: options.todoStore }
     : { confirmShellCommand };
+  let compactedThisRound = false;
+  const compress = async (): Promise<void> => {
+    const result = await runCompaction(devin, model, systemPrompt, messages);
+    messages.length = 0;
+    messages.push(...result.messages);
+    compactedThisRound = true;
+    callbacks?.onCompact?.();
+  };
 
   try {
     while (iterationBudget.consume()) {
-      const outcome = await callDevinWithRecovery(() =>
-        runStep(devin, model, systemPrompt, messages, context, allTextParts, callbacks)
+      compactedThisRound = false;
+      const outcome = await callDevinWithRecovery(
+        () => runStep(devin, model, systemPrompt, messages, context, allTextParts, callbacks),
+        compress
       );
       if (outcome.done) return { ok: true, messages, assistantText: outcome.assistantText };
+      if (!compactedThisRound && shouldCompact(outcome.usage, contextWindow)) await compress();
     }
   } catch (error) {
     return { ok: false, error };

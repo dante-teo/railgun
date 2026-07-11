@@ -3,7 +3,7 @@ import { matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOW
 
 describe("KNOWN_COMMANDS", () => {
   it("contains commands without the removed skin override", () => {
-    expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model"]);
+    expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact"]);
   });
 });
 
@@ -62,7 +62,7 @@ describe("parseSlashCommand", () => {
 });
 describe("findMatches", () => {
   it("returns all commands for '/'", () => {
-    expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model"]);
+    expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact"]);
   });
 
   it("returns no matches for '/sk'", () => {

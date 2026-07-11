@@ -33,7 +33,8 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
   unseen-row cue reserves one visible transcript row.
-- `/exit`, `/help`, and `/clear` are the available commands. Shell approval uses
+- `/exit`, `/help`, `/clear`, `/model`, and `/compact` are the available
+  commands. Shell approval uses
   `y`, `n`, or Escape.
 - Completed replies use GFM Markdown with wrapped prose, lists, links, tables,
   and themed fenced-code boxes with language labels. Streaming fragments remain
@@ -99,3 +100,22 @@ the composer returns to an interactive state. The failed message and any tool
 calls are never replayed automatically. After file-backed login succeeds in
 another terminal, the user manually resubmits the message in the still-open
 REPL.
+
+## Context compaction
+
+Two triggers summarize and shrink conversation history into a single
+compacted message: automatic (checked after every turn step once
+input+output token usage reaches 90% of the model's context window) and
+manual (`/compact`, on demand). Both share the same underlying
+summarization call and produce the same on-wire shape — recent user turns
+plus an LLM-generated handoff summary, joined into one `role: "user"`
+message — so the REPL shows the identical confirmation line,
+`Compacted conversation history to stay under the context limit.`, either
+way. `/compact` additionally appends a synthetic assistant
+acknowledgement to close the conversation's `user → assistant` pairing
+before checkpointing; the automatic path never needs this because the
+turn's loop always issues at least one more real reply afterward. A
+too-large request (HTTP 413) triggers the same compaction reactively and
+retries, invisibly to the user unless compaction itself is exhausted
+after 3 attempts, in which case the turn fails with a normal red
+transcript error line.

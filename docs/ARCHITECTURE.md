@@ -30,9 +30,10 @@ This document records the intended system architecture for Railgun. Keep it curr
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus a `readline`-based shell-approval prompt on stderr | Solo project |
 | Error presentation (`src/errors.ts`) | Maps widevin and source-aware credential errors to one-line messages while preserving API/protocol formatting and reporting cache-removal failures alongside the original 401 | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
-| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (`"file"`, `"terminal"`, and `"planning"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`, firing an optional `LoopCallbacks` (`onDelta`/`onToolStart`/`onToolComplete`) around each dispatch; injects active todo state into subsequent model calls when a caller-owned todo store is present; returns new history or an error | Solo project |
+| Turn logic (`src/agent/turn.ts`) | Runs one chat turn against a `DevinProvider`, looping tool-call rounds via the tool registry (`"file"`, `"terminal"`, and `"planning"` toolsets always enabled) while an injected `IterationBudget` has remaining steps; each round is wrapped in `callDevinWithRecovery` (retry-with-backoff on transient failures, or compaction-and-retry on HTTP 413 via a `compress` callback) and dispatches its resolved tool calls through `shouldParallelizeToolBatch`, firing an optional `LoopCallbacks` (`onDelta`/`onToolStart`/`onToolComplete`/`onCompact`) around each dispatch; captures each round's `usage` stream event and proactively compacts history via `runCompaction` (once per round, guarded against double-firing alongside a reactive 413 compaction in the same round) once input+output tokens reach 90% of the caller-supplied `contextWindow`; injects active todo state into subsequent model calls when a caller-owned todo store is present; returns new history or an error | Solo project |
 | Tool dispatch safety (`src/agent/toolDispatch.ts`) | Pure logic deciding whether a round's tool calls may run concurrently (`shouldParallelizeToolBatch`, `pathsOverlap`) and detecting corrupted tool-call JSON (`safeParseToolArgs`, `CORRUPTION_MARKER`) — no I/O, no registry access | Solo project |
-| API failure recovery (`src/agent/recovery.ts`) | Treats credential rejection/401 as reauthentication, retries HTTP 408/429/5xx and fetch-style transport failures up to 3 attempts with 500ms/1000ms delays, and fails other client/protocol/unrelated errors immediately | Solo project |
+| API failure recovery (`src/agent/recovery.ts`) | Treats credential rejection/401 as reauthentication, retries HTTP 408/429/5xx and fetch-style transport failures up to 3 attempts with 500ms/1000ms delays, classifies HTTP 413 as `compress_and_retry` (awaits an optional `compress` callback and retries without incrementing the backoff attempt counter, itself capped at 3 compression attempts), and fails other client/protocol/unrelated errors immediately | Solo project |
+| Context compaction (`src/agent/compaction.ts`) | Ports Codex's (`openai/codex`) history-summarization algorithm: `runCompaction` sends the conversation plus a fixed summarization prompt to Devin (no tools), retrying with the oldest message dropped on a 413 until one request message remains; `selectRecentUserTexts`/`truncateMiddleTokens` keep a token-budgeted (20 000-token), newest-first selection of prior user turns, truncating the oldest kept message's middle with a `"…N tokens truncated…"` marker rather than dropping it outright; `buildCompactedMessage` merges the selected texts and the model's handoff summary into a single `role: "user"` message (Railgun's stricter `sessionStore.ts` transcript alternation forbids Codex's multi-message replacement shape — see `docs/adr/0010-...md`); `shouldCompact` triggers at 90% of the model's context window | Solo project |
 | Tool registry (`src/tools/registry.ts`) | `createToolRegistry()` factory closing over a `Map<name, RegisteredTool>`; `getSchemas(toolsets)` filters by toolset + `isAvailable()`, `get(name)` looks up a registered tool's metadata, `run(name, args, context)` dispatches to a handler or returns a fixed "unknown tool"/"error running" result — the only unit-tested pure-logic module besides `turn.ts` | Solo project |
 | Built-in tools (`src/tools/{readFile,writeFile,listDirectory,runShell,todo}.ts`) | Five self-registering tools: `read_file`/`write_file`/`list_directory` (toolset `"file"`, real disk I/O), `run_shell_command` (toolset `"terminal"`, gated behind `ToolContext.confirmShellCommand` before `execFile("bash", ["-c", command])`), and `todo` (toolset `"planning"`, caller-owned in-memory flat todo state); file/terminal tools register a `verb`/`previewArgKey` pair consumed by `buildToolLabel` for live-activity labels, while REPL `todo` completions are suppressed in favor of the persistent panel | Solo project |
 | Todo store (`src/tools/todo.ts`) | Pure normalization/reducer logic plus a tiny stateful `createTodoStore()` boundary. Todos are flat, ordered by priority, globally deduplicated by id (last-occurrence-wins), bounded to 256 total items, truncate content above 4000 chars, normalize bad status to `pending`, coerce malformed items to placeholders, support partial-field merge-by-id, and expose `formatForInjection()` for pending/in-progress work only | Solo project |
@@ -40,7 +41,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Theme system (`src/repl/theme.ts`) | Immutable exact mint-light/mint-dark semantic palettes plus a `ThemeController` around `os-theme`; terminal-over-OS resolution, live terminal events, OS-event terminal re-query, deduplication, failure fallback, and resource cleanup | Solo project |
 | Viewport/composer/lifecycle (`src/repl/{viewport,composer,lifecycle,mouse,terminalSize}.ts`) | Pure viewport and composer actions, SGR mouse parsing, shared resize observation, and guaranteed alternate-screen/mouse-mode boundaries; resize preserves prior bottom-follow state and unseen cues reserve a rendered row | Solo project |
 | Streaming transcript (`src/repl/streamingTranscript.ts`) | Pure segment state that accumulates deltas, flushes narration before each tool starts, and returns only the uncommitted final assistant segment | Solo project |
-| Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, and `/model` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
+| Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, and `/compact` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
 | Markdown (`src/repl/markdown.ts`) | `markdansi` adapter for wrapped GFM replies, links, tables, lists, and mint-themed fenced code boxes; called only for completed assistant text | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure themed Ink component rendering slash-command matches and selection | Solo project |
 | Session chooser (`src/repl/SessionChooser.tsx`) | Full-screen, live-themed, resize-aware startup selector for bare `--resume`/`-r`; shared synchronous input state preserves rapid navigation before Enter, Up/Down wraps, and Escape/Ctrl-C cancels before Devin initialization | Solo project |
@@ -210,18 +211,24 @@ This document records the intended system architecture for Railgun. Keep it curr
    Ctrl+U clearing, busy/approval focus control, protocol-response filtering,
    and one-to-six-row sizing. Enhanced keyboard reporting is enabled without a
    capability-query input leak only for known supporting terminals.
-6. `/exit`, `/help`, and `/clear` are handled before agent dispatch. `/exit`
-   resolves Ink, `/help` appends the current command list, and `/clear` clears
-   the canvas without discarding authoritative conversation state.
+6. `/exit`, `/help`, `/clear`, `/model`, and `/compact` are handled before
+   agent dispatch. `/exit` resolves Ink, `/help` appends the current
+   command list, `/clear` clears the canvas without discarding
+   authoritative conversation state, and `/compact` runs `runCompaction`
+   directly (bypassing `runTurn`/`callDevinWithRecovery`), replaces
+   `history` with the single compacted message plus a synthetic
+   assistant acknowledgement, and attempts a checkpoint save.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
-`toolcall_delta` buffering; before that it was ignored). `thinking_delta`,
-`toolcall_start`, and `usage` are still received but ignored by both paths
-(reasoning display is a later phase; live tool-call feedback shipped in
-Phase 7 via `LoopCallbacks` rather than a new stream-event type). Both
-paths now enable the exact same toolsets (`"file"`, `"terminal"`, and
-`"planning"`) — the
+`toolcall_delta` buffering; before that it was ignored). `usage` events are
+captured by both paths since Phase 16 to drive proactive context
+compaction (`shouldCompact`/`runCompaction`, `src/agent/compaction.ts`).
+`thinking_delta` and `toolcall_start` are still received but ignored by
+both paths (reasoning display is a later phase; live tool-call feedback
+shipped in Phase 7 via `LoopCallbacks` rather than a new stream-event
+type). Both paths now enable the exact same toolsets (`"file"`,
+`"terminal"`, and `"planning"`) — the
 only behavioral difference between them is how `confirmShellCommand`
 collects the y/n answer (Ink `useInput` vs. blocking `readline` on stdin)
 and how tool activity renders (an `ink-spinner` line + scrollback vs. a
@@ -269,6 +276,13 @@ One-shot mode does not open this database. See ADR 0006.
   are satisfied by both pins with no override needed.
 - `os-theme` provides OS and terminal appearance detection; `markdansi`
   provides completed-reply GFM parsing, layout, links, tables, and code boxes.
+- Context compaction's algorithm (`src/agent/compaction.ts`) is ported from
+  [OpenAI's Codex CLI](https://github.com/openai/codex)
+  (`codex-rs/core/src/compact.rs`), not from `widevin` or a package
+  dependency — Codex is a reference implementation read during development,
+  not a runtime integration. Two adaptations diverge from Codex's shape to
+  satisfy `sessionStore.ts`'s stricter transcript alternation invariant; see
+  `docs/adr/0010-compaction-single-message-adaptations.md`.
 
 ## Security
 

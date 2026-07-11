@@ -14,8 +14,29 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 15 (REPL model switching):**
-Phase 15 adds the `/model` slash command to the interactive REPL. Bare
+**Current phase — Phase 16 (context compaction):**
+Phase 16 closes the gap ADR-0004 deferred at Phase 5: `src/agent/recovery.ts`'s
+`RecoveryAction` gains a 4th member, `"compress_and_retry"`, and HTTP 413
+(payload too large) now triggers it instead of failing the turn immediately.
+`src/agent/compaction.ts` (new) ports OpenAI Codex CLI's history-summarization
+algorithm (`codex-rs/core/src/compact.rs`): a token-budgeted, newest-first
+selection of prior user turns (20 000-token budget, middle-truncated with a
+`"…N tokens truncated…"` marker rather than dropped when the boundary message
+overflows) plus an LLM-generated handoff summary, merged into a single
+`role: "user"` compacted message. `src/agent/turn.ts`'s `runTurn` now takes a
+`contextWindow` parameter and compacts two ways: proactively, checking each
+step's `usage` stream event against 90% of `contextWindow` after every round
+(bounded to at most one compaction per round even if a reactive compaction
+already fired); and reactively, via a `compress` callback threaded through
+`callDevinWithRecovery`, invoked when Devin itself returns HTTP 413 (capped at
+3 compression attempts before giving up, independent of the existing 3-attempt
+backoff counter). A new `/compact` REPL slash command triggers the same
+summarization on demand and appends a synthetic acknowledgement message to
+satisfy `sessionStore.ts::validateTranscript`'s stricter `user → assistant`
+alternation — two deliberate departures from Codex's own multi-message
+replacement shape, recorded in ADR-0010.
+
+Phase 15 added the `/model` slash command to the interactive REPL. Bare
 `/model` opens an inline interactive picker — Up/Down to navigate the
 available models, Enter to switch and save as the new default, Escape to
 cancel. `/model <name-or-index>` switches directly without the picker and
@@ -231,11 +252,29 @@ protocol failures, and unrelated errors fail immediately.
   `src/session.test.ts` covers null, exact, recovery, persistence ordering,
   cancellation, write failure, non-TTY errors, and unchanged resume pinning;
   chooser/lifecycle tests cover model rows, wrapping and rapid sequential input,
-  resize windows, screen-reader behavior, and terminal cleanup.
+  resize windows, screen-reader behavior, and terminal cleanup. Phase 16:
+  `src/agent/compaction.test.ts` proves `approxTokenCount`, the middle-truncation
+  marker and verbatim prefix/suffix preservation, summary-message detection,
+  newest-first-then-chronological user-text selection (including truncate-not-drop
+  at the token-budget boundary), single-message packaging with the separator
+  and summary prefix, and `runCompaction` against a fake provider covering the
+  success path, the 413-front-trim retry succeeding on a shrunk request, and a
+  413 that persists to a single request message rethrowing; `src/agent/turn.test.ts`
+  proves the 90%-threshold proactive check is inert for the ~20 pre-existing
+  tests (each given a 1,000,000-token `contextWindow`) and adds dedicated
+  low-threshold tests for triggering compaction mid-turn, firing `onCompact`,
+  staying inert below threshold, and not double-compacting when a reactive
+  413 retry still crosses the proactive threshold in the same round;
+  `src/agent/recovery.test.ts` proves the widened 4-member `RecoveryAction`,
+  HTTP 413 classifying as `compress_and_retry`, `compress` being awaited with
+  no backoff delay, and both compression-attempt exhaustion and the
+  no-`compress`-callback fallback rethrowing; a manual smoke test round-trips
+  `/compact`'s exact compacted-summary-plus-ack output through a real
+  `sessionStore.ts` checkpoint without `SessionCorruptionError`.
 
 ## Open Questions
 
-- Which later phases (context compression, GUIs, messaging gateways) get
-  built, and in what order, beyond the
-  replication plan's suggested sequence — deferred until each phase is
-  actually started.
+- Which later phases (GUIs, messaging gateways) get built, and in what
+  order, beyond the replication plan's suggested sequence — deferred
+  until each phase is actually started. Context compression shipped in
+  Phase 16.

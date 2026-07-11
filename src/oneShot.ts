@@ -22,7 +22,7 @@ export const runOneShot = async (question: string): Promise<void> => {
   const { devin, model, systemPrompt } = session;
   let activeStop: ((isError: boolean) => void) | undefined;
   const todoStore = createTodoStore();
-  const outcome = await runTurn(devin, model.id, systemPrompt, [], question, IterationBudget.create(), confirmShellCommand, {
+  const outcome = await runTurn(devin, model.id, model.contextWindow, systemPrompt, [], question, IterationBudget.create(), confirmShellCommand, {
     onDelta: delta => {
       process.stdout.write(delta);
     },

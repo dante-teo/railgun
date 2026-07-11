@@ -17,8 +17,12 @@ describe("classifyError", () => {
     expect(classifyError(new DevinApiError("transient", status))).toBe("retry_with_backoff");
   });
 
-  it.each([400, 403, 404, 413, 422])("classifies DevinApiError with status %d as fail_immediately", status => {
+  it.each([400, 403, 404, 422])("classifies DevinApiError with status %d as fail_immediately", status => {
     expect(classifyError(new DevinApiError("bad request", status))).toBe("fail_immediately");
+  });
+
+  it("classifies DevinApiError with status 413 as compress_and_retry", () => {
+    expect(classifyError(new DevinApiError("too large", 413))).toBe("compress_and_retry");
   });
 
   it("classifies protocol and unrelated errors as immediate failures", () => {
@@ -100,6 +104,48 @@ describe("callDevinWithRecovery", () => {
 
   it("rejects immediately without retrying when the error is fail_immediately", async () => {
     const err = new DevinApiError("bad request", 400);
+    const fn = vi.fn(async () => {
+      throw err;
+    });
+
+    await expect(callDevinWithRecovery(fn)).rejects.toBe(err);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("compresses and retries on a 413 with no delay, calling compress exactly once", async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+    let calls = 0;
+    const fn = vi.fn(async () => {
+      calls++;
+      if (calls === 1) throw new DevinApiError("too large", 413);
+      return "ok";
+    });
+    const compress = vi.fn(async () => {});
+
+    const result = await callDevinWithRecovery(fn, compress);
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(compress).toHaveBeenCalledTimes(1);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects after MAX_COMPRESS_ATTEMPTS repeated 413s even with a compress callback", async () => {
+    const err = new DevinApiError("too large", 413);
+    const fn = vi.fn(async () => {
+      throw err;
+    });
+    const compress = vi.fn(async () => {});
+
+    await expect(callDevinWithRecovery(fn, compress)).rejects.toBe(err);
+
+    expect(fn).toHaveBeenCalledTimes(4);
+    expect(compress).toHaveBeenCalledTimes(3);
+  });
+
+  it("rethrows a 413 immediately with no compress callback provided", async () => {
+    const err = new DevinApiError("too large", 413);
     const fn = vi.fn(async () => {
       throw err;
     });
