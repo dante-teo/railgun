@@ -6,6 +6,8 @@ import { startSpinner } from "./spinner.js";
 import { buildToolLabel } from "./tools/toolLabel.js";
 import { createTodoStore } from "./tools/todo.js";
 import type { ExtensionRunner } from "./extensions/runner.js";
+import type { MemoryStore } from "./persistence/memoryStore.js";
+import { formatMemoriesForPrompt } from "./persistence/memoryStore.js";
 
 const confirmShellCommand = async (command: string): Promise<boolean> => {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -33,8 +35,9 @@ const clarifyCallback = async (question: string, choices?: string[]): Promise<st
   }
 };
 
-export const runOneShot = async (question: string, extensionRunner?: ExtensionRunner): Promise<void> => {
-  const session = await initFreshDevinSession();
+export const runOneShot = async (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore): Promise<void> => {
+  const memoriesText = memoryStore ? formatMemoriesForPrompt(memoryStore.recent(20)) : null;
+  const session = await initFreshDevinSession({ memoriesText });
   if (session === undefined) return;
   const { devin, model, systemPrompt } = session;
   const config = await loadConfig();
@@ -47,6 +50,7 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
     sessionApprovals,
     ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
     ...(extensionRunner ? { extensionRunner } : {}),
+    ...(memoryStore ? { memoryStore } : {}),
   });
 
   const activeStops = new Map<string, (isError: boolean) => void>();

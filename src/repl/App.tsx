@@ -35,6 +35,7 @@ import { createViewport, reduceViewport, visibleViewportRows } from "./viewport.
 import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js";
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
+import type { MemoryStore } from "../persistence/memoryStore.js";
 
 const TRUST_CHOICES: Readonly<Record<string, TrustChoice>> = {
   "1": "trust", "2": "trust-parent", "3": "trust-session", "4": "deny", "5": "deny-session",
@@ -248,7 +249,7 @@ interface ModelPickerState {
 
 
 const ChatApp = ({
-  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner,
+  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore,
 }: {
   readonly session: DevinSession;
   readonly initialMode: ThemeMode;
@@ -258,6 +259,7 @@ const ChatApp = ({
   readonly trustStore?: ProjectTrustStore;
   readonly cwd?: string;
   readonly extensionRunner?: ExtensionRunner;
+  readonly memoryStore?: MemoryStore;
 }): React.ReactElement => {
   const { exit } = useApp();
   const { stdin } = useStdin();
@@ -614,6 +616,7 @@ const ChatApp = ({
       sessionApprovals: sessionApprovalsRef.current,
       ...(reviewerModel !== undefined ? { reviewerModel } : {}),
       ...(extensionRunner ? { extensionRunner } : {}),
+      ...(memoryStore ? { memoryStore } : {}),
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
@@ -778,6 +781,7 @@ export const runRepl = async (
   extensionRunner?: ExtensionRunner,
   trustDecision?: TrustDecision,
   trustStore?: ProjectTrustStore,
+  memoryStore?: MemoryStore,
 ): Promise<void> => {
   const themeController = new ThemeController();
   const initialMode = await themeController.start();
@@ -796,6 +800,7 @@ export const runRepl = async (
             {...(extensionRunner ? { extensionRunner } : {})}
             {...(trustDecision !== undefined ? { initialTrustDecision: trustDecision } : {})}
             {...(trustStore !== undefined ? { trustStore, cwd } : {})}
+            {...(memoryStore !== undefined ? { memoryStore } : {})}
           />,
           {
             exitOnCtrlC: false,

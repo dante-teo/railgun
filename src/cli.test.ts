@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 import type { DevinSession } from "./session.js";
 import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
@@ -15,6 +16,12 @@ const summary = (id: string): SessionSummary => ({
   firstUserPreview: "Remember me",
 });
 
+const makeMemoriesDb = (): Database.Database => {
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, category TEXT NOT NULL, created_at REAL NOT NULL)");
+  return db;
+};
+
 const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
   listSessions: vi.fn(() => sessions),
   loadSession: vi.fn((id: string): PersistedSession | undefined => id === "saved" ? {
@@ -26,6 +33,7 @@ const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
   } : undefined),
   saveCheckpoint: vi.fn(checkpoint => checkpoint),
   close: vi.fn(),
+  db: makeMemoriesDb(),
 });
 
 const fakeSession: DevinSession = {
@@ -127,11 +135,10 @@ describe("dispatchCli", () => {
     expect(deps.runRepl).not.toHaveBeenCalled();
   });
 
-  it("keeps print mode stateless and never opens the session database", async () => {
+  it("keeps print mode stateless: never starts a Devin session but does open the store for memories", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "print", question: "hello" }, deps);
-    expect(deps.runOneShot).toHaveBeenCalledWith("hello", expect.anything());
-    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.runOneShot).toHaveBeenCalledWith("hello", expect.anything(), expect.anything());
     expect(deps.initSession).not.toHaveBeenCalled();
   });
 
@@ -141,7 +148,6 @@ describe("dispatchCli", () => {
     await dispatchCli({ kind: "fresh" }, deps);
     expect(deps.initFreshSession).toHaveBeenCalledOnce();
     expect(deps.runRepl).not.toHaveBeenCalled();
-    expect(deps.createStore).not.toHaveBeenCalled();
   });
 
   it("lists sessions without initializing Devin", async () => {
@@ -165,12 +171,12 @@ describe("dispatchCli", () => {
     const deps = dependencies(store);
     await dispatchCli({ kind: "resume", id: "saved" }, deps);
 
-    expect(deps.initSession).toHaveBeenCalledWith("model-a");
+    expect(deps.initSession).toHaveBeenCalledWith("model-a", null);
     expect(deps.runRepl).toHaveBeenCalledWith(fakeSession, expect.objectContaining({
       initialHistory: expect.any(Array),
       initialTodos: [],
       sessionMetadata: expect.objectContaining({ id: "saved" }),
-    }), expect.anything(), expect.anything(), expect.anything());
+    }), expect.anything(), expect.anything(), expect.anything(), expect.anything());
   });
 
   it("fails actionably for a missing direct session without initializing Devin", async () => {
@@ -194,7 +200,7 @@ describe("dispatchCli", () => {
     await dispatchCli({ kind: "resume" }, deps);
 
     expect(deps.selectSession).toHaveBeenCalledOnce();
-    expect(deps.initSession).toHaveBeenCalledWith("model-a");
+    expect(deps.initSession).toHaveBeenCalledWith("model-a", null);
     expect(deps.runRepl).toHaveBeenCalledOnce();
   });
 });

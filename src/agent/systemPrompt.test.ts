@@ -127,3 +127,59 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toHaveLength(3);
   });
 });
+
+describe("buildSystemPrompt memories field", () => {
+  const defaultInput = {
+    cwd: "/work/railgun",
+    platform: "darwin",
+    osRelease: "24.6.0",
+    startDate: "2026-07-09",
+    modelId: "claude-sonnet-4",
+    provider: "Devin",
+  } as const;
+
+  it("includes memory_write instruction in tool rules block", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+
+    expect(prompt).toContain("memory_write");
+    expect(prompt).toContain("personal fact");
+  });
+
+  it("appends memories block when memories is set", () => {
+    const prompt = buildSystemPrompt({
+      ...defaultInput,
+      memories: "- I am vegetarian",
+    });
+
+    expect(prompt.at(-1)).toBe("# Memories\n\nWhat you know about the user from previous sessions:\n\n- I am vegetarian");
+  });
+
+  it("omits memories block when memories is null", () => {
+    const prompt = buildSystemPrompt({ ...defaultInput, memories: null });
+
+    expect(prompt.join("\n")).not.toContain("# Memories");
+    expect(prompt).toHaveLength(3);
+  });
+
+  it("omits memories block when memories is undefined", () => {
+    const prompt = buildSystemPrompt(defaultInput);
+
+    expect(prompt.join("\n")).not.toContain("# Memories");
+    expect(prompt).toHaveLength(3);
+  });
+
+  it("places soulIdentity at [3], projectContext at [4], memories at [5] when all three present", () => {
+    const prompt = buildSystemPrompt({
+      ...defaultInput,
+      soulIdentity: "SOUL",
+      projectContext: "PROJECT",
+      memories: "MEMORIES",
+    });
+
+    expect(prompt).toHaveLength(6);
+    expect(prompt[3]).toContain("# Persistent Identity");
+    expect(prompt[4]).toContain("# Project Context");
+    expect(prompt[5]).toContain("# Memories");
+    expect(prompt[5]).toContain("MEMORIES");
+  });
+});

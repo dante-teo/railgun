@@ -19,7 +19,7 @@ const padDatePart = (value: number): string => String(value).padStart(2, "0");
 export const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
-export const buildSessionCore = async (devin: DevinProvider, model: DevinModel): Promise<DevinSession> => {
+export const buildSessionCore = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null): Promise<DevinSession> => {
   const cwd = process.cwd();
   const [projectContext, soulIdentity] = await Promise.all([
     loadProjectContext(cwd),
@@ -35,20 +35,21 @@ export const buildSessionCore = async (devin: DevinProvider, model: DevinModel):
     provider: "Devin",
     projectContext,
     soulIdentity,
+    memories: memoriesText ?? null,
   });
 
   return { devin, model, systemPrompt };
 };
 
-const buildSession = async (devin: DevinProvider, model: DevinModel): Promise<DevinSession> => {
+const buildSession = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null): Promise<DevinSession> => {
   console.error(`Using model: ${model.id}`);
-  return buildSessionCore(devin, model);
+  return buildSessionCore(devin, model, memoriesText);
 };
 
 const availableIds = (models: readonly DevinModel[]): string =>
   models.map(candidate => candidate.id).join(", ") || "none";
 
-export const initDevinSession = async (requiredModelId?: string): Promise<DevinSession> => {
+export const initDevinSession = async (requiredModelId?: string, memoriesText?: string | null): Promise<DevinSession> => {
   const { devin } = await createAuthenticatedProvider();
   const models = await devin.listModels();
   const model = requiredModelId === undefined
@@ -58,7 +59,7 @@ export const initDevinSession = async (requiredModelId?: string): Promise<DevinS
     throw new Error(`Saved model "${requiredModelId}" is unavailable. Available models: ${availableIds(models)}.`);
   }
   if (!model) throw new Error("Devin returned no available models");
-  return buildSession(devin, model);
+  return buildSession(devin, model, memoriesText);
 };
 
 export interface FreshSessionOptions {
@@ -66,6 +67,7 @@ export interface FreshSessionOptions {
   readonly interactive?: boolean;
   readonly selectModel?: (models: readonly DevinModel[], unavailableId: string) => Promise<string | undefined>;
   readonly persistModel?: (modelId: string) => Promise<void>;
+  readonly memoriesText?: string | null;
 }
 
 export const initFreshDevinSession = async (
@@ -77,10 +79,10 @@ export const initFreshDevinSession = async (
   if (models.length === 0) throw new Error("Devin returned no available models");
 
   const configured = config.model;
-  if (configured === null) return buildSession(devin, models[0]!);
+  if (configured === null) return buildSession(devin, models[0]!, options.memoriesText);
 
   const exact = models.find(candidate => candidate.id === configured);
-  if (exact) return buildSession(devin, exact);
+  if (exact) return buildSession(devin, exact, options.memoriesText);
 
   const interactive = options.interactive ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
   if (!interactive) {
@@ -95,5 +97,5 @@ export const initFreshDevinSession = async (
   const selected = models.find(candidate => candidate.id === selectedId);
   if (!selected) throw new Error(`The selected model "${selectedId}" is unavailable.`);
   await (options.persistModel ?? setConfiguredModel)(selected.id);
-  return buildSession(devin, selected);
+  return buildSession(devin, selected, options.memoriesText);
 };

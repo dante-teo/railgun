@@ -2,6 +2,7 @@ import type { DevinAssistantContentPart, DevinMessage, DevinProvider } from "wid
 import { registry } from "../tools/index.js";
 import type { ToolContext, ClarifyCallback } from "../tools/index.js";
 import type { TodoStore } from "../tools/todo.js";
+import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from "./toolDispatch.js";
 import { callDevinWithRecovery } from "./recovery.js";
@@ -19,7 +20,7 @@ export type TurnOutcome =
 
 export const STOPPED_BY_USER = "[stopped by user]";
 
-const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension"] as const;
+const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension", "memory"] as const;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }
@@ -37,6 +38,7 @@ export interface RunTurnOptions {
   sessionApprovals?: Set<string>;
   reviewerModel?: string;
   extensionRunner?: ExtensionRunner;
+  memoryStore?: MemoryStore;
 }
 
 const pushMessage = async (
@@ -288,7 +290,7 @@ export const runTurn = async (
     sessionApprovals: options?.sessionApprovals ?? new Set<string>(),
     devin,
     ...(options?.reviewerModel !== undefined ? { reviewerModel: options.reviewerModel } : {}),
-    ...(options?.todoStore ? { todoStore: options.todoStore } : {}),
+    ...(options?.memoryStore !== undefined ? { memoryStore: options.memoryStore } : {}),
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;

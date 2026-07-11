@@ -6,7 +6,7 @@ import { normalizeTodoState } from "../tools/todo.js";
 import type { TodoState, TodoStatus } from "../tools/todo.js";
 import { STATE_PATH } from "../paths.js";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const PREVIEW_LIMIT = 71;
 const TODO_STATUSES = new Set<TodoStatus>(["pending", "in_progress", "completed", "cancelled"]);
 
@@ -31,6 +31,7 @@ export interface SessionSummary {
 }
 
 export interface SessionStore {
+  readonly db: Database.Database;
   loadSession(id: string): PersistedSession | undefined;
   listSessions(): readonly SessionSummary[];
   saveCheckpoint(checkpoint: SessionCheckpoint): PersistedSession;
@@ -316,7 +317,26 @@ const initializeSchema = (db: Database.Database): void => {
         UNIQUE(session_id, ordinal)
       );
       CREATE INDEX messages_session_ordinal ON messages(session_id, ordinal);
-      PRAGMA user_version = ${SCHEMA_VERSION};
+      CREATE TABLE IF NOT EXISTS memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        created_at REAL NOT NULL
+      );
+      PRAGMA user_version = 2;
+      COMMIT;
+    `);
+  }
+  if (version === 1) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE IF NOT EXISTS memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        created_at REAL NOT NULL
+      );
+      PRAGMA user_version = 2;
       COMMIT;
     `);
   }
@@ -365,6 +385,7 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
   });
 
   return {
+    db,
     loadSession,
     listSessions: () => {
       const sessions = db.prepare(`SELECT s.id, s.model, s.started_at, s.todos_json, COUNT(m.ordinal) AS message_count

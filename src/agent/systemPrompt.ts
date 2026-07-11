@@ -7,6 +7,7 @@ export interface SystemPromptInput {
   provider: "Devin";
   soulIdentity?: string | null;
   projectContext?: string | null;
+  memories?: string | null;
 }
 
 const promptData = (value: string): string => JSON.stringify(value);
@@ -20,6 +21,7 @@ export const buildSystemPrompt = ({
   provider,
   soulIdentity,
   projectContext,
+  memories,
 }: SystemPromptInput): readonly string[] => [
   [
     "You are Railgun, a general-purpose assistant inspired by Hermes Agent.",
@@ -35,6 +37,7 @@ export const buildSystemPrompt = ({
     "- Keep todo statuses current as work starts, completes, or is cancelled.",
     "- Respect the existing shell approval flow; shell commands may be declined by the user.",
     "- Use the clarify tool to ask the user a question when you need information you cannot safely guess, especially before irreversible actions. Offer choices when the options are clear and few.",
+    "- When the user shares a personal fact, preference, or project detail they want remembered, call memory_write to save it for future sessions.",
     "- Keep tool use focused on the user's current task."
   ].join("\n"),
   [
@@ -51,5 +54,8 @@ export const buildSystemPrompt = ({
     : []),
   ...(projectContext
     ? [`# Project Context\n\nThe following project context has been loaded and should be followed:\n\n${projectContext}`]
+    : []),
+  ...(memories
+    ? [`# Memories\n\nWhat you know about the user from previous sessions:\n\n${memories}`]
     : []),
 ];

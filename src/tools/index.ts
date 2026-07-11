@@ -4,7 +4,9 @@ import "./listDirectory.js";
 import "./runShell.js";
 import "./todo.js";
 import "./clarify.js";
+import "./memory.js";
 
 export { registry } from "./registry.js";
 export type { ToolContext, ToolRunResult, RegisteredTool, ToolRegistry, ClarifyCallback } from "./registry.js";
 export type { TodoStore } from "./todo.js";
+export type { MemoryStore } from "../persistence/memoryStore.js";

@@ -1,4 +1,5 @@
 import type { DevinProvider, DevinTool } from "widevin";
+import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 
 export type ClarifyCallback = (question: string, choices?: string[]) => Promise<string>;
@@ -17,6 +18,7 @@ export interface ToolContext {
     write(input: { todos?: unknown; merge?: unknown }): unknown;
     formatForInjection(): string;
   };
+  memoryStore?: MemoryStore;
 }
 
 export interface ToolRunResult {

@@ -23,6 +23,8 @@ import { createProjectTrustStore, resolveProjectTrust, promptTrustChoiceReadline
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "./trust.js";
 import type { DevinProvider, DevinModel } from "widevin";
 import { startScheduler } from "./cron/scheduler.js";
+import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memoryStore.js";
+import type { MemoryStore } from "./persistence/memoryStore.js";
 
 export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron";
 
@@ -46,12 +48,12 @@ export class CliUsageError extends Error {
 export interface CliDependencies {
   createStore: () => SessionStore;
   loadConfig: () => Promise<AppConfig>;
-  initFreshSession: () => Promise<DevinSession | undefined>;
-  initSession: (requiredModelId?: string) => Promise<DevinSession>;
+  initFreshSession: (memoriesText?: string | null) => Promise<DevinSession | undefined>;
+  initSession: (requiredModelId?: string, memoriesText?: string | null) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
-  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore) => Promise<void>;
-  runOneShot: (question: string, extensionRunner?: ExtensionRunner) => Promise<void>;
+  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore, memoryStore?: MemoryStore) => Promise<void>;
+  runOneShot: (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore) => Promise<void>;
   createNewTrustStore: () => ProjectTrustStore;
   promptTrustChoice: (cwd: string) => Promise<TrustChoice>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
@@ -116,8 +118,8 @@ export const formatSessionTable = (sessions: readonly SessionSummary[]): string 
 const defaultDependencies: CliDependencies = {
   createStore: createSessionStore,
   loadConfig,
-  initFreshSession: initFreshDevinSession,
-  initSession: initDevinSession,
+  initFreshSession: (memoriesText) => initFreshDevinSession({ ...(memoriesText !== undefined ? { memoriesText } : {}) }),
+  initSession: (modelId, memoriesText) => initDevinSession(modelId, memoriesText),
   runLogin: runLoginCommand,
   runLogout: runLogoutCommand,
   runRepl,
@@ -172,13 +174,14 @@ const runPersistedRepl = async (
   persisted: PersistedSession,
   store: SessionStore,
   dependencies: CliDependencies,
+  memoryStore: MemoryStore,
   extensionRunner?: ExtensionRunner,
   trustDecision?: TrustDecision,
   trustStore?: ProjectTrustStore,
   onFirstSave?: () => void,
 ): Promise<void> => {
-  const session = await dependencies.initSession(persisted.model);
-  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave), extensionRunner, trustDecision, trustStore);
+  const session = await dependencies.initSession(persisted.model, formatMemoriesForPrompt(memoryStore.recent(20)));
+  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave), extensionRunner, trustDecision, trustStore, memoryStore);
 };
 
 const withStore = async <T>(
@@ -188,6 +191,19 @@ const withStore = async <T>(
   const store = dependencies.createStore();
   try {
     return await run(store);
+  } finally {
+    store.close();
+  }
+};
+
+const withStores = async <T>(
+  dependencies: CliDependencies,
+  run: (store: SessionStore, memoryStore: MemoryStore) => Promise<T>,
+): Promise<T> => {
+  const store = dependencies.createStore();
+  const memoryStore = createMemoryStore(store.db);
+  try {
+    return await run(store, memoryStore);
   } finally {
     store.close();
   }
@@ -232,13 +248,14 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     dependencies.stdout(JSON.stringify(await dependencies.loadConfig(), null, 2));
     return;
   }
-
   if (mode.kind === "print") {
     const { decision, config } = await resolveSessionTrust(mode, dependencies);
     const { runner, cleanup } = await bootstrapExtensions("oneshot", config);
     try {
       await runner.emitSessionStart({ type: "session_start", reason: "new" });
-      await dependencies.runOneShot(mode.question, runner);
+      await withStores(dependencies, async (_store, memoryStore) => {
+        await dependencies.runOneShot(mode.question, runner, memoryStore);
+      });
       await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     } finally {
       cleanup();
@@ -248,13 +265,14 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
 
   if (mode.kind === "fresh") {
     const { decision, store: trustStore, config } = await resolveSessionTrust(mode, dependencies);
-    const session = await dependencies.initFreshSession();
-    if (session === undefined) return;
     const sessionId = dependencies.randomId();
     const { runner, cleanup } = await bootstrapExtensions(sessionId, config);
     try {
       await runner.emitSessionStart({ type: "session_start", reason: "new" });
-      await withStore(dependencies, async store => {
+      await withStores(dependencies, async (store, memoryStore) => {
+        const memoriesText = formatMemoriesForPrompt(memoryStore.recent(20));
+        const session = await dependencies.initFreshSession(memoriesText);
+        if (session === undefined) return;
         const persisted: PersistedSession = {
           id: sessionId,
           model: session.model.id,
@@ -266,7 +284,7 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
           persisted,
           store,
           () => dependencies.stderr(`Session saved: ${persisted.id}`),
-        ), runner, decision, trustStore);
+        ), runner, decision, trustStore, memoryStore);
       });
       await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     } finally {
@@ -282,10 +300,9 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     });
     return;
   }
-
   if (mode.kind === "resume") {
     const { decision, store: trustStore, config } = await resolveSessionTrust(mode, dependencies);
-    await withStore(dependencies, async store => {
+    await withStores(dependencies, async (store, memoryStore) => {
       let id = mode.id;
       if (id === undefined) {
         const sessions = store.listSessions();
@@ -301,7 +318,7 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
       const { runner, cleanup } = await bootstrapExtensions(persisted.id, config);
       try {
         await runner.emitSessionStart({ type: "session_start", reason: "resume" });
-        await runPersistedRepl(persisted, store, dependencies, runner, decision, trustStore);
+        await runPersistedRepl(persisted, store, dependencies, memoryStore, runner, decision, trustStore);
         await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
       } finally {
         cleanup();

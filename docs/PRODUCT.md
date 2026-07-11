@@ -28,6 +28,20 @@ names (`mcp__<server>__<tool>`) via the Phase 23 `registerTool` surface. One
 broken server logs an error but does not prevent the agent from starting.
 Child processes are killed in `try/finally` on session shutdown. See ADR-0014.
 
+**Phase 25 (persistent memory):**
+Phase 25 adds cross-session persistent memory: the agent remembers facts, preferences,
+and project details the user shares across separate sessions. A new `memories` table
+(schema v2) in `~/.railgun/state.db` stores rows with `id`, `content`, `category`
+(`"preference"`, `"fact"`, `"project"`), and `created_at`. Two new tools —
+`memory_write` and `memory_search` — are registered under the `"memory"` toolset;
+the tool rules block in the system prompt instructs the agent to call `memory_write`
+when the user shares a personal fact, preference, or project detail. At session start,
+`MemoryStore.recent(20)` is loaded and injected as a `# Memories` block in the system
+prompt (via `formatMemoriesForPrompt`). All three session modes (fresh REPL, resume,
+one-shot/print) now open the session database to read memories. The `SessionStore`
+exposes a `readonly db` handle so `MemoryStore` can share the same SQLite connection
+without opening a second one.
+
 **Phase 23 (extension system):**
 Phase 23 adds an extension system that lets outside code observe and intercept
 the agent's lifecycle without editing core source. Extensions live in
@@ -266,6 +280,9 @@ protocol failures, and unrelated errors fail immediately.
    single invocation, or `--no-approve`/`-na` to deny. Set `"defaultProjectTrust": "always"` in
    `~/.railgun/config.json` to skip the prompt globally. Use `/trust` inside a running REPL to update
    the decision mid-session.
+7. Tell the agent a fact you want remembered (e.g. "Remember that I hate coffee").
+   Railgun calls `memory_write` to persist it. On the next fresh session (no `--resume`
+   needed), ask about it and Railgun answers from the saved memory.
 
 ## Success Metrics
 
@@ -473,6 +490,24 @@ protocol failures, and unrelated errors fail immediately.
   `~/.railgun/config.json`, run `pnpm start`, and confirm tools prefixed
   `mcp__filesystem__` appear in the startup tool list; then change the command
   to a typo and confirm the agent still starts with an `[mcp]` error on stderr.
+
+  Phase 25: `src/persistence/memoryStore.test.ts` proves `save` inserts and
+  returns a `Memory` with a UUID id and correct fields, `recent` returns
+  memories newest-first with stable `rowid DESC` ordering for same-millisecond
+  inserts, `search` is case-insensitive, cross-reopen persistence works, and
+  `formatMemoriesForPrompt` returns `null` for empty arrays;
+  `src/tools/memory.test.ts` (registry integration) proves `memory_write`
+  and `memory_search` are exposed under the `"memory"` toolset, `memory_write`
+  with valid args returns `"Saved."`, both tools return `isError: true` when
+  `memoryStore` is absent from `ToolContext`, and `memory_search` returns the
+  `"No matching memories found."` sentinel on misses;
+  `src/agent/systemPrompt.test.ts` proves the `# Memories` block appears only
+  when `memories` is non-null, is placed after `# Project Context`, and the
+  tool rules block contains the `memory_write` instruction;
+  `src/persistence/sessionStore.test.ts` proves a v1 database is transparently
+  migrated to v2 (memories table created, `user_version` bumped). Manual smoke
+  test: tell the agent a fact in session 1, quit, start a new fresh session (no
+  `--resume`), ask about the fact — agent answers correctly from memory.
 
 ## Open Questions
 

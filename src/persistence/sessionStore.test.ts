@@ -62,10 +62,10 @@ describe("createSessionStore", () => {
 
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").pluck().all())
-      .toEqual(["messages", "sessions"]);
+      .toEqual(["memories", "messages", "sessions"]);
     db.close();
 
     const reopened = createSessionStore(path);
@@ -227,5 +227,58 @@ describe("createSessionStore", () => {
     const reopened = createSessionStore(path);
     expect(() => reopened.loadSession("session-a")).toThrow(/session-a.*normalized todo/i);
     reopened.close();
+  });
+});
+
+describe("schema migration", () => {
+  let dir: string;
+  let path: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "railgun-session-store-migration-"));
+    path = join(dir, "state.db");
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("migrates a v1 database to v2 by adding the memories table", () => {
+    // Bootstrap a v1-era database manually (no memories table, user_version = 1).
+    const bootstrap = new Database(path);
+    bootstrap.exec(`
+      BEGIN;
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        todos_json TEXT NOT NULL
+      );
+      CREATE TABLE messages (
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+        content_json TEXT NOT NULL,
+        tool_call_id TEXT,
+        tool_error INTEGER CHECK (tool_error IN (0, 1)),
+        response_id TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(session_id, ordinal)
+      );
+      PRAGMA user_version = 1;
+      COMMIT;
+    `);
+    bootstrap.close();
+
+    // Open with the current createSessionStore — should migrate transparently.
+    const store = createSessionStore(path);
+    store.close();
+
+    const db = new Database(path, { readonly: true });
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories'").pluck().all()
+    ).toEqual(["memories"]);
+    db.close();
   });
 });
