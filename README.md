@@ -224,7 +224,7 @@ while `--session` limits the switch to the current REPL run. `/model <name>`
 switches directly without the picker.
 
 All application files derive from the fixed `~/.railgun` home: `config.json`,
-`devin-token`, `state.db`, `SOUL.md`, and `extensions/`. There are no profiles or home-path
+`devin-token`, `state.db`, `SOUL.md`, `extensions/`, and `cron/jobs.json`. There are no profiles or home-path
 overrides.
 
 ### Extensions
@@ -367,6 +367,36 @@ with no controlling terminal) blocks indefinitely until answered.
 
 One-shot mode never opens the session database and never creates or updates a
 saved session.
+
+### Cron scheduler
+
+```sh
+pnpm start cron
+```
+
+`cron` runs the agent on a schedule without human input. Jobs are defined in `~/.railgun/cron/jobs.json`:
+
+```json
+[
+  {
+    "id": "daily-summary",
+    "schedule": "0 9 * * *",
+    "prompt": "Summarize what files changed in the current directory today.",
+    "lastRun": null
+  }
+]
+```
+
+Each job has a cron expression (`schedule`, interpreted in local time), a `prompt` sent to a fresh agent session, and a `lastRun` epoch timestamp (or `null` for never run). The scheduler wakes every 60 seconds, checks which jobs are due, and runs them sequentially. After each cycle it writes the updated `lastRun` values back to `jobs.json` atomically. The file is re-read every cycle so edits take effect without restarting.
+
+Behavior in cron mode:
+- Each job gets a **fresh 30-step iteration budget** and a **fresh session** — no conversation history, no session database entry.
+- Shell commands are **denied by default** unless `approvalMode: "off"` is set in `config.json` (hardline-blocked commands always apply).
+- Extensions are **not loaded** — unattended safety.
+- Output (text deltas, tool start/end) is logged to **stderr** only.
+- Press **Ctrl+C** or send **SIGTERM** to stop the scheduler cleanly after the current job finishes.
+
+A missing `~/.railgun/cron/jobs.json` is treated as an empty list — the scheduler runs but never fires. The `schedule` field uses standard cron syntax (`* * * * *` — minute, hour, day-of-month, month, day-of-week); five-field expressions are supported via `cron-parser`.
 
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
 the supported `login`, `logout`, `--print`, `--resume`/`-r`, and

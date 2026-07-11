@@ -21,8 +21,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 | Component | Responsibility | Owner |
 | --- | --- | --- |
-| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for `config`, `login`, `logout`, fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; config/auth commands return before SQLite/session/TUI boundaries | Solo project — no formal ownership split |
-| Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, SOUL, trust, and extension paths from one fixed Railgun home (`~/.railgun`); recursively merges defaults with user JSON, validates recognized fields (`model`, `defaultProjectTrust`), preserves unknown fields, and atomically persists model replacements | Solo project |
+| CLI entry (`src/cli.ts`) | Pure argv parsing plus injectable dispatch for `config`, `login`, `logout`, `cron`, fresh REPL, exact/interactive resume, session listing, and stateless one-shot mode; config/auth/cron commands return before SQLite/session/TUI boundaries | Solo project — no formal ownership split |
+| Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, SOUL, trust, extension, and cron paths from one fixed Railgun home (`~/.railgun`); recursively merges defaults with user JSON, validates recognized fields (`model`, `defaultProjectTrust`), preserves unknown fields, and atomically persists model replacements | Solo project |
 | Authentication boundary (`src/auth.ts`) | Selects trimmed process-local `DEVIN_TOKEN` or the file cache, wraps model discovery and async streaming with source-aware 401 invalidation, and implements fresh-login verification plus idempotent cached logout without exposing token contents | Solo project |
 | Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, keeps resumes on an exact saved model, applies configuration to fresh sessions, coordinates interactive missing-model recovery before session construction, loads context/identity, and builds the system prompt once; exports `buildSessionCore` for silent mid-REPL session rebuilds during `/model` switches | Solo project |
 | Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: versioned schema setup, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, and atomic idempotent full-snapshot checkpoints | Solo project |
@@ -62,6 +62,8 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Command risk classifier (`src/security/commandApproval.ts`) | Pure `checkCommandApproval(command, mode, sessionApprovals)` returning one of three `ApprovalRequirement` variants: `forbidden` (5 hardline patterns — always blocked regardless of mode), `skip` (no match, already session-approved, or mode `"off"`), or `needs_approval` (7 dangerous patterns in manual/smart mode); exports `stripShellComments` to remove `# …` comment tails while respecting single/double quoting — used by the smart reviewer to reduce prompt-injection surface | Solo project |
 | Smart approval reviewer (`src/security/smartApproval.ts`) | `smartApprove(devin, reviewerModel, command, flagReason)` sends the comment-stripped command plus flag reason to a Devin LLM call with a security-reviewer system prompt and parses the response as `"approve" \| "deny" \| "escalate"`; fail-safe: any error or unparseable response returns `"escalate"` so the human prompt is never silently skipped on failure | Solo project |
 | Project context loader (`src/agent/projectContext.ts`) | Discovers and loads a project's context file (`.railgun.md`/`RAILGUN.md` walking to the git root, falling back to `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, `.cursorrules` in cwd only — first readable non-empty file wins, with case-variant aliases exhausted per directory before walking up or moving to the next candidate group), plus `~/.railgun/SOUL.md` as persistent identity; truncates with a 70/30 head/tail split at 20 000 chars, then scans the retained head and tail independently for injection via `scanForThreats` (blocked files produce a `[BLOCKED: ...]` placeholder that does not fall through to the next candidate); exports `loadProjectContext(cwd)` and `loadSoulIdentity()` | Solo project |
+
+| Cron scheduler (`src/cron/jobs.ts`, `src/cron/scheduler.ts`) | `CronJob` type, `CronJobsError` (matches `ConfigError` pattern), `loadJobs`/`saveJobs` (disk I/O with `write-file-atomic`), `validateJob` (type-guarded shape validation), and `isDue` (uses `cron-parser`'s `CronExpressionParser.parse().prev()` to find the last scheduled time before `now`, returns `true` when `lastRun` is null or before that time). `startScheduler` re-reads jobs each cycle, calls `tick` (sequential due-job runner), saves back only when jobs ran, and sleeps between cycles via `Promise.withResolvers()` for abort-safe cancellation; SIGINT/SIGTERM forwarded from `dispatchCli` through an `AbortController`. Shell commands are denied in unattended runs unless `approvalMode: "off"`. Extensions are not loaded; each job gets a fresh ephemeral session with a 30-step iteration budget | Solo project |
 
 ## Data Flow
 
@@ -261,7 +263,7 @@ shipped in Phase 7 via `LoopCallbacks`, replaced in Phase 18 by a typed
 
 ## Persistence
 
-`getHomeDir()` fixes the application home at `~/.railgun`; config, token, state, SOUL, trust, and extensions paths are derived from it. `config.json` is the single configuration source. Missing files use `{ "model": null, "defaultProjectTrust": "ask" }`; unknown fields are retained and model recovery writes two-space JSON with a trailing newline atomically.
+`getHomeDir()` fixes the application home at `~/.railgun`; config, token, state, SOUL, trust, extensions, and cron paths are derived from it. `config.json` is the single configuration source. Missing files use `{ "model": null, "defaultProjectTrust": "ask" }`; unknown fields are retained and model recovery writes two-space JSON with a trailing newline atomically.
 
 A single file, `~/.railgun/devin-token` (mode `0600`), holds the optional cached
 Devin auth token and is managed through `widevin`'s `createFileTokenStore`.
@@ -294,6 +296,8 @@ Shadow-git checkpoint directories live at
 cwd, initialized as a non-bare git repo on first use. No file-mode restriction
 is applied — checkpoint repos contain only project file snapshots, no secrets.
 One-shot mode does not create or use checkpoints.
+
+`~/.railgun/cron/jobs.json` (mode `0600`, created lazily by `saveJobs`) stores the list of scheduled jobs. Each job has `id`, `schedule` (cron expression, interpreted in local time by `cron-parser`), `prompt`, and `lastRun` (epoch ms or null). A missing file means no jobs; the scheduler treats it as an empty list and does not create the file unless a job runs. The file is re-read on every scheduler tick so edits take effect without a process restart; it is written atomically via `write-file-atomic` after any job runs to persist the updated `lastRun` values. Cron mode does not open the session database.
 
 ## Integrations
 

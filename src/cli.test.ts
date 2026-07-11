@@ -4,6 +4,7 @@ import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
 import { dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
 import type { ProjectTrustStore, TrustChoice, TrustDecision } from "./trust.js";
+import type { DevinProvider, DevinModel } from "widevin";
 
 
 const summary = (id: string): SessionSummary => ({
@@ -27,7 +28,11 @@ const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
   close: vi.fn(),
 });
 
-const fakeSession = { model: { id: "model-a" } } as DevinSession;
+const fakeSession: DevinSession = {
+  devin: {} as DevinProvider,
+  model: { id: "model-a" } as DevinModel,
+  systemPrompt: ["test system prompt"] as const,
+};
 
 const fakeTrustStore = (): ProjectTrustStore => ({
   get: vi.fn((): TrustDecision => ({ status: "trusted", scope: "persisted" })),
@@ -50,6 +55,7 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
   now: vi.fn(() => new Date("2026-07-10T00:00:00.000Z")),
   stdout: vi.fn(),
   stderr: vi.fn(),
+  runCronScheduler: vi.fn(async () => {}),
 });
 
 describe("parseCliArgs", () => {
@@ -190,5 +196,62 @@ describe("dispatchCli", () => {
     expect(deps.selectSession).toHaveBeenCalledOnce();
     expect(deps.initSession).toHaveBeenCalledWith("model-a");
     expect(deps.runRepl).toHaveBeenCalledOnce();
+  });
+});
+
+describe("parseCliArgs — cron mode", () => {
+  it("parses cron with no extra arguments", () => {
+    expect(parseCliArgs(["cron"])).toEqual({ kind: "cron" });
+  });
+
+  it("rejects cron with extra arguments", () => {
+    expect(() => parseCliArgs(["cron", "extra"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects cron with --approve flag", () => {
+    expect(() => parseCliArgs(["cron", "--approve"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects cron with --no-approve flag", () => {
+    expect(() => parseCliArgs(["cron", "--no-approve"])).toThrow(/Usage: railgun/);
+  });
+});
+
+describe("dispatchCli — cron mode", () => {
+  it("calls initFreshSession and runCronScheduler", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "cron" }, deps);
+    expect(deps.initFreshSession).toHaveBeenCalledOnce();
+    expect(deps.runCronScheduler).toHaveBeenCalledOnce();
+  });
+
+  it("exits cleanly without calling runCronScheduler when initFreshSession returns undefined", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.initFreshSession).mockResolvedValue(undefined);
+    await dispatchCli({ kind: "cron" }, deps);
+    expect(deps.runCronScheduler).not.toHaveBeenCalled();
+  });
+
+  it("does not call createStore, runRepl, or runOneShot for cron mode", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "cron" }, deps);
+    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.runRepl).not.toHaveBeenCalled();
+    expect(deps.runOneShot).not.toHaveBeenCalled();
+  });
+
+  it("passes the AbortSignal, session devin/model/systemPrompt, and loaded config to runCronScheduler", async () => {
+    const deps = dependencies();
+    const config = { model: "m", defaultProjectTrust: "ask" as const, approvalMode: "off" as const };
+    vi.mocked(deps.loadConfig).mockResolvedValue(config);
+    await dispatchCli({ kind: "cron" }, deps);
+    expect(deps.loadConfig).toHaveBeenCalledOnce();
+    const [calledDevin, calledModel, calledPrompt, calledConfig, calledSignal] =
+      vi.mocked(deps.runCronScheduler).mock.calls[0] ?? [];
+    expect(calledDevin).toBe(fakeSession.devin);
+    expect(calledModel).toBe(fakeSession.model);
+    expect(calledPrompt).toBe(fakeSession.systemPrompt);
+    expect(calledConfig).toEqual(config);
+    expect(calledSignal).toBeInstanceOf(AbortSignal);
   });
 });

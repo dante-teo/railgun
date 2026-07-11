@@ -20,8 +20,10 @@ import { initDevinSession, initFreshDevinSession } from "./session.js";
 import type { DevinSession } from "./session.js";
 import { createProjectTrustStore, resolveProjectTrust, promptTrustChoiceReadline } from "./trust.js";
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "./trust.js";
+import type { DevinProvider, DevinModel } from "widevin";
+import { startScheduler } from "./cron/scheduler.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron";
 
 export type CliMode =
   | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
@@ -30,7 +32,8 @@ export type CliMode =
   | { kind: "list" }
   | { kind: "login" }
   | { kind: "logout" }
-  | { kind: "config" };
+  | { kind: "config" }
+  | { kind: "cron" };
 
 export class CliUsageError extends Error {
   constructor() {
@@ -55,6 +58,7 @@ export interface CliDependencies {
   now: () => Date;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
+  runCronScheduler: (devin: DevinProvider, model: DevinModel, systemPrompt: readonly string[], config: AppConfig, signal: AbortSignal) => Promise<void>;
 }
 
 export const parseCliArgs = (args: readonly string[]): CliMode => {
@@ -85,6 +89,10 @@ export const parseCliArgs = (args: readonly string[]): CliMode => {
   if (flag === "config" && rest.length === 0) {
     if (approve || noApprove) throw new CliUsageError();
     return { kind: "config" };
+  }
+  if (flag === "cron" && rest.length === 0) {
+    if (approve || noApprove) throw new CliUsageError();
+    return { kind: "cron" };
   }
   if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!", ...trustFlags };
   if (flag === "--list-sessions" && rest.length === 0) {
@@ -120,6 +128,8 @@ const defaultDependencies: CliDependencies = {
   now: () => new Date(),
   stdout: console.log,
   stderr: console.error,
+  runCronScheduler: (devin, model, systemPrompt, config, signal) =>
+    startScheduler(devin, model, systemPrompt, config, { signal }),
 };
 
 const resolveSessionTrust = async (
@@ -271,6 +281,23 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     });
     return;
   }
+  if (mode.kind === "cron") {
+    const session = await dependencies.initFreshSession();
+    if (session === undefined) return;
+    const config = await dependencies.loadConfig();
+    const controller = new AbortController();
+    const onSignal = (): void => { controller.abort(); };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+    try {
+      await dependencies.runCronScheduler(session.devin, session.model, session.systemPrompt, config, controller.signal);
+    } finally {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    }
+    return;
+  }
+
 };
 
 export const main = async (args = process.argv.slice(2)): Promise<void> => {

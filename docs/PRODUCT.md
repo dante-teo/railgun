@@ -14,7 +14,10 @@ project deliberately restricts itself to a single AI backend (Devin, via the
 goes toward agent logic instead of provider plumbing (see
 `docs/adr/0001-single-provider-devin-via-widevin.md`).
 
-**Current phase — Phase 23 (extension system):**
+**Current phase — Phase 29 (cron scheduler):**
+Phase 29 adds a `railgun cron` command that runs the agent automatically on a schedule without human input. Jobs are defined in `~/.railgun/cron/jobs.json` as a JSON array of objects with `id`, `schedule` (cron expression), `prompt`, and `lastRun` (epoch ms or null). A background loop wakes every 60 seconds, parses each schedule with `cron-parser` to find the last firing time before now, and runs any job whose `lastRun` is before that time (or null). Each job fires a fresh `createAgentSession` with a 30-step iteration budget, shell commands denied by default unless `approvalMode` is `"off"` in `config.json`, and no session persistence — output is logged to stderr. After all due jobs in a cycle complete, `lastRun` is atomically written back to `jobs.json` via `write-file-atomic`. The loop runs until SIGINT or SIGTERM, which are each forwarded to an `AbortController`; the signal propagates through the sleep primitive (built with `Promise.withResolvers()`) so the process exits without waiting out the current interval. Extensions are not loaded in cron mode. `src/cron/jobs.ts` owns job types, disk I/O, and `isDue`; `src/cron/scheduler.ts` owns `tick` (sequential per-cycle run), `runCronJob` (session construction and event collection), and `startScheduler` (the main loop).
+
+**Previous phase — Phase 23 (extension system):**
 Phase 23 adds an extension system that lets outside code observe and intercept
 the agent's lifecycle without editing core source. Extensions live in
 `~/.railgun/extensions/` (global) and `.railgun/extensions/` (project-local,
