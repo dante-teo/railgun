@@ -3,8 +3,8 @@ import { matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOW
 
 describe("KNOWN_COMMANDS", () => {
   it("contains commands without the removed skin override", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
+     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork"]);
+     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork"]);
   });
 });
 
@@ -67,8 +67,8 @@ describe("parseSlashCommand", () => {
 });
 describe("findMatches", () => {
   it("returns all commands for '/'", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa"]);
+     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork"]);
+     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork"]);
   });
 
   it("returns no matches for '/sk'", () => {

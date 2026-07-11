@@ -53,3 +53,36 @@ Devin authentication. `--print` never creates a store.
 - Corruption is visible and actionable rather than silently losing context.
 - Phase 12 intentionally provides no paging, search, rename, delete, session
   switching, persisted tool UI, or persisted iteration-budget usage.
+
+## Amendment — Phase 30: session branching and forking
+
+- Status: Accepted
+- Date: 2026-07-12
+
+Schema version bumped from 1 to 2. The `messages` table gains `id INTEGER
+PRIMARY KEY` and `parent_id INTEGER NULL` (self-reference); the
+`UNIQUE(session_id, ordinal)` constraint is dropped to allow forked branches
+to share ordinal values. The `sessions` table gains `current_leaf_id INTEGER
+NULL`. A new `branch_summary` role is added to the role CHECK.
+
+A v1 → v2 data migration recreates the `messages` table, copies existing
+rows, and wires linear `parent_id` chains plus `current_leaf_id` values for
+all pre-existing sessions. The migration runs inside a transaction so a
+mid-migration crash cannot leave version-2 metadata with partially-wired
+chains.
+
+`loadSession` no longer uses `ORDER BY ordinal`; it walks the `parent_id`
+chain from `current_leaf_id` to root using a single recursive CTE
+(`selectBranchFromLeaf`). `branch_summary` rows are DB-internal routing
+pivots: they are never returned as conversation history by `loadSession`,
+and `saveTransaction` filters them out before comparing the checkpoint
+against stored rows.
+
+Four new `SessionStore` methods: `branch` (moves `current_leaf_id`),
+`branchWithSummary` (generates a summary of the abandoned path via the
+live Devin provider, inserts a `branch_summary` row, then moves the leaf),
+`forkSession` (copies the active branch into a new session with independent
+row ids), and `getRecentMessages` (returns the last N messages with
+id/role/preview for the `/branch` picker). All multi-write operations
+(`branchWithSummary` insert + leaf update, `forkSession`) are wrapped in
+`db.transaction` for atomicity.

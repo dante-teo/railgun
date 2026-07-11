@@ -61,6 +61,11 @@ export interface ReplPersistenceOptions {
   initialTodos?: TodoState;
   sessionMetadata?: ReplSessionMetadata;
   checkpoint?: (messages: readonly DevinMessage[], todos: TodoState) => void;
+  branch?: (messageId: number) => void;
+  branchWithSummary?: (messageId: number) => Promise<void>;
+  fork?: () => { sessionId: string; messages: readonly DevinMessage[] };
+  getRecentMessages?: () => readonly { id: number; role: string; preview: string }[];
+  loadBranch?: () => readonly DevinMessage[];
 }
 
 export interface CheckpointAttempt {
@@ -515,7 +520,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback, /trust" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback, /trust, /branch [--summary] [id], /fork" }]);
         return;
       }
       if (command === "/clear") {
@@ -615,6 +620,56 @@ const ChatApp = ({
           }
         } catch (error) {
           setLines(previous => [...previous, { kind: "error", text: `MoA error: ${error instanceof Error ? error.message : String(error)}` }]);
+        }
+        return;
+      }
+      if (command === "/branch") {
+        if (!persistence.branch || !persistence.getRecentMessages) {
+          setLines(prev => [...prev, { kind: "error", text: "Branching not available (no persistence)." }]);
+          return;
+        }
+        const withSummary = arg?.includes("--summary") ?? false;
+        const idStr = arg?.replace("--summary", "").trim();
+        if (!idStr || !/^\d+$/.test(idStr)) {
+          const recent = persistence.getRecentMessages();
+          for (const msg of recent) {
+            setLines(prev => [...prev, { kind: "assistant", text: `  ${msg.id}: [${msg.role}] ${msg.preview}` }]);
+          }
+          setLines(prev => [...prev, { kind: "assistant", text: "Run /branch <id> [--summary] to branch to a message." }]);
+          return;
+        }
+        const messageId = parseInt(idStr, 10);
+        try {
+          if (withSummary && persistence.branchWithSummary) {
+            setBusy(true);
+            await persistence.branchWithSummary(messageId);
+          } else {
+            persistence.branch(messageId);
+          }
+          if (persistence.loadBranch) {
+            const newHistory = persistence.loadBranch();
+            setHistory(newHistory);
+            setLines(historyToDisplayLines(newHistory));
+          }
+          setLines(prev => [...prev, { kind: "assistant", text: `Branched to message ${messageId}${withSummary ? " with summary" : ""}.` }]);
+        } catch (error) {
+          setLines(prev => [...prev, { kind: "error", text: `Branch failed: ${error instanceof Error ? error.message : String(error)}` }]);
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+      if (command === "/fork") {
+        if (!persistence.fork) {
+          setLines(prev => [...prev, { kind: "error", text: "Forking not available (no persistence)." }]);
+          return;
+        }
+        try {
+          const result = persistence.fork();
+          setHistory(result.messages);
+          setLines(prev => [...prev, { kind: "assistant", text: `Forked to new session: ${result.sessionId}` }]);
+        } catch (error) {
+          setLines(prev => [...prev, { kind: "error", text: `Fork failed: ${error instanceof Error ? error.message : String(error)}` }]);
         }
         return;
       }

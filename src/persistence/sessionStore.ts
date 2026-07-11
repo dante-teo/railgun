@@ -1,10 +1,11 @@
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import type { DevinAssistantContentPart, DevinContentPart, DevinMessage } from "widevin";
+import type { DevinAssistantContentPart, DevinContentPart, DevinMessage, DevinProvider } from "widevin";
 import { normalizeTodoState } from "../tools/todo.js";
 import type { TodoState, TodoStatus } from "../tools/todo.js";
 import { STATE_PATH } from "../paths.js";
+import { summarizeMessages } from "./branchSummarizer.js";
 
 const SCHEMA_VERSION = 2;
 const PREVIEW_LIMIT = 71;
@@ -30,11 +31,21 @@ export interface SessionSummary {
   firstUserPreview: string;
 }
 
+export interface RecentMessage {
+  id: number;
+  role: string;
+  preview: string;
+}
+
 export interface SessionStore {
   readonly db: Database.Database;
   loadSession(id: string): PersistedSession | undefined;
   listSessions(): readonly SessionSummary[];
   saveCheckpoint(checkpoint: SessionCheckpoint): PersistedSession;
+  branch(sessionId: string, messageId: number): void;
+  branchWithSummary(sessionId: string, messageId: number, devin: DevinProvider, model: string): Promise<void>;
+  forkSession(sessionId: string): string;
+  getRecentMessages(sessionId: string, limit?: number): readonly RecentMessage[];
   close(): void;
 }
 
@@ -50,9 +61,11 @@ interface SessionRow {
   model: string;
   started_at: string;
   todos_json: string;
+  current_leaf_id: number | null;
 }
 
 interface MessageRow {
+  id: number;
   session_id: string;
   ordinal: number;
   role: string;
@@ -61,6 +74,7 @@ interface MessageRow {
   tool_error: number | null;
   response_id: string | null;
   created_at: string;
+  parent_id: number | null;
 }
 
 type UserMessage = DevinMessage & { role: "user" };
@@ -137,7 +151,13 @@ const decodeGeneralContent = (value: unknown): string | readonly DevinContentPar
 };
 
 const decodeMessageRow = (row: MessageRow): DevinMessage => {
-  const content = parseJson(row.content_json, `message ${row.ordinal}`);
+  const label = `message id=${row.id} ordinal=${row.ordinal}`;
+  const content = parseJson(row.content_json, label);
+  if (row.role === "branch_summary") {
+    // Decoded as a user message with a prefix so the transcript validator sees it as user.
+    const text = typeof content === "string" ? content : JSON.stringify(content);
+    return { role: "user", content: `[Branch summary]\n${text}` };
+  }
   if (row.role === "user") {
     if (row.tool_call_id !== null || row.tool_error !== null || row.response_id !== null) {
       throw new Error(`user message ${row.ordinal} has role-incompatible fields`);
@@ -167,24 +187,30 @@ const decodeMessageRow = (row: MessageRow): DevinMessage => {
   throw new Error(`message ${row.ordinal} has invalid role ${JSON.stringify(row.role)}`);
 };
 
-const encodeMessage = (sessionId: string, ordinal: number, message: DevinMessage, createdAt: string): MessageRow => {
+const encodeMessage = (
+  sessionId: string,
+  ordinal: number,
+  message: DevinMessage,
+  createdAt: string,
+  parentId: number | null,
+): Omit<MessageRow, "id"> => {
   if (message.role === "developer") throw new Error("developer messages cannot be persisted");
   const content = message.role === "assistant"
     ? message.content.map(decodeAssistantPart)
     : decodeGeneralContent(message.content);
   const contentJson = JSON.stringify(content);
   if (message.role === "user") {
-    return { session_id: sessionId, ordinal, role: "user", content_json: contentJson, tool_call_id: null, tool_error: null, response_id: null, created_at: createdAt };
+    return { session_id: sessionId, ordinal, role: "user", content_json: contentJson, tool_call_id: null, tool_error: null, response_id: null, created_at: createdAt, parent_id: parentId };
   }
   if (message.role === "assistant") {
     if (message.responseId !== undefined && typeof message.responseId !== "string") throw new Error("invalid assistant response id");
-    return { session_id: sessionId, ordinal, role: "assistant", content_json: contentJson, tool_call_id: null, tool_error: null, response_id: message.responseId ?? null, created_at: createdAt };
+    return { session_id: sessionId, ordinal, role: "assistant", content_json: contentJson, tool_call_id: null, tool_error: null, response_id: message.responseId ?? null, created_at: createdAt, parent_id: parentId };
   }
   if (message.role !== "tool") throw new Error(`unsupported message role ${message.role}`);
   if (typeof message.toolCallId !== "string" || message.toolCallId === "" || (message.isError !== undefined && typeof message.isError !== "boolean")) {
     throw new Error("invalid tool message");
   }
-  return { session_id: sessionId, ordinal, role: "tool", content_json: contentJson, tool_call_id: message.toolCallId, tool_error: message.isError === undefined ? null : message.isError ? 1 : 0, response_id: null, created_at: createdAt };
+  return { session_id: sessionId, ordinal, role: "tool", content_json: contentJson, tool_call_id: message.toolCallId, tool_error: message.isError === undefined ? null : message.isError ? 1 : 0, response_id: null, created_at: createdAt, parent_id: parentId };
 };
 
 const validateTranscript = (messages: readonly DevinMessage[]): void => {
@@ -252,27 +278,24 @@ const assertSessionMetadata = (checkpoint: SessionCheckpoint): void => {
   if (!Number.isFinite(Date.parse(checkpoint.startedAt))) throw new Error("session start time is invalid");
 };
 
-const assertOrdinalSequence = (rows: readonly MessageRow[]): void => {
-  rows.forEach((row, index) => {
-    if (row.ordinal !== index) throw new Error(`message ordinals are not contiguous at ${index}`);
-  });
-};
-
 const decodePersistedSession = (session: SessionRow, rows: readonly MessageRow[]): PersistedSession => {
   try {
     assertSessionMetadata({ ...session, startedAt: session.started_at, messages: [], todos: [] });
-    assertOrdinalSequence(rows);
-    rows.forEach((row, ordinal) => {
-      if (row.session_id !== session.id) throw new Error(`message ${ordinal} belongs to another session`);
-      if (!Number.isFinite(Date.parse(row.created_at))) throw new Error(`message ${ordinal} has an invalid timestamp`);
+    rows.forEach((row, index) => {
+      if (row.session_id !== session.id) throw new Error(`message at position ${index} belongs to another session`);
+      if (!Number.isFinite(Date.parse(row.created_at))) throw new Error(`message at position ${index} has an invalid timestamp`);
     });
-    const messages = rows.map(decodeMessageRow);
-    validateTranscript(messages);
+    // branch_summary rows are DB-internal routing nodes, never part of the conversation.
+    // Filter them out entirely — they may appear anywhere in the path (as intermediate
+    // "pivot points" that new messages chain from after branchWithSummary).
+    const visibleRows = rows.filter(r => r.role !== "branch_summary");
+    const visibleMessages = visibleRows.map(decodeMessageRow);
+    if (visibleMessages.length > 0) validateTranscript(visibleMessages);
     return {
       id: session.id,
       model: session.model,
       startedAt: session.started_at,
-      messages,
+      messages: visibleMessages,
       todos: decodeTodos(session.todos_json),
     };
   } catch (error) {
@@ -303,20 +326,23 @@ const initializeSchema = (db: Database.Database): void => {
         id TEXT PRIMARY KEY,
         model TEXT NOT NULL,
         started_at TEXT NOT NULL,
-        todos_json TEXT NOT NULL
+        todos_json TEXT NOT NULL,
+        current_leaf_id INTEGER NULL
       );
       CREATE TABLE messages (
+        id INTEGER PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
         ordinal INTEGER NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'branch_summary')),
         content_json TEXT NOT NULL,
         tool_call_id TEXT,
         tool_error INTEGER CHECK (tool_error IN (0, 1)),
         response_id TEXT,
         created_at TEXT NOT NULL,
-        UNIQUE(session_id, ordinal)
+        parent_id INTEGER NULL
       );
-      CREATE INDEX messages_session_ordinal ON messages(session_id, ordinal);
+      CREATE INDEX messages_session ON messages(session_id);
+      CREATE INDEX messages_parent ON messages(parent_id);
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
         content TEXT NOT NULL,
@@ -330,6 +356,26 @@ const initializeSchema = (db: Database.Database): void => {
   if (version === 1) {
     db.exec(`
       BEGIN;
+      CREATE TABLE messages_v2 (
+        id INTEGER PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'branch_summary')),
+        content_json TEXT NOT NULL,
+        tool_call_id TEXT,
+        tool_error INTEGER CHECK (tool_error IN (0, 1)),
+        response_id TEXT,
+        created_at TEXT NOT NULL,
+        parent_id INTEGER NULL
+      );
+      INSERT INTO messages_v2 (session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at)
+        SELECT session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at
+        FROM messages ORDER BY session_id, ordinal;
+      DROP TABLE messages;
+      ALTER TABLE messages_v2 RENAME TO messages;
+      CREATE INDEX messages_session ON messages(session_id);
+      CREATE INDEX messages_parent ON messages(parent_id);
+      ALTER TABLE sessions ADD COLUMN current_leaf_id INTEGER NULL;
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
         content TEXT NOT NULL,
@@ -339,6 +385,28 @@ const initializeSchema = (db: Database.Database): void => {
       PRAGMA user_version = 2;
       COMMIT;
     `);
+    // Data migration: wire parent_id chains and current_leaf_id for existing sessions.
+    // Run inside a transaction so a crash mid-loop can't leave partially-wired chains
+    // on a DB already at version 2.
+    interface SessionIdRow { id: string }
+    interface MessageIdRow { id: number }
+    const wireChains = db.transaction(() => {
+      const sessions = db.prepare("SELECT id FROM sessions").all() as SessionIdRow[];
+      const updateParent = db.prepare("UPDATE messages SET parent_id = ? WHERE id = ?");
+      const updateLeafStmt = db.prepare("UPDATE sessions SET current_leaf_id = ? WHERE id = ?");
+      for (const session of sessions) {
+        const rows = db.prepare(
+          "SELECT id FROM messages WHERE session_id = ? ORDER BY id ASC",
+        ).all(session.id) as MessageIdRow[];
+        let prevId: number | null = null;
+        for (const row of rows) {
+          updateParent.run(prevId, row.id);
+          prevId = row.id;
+        }
+        updateLeafStmt.run(prevId, session.id);
+      }
+    });
+    wireChains();
   }
 };
 
@@ -348,21 +416,51 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
   chmodSync(path, 0o600);
   initializeSchema(db);
 
-  const selectSession = db.prepare("SELECT id, model, started_at, todos_json FROM sessions WHERE id = ?");
-  const selectMessages = db.prepare("SELECT session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at FROM messages WHERE session_id = ? ORDER BY ordinal");
-  const insertSession = db.prepare("INSERT INTO sessions (id, model, started_at, todos_json) VALUES (?, ?, ?, ?)");
-  const updateTodos = db.prepare("UPDATE sessions SET todos_json = ? WHERE id = ?");
-  const insertMessage = db.prepare(`INSERT INTO messages
-    (session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at)
-    VALUES (@session_id, @ordinal, @role, @content_json, @tool_call_id, @tool_error, @response_id, @created_at)`);
+  const selectSession   = db.prepare("SELECT id, model, started_at, todos_json, current_leaf_id FROM sessions WHERE id = ?");
+  const selectAllSessions = db.prepare(`
+    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, COUNT(m.id) AS message_count
+    FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
+    GROUP BY s.id ORDER BY s.started_at DESC, s.id DESC`);
+  const insertSession   = db.prepare("INSERT INTO sessions (id, model, started_at, todos_json) VALUES (?, ?, ?, ?)");
+  const updateTodos     = db.prepare("UPDATE sessions SET todos_json = ? WHERE id = ?");
+  const updateLeaf      = db.prepare("UPDATE sessions SET current_leaf_id = ? WHERE id = ?");
+  const selectMessage   = db.prepare("SELECT id FROM messages WHERE id = ? AND session_id = ?");
+  // Recursive CTE: walks the parent_id chain from a given leaf id, returns all ancestors in
+  // chronological order (root first). A single query replaces the O(n) per-row prepare loop.
+  const selectBranchFromLeaf = db.prepare(`
+    WITH RECURSIVE branch(id, session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at, parent_id) AS (
+      SELECT id, session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at, parent_id
+        FROM messages WHERE id = @leafId AND session_id = @sessionId
+      UNION ALL
+      SELECT m.id, m.session_id, m.ordinal, m.role, m.content_json, m.tool_call_id, m.tool_error, m.response_id, m.created_at, m.parent_id
+        FROM messages m JOIN branch b ON m.id = b.parent_id AND m.session_id = @sessionId
+    )
+    SELECT id, session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at, parent_id
+    FROM branch ORDER BY id ASC`);
+  const insertMessage   = db.prepare(`
+    INSERT INTO messages (session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at, parent_id)
+    VALUES (@session_id, @ordinal, @role, @content_json, @tool_call_id, @tool_error, @response_id, @created_at, @parent_id)`);
+
+  // Walk the parent_id chain from the current leaf back to root, return in chronological order.
+  const getBranch = (sessionId: string, leafId?: number): MessageRow[] => {
+    const session = selectSession.get(sessionId) as SessionRow | undefined;
+    if (!session) return [];
+    const startId: number | null = leafId !== undefined ? leafId : session.current_leaf_id;
+    if (startId === null) return [];
+    return selectBranchFromLeaf.all({ leafId: startId, sessionId }) as MessageRow[];
+  };
 
   const loadSession = (id: string): PersistedSession | undefined => {
     const session = selectSession.get(id) as SessionRow | undefined;
     if (!session) return undefined;
-    return decodePersistedSession(session, selectMessages.all(id) as MessageRow[]);
+    return decodePersistedSession(session, getBranch(id));
   };
 
-  const saveTransaction = db.transaction((checkpoint: SessionCheckpoint, encoded: readonly MessageRow[], todosJson: string) => {
+  const saveTransaction = db.transaction((
+    checkpoint: SessionCheckpoint,
+    encoded: readonly Omit<MessageRow, "id">[],
+    todosJson: string,
+  ) => {
     const existing = selectSession.get(checkpoint.id) as SessionRow | undefined;
     if (!existing) {
       insertSession.run(checkpoint.id, checkpoint.model, checkpoint.startedAt, todosJson);
@@ -370,29 +468,55 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
       throw new SessionCorruptionError(checkpoint.id, "checkpoint metadata does not match the saved session");
     }
 
-    const savedRows = selectMessages.all(checkpoint.id) as MessageRow[];
-    assertOrdinalSequence(savedRows);
-    if (savedRows.length > encoded.length) throw new SessionCorruptionError(checkpoint.id, "checkpoint would discard saved messages");
-    savedRows.forEach((row, ordinal) => {
-      const candidate = encoded[ordinal];
-      if (!candidate || row.role !== candidate.role || row.content_json !== candidate.content_json ||
-        row.tool_call_id !== candidate.tool_call_id || row.tool_error !== candidate.tool_error || row.response_id !== candidate.response_id) {
-        throw new SessionCorruptionError(checkpoint.id, `checkpoint diverges at message ${ordinal}`);
+    // Compare against the active branch, not all rows.
+    // branch_summary rows are DB-internal routing nodes invisible to the checkpoint.
+    // Filter them out for comparison purposes, but remember the last DB row's id (which
+    // may be a summary) as the parent for any newly inserted messages.
+    const allBranchRows = getBranch(checkpoint.id);
+    const lastDbRow = allBranchRows[allBranchRows.length - 1];
+    const realBranchRows = allBranchRows.filter(r => r.role !== "branch_summary");
+
+    if (realBranchRows.length > encoded.length) {
+      throw new SessionCorruptionError(checkpoint.id, "checkpoint would discard saved messages");
+    }
+    realBranchRows.forEach((row, index) => {
+      const candidate = encoded[index];
+      if (!candidate) {
+        throw new SessionCorruptionError(checkpoint.id, `checkpoint diverges at branch position ${index}`);
+      }
+      if (
+        row.role !== candidate.role ||
+        row.content_json !== candidate.content_json ||
+        row.tool_call_id !== candidate.tool_call_id ||
+        row.tool_error !== candidate.tool_error ||
+        row.response_id !== candidate.response_id
+      ) {
+        throw new SessionCorruptionError(checkpoint.id, `checkpoint diverges at branch position ${index}`);
       }
     });
-    encoded.slice(savedRows.length).forEach(row => insertMessage.run(row));
+
+    // New messages chain from the last DB row (may be a summary row acting as pivot).
+    let lastId: number | null = lastDbRow?.id ?? null;
+    for (const row of encoded.slice(realBranchRows.length)) {
+      const result = insertMessage.run({ ...row, parent_id: lastId });
+      lastId = result.lastInsertRowid as number;
+    }
+
+    // Update leaf pointer.
+    if (lastId !== null) updateLeaf.run(lastId, checkpoint.id);
     updateTodos.run(todosJson, checkpoint.id);
   });
+
+  interface ListSessionRow extends SessionRow { message_count: number }
 
   return {
     db,
     loadSession,
+
     listSessions: () => {
-      const sessions = db.prepare(`SELECT s.id, s.model, s.started_at, s.todos_json, COUNT(m.ordinal) AS message_count
-        FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-        GROUP BY s.id ORDER BY s.started_at DESC, s.id DESC`).all() as Array<SessionRow & { message_count: number }>;
+      const sessions = selectAllSessions.all() as ListSessionRow[];
       return sessions.map(session => {
-        const persisted = decodePersistedSession(session, selectMessages.all(session.id) as MessageRow[]);
+        const persisted = decodePersistedSession(session, getBranch(session.id));
         return {
           id: session.id,
           model: session.model,
@@ -402,15 +526,104 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
         };
       });
     },
+
     saveCheckpoint: checkpoint => {
       assertSessionMetadata(checkpoint);
       const now = new Date().toISOString();
-      const encoded = checkpoint.messages.map((message, ordinal) => encodeMessage(checkpoint.id, ordinal, message, now));
+      // parentId is null on initial encode; saveTransaction resolves actual ids from branchRows.
+      const encoded = checkpoint.messages.map((message, ordinal) => encodeMessage(checkpoint.id, ordinal, message, now, null));
       validateTranscript(checkpoint.messages);
       const todosJson = encodeTodos(checkpoint.todos);
       saveTransaction(checkpoint, encoded, todosJson);
       return loadSession(checkpoint.id)!;
     },
+
+    branch: (sessionId, messageId) => {
+      if (!selectMessage.get(messageId, sessionId)) {
+        throw new Error(`message ${messageId} does not exist in session ${sessionId}`);
+      }
+      updateLeaf.run(messageId, sessionId);
+    },
+
+    branchWithSummary: async (sessionId, messageId, devin, model) => {
+      const currentBranch = getBranch(sessionId);
+      const branchPointIndex = currentBranch.findIndex(r => r.id === messageId);
+      if (branchPointIndex === -1) {
+        throw new Error(`message ${messageId} is not on the active branch of session ${sessionId}`);
+      }
+
+      // Messages after the branch point are the abandoned segment.
+      const abandonedRows = currentBranch.slice(branchPointIndex + 1);
+      if (abandonedRows.length > 0) {
+        const summaryText = await summarizeMessages(abandonedRows.map(decodeMessageRow), devin, model);
+        // Wrap the two DB writes in a transaction: an orphaned row without a leaf update
+        // on crash would be unreachable and leave the session in an inconsistent state.
+        db.transaction(() => {
+          const result = insertMessage.run({
+            session_id: sessionId,
+            ordinal: branchPointIndex + 1,
+            role: "branch_summary",
+            content_json: JSON.stringify(summaryText),
+            tool_call_id: null,
+            tool_error: null,
+            response_id: null,
+            created_at: new Date().toISOString(),
+            parent_id: messageId,
+          });
+          updateLeaf.run(result.lastInsertRowid as number, sessionId);
+        })();
+      } else {
+        // No messages to summarize; just move the leaf pointer.
+        updateLeaf.run(messageId, sessionId);
+      }
+    },
+
+    forkSession: (sessionId) => {
+      const sourceBranch = getBranch(sessionId);
+      const sourceSession = selectSession.get(sessionId) as SessionRow | undefined;
+      if (!sourceSession) throw new Error(`session ${sessionId} not found`);
+
+      const newId = `${sessionId}-fork-${Date.now()}`;
+      db.transaction(() => {
+        insertSession.run(newId, sourceSession.model, new Date().toISOString(), sourceSession.todos_json);
+        let lastId: number | null = null;
+        for (const [ordinal, row] of sourceBranch.entries()) {
+          const result = insertMessage.run({
+            session_id: newId,
+            ordinal,
+            role: row.role,
+            content_json: row.content_json,
+            tool_call_id: row.tool_call_id,
+            tool_error: row.tool_error,
+            response_id: row.response_id,
+            created_at: row.created_at,
+            parent_id: lastId,
+          });
+          lastId = result.lastInsertRowid as number;
+        }
+        if (lastId !== null) updateLeaf.run(lastId, newId);
+      })();
+      return newId;
+    },
+
+    getRecentMessages: (sessionId, limit = 10) => {
+      const isTextPart = (part: unknown): part is { type: "text"; text: string } =>
+        isRecord(part) && part.type === "text" && typeof part.text === "string";
+
+      return getBranch(sessionId).slice(-limit).map(row => {
+        const rawContent = parseJson(row.content_json, `message id=${row.id}`);
+        let preview: string;
+        if (typeof rawContent === "string") {
+          preview = rawContent.slice(0, 80);
+        } else if (Array.isArray(rawContent)) {
+          preview = rawContent.filter(isTextPart).map(p => p.text).join(" ").slice(0, 80);
+        } else {
+          preview = JSON.stringify(rawContent).slice(0, 80);
+        }
+        return { id: row.id, role: row.role, preview };
+      });
+    },
+
     close: () => db.close(),
   };
 };

@@ -180,6 +180,22 @@ const persistenceOptions = (
         onFirstSave?.();
       }
     },
+    branch: (messageId) => store.branch(persisted.id, messageId),
+    branchWithSummary: async (_messageId) => {
+      // Patched in runPersistedRepl once the devin session is available.
+      throw new Error("branchWithSummary requires a live devin session");
+    },
+    fork: () => {
+      const newId = store.forkSession(persisted.id);
+      const newSession = store.loadSession(newId);
+      if (!newSession) throw new Error("Fork failed: new session not found");
+      return { sessionId: newId, messages: newSession.messages };
+    },
+    getRecentMessages: () => store.getRecentMessages(persisted.id),
+    loadBranch: () => {
+      const reloaded = store.loadSession(persisted.id);
+      return reloaded?.messages ?? [];
+    },
   };
 };
 
@@ -194,7 +210,12 @@ const runPersistedRepl = async (
   onFirstSave?: () => void,
 ): Promise<void> => {
   const session = await dependencies.initSession(persisted.model, formatMemoriesForPrompt(memoryStore.recent(20)));
-  await dependencies.runRepl(session, persistenceOptions(persisted, store, onFirstSave), extensionRunner, trustDecision, trustStore, memoryStore);
+  const opts = persistenceOptions(persisted, store, onFirstSave);
+  // Patch branchWithSummary now that we have a live devin provider.
+  opts.branchWithSummary = async (messageId) => {
+    await store.branchWithSummary(persisted.id, messageId, session.devin, session.model.id);
+  };
+  await dependencies.runRepl(session, opts, extensionRunner, trustDecision, trustStore, memoryStore);
 };
 
 const withStore = async <T>(
@@ -293,11 +314,11 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
           messages: [],
           todos: [],
         };
-        await dependencies.runRepl(session, persistenceOptions(
-          persisted,
-          store,
-          () => dependencies.stderr(`Session saved: ${persisted.id}`),
-        ), runner, decision, trustStore, memoryStore);
+        const opts = persistenceOptions(persisted, store, () => dependencies.stderr(`Session saved: ${persisted.id}`));
+        opts.branchWithSummary = async (messageId) => {
+          await store.branchWithSummary(persisted.id, messageId, session.devin, session.model.id);
+        };
+        await dependencies.runRepl(session, opts, runner, decision, trustStore, memoryStore);
       });
       await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     } finally {

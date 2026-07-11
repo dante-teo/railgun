@@ -32,6 +32,10 @@ const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
     todos: [],
   } : undefined),
   saveCheckpoint: vi.fn(checkpoint => checkpoint),
+  branch: vi.fn(),
+  branchWithSummary: vi.fn(async () => {}),
+  forkSession: vi.fn(() => "forked-id"),
+  getRecentMessages: vi.fn(() => []),
   close: vi.fn(),
   db: makeMemoriesDb(),
 });
