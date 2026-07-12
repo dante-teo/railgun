@@ -22,7 +22,7 @@ export type TurnOutcome =
 
 export const STOPPED_BY_USER = "[stopped by user]";
 
-const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills"] as const;
+const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills", "delegation"] as const;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }
@@ -43,6 +43,10 @@ export interface RunTurnOptions {
   memoryStore?: MemoryStore;
   moaPreset?: MoAPreset;
   onTurnEnd?: (messages: readonly DevinMessage[], pushMessage: (msg: DevinMessage) => void) => Promise<void> | void;
+  model?: string;
+  contextWindow?: number;
+  delegationDepth?: number;
+  enabledToolsets?: readonly string[];
 }
 
 const pushMessage = async (
@@ -63,7 +67,8 @@ const runStep = async (
   context: ToolContext,
   allTextParts: string[],
   doEmit: (event: AgentEvent) => Promise<void>,
-  extensionRunner?: ExtensionRunner
+  extensionRunner?: ExtensionRunner,
+  enabledToolsets: readonly string[] = ENABLED_TOOLSETS
 ): Promise<StepResult> => {
   const textParts: string[] = [];
   const rawArgsById = new Map<string, string>();
@@ -78,7 +83,7 @@ const runStep = async (
     for await (const event of devin.streamChat({
       model,
       messages,
-      tools: registry.getSchemas(ENABLED_TOOLSETS),
+      tools: registry.getSchemas(enabledToolsets),
       systemPrompt: prompt,
       signal: context.signal,
     })) {
@@ -279,6 +284,7 @@ export const runTurn = async (
 ): Promise<TurnOutcome> => {
   const doEmit = emit ?? (async () => {});
   const effectiveModel = options?.moaPreset?.aggregator.model ?? model;
+  const effectiveToolsets = options?.enabledToolsets ?? ENABLED_TOOLSETS;
   const initialUserMessage: DevinMessage = { role: "user", content: userText };
   const messages: DevinMessage[] = [...history, initialUserMessage];
   const allTextParts: string[] = [];
@@ -296,6 +302,10 @@ export const runTurn = async (
     devin,
     ...(options?.reviewerModel !== undefined ? { reviewerModel: options.reviewerModel } : {}),
     ...(options?.memoryStore !== undefined ? { memoryStore: options.memoryStore } : {}),
+    model: options?.model ?? model,
+    contextWindow: options?.contextWindow ?? contextWindow,
+    delegationDepth: options?.delegationDepth ?? 0,
+    emit: doEmit,
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;
@@ -340,7 +350,7 @@ export const runTurn = async (
       turnEndedThisAttempt = false;
       await doEmit({ type: "turn_start" });
       const outcome = await callDevinWithRecovery(
-        () => runStep(devin, effectiveModel, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner),
+        () => runStep(devin, effectiveModel, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner, effectiveToolsets),
         () => compress("overflow")
       );
       await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });

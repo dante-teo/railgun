@@ -104,6 +104,9 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
               await advisor.onPrimaryTurnEnd(msgs, queues.enqueueSteer, push);
             },
           } : {}),
+          model: dependencies.model,
+          contextWindow: dependencies.contextWindow,
+          delegationDepth: 0,
         },
       );
     } finally {

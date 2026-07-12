@@ -16,7 +16,7 @@ Interactive conversations and todos are checkpointed to a private local
 SQLite database and can be resumed across restarts. An extension system lets
 outside code hook the agent lifecycle — block or observe tool calls, rewrite
 results, intercept user input, and register new LLM-callable tools — by
-placing `.js` or `.ts` files in `~/.railgun/extensions/`. The REPL is a full-screen,
+placing `.js` or `.ts` files in `~/.railgun/extensions/`. The agent can also spawn bounded subagents via `delegate_task`, fanning a task out to up to three independent child loops running concurrently, with configurable depth limits and automatic parent-abort propagation. The REPL is a full-screen,
 resize-aware Ink interface with automatic mint-light/mint-dark appearance,
 Markdown replies, transcript history navigation, a multiline composer, slash
 commands (`/exit`, `/help`, `/clear`, `/model`, `/compact`), and Tab completion. A `.railgun.md` (or
@@ -455,6 +455,8 @@ as each occurs:
 - `tool_execution_end`
 - `compaction_start`
 - `compaction_end`
+- `subagent_start`
+- `subagent_end`
 - `agent_settled`
 - `queue_update`
 
@@ -499,7 +501,7 @@ rendering helpers, alongside tests for
 (token-budgeted history summarization and truncation), `src/agent/projectContext.ts`
 (context-file discovery, git-root walk, injection scan, truncation,
 `SOUL.md` loading), `src/security/threatPatterns.ts` (injection-pattern
-matching), each tool's own handler logic in `src/tools/`,
+matching), each tool's own handler logic in `src/tools/` (including delegation depth/concurrency/abort propagation for `delegate_task`),
 `src/commands.ts` (slash-command prefix matching and parsing), theme detection,
 physical-row viewport/navigation, mouse parsing and lifecycle cleanup, composer
 sizing/actions, chronological streaming/tool segmentation, terminal resizing,

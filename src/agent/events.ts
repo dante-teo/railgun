@@ -20,6 +20,8 @@ export type AgentEvent =
   | { type: "compaction_end"; reason: "threshold" | "overflow" }
   | { type: "moa_reference_start"; index: number; count: number; model: string }
   | { type: "moa_reference_end"; index: number; model: string; text: string }
-  | { type: "moa_aggregating"; aggregator: string; refCount: number };
+  | { type: "moa_aggregating"; aggregator: string; refCount: number }
+  | { type: "subagent_start"; goal: string; index: number; count: number }
+  | { type: "subagent_end"; goal: string; index: number; result: string };
 
 export type AgentEventListener = (event: AgentEvent) => void | Promise<void>;

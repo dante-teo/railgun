@@ -7,6 +7,7 @@ import "./clarify.js";
 import "./memory.js";
 import "./skillView.js";
 import "./advise.js";
+import "./delegate.js";
 
 export { registry } from "./registry.js";
 export type { ToolContext, ToolRunResult, RegisteredTool, ToolRegistry, ClarifyCallback } from "./registry.js";
