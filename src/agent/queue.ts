@@ -2,6 +2,8 @@ export interface MessageQueues {
   readonly enqueueSteer: (text: string) => void;
   readonly enqueueFollowUp: (text: string) => void;
   readonly takeSteer: () => string | undefined;
+  readonly takeFollowUp: () => string | undefined;
+  /** @deprecated Prefer takeFollowUp to preserve assistant boundaries. */
   readonly takeFollowUps: () => readonly string[];
   readonly clear: () => number;
 }
@@ -16,6 +18,11 @@ export const createMessageQueues = (): MessageQueues => {
     takeSteer: () => {
       const [next, ...rest] = steering;
       steering = rest;
+      return next;
+    },
+    takeFollowUp: () => {
+      const [next, ...rest] = followUps;
+      followUps = rest;
       return next;
     },
     takeFollowUps: () => {

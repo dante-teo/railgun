@@ -224,7 +224,9 @@ ADR-0012.
 Phase 17 introduces a functional `createAgent` lifecycle with one abort
 controller per run, guarded `run`/`abort`/`steer`/`followUp` operations, FIFO
 steering injected one message per assistant/tool boundary, and follow-ups
-drained only when the run would otherwise settle. Ctrl+C cancels active
+made eligible only when the run would otherwise settle, then injected FIFO one
+per assistant boundary. This preserves the transcript's required user/assistant
+alternation even when several follow-ups queue together. Ctrl+C cancels active
 provider/tool/approval work without exiting the REPL; idle Ctrl+C exits.
 Cancellation retains the submitted user message, streamed assistant text,
 completed tools and todo mutations, adds stopped tool results where protocol

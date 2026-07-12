@@ -12,6 +12,16 @@ describe("message queues", () => {
     expect(queues.takeSteer()).toBe("one");
     expect(queues.takeSteer()).toBe("two");
     expect(queues.takeSteer()).toBeUndefined();
+    expect(queues.takeFollowUp()).toBe("later one");
+    expect(queues.takeFollowUp()).toBe("later two");
+    expect(queues.takeFollowUp()).toBeUndefined();
+  });
+
+  it("retains the batch follow-up API for existing callers", () => {
+    const queues = createMessageQueues();
+    queues.enqueueFollowUp("later one");
+    queues.enqueueFollowUp("later two");
+
     expect(queues.takeFollowUps()).toEqual(["later one", "later two"]);
     expect(queues.takeFollowUps()).toEqual([]);
   });

@@ -27,8 +27,10 @@ and queueing while idle are rejected.
 
 - Steering is FIFO and injects one plain-text user message after each complete
   assistant/tool boundary. A tool batch always finishes as a batch first.
-- All follow-ups are injected only at settlement, then continue inside the
-  same run and iteration budget.
+- Follow-ups become eligible only at settlement. They are then injected FIFO,
+  one per assistant boundary, and continue inside the same run and iteration
+  budget. A batch is never appended as consecutive user messages because Devin
+  and SQLite both require an assistant response between user messages.
 - The signal is passed to Devin streaming, compaction, approval waits, the tool
   registry, and every handler through required `ToolContext.signal`.
 - Sequential dispatch stops scheduling work after abort. Parallel calls settle
@@ -43,7 +45,8 @@ side effects, and completed todo mutations. Empty assistant boundaries or
 stopped tool results are added only where needed to keep the retained prefix
 protocol-valid. Interruption notices remain UI metadata, not Devin messages.
 Both queues are cleared on settlement; abort reports how many queued messages
-were cancelled.
+were cancelled. The original batch-oriented `takeFollowUps` callback remains a
+deprecated compatibility adapter; new integrations consume `takeFollowUp`.
 
 In Ink, the composer remains active during ordinary agent work and Enter queues
 steering. Approval remains modal. A queued acknowledgement is temporary; the

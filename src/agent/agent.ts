@@ -92,7 +92,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
         {
           signal: currentController.signal,
           takeSteer: queues.takeSteer,
-          takeFollowUps: queues.takeFollowUps,
+          takeFollowUp: queues.takeFollowUp,
           clearQueues: queues.clear,
           ...(dependencies.todoStore !== undefined ? { todoStore: dependencies.todoStore } : {}),
           ...(dependencies.clarifyCallback !== undefined ? { clarifyCallback: dependencies.clarifyCallback } : {}),

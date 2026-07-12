@@ -34,6 +34,8 @@ export interface RunTurnOptions {
   clarifyCallback?: ClarifyCallback;
   signal?: AbortSignal;
   takeSteer?: () => string | undefined;
+  takeFollowUp?: () => string | undefined;
+  /** @deprecated Prefer takeFollowUp to preserve assistant boundaries. */
   takeFollowUps?: () => readonly string[];
   clearQueues?: () => number;
   checkpointGuard?: { beforeMutation: () => void };
@@ -312,6 +314,15 @@ export const runTurn = async (
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;
+  let legacyFollowUps: readonly string[] = [];
+  const takeNextFollowUp = (): string | undefined => {
+    if (options?.takeFollowUp !== undefined) return options.takeFollowUp();
+    const [next, ...rest] = legacyFollowUps.length > 0
+      ? legacyFollowUps
+      : options?.takeFollowUps?.() ?? [];
+    legacyFollowUps = rest;
+    return next;
+  };
   const compress = async (reason: "threshold" | "overflow"): Promise<void> => {
     await doEmit({ type: "compaction_start", reason });
     const result = await runCompaction(devin, model, systemPrompt, messages, signal);
@@ -367,15 +378,13 @@ export const runTurn = async (
         continue;
       }
       if (outcome.done) {
-        const followUps = options?.takeFollowUps?.() ?? [];
-        if (followUps.length === 0) {
+        const followUp = takeNextFollowUp();
+        if (followUp === undefined) {
           await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
           return { ok: true, messages: stripGuidance(messages), assistantText: outcome.assistantText };
         }
-        for (const text of followUps) {
-          const followUpMessage: DevinMessage = { role: "user", content: text };
-          await pushMessage(messages, doEmit, followUpMessage);
-        }
+        const followUpMessage: DevinMessage = { role: "user", content: followUp };
+        await pushMessage(messages, doEmit, followUpMessage);
         continue;
       }
       if (!compactedThisRound && shouldCompact(outcome.usage, contextWindow)) await compress("threshold");

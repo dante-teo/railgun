@@ -34,7 +34,7 @@ describe("createAgent", () => {
     await first;
   });
 
-  it("injects one steering message per boundary and drains follow-ups before settling", async () => {
+  it("injects queued messages one per assistant boundary before settling", async () => {
     const firstBoundary = Promise.withResolvers<void>();
     let call = 0;
     const requests: unknown[] = [];
@@ -50,14 +50,18 @@ describe("createAgent", () => {
     const running = agent.run("hello");
     agent.steer("steer me");
     agent.followUp("then this");
+    agent.followUp("and then this");
     firstBoundary.resolve();
     const outcome = await running;
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected success");
     expect(outcome.messages.filter(message => message.role === "user").map(message => message.content))
-      .toEqual(["hello", "steer me", "then this"]);
-    expect(requests).toHaveLength(3);
+      .toEqual(["hello", "steer me", "then this", "and then this"]);
+    expect(outcome.messages.every((message, index, messages) =>
+      index === 0 || message.role !== messages[index - 1]!.role
+    )).toBe(true);
+    expect(requests).toHaveLength(4);
   });
 
   it("aborts an active provider stream and remains reusable", async () => {
