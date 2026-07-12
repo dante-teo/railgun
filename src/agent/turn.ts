@@ -312,6 +312,7 @@ export const runTurn = async (
   await doEmit({ type: "message_start", message: initialUserMessage });
   await doEmit({ type: "message_end", message: initialUserMessage });
 
+  let guidanceMessage: DevinMessage | undefined;
   if (options?.moaPreset) {
     const preset = options.moaPreset;
     const callbacks: ReferenceCallbacks = {
@@ -323,8 +324,15 @@ export const runTurn = async (
     await doEmit({ type: "moa_aggregating", aggregator: preset.aggregator.model, refCount: refs.length });
     // Guidance is private context for the aggregator — not a real user message.
     // Skip pushMessage (which emits message_start/end) to keep the event stream clean.
-    messages.push({ role: "user", content: guidance });
+    guidanceMessage = { role: "user", content: guidance };
+    messages.push(guidanceMessage);
   }
+
+  // Strip the private guidance message before returning so it is never persisted in the checkpoint.
+  // Compaction rebuilds the messages array entirely, so after compaction the guidance is already gone —
+  // the filter is a no-op in that case and safe to call unconditionally.
+  const stripGuidance = (msgs: DevinMessage[]): DevinMessage[] =>
+    guidanceMessage !== undefined ? msgs.filter(m => m !== guidanceMessage) : msgs;
 
   try {
     while (iterationBudget.consume()) {
@@ -348,8 +356,8 @@ export const runTurn = async (
       if (outcome.done) {
         const followUps = options?.takeFollowUps?.() ?? [];
         if (followUps.length === 0) {
-          await doEmit({ type: "agent_end", messages });
-          return { ok: true, messages, assistantText: outcome.assistantText };
+          await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
+          return { ok: true, messages: stripGuidance(messages), assistantText: outcome.assistantText };
         }
         for (const text of followUps) {
           const followUpMessage: DevinMessage = { role: "user", content: text };
@@ -370,14 +378,14 @@ export const runTurn = async (
         }
         await doEmit({ type: "turn_end", message: messages.at(-1)!, toolResults: [] });
       }
-      await doEmit({ type: "agent_end", messages });
-      return { ok: false, aborted: true, messages, assistantText: partialText, cancelledQueued };
+      await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
+      return { ok: false, aborted: true, messages: stripGuidance(messages), assistantText: partialText, cancelledQueued };
     }
     return { ok: false, error };
   }
 
   const limitMessage: DevinMessage = { role: "assistant", content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }] };
   await pushMessage(messages, doEmit, limitMessage);
-  await doEmit({ type: "agent_end", messages });
-  return { ok: true, messages, assistantText: ITERATION_LIMIT_MESSAGE };
+  await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
+  return { ok: true, messages: stripGuidance(messages), assistantText: ITERATION_LIMIT_MESSAGE };
 };
