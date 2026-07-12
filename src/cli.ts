@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import type { ExtensionRunner } from "./extensions/runner.js";
 import { createExtensionRunner } from "./extensions/runner.js";
 import { loadExtensions, registerExtensionTools, createExtensionAPI } from "./extensions/loader.js";

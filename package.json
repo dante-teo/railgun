@@ -1,10 +1,18 @@
 {
-  "name": "@railgun/core",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@dantea/railgun",
+  "version": "0.0.0",
   "type": "module",
-  "exports": {
-    "./*": "./src/*"
+  "license": "MIT",
+  "bin": {
+    "railgun": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -13,7 +21,8 @@
     "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run src"
+    "test": "vitest run src",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.2.1",
