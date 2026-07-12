@@ -1,8 +1,8 @@
-import { render } from "markdansi";
-import type { Theme as MarkdownTheme } from "markdansi";
+import { render, type Theme as MarkdownTheme } from "markdansi";
 import type { Theme } from "./theme.js";
+import { rgb } from "../ui/theme.js";
 
-const markdownTheme = (): MarkdownTheme => ({
+const markdownTheme: MarkdownTheme = {
   heading: { color: "magenta", bold: true },
   strong: { color: "yellow", bold: true },
   emph: { color: "white", italic: true },
@@ -15,11 +15,6 @@ const markdownTheme = (): MarkdownTheme => ({
   listMarker: { color: "cyan", bold: true },
   tableHeader: { color: "yellow", bold: true },
   tableCell: { color: "white" },
-});
-
-const rgb = (hex: string, background = false): string => {
-  const [red, green, blue] = [1, 3, 5].map(offset => Number.parseInt(hex.slice(offset, offset + 2), 16));
-  return `\u001b[${background ? 48 : 38};2;${red};${green};${blue}m`;
 };
 
 const applyMintAnsi = (output: string, theme: Theme): string =>
@@ -38,7 +33,7 @@ export const renderAssistantMarkdown = (markdown: string, theme: Theme, width: n
     wrap: true,
     color: true,
     hyperlinks: true,
-    theme: markdownTheme(),
+    theme: markdownTheme,
     tableBorder: "unicode",
     tableTruncate: true,
     codeBox: true,

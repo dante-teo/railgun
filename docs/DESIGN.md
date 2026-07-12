@@ -53,6 +53,20 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   Short transcript slices bottom-align against the composer; full pages remain
   top-aligned for stable scrolling.
 
+## UI states
+
+Seven observable states drive the visual treatment of the transcript and composer area.
+
+| State | Treatment |
+|---|---|
+| Empty session (no messages) | Header with `RAILGUN · adaptive agent console` and the status bar are visible. The transcript area is empty; short content bottom-aligns against the composer (existing behavior in `transcriptJustification`). No placeholder text — the composer's prompt is invitation enough. |
+| Waiting for first token | An animated `dots2` spinner row with `theme.dim` styling and "Thinking…" label. Uses the existing `ink-spinner` in the Ink REPL; the Phase 36 non-Ink tree uses `theme.thinkingIndicator()`. |
+| Tool awaiting approval | A `theme.warning`-surface inline row with the command text and `y/n` prompt. The composer freezes (input disabled) until the approval resolves. Not a native OS dialog. Existing behavior in `App.tsx`'s approval modal state. |
+| Clarify question with choices | An `❓` prompt box above the composer. Number keys `1`–`4` select displayed choices; Enter submits freeform; Escape declines with `[user declined to answer]`. Composer unfocuses during choice mode. Existing behavior in `App.tsx`. |
+| Connection lost (stdio pipe closes) | A `theme.error`-styled inline transcript line (`"Connection lost"`). The composer remains editable but submissions fail until the agent process is restarted. In RPC mode, the client detects EOF on the child's stdout. |
+| Error from model/API | A red (`theme.error`) transcript row with role label `ERROR`. The raw error is mapped through `src/errors.ts` to a one-line human message. The composer returns to interactive state. Existing behavior. |
+| Long tool output / long reply | Tool output is collapsed to a one-line label (`toolCallLabel`). Completed assistant replies render as Markdown; streaming fragments are plain text. No explicit truncation of assistant replies — the viewport scrolls. |
+
 ## Lifecycle and accessibility
 
 Interactive TTY sessions and the resume/model choosers enter the alternate
