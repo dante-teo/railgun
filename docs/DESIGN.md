@@ -185,3 +185,26 @@ too-large request (HTTP 413) triggers the same compaction reactively and
 retries, invisibly to the user unless compaction itself is exhausted
 after 3 attempts, in which case the turn fails with a normal red
 transcript error line.
+
+## Desktop app
+
+The desktop app (`apps/desktop/`) is a browser-based surface that exposes the same agent features as the Ink REPL. It is not a port — it is a separate renderer that consumes the same `AgentSession` event stream via a WebSocket gateway.
+
+### Visual identity
+
+The mint palette is unchanged. CSS custom properties in `apps/desktop/renderer/styles/tokens.css` mirror `src/ui/palette.ts` hex values 1:1 for both dark and light themes. The page background (`--color-page-bg`, darker than `--color-surface`) provides depth; surface tokens are used for message cards and panels, not the canvas. The layout is three zones stacked in a flex column: a fixed 48 px header with the `RAILGUN` wordmark in accent mint, a scrollable transcript, and a bottom stack (todo panel → overlay zone → composer → status bar).
+
+Theme follows the OS preference via `matchMedia('(prefers-color-scheme: dark)')` and the `data-theme` attribute on `<html>`. There is no manual toggle in Sprint 1.
+
+### Interaction parity with the TUI
+
+The composer mirrors the TUI's key bindings: Enter submits, Shift+Enter inserts a newline, Tab cycles slash-command suggestions, Escape clears the completion or draft, Ctrl+U clears the draft, Ctrl+C aborts. The textarea grows from 1 to 6 rows (the same cap as the TUI). Slash-command suggestions appear as an inline dropdown above the composer, driven by the same `findMatches`/`nextCompletionState` logic from `src/commands.ts`.
+
+Overlays (shell approval, clarify prompt, model picker, trust picker, session chooser, action picker) are rendered inside the bottom stack's overlay zone and follow the same keyboard contracts as the TUI's Ink-based selectors. At most one overlay is active at a time.
+
+### What the browser renderer does not do (Sprint 1)
+
+- No live gateway connection — `DevShell` provides mock data guarded by `import.meta.env.DEV`. Gateway wiring (WS client + state machine) is Sprint 2.
+- No Electron shell — the renderer is a plain web app served by Vite. Electron wrapping is Sprint 3.
+- No virtual scrolling — the transcript uses `overflow-y: auto` on a DOM list. Virtualization is a Sprint 2+ optimization if needed.
+- No alternate-screen management — irrelevant in a browser context.
