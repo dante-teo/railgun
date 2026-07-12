@@ -27,8 +27,9 @@ Two design choices needed recording:
    simple `LIKE`. FTS5 is correct long-term but requires a virtual table and
    vocabulary to explain its tokenizer behavior. `LIKE` is a two-line query,
    case-insensitive for ASCII, and correct for Phase 25's purpose — the corpus
-   is small (user-authored personal notes, not documents). FTS5 is deferred to
-   Phase 26.
+   is small (user-authored personal notes, not documents). FTS5 was added in
+   Phase 26 for the separate `notes` table (bulk-imported documents); see
+   `docs/adr/0026-notes-fts5-search.md`.
 
 2. **How to share the SQLite connection**: open a second connection (WAL
    supports concurrent readers), or expose the existing handle. A second
@@ -57,8 +58,9 @@ on the `SessionStore` interface so a `MemoryStore` can share the connection.
 Memory injection uses a hard limit of 20 recent memories (`recent(20)`)
 formatted as a bullet list by `formatMemoriesForPrompt`, returning `null`
 for empty stores (no `# Memories` block added). The limit is a constant, not
-configurable — Phase 26 will replace whole-list injection with on-demand
-`memory_search` calls once the corpus grows large enough to matter.
+configurable — the 20-memory injection limit and whole-list approach remain as-is;
+Phase 26 added on-demand `note_search` for imported documents rather than
+changing the memory injection model.
 
 Two tools registered under the new `"memory"` toolset (always enabled):
 - `memory_write` — saves a fact; category enum: `"preference"`, `"fact"`,
@@ -74,7 +76,7 @@ database and create a `MemoryStore` via the new `withStores` helper in
 
 - **Schema migration**: existing v1/v2 databases are migrated transparently on
   first open via the `MIGRATIONS` array in `sessionStore.ts`. The `memories`
-  table is created as part of the v1→v2 migration (index 1). Each migration
+  table is created as part of the v1→v2 migration (index 1); Phase 26 adds a v3→v4 migration (index 3) for the `notes` + `notes_fts` tables. Each migration
   step runs inside a transaction that atomically bumps `user_version`, so a
   crash mid-migration cannot leave the schema and the version stamp out of sync.
 
@@ -86,17 +88,15 @@ database and create a `MemoryStore` via the new `withStores` helper in
 - **`SessionStore.db` exposure**: the `db` handle is typed `readonly` on the
   interface. Callers that only receive `SessionStore` (e.g. `cli.test.ts`
   mocks) must supply a `db` field. The test mock uses an in-memory SQLite DB
-  with only the `memories` table, sufficient for `withStores` to call
-  `createMemoryStore`.
+  with the `memories`, `notes`, and `notes_fts` tables, sufficient for
+  `withStores` to call `createMemoryStore` and `createNoteStore`.
 
 - **No categorization enforcement at the handler level**: the category value
   is constrained by the JSON schema `enum` sent to the model but not validated
   server-side in the handler. This matches the `todo` tool's status handling
   (schema-level only). A future hardening pass could add a server-side check.
 
-- **20-memory hard limit and LIKE search**: both are intentional simplifications
-  for Phase 25. Phase 26 replaces with FTS5 and on-demand retrieval as the
-  memory store grows.
+- **20-memory hard limit and LIKE search**: both remain as-is. Phase 26 added FTS5 for a separate `notes` table (bulk-imported documents); the `memories` table still uses LIKE search since the corpus is small and user-authored. On-demand retrieval for memories may be addressed in a future phase.
 
 - **No `close()` on `MemoryStore`**: lifecycle stays with `SessionStore`.
   `MemoryStore` prepares statements but never owns the connection.

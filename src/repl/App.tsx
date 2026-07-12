@@ -37,6 +37,7 @@ import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js"
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
+import type { NoteStore } from "../persistence/noteStore.js";
 import { expandSkillCommand } from "../skills.js";
 
 const TRUST_CHOICES: Readonly<Record<string, TrustChoice>> = {
@@ -258,7 +259,7 @@ interface ModelPickerState {
 
 
 const ChatApp = ({
-  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore,
+  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore, noteStore,
 }: {
   readonly session: DevinSession;
   readonly initialMode: ThemeMode;
@@ -269,6 +270,7 @@ const ChatApp = ({
   readonly cwd?: string;
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
+  readonly noteStore?: NoteStore;
 }): React.ReactElement => {
   const { exit } = useApp();
   const { stdin } = useStdin();
@@ -715,6 +717,7 @@ const ChatApp = ({
       ...(reviewerModel !== undefined ? { reviewerModel } : {}),
       ...(extensionRunner ? { extensionRunner } : {}),
       ...(memoryStore ? { memoryStore } : {}),
+      ...(noteStore ? { noteStore } : {}),
       ...(activeMoaPreset !== null ? { moaPreset: activeMoaPreset } : {}),
       ...(advisorModel ? { advisor: { model: advisorModel } } : {}),
     });
@@ -899,6 +902,7 @@ export const runRepl = async (
   trustDecision?: TrustDecision,
   trustStore?: ProjectTrustStore,
   memoryStore?: MemoryStore,
+  noteStore?: NoteStore,
 ): Promise<void> => {
   const themeController = new ThemeController();
   const initialMode = await themeController.start();
@@ -918,6 +922,7 @@ export const runRepl = async (
             {...(trustDecision !== undefined ? { initialTrustDecision: trustDecision } : {})}
             {...(trustStore !== undefined ? { trustStore, cwd } : {})}
             {...(memoryStore !== undefined ? { memoryStore } : {})}
+            {...(noteStore !== undefined ? { noteStore } : {})}
           />,
           {
             exitOnCtrlC: false,

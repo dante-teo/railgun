@@ -8,6 +8,7 @@ import { createTodoStore } from "./tools/todo.js";
 import type { ExtensionRunner } from "./extensions/runner.js";
 import type { MemoryStore } from "./persistence/memoryStore.js";
 import { formatMemoriesForPrompt } from "./persistence/memoryStore.js";
+import type { NoteStore } from "./persistence/noteStore.js";
 
 const confirmShellCommand = async (command: string): Promise<boolean> => {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -35,7 +36,7 @@ const clarifyCallback = async (question: string, choices?: string[]): Promise<st
   }
 };
 
-export const runOneShot = async (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore): Promise<void> => {
+export const runOneShot = async (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore, noteStore?: NoteStore): Promise<void> => {
   const memoriesText = memoryStore ? formatMemoriesForPrompt(memoryStore.recent(20)) : null;
   const session = await initFreshDevinSession({ memoriesText });
   if (session === undefined) return;
@@ -51,6 +52,7 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
     ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
     ...(extensionRunner ? { extensionRunner } : {}),
     ...(memoryStore ? { memoryStore } : {}),
+    ...(noteStore ? { noteStore } : {}),
     ...((() => {
       const presetName = config.activeMoaPreset;
       if (typeof presetName !== "string" || presetName.length === 0) return {};

@@ -48,6 +48,20 @@ one-shot/print) now open the session database to read memories. The `SessionStor
 exposes a `readonly db` handle so `MemoryStore` can share the same SQLite connection
 without opening a second one.
 
+**Phase 26 (long-term notes search via FTS5):**
+Phase 26 adds full-text search over the user's imported reference documents. A new
+`notes` table (schema v4, migrating from v3) in `~/.railgun/state.db` stores chunked
+document content with `source_path` and `created_at`; a `notes_fts` FTS5 virtual
+table (with three sync triggers) keeps the full-text index in sync automatically.
+One new tool, `note_search`, is registered under the existing `"memory"` toolset;
+the tool rules block instructs the agent to call it before saying it doesn't know
+something. A new CLI command, `import-notes <folder>`, bulk-imports `.md` and `.txt`
+files from a directory: each file is split into 500-word chunks and inserted in a
+single transaction; the command prints the total chunk count. FTS5 query sanitization
+strips syntax characters (`"`, `(`, `)`, `:`, `*`) from raw user input before passing
+to SQLite `MATCH`. `NoteStore` shares the existing `SessionStore.db` connection handle.
+See `docs/adr/0026-notes-fts5-search.md`.
+
 **Phase 32 (Mixture of Agents):**
 Phase 32 adds an opt-in Mixture of Agents (MoA) mode. When active, every user
 turn fans out parallel advisory calls to a configurable set of reference models

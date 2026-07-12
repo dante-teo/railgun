@@ -82,10 +82,10 @@ describe("branching", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 1. v1 → v3 migration
+  // 1. v1 → v4 migration
   // -------------------------------------------------------------------------
 
-  it("migrates a v1 database to v3 with correct parent chains", async () => {
+  it("migrates a v1 database to v4 with correct parent chains", async () => {
     store.close();
 
     // Build a v1 schema database manually.
@@ -130,7 +130,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(3);
+    expect(db2.pragma("user_version", { simple: true })).toBe(4);
 
     interface MsgRow { id: number; parent_id: number | null; ordinal: number }
     const rows = db2.prepare("SELECT id, parent_id, ordinal FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -151,7 +151,7 @@ describe("branching", () => {
     migrated.close();
   });
 
-  it("migrates a v2 old-schema database (no parent_id) to v3", async () => {
+  it("migrates a v2 old-schema database (no parent_id) to v4", async () => {
     store.close();
 
     // Simulates a v2 DB created before the branching feature: messages has no
@@ -201,7 +201,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(3);
+    expect(db2.pragma("user_version", { simple: true })).toBe(4);
 
     interface MsgRow { id: number; parent_id: number | null; ordinal: number }
     const rows = db2.prepare("SELECT id, parent_id, ordinal FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -221,7 +221,7 @@ describe("branching", () => {
     migrated.close();
   });
 
-  it("migrates a v2 new-schema database (missing only current_leaf_id) to v3", () => {
+  it("migrates a v2 new-schema database (missing only current_leaf_id) to v4", () => {
     store.close();
 
     // Simulates a v2 DB created after the messages rebuild but before current_leaf_id
@@ -278,7 +278,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(3);
+    expect(db2.pragma("user_version", { simple: true })).toBe(4);
 
     interface MsgRow { id: number; parent_id: number | null }
     const rows = db2.prepare("SELECT id, parent_id FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -526,10 +526,10 @@ describe("branching", () => {
     expect(summaryCount.count).toBe(1);
     db2.close();
   });
-  it("schema version is 3 after creation", () => {
+  it("schema version is 4 after creation", () => {
     store.close();
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(3);
+    expect(db.pragma("user_version", { simple: true })).toBe(4);
     db.close();
     store = createSessionStore(path); // reopen for afterEach
   });

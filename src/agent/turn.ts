@@ -3,6 +3,7 @@ import { registry } from "../tools/index.js";
 import type { ToolContext, ClarifyCallback } from "../tools/index.js";
 import type { TodoStore } from "../tools/todo.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
+import type { NoteStore } from "../persistence/noteStore.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { CORRUPTION_MARKER, safeParseToolArgs, shouldParallelizeToolBatch } from "./toolDispatch.js";
 import { callDevinWithRecovery } from "./recovery.js";
@@ -41,6 +42,7 @@ export interface RunTurnOptions {
   reviewerModel?: string;
   extensionRunner?: ExtensionRunner;
   memoryStore?: MemoryStore;
+  noteStore?: NoteStore;
   moaPreset?: MoAPreset;
   onTurnEnd?: (messages: readonly DevinMessage[], pushMessage: (msg: DevinMessage) => void) => Promise<void> | void;
   model?: string;
@@ -302,6 +304,7 @@ export const runTurn = async (
     devin,
     ...(options?.reviewerModel !== undefined ? { reviewerModel: options.reviewerModel } : {}),
     ...(options?.memoryStore !== undefined ? { memoryStore: options.memoryStore } : {}),
+    ...(options?.noteStore !== undefined ? { noteStore: options.noteStore } : {}),
     model: options?.model ?? model,
     contextWindow: options?.contextWindow ?? contextWindow,
     delegationDepth: options?.delegationDepth ?? 0,

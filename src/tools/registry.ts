@@ -1,5 +1,6 @@
 import type { DevinProvider, DevinTool } from "widevin";
 import type { MemoryStore } from "../persistence/memoryStore.js";
+import type { NoteStore } from "../persistence/noteStore.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import type { AdvisoryContext } from "../advisor/advisoryContext.js";
 import type { AgentEvent } from "../agent/events.js";
@@ -21,6 +22,7 @@ export interface ToolContext {
     formatForInjection(): string;
   };
   memoryStore?: MemoryStore;
+  noteStore?: NoteStore;
   advisoryContext?: AdvisoryContext;
   model?: string;
   contextWindow?: number;

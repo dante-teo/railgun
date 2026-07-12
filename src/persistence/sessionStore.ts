@@ -438,6 +438,29 @@ const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
     }
     wireParentChains(db);
   },
+
+  // 3 → 4: add notes table + FTS5 virtual table for full-text search
+  (db) => db.exec(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_path TEXT,
+      content TEXT NOT NULL,
+      created_at REAL NOT NULL
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(content);
+
+    CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
+      INSERT INTO notes_fts(rowid, content) VALUES (new.id, new.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
+      DELETE FROM notes_fts WHERE rowid = old.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE ON notes BEGIN
+      DELETE FROM notes_fts WHERE rowid = old.id;
+      INSERT INTO notes_fts(rowid, content) VALUES (new.id, new.content);
+    END;
+  `),
 ];
 
 const initializeSchema = (db: Database.Database): void => {

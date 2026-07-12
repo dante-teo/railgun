@@ -10,6 +10,7 @@ import type { AgentEvent, AgentEventListener } from "./events.js";
 import { createMessageQueues } from "./queue.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
+import type { NoteStore } from "../persistence/noteStore.js";
 import { createAdvisorRuntime } from "../advisor/advisor.js";
 
 export interface AgentDependencies {
@@ -27,6 +28,7 @@ export interface AgentDependencies {
   readonly reviewerModel?: string;
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
+  readonly noteStore?: NoteStore;
   readonly moaPreset?: MoAPreset;
   readonly advisor?: { readonly model: string };
 }
@@ -98,6 +100,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.reviewerModel !== undefined ? { reviewerModel: dependencies.reviewerModel } : {}),
           ...(dependencies.extensionRunner ? { extensionRunner: dependencies.extensionRunner } : {}),
           ...(dependencies.memoryStore !== undefined ? { memoryStore: dependencies.memoryStore } : {}),
+          ...(dependencies.noteStore !== undefined ? { noteStore: dependencies.noteStore } : {}),
           ...(dependencies.moaPreset ? { moaPreset: dependencies.moaPreset } : {}),
           ...(advisor ? {
             onTurnEnd: async (msgs: readonly DevinMessage[], push: (msg: DevinMessage) => void) => {

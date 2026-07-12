@@ -19,6 +19,8 @@ const summary = (id: string): SessionSummary => ({
 const makeMemoriesDb = (): Database.Database => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, category TEXT NOT NULL, created_at REAL NOT NULL)");
+  db.exec("CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, source_path TEXT, content TEXT NOT NULL, created_at REAL NOT NULL)");
+  db.exec("CREATE VIRTUAL TABLE notes_fts USING fts5(content)");
   return db;
 };
 
@@ -93,6 +95,7 @@ describe("parseCliArgs", () => {
     [["--resume", "abc", "--no-approve"], { kind: "resume", id: "abc", noApprove: true }],
     [["--mode", "rpc"], { kind: "rpc" }],
     [["--mode", "acp"], { kind: "acp" }],
+    [["import-notes", "/some/path"], { kind: "import-notes", folder: "/some/path" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
@@ -115,8 +118,17 @@ describe("parseCliArgs", () => {
   ])("rejects invalid arguments %j", (...args) => {
     expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
   });
+
   it("rejects --mode acp with --approve", () => {
     expect(() => parseCliArgs(["--mode", "acp", "--approve"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects import-notes with no folder argument", () => {
+    expect(() => parseCliArgs(["import-notes"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects import-notes with --approve flag", () => {
+    expect(() => parseCliArgs(["--approve", "import-notes", "/path"])).toThrow(/Usage: railgun/);
   });
 });
 
@@ -152,7 +164,7 @@ describe("dispatchCli", () => {
   it("keeps print mode stateless: never starts a Devin session but does open the store for memories", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "print", question: "hello" }, deps);
-    expect(deps.runOneShot).toHaveBeenCalledWith("hello", expect.anything(), expect.anything());
+    expect(deps.runOneShot).toHaveBeenCalledWith("hello", expect.anything(), expect.anything(), expect.anything());
     expect(deps.initSession).not.toHaveBeenCalled();
   });
 
@@ -190,7 +202,7 @@ describe("dispatchCli", () => {
       initialHistory: expect.any(Array),
       initialTodos: [],
       sessionMetadata: expect.objectContaining({ id: "saved" }),
-    }), expect.anything(), expect.anything(), expect.anything(), expect.anything());
+    }), expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything());
   });
 
   it("fails actionably for a missing direct session without initializing Devin", async () => {
