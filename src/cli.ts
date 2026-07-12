@@ -27,8 +27,10 @@ import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memory
 import type { MemoryStore } from "./persistence/memoryStore.js";
 import { runRpcMode } from "./rpc/rpcMode.js";
 import type { RpcModeOptions } from "./rpc/rpcMode.js";
+import { runAcpMode } from "./acp/acpMode.js";
+import type { AcpModeOptions } from "./acp/acpMode.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun --mode rpc";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun --mode rpc | railgun --mode acp";
 
 export type CliMode =
   | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
@@ -39,7 +41,8 @@ export type CliMode =
   | { kind: "logout" }
   | { kind: "config" }
   | { kind: "cron" }
-  | { kind: "rpc" };
+  | { kind: "rpc" }
+  | { kind: "acp" };
 
 export class CliUsageError extends Error {
   constructor() {
@@ -58,6 +61,7 @@ export interface CliDependencies {
   runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore, memoryStore?: MemoryStore) => Promise<void>;
   runOneShot: (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore) => Promise<void>;
   runRpc: (options: RpcModeOptions) => Promise<void>;
+  runAcp: (options: AcpModeOptions) => Promise<void>;
   createNewTrustStore: () => ProjectTrustStore;
   promptTrustChoice: (cwd: string) => Promise<TrustChoice>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
@@ -115,6 +119,10 @@ export const parseCliArgs = (args: readonly string[]): CliMode => {
       if (approve || noApprove) throw new CliUsageError();
       return { kind: "rpc" };
     }
+    if (rest[0] === "acp") {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "acp" };
+    }
     throw new CliUsageError();
   }
   throw new CliUsageError();
@@ -137,6 +145,7 @@ const defaultDependencies: CliDependencies = {
   runRepl,
   runOneShot,
   runRpc: runRpcMode,
+  runAcp: runAcpMode,
   createNewTrustStore: createProjectTrustStore,
   promptTrustChoice: promptTrustChoiceReadline,
   selectSession: runSessionChooser,
@@ -384,6 +393,20 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     try {
       await runner.emitSessionStart({ type: "session_start", reason: "new" });
       await dependencies.runRpc({ session, config, stdin: process.stdin, stdout: process.stdout, extensionRunner: runner });
+      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    } finally {
+      cleanup();
+    }
+    return;
+  }
+
+  if (mode.kind === "acp") {
+    const session = await dependencies.initSession();
+    const config = await dependencies.loadConfig();
+    const { runner, cleanup } = await bootstrapExtensions("acp", config);
+    try {
+      await runner.emitSessionStart({ type: "session_start", reason: "new" });
+      await dependencies.runAcp({ session, config, stdin: process.stdin, stdout: process.stdout, extensionRunner: runner });
       await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     } finally {
       cleanup();

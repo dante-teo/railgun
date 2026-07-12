@@ -62,6 +62,7 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
   runRepl: vi.fn(async () => {}),
   runOneShot: vi.fn(async () => {}),
   runRpc: vi.fn(async () => {}),
+  runAcp: vi.fn(async () => {}),
   promptTrustChoice: vi.fn(async (): Promise<TrustChoice> => "trust"),
   selectSession: vi.fn(async () => undefined),
   randomId: vi.fn(() => "fresh-id"),
@@ -91,6 +92,7 @@ describe("parseCliArgs", () => {
     [["--approve", "--print", "hello"], { kind: "print", question: "hello", approve: true }],
     [["--resume", "abc", "--no-approve"], { kind: "resume", id: "abc", noApprove: true }],
     [["--mode", "rpc"], { kind: "rpc" }],
+    [["--mode", "acp"], { kind: "acp" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
@@ -112,6 +114,9 @@ describe("parseCliArgs", () => {
     ["--mode", "unknown"],
   ])("rejects invalid arguments %j", (...args) => {
     expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
+  });
+  it("rejects --mode acp with --approve", () => {
+    expect(() => parseCliArgs(["--mode", "acp", "--approve"])).toThrow(/Usage: railgun/);
   });
 });
 
@@ -219,6 +224,19 @@ describe("dispatchCli", () => {
     expect(deps.initSession).toHaveBeenCalledOnce();
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.runRpc).toHaveBeenCalledWith(expect.objectContaining({
+      session: fakeSession,
+      config: expect.objectContaining({ model: null }),
+    }));
+    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.runRepl).not.toHaveBeenCalled();
+  });
+
+  it("dispatches acp mode: initializes session and calls runAcp without opening the store", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "acp" }, deps);
+    expect(deps.initSession).toHaveBeenCalledOnce();
+    expect(deps.loadConfig).toHaveBeenCalledOnce();
+    expect(deps.runAcp).toHaveBeenCalledWith(expect.objectContaining({
       session: fakeSession,
       config: expect.objectContaining({ model: null }),
     }));

@@ -13,6 +13,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.2.1",
     "better-sqlite3": "^12.11.1",
     "cron-parser": "^5.6.1",
     "ink": "^6.8.0",
