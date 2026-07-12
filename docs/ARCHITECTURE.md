@@ -76,7 +76,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Viewport/composer/lifecycle (`src/repl/{viewport,composer,lifecycle,mouse,terminalSize}.ts`) | Pure viewport and composer actions, SGR mouse parsing, shared resize observation, and guaranteed alternate-screen/mouse-mode boundaries; resize preserves prior bottom-follow state and unseen cues reserve a rendered row | Solo project |
 | Streaming transcript (`src/repl/streamingTranscript.ts`) | Pure segment state that accumulates deltas, flushes narration before tools and queued-user injection, and returns only the uncommitted final/aborted assistant suffix | Solo project |
   | Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, `/settings`, `/compact`, `/rollback`, `/trust`, `/moa`, `/branch`, and `/fork` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
-  | Trust gate (`src/trust.ts`) | `TrustChoice`/`TrustDecision`/`ProjectTrustStore` types; `createProjectTrustStore` (ancestor-walk resolution, sync DI for path/readFile/writeFile, persists to `TRUST_PATH` via `writeFileSync` with mode `0600`); `resolveProjectTrust` (resolution order: CLI flags → config default → persisted store → interactive prompt); `promptTrustChoiceReadline` (five-choice readline prompt on stderr, fires before Ink starts); `assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards (not yet called — reserved for Phases 23/28) | Solo project |
+  | Trust gate (`src/trust.ts`) | `TrustChoice` (`"trust" \| "trust-session" \| "deny"`), `TrustDecision`, `ProjectTrustStore` types; `createProjectTrustStore` (ancestor-walk resolution, sync DI for path/readFile/writeFile, persists to `TRUST_PATH` via `writeFileSync` with mode `0600`); `resolveProjectTrust` (resolution order: CLI flags → config default → persisted store → interactive prompt); `promptTrustChoiceReadline` (raw-mode stdin arrow-key selector on stderr — Trust / Trust (this session only) / Do not trust — fires before Ink starts); `assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards (not yet called — reserved for Phases 23/28) | Solo project |
   6. Slash commands are handled before agent dispatch. `/settings` opens nested AI configuration pickers; `/trust`, bare `/moa`, and bare `/branch` use the shared Up/Down/Enter/Escape selector, while explicit arguments remain supported. `/compact` replaces history with its compacted form and checkpoints it, `/rollback` restores the last shadow-git snapshot, and `/fork` copies the active branch into a new session.
 | Markdown (`src/repl/markdown.ts`) | `markdansi` adapter for wrapped GFM replies, links, tables, lists, and mint-themed fenced code boxes; called only for completed assistant text. Imports `rgb` from `src/ui/theme.ts` (shared helper, no behavioral change from the former inline copy). | Solo project |
 | Suggestions (`src/repl/Suggestions.tsx`) | Pure themed Ink component rendering slash-command matches and selection | Solo project |
@@ -280,7 +280,7 @@ This document records the intended system architecture for Railgun. Keep it curr
    and one-to-six-row sizing. Enhanced keyboard reporting is enabled without a
    capability-query input leak only for known supporting terminals.
   | Command system (`src/commands.ts`) | Pure `/exit`, `/help`, `/clear`, `/model`, `/settings`, `/compact`, `/rollback`, `/trust`, `/moa`, `/branch`, and `/fork` matching, parsing, and tab/escape completion state; no I/O or React | Solo project |
-  | Trust gate (`src/trust.ts`) | `TrustChoice`/`TrustDecision`/`ProjectTrustStore` types; `createProjectTrustStore` (ancestor-walk resolution, sync DI for path/readFile/writeFile, persists to `TRUST_PATH` via `writeFileSync` with mode `0600`); `resolveProjectTrust` (resolution order: CLI flags → config default → persisted store → interactive prompt); `promptTrustChoiceReadline` (five-choice readline prompt on stderr, fires before Ink starts); `assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards (not yet called — reserved for Phases 23/28) | Solo project |
+  | Trust gate (`src/trust.ts`) | `TrustChoice` (`"trust" \| "trust-session" \| "deny"`), `TrustDecision`, `ProjectTrustStore` types; `createProjectTrustStore` (ancestor-walk resolution, sync DI for path/readFile/writeFile, persists to `TRUST_PATH` via `writeFileSync` with mode `0600`); `resolveProjectTrust` (resolution order: CLI flags → config default → persisted store → interactive prompt); `promptTrustChoiceReadline` (raw-mode stdin arrow-key selector on stderr — Trust / Trust (this session only) / Do not trust — fires before Ink starts); `assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards (not yet called — reserved for Phases 23/28) | Solo project |
   6. Slash commands are handled before agent dispatch. `/settings` opens nested AI configuration pickers; `/trust`, bare `/moa`, and bare `/branch` use the shared Up/Down/Enter/Escape selector, while explicit arguments remain supported. `/compact` replaces history with its compacted form and checkpoints it, `/rollback` restores the last shadow-git snapshot, and `/fork` copies the active branch into a new session.
 
 **RPC mode path (`railgun --mode rpc`):**
@@ -330,13 +330,13 @@ a missing or whitespace-only file is silently ignored.
 
 `~/.railgun/trust.json` (mode `0600`) persists per-project trust decisions,
 keyed by canonical absolute directory path. Ancestor-directory inheritance
-applies: trusting `/a/b` implicitly trusts any subdirectory. `trust-parent`
-writes to `path.dirname(canonicalPath)`. Session-only choices (`trust-session`,
-`deny-session`) are never written to disk. The file is created lazily on the
-first persisted choice; a missing file means no stored decisions. Both the
-trust store and `assertProjectTrustedForRead`/`assertProjectTrustedForInstall`
-guards live in `src/trust.ts`; the guards are not yet called in Phase 20
-(reserved for Phases 23/28).
+applies: trusting `/a/b` implicitly trusts any subdirectory. The three
+persisted/session choices are: `trust` (persist current dir), `trust-session`
+(trusted for this process only, not written to disk), and `deny` (persist current dir).
+The file is created lazily on the first persisted choice; a missing file means
+no stored decisions. Both the trust store and
+`assertProjectTrustedForRead`/`assertProjectTrustedForInstall` guards live in
+`src/trust.ts`; the guards are not yet called in Phase 20 (reserved for Phases 23/28).
 
 The session database,
 `~/.railgun/state.db` (mode `0600`), stores interactive sessions, messages,
@@ -438,7 +438,7 @@ One-shot mode does not create or use checkpoints.
   resources loaded once those resources exist (Phase 23 for extensions; project-local
   skills gating is a future phase). CLI flags `--approve`/`-a` and `--no-approve`/`-na`
   bypass the persisted store for one invocation. `defaultProjectTrust: "always"` in
-  `config.json` disables the gate globally (opt-in). The five-choice `/trust` REPL
+  `config.json` disables the gate globally (opt-in). The three-choice `/trust` REPL
   command lets users change the in-session decision.
 - Skills content (`~/.railgun/skills/`) is user-authored Markdown read synchronously at
   session build time. Skill files are not scanned by `scanForThreats` — they are

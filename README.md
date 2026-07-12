@@ -413,8 +413,28 @@ A missing `~/.railgun/cron/jobs.json` is treated as an empty list — the schedu
 
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
 the supported `login`, `logout`, `--print`, `--resume`/`-r`, and
-`--list-sessions` usage to
-stderr and exits non-zero without launching anything.
+`--list-sessions` usage to stderr and exits non-zero without launching anything.
+
+### Working directory override
+
+```sh
+pnpm start --cwd <dir>
+pnpm start -C <dir>
+```
+
+`--cwd`/`-C` changes the process working directory to `<dir>` before any other
+startup step runs. All downstream `process.cwd()` calls — project-context
+discovery, trust-store resolution, system-prompt injection — naturally pick up
+the new directory. Tilde prefixes (`~/`, `~`) are expanded even when the shell
+does not expand them (e.g. a quoted `"~/projects"`). The flag accepts any
+valid path; an absent or non-directory path causes `process.chdir` to throw
+`ENOENT`/`ENOTDIR`, which the top-level error handler prints before exiting
+non-zero. Omitting `--cwd` leaves the working directory unchanged — identical
+to current behavior. The flag is compatible with all modes and is processed
+before mode dispatch.
+
+Missing value (`pnpm start --cwd` with no argument) is a usage error and prints
+the usage string with exit code 1.
 
 ### RPC mode
 

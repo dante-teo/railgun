@@ -187,15 +187,15 @@ approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/
   returned by `findMatches`.
   Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded
   directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after
-  `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk,
-  `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting
-  `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision
-  load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves
-  `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits,
-  `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and
-  `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result;
-  `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on
-  `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`.
+  `set(cwd, "deny")`, `trusted (session)` for `trust-session` without writing to disk,
+  ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories,
+  persisted-decision load-on-creation, and missing-file empty-store semantics;
+  `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove`
+  short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision
+  bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and
+  persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove
+  they do not throw on `trusted` and do throw (with the resource path in the message) on
+  `denied`/`unknown`.
   `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume
   modes, rejection on login/logout/config/list modes, and both-flags-together throwing
   `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included
@@ -534,7 +534,7 @@ protocol failures, and unrelated errors fail immediately.
   `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
   returned by `findMatches`.
   Phase 19: `src/tools/clarify.test.ts` proves all six handler cases — missing question arg, absent callback, open-ended callback call returning `{ question, answer }` JSON, choices callback call, max-4 truncation, and abort-before-call returning the stopped message; `src/agent/systemPrompt.test.ts` proves the clarify guidance string is present in the generated prompt; full suite (42 files / 421 tests) passes with zero regressions; `pnpm typecheck` passes clean under `exactOptionalPropertyTypes: true` and `noUncheckedIndexedAccess: true`.
-  Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after `set(cwd, "deny")`, `trusted/denied (session)` for session-only choices without writing to disk, `trust-parent` persisting to `dirname(cwd)` with child inheritance, ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`. `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume modes, rejection on login/logout/config/list modes, and both-flags-together throwing `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included in the persisted output of `setConfiguredModel`, and is rejected for values outside the `"ask"/"always"/"never"` set. See ADR-0013.
+  Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after `set(cwd, "deny")`, `trusted (session)` for `trust-session` without writing to disk, ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`. `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume modes, rejection on login/logout/config/list modes, and both-flags-together throwing `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included in the persisted output of `setConfiguredModel`, and is rejected for values outside the `"ask"/"always"/"never"` set. See ADR-0013.
   Phase 21: `src/security/commandApproval.test.ts` proves hardline blocks for
   `rm -rf /`, `mkfs.*`, fork bombs, and `dd of=/dev/<disk>`, that hardline
   overrides `"off"` and `"smart"` modes, dangerous-pattern detection for

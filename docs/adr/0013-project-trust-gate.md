@@ -20,22 +20,22 @@ persists decisions so legitimate projects are not re-prompted on every run.
   directory path. The file is created lazily; a missing file means an empty (no decisions) store.
 - Ancestor-directory inheritance: the store walk checks the exact path, then `path.dirname`, continuing
   to the filesystem root. Trusting a parent directory implicitly trusts all its descendants.
-- Five choices: `trust` (persist current dir), `trust-parent` (persist `dirname(current)`),
-  `trust-session` (trusted for this process only), `deny` (persist current dir), `deny-session`
-  (denied for this process only).
+- Three choices: `trust` (persist current dir), `trust-session` (trusted for
+  this process only, not written to disk), `deny` (persist current dir).
 - Resolution order in `resolveProjectTrust`: `--approve`/`-a` CLI flag → `--no-approve`/`-na` →
   `defaultProjectTrust: "always"` → `defaultProjectTrust: "never"` → persisted store (ancestor walk) →
   interactive prompt.
-- `promptTrustChoiceReadline` fires on stderr before the Ink REPL starts, using `node:readline`. This
-  avoids conflicts with Ink's stdin ownership.
+- `promptTrustChoiceReadline` renders an arrow-key selector on stderr (raw-mode
+  stdin, Up/Down to navigate, Enter to confirm, cursor hidden) before the Ink
+  REPL starts. Avoids conflicts with Ink's stdin ownership.
 - The `defaultProjectTrust` field in `~/.railgun/config.json` short-circuits the per-directory prompt:
   `"always"` trusts every project, `"never"` denies every project. Default is `"ask"`.
 - CLI flags `--approve`/`-a` and `--no-approve`/`-na` override for a single invocation without reading
   or writing the trust store. Both flags together throw `CliUsageError`. These flags are rejected on
   `login`, `logout`, `config`, and `--list-sessions` modes.
-- The `/trust` REPL command opens a numbered in-REPL picker (keys `1`–`5`, Escape cancels) using Ink's
-  `useInput` hook. It updates the in-session `TrustDecision` state and calls `trustStore.set` for
-  persisted choices.
+- The `/trust` REPL command opens an arrow-key picker (Up/Down/Enter/Escape)
+  using Ink's `useInput` hook. It updates the in-session `TrustDecision` state
+  and calls `trustStore.set` for persisted choices.
 - `assertProjectTrustedForRead(decision, resourcePath)` and `assertProjectTrustedForInstall(decision)`
   are exported guards in `src/trust.ts`. They are not called in Phase 20 — they exist for Phase 23
   (local config loading) and Phase 28 (local package installation) to consume.

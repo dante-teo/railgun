@@ -45,9 +45,9 @@ import { Selector, createSelectorState, reduceSelector } from "./selector.js";
 import type { SelectorItem, SelectorState } from "./selector.js";
 
 const TRUST_CHOICES: readonly { readonly label: string; readonly value: TrustChoice }[] = [
-  { label: "Trust this project", value: "trust" }, { label: "Trust parent directory", value: "trust-parent" },
-  { label: "Trust for this session", value: "trust-session" }, { label: "Deny this project", value: "deny" },
-  { label: "Deny for this session", value: "deny-session" },
+  { label: "Trust", value: "trust" },
+  { label: "Trust (this session only)", value: "trust-session" },
+  { label: "Do not trust", value: "deny" },
 ];
 
 export interface DisplayLine {

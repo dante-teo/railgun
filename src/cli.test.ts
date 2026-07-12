@@ -87,26 +87,31 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
 
 describe("parseCliArgs", () => {
   it.each([
-    [[], { kind: "fresh" }],
-    [["--resume", "abc"], { kind: "resume", id: "abc" }],
-    [["--resume"], { kind: "resume" }],
-    [["-r", "abc"], { kind: "resume", id: "abc" }],
-    [["-r"], { kind: "resume" }],
-    [["--list-sessions"], { kind: "list" }],
-    [["--print", "hello", "world"], { kind: "print", question: "hello world" }],
-    [["-p"], { kind: "print", question: "Hello!" }],
-    [["login"], { kind: "login" }],
-    [["logout"], { kind: "logout" }],
-    [["config"], { kind: "config" }],
-    [["--approve"], { kind: "fresh", approve: true }],
-    [["-a"], { kind: "fresh", approve: true }],
-    [["--no-approve"], { kind: "fresh", noApprove: true }],
-    [["-na"], { kind: "fresh", noApprove: true }],
-    [["--approve", "--print", "hello"], { kind: "print", question: "hello", approve: true }],
-    [["--resume", "abc", "--no-approve"], { kind: "resume", id: "abc", noApprove: true }],
-    [["--mode", "rpc"], { kind: "rpc" }],
-    [["--mode", "acp"], { kind: "acp" }],
-    [["import-notes", "/some/path"], { kind: "import-notes", folder: "/some/path" }],
+    [[], { mode: { kind: "fresh" } }],
+    [["--resume", "abc"], { mode: { kind: "resume", id: "abc" } }],
+    [["--resume"], { mode: { kind: "resume" } }],
+    [["-r", "abc"], { mode: { kind: "resume", id: "abc" } }],
+    [["-r"], { mode: { kind: "resume" } }],
+    [["--list-sessions"], { mode: { kind: "list" } }],
+    [["--print", "hello", "world"], { mode: { kind: "print", question: "hello world" } }],
+    [["-p"], { mode: { kind: "print", question: "Hello!" } }],
+    [["login"], { mode: { kind: "login" } }],
+    [["logout"], { mode: { kind: "logout" } }],
+    [["config"], { mode: { kind: "config" } }],
+    [["--approve"], { mode: { kind: "fresh", approve: true } }],
+    [["-a"], { mode: { kind: "fresh", approve: true } }],
+    [["--no-approve"], { mode: { kind: "fresh", noApprove: true } }],
+    [["-na"], { mode: { kind: "fresh", noApprove: true } }],
+    [["--approve", "--print", "hello"], { mode: { kind: "print", question: "hello", approve: true } }],
+    [["--resume", "abc", "--no-approve"], { mode: { kind: "resume", id: "abc", noApprove: true } }],
+    [["--mode", "rpc"], { mode: { kind: "rpc" } }],
+    [["--mode", "acp"], { mode: { kind: "acp" } }],
+    [["import-notes", "/some/path"], { mode: { kind: "import-notes", folder: "/some/path" } }],
+    [["--cwd", "/tmp"], { mode: { kind: "fresh" }, cwd: "/tmp" }],
+    [["-C", "/tmp"], { mode: { kind: "fresh" }, cwd: "/tmp" }],
+    [["--cwd", "/tmp", "--print", "hi"], { mode: { kind: "print", question: "hi" }, cwd: "/tmp" }],
+    [["--print", "hi", "--cwd", "/tmp"], { mode: { kind: "print", question: "hi" }, cwd: "/tmp" }],
+    [["--cwd", "~/projects"], { mode: { kind: "fresh" }, cwd: "~/projects" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
@@ -126,6 +131,7 @@ describe("parseCliArgs", () => {
     ["--mode", "rpc", "--approve"],
     ["--mode"],
     ["--mode", "unknown"],
+    ["--cwd"],
   ])("rejects invalid arguments %j", (...args) => {
     expect(() => parseCliArgs(args)).toThrow(/Usage: railgun/);
   });
@@ -270,7 +276,7 @@ describe("dispatchCli", () => {
 
 describe("parseCliArgs — cron mode", () => {
   it("parses cron with no extra arguments", () => {
-    expect(parseCliArgs(["cron"])).toEqual({ kind: "cron" });
+    expect(parseCliArgs(["cron"])).toEqual({ mode: { kind: "cron" } });
   });
 
   it("rejects cron with extra arguments", () => {

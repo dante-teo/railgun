@@ -67,29 +67,6 @@ describe("createProjectTrustStore", () => {
     expect(store.get(directory)).toEqual({ status: "unknown" });
   });
 
-  it("returns denied (session) for 'deny-session' without writing", () => {
-    const opts = makeOptions();
-    const store = createProjectTrustStore(opts);
-    const result = store.set(directory, "deny-session");
-    expect(result).toEqual({ status: "denied", scope: "session" });
-    expect(opts.stored).toBeUndefined();
-    expect(store.get(directory)).toEqual({ status: "unknown" });
-  });
-
-  it("trust-parent persists to dirname and child directories inherit", () => {
-    const opts = makeOptions();
-    const store = createProjectTrustStore(opts);
-    const child = join(directory, "nested", "child");
-    const result = store.set(child, "trust-parent");
-    // trust-parent writes to dirname(child) = directory/nested
-    expect(result).toEqual({ status: "trusted", scope: "persisted" });
-    // child inherits via ancestor walk
-    expect(store.get(child)).toEqual({ status: "trusted", scope: "persisted" });
-    // the parent itself is also trusted
-    const parent = dirname(child);
-    expect(store.get(parent)).toEqual({ status: "trusted", scope: "persisted" });
-  });
-
   it("ancestor walking: trusting a directory makes deeper children trusted", () => {
     const opts = makeOptions();
     const store = createProjectTrustStore(opts);

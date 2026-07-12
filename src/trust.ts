@@ -1,14 +1,8 @@
-import { createInterface } from "node:readline";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import { TRUST_PATH } from "./paths.js";
 
-export type TrustChoice =
-  | "trust"
-  | "trust-parent"
-  | "trust-session"
-  | "deny"
-  | "deny-session";
+export type TrustChoice = "trust" | "trust-session" | "deny";
 
 export type TrustDecision =
   | { readonly status: "trusted"; readonly scope: "persisted" | "session" }
@@ -66,28 +60,16 @@ export const createProjectTrustStore = (options: CreateTrustStoreOptions = {}): 
 
   const set = (cwd: string, choice: TrustChoice): TrustDecision => {
     const canonical = resolvePath(cwd);
-    switch (choice) {
-      case "trust": {
-        data = { ...data, [canonical]: { status: "trusted" } };
-        persist();
-        return { status: "trusted", scope: "persisted" };
-      }
-      case "trust-parent": {
-        const parent = dirname(canonical);
-        data = { ...data, [parent]: { status: "trusted" } };
-        persist();
-        return { status: "trusted", scope: "persisted" };
-      }
-      case "deny": {
-        data = { ...data, [canonical]: { status: "denied" } };
-        persist();
-        return { status: "denied", scope: "persisted" };
-      }
-      case "trust-session":
-        return { status: "trusted", scope: "session" };
-      case "deny-session":
-        return { status: "denied", scope: "session" };
+    if (choice === "trust" || choice === "deny") {
+      const status = choice === "trust" ? "trusted" as const : "denied" as const;
+      data = { ...data, [canonical]: { status } };
+      persist();
+      return { status, scope: "persisted" };
     }
+    // trust-session: no persistence — assert exhaustiveness so new variants don't silently land here
+    const _exhaustive: "trust-session" = choice;
+    void _exhaustive;
+    return { status: "trusted", scope: "session" };
   };
 
   return { get, set };
@@ -117,28 +99,69 @@ export const resolveProjectTrust = async (
   return store.set(cwd, choice);
 };
 
-export const promptTrustChoiceReadline = async (cwd: string): Promise<TrustChoice> => {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    process.stderr.write(`\nTrust project folder ${cwd}?\n`);
-    process.stderr.write("This allows railgun to load .railgun/ settings, extensions, and skills.\n\n");
-    process.stderr.write("  1. Trust\n");
-    process.stderr.write("  2. Trust parent folder\n");
-    process.stderr.write("  3. Trust (this session only)\n");
-    process.stderr.write("  4. Do not trust\n");
-    process.stderr.write("  5. Do not trust (this session only)\n\n");
-    const answer = await new Promise<string>(resolve => rl.question("Choice [1-5]: ", resolve));
-    const choices: Record<string, TrustChoice> = {
-      "1": "trust",
-      "2": "trust-parent",
-      "3": "trust-session",
-      "4": "deny",
-      "5": "deny-session",
-    };
-    return choices[answer.trim()] ?? "deny-session";
-  } finally {
-    rl.close();
-  }
+const CHOICES: readonly { readonly label: string; readonly value: TrustChoice }[] = [
+  { label: "Trust", value: "trust" },
+  { label: "Trust (this session only)", value: "trust-session" },
+  { label: "Do not trust", value: "deny" },
+];
+
+export const promptTrustChoiceReadline = (cwd: string): Promise<TrustChoice> => {
+  const { promise, resolve } = Promise.withResolvers<TrustChoice>();
+
+  let selected = 0;
+
+  const RESET = "\x1b[0m";
+  const BOLD = "\x1b[1m";
+  const CYAN = "\x1b[36m";
+  const CLEAR_LINE = "\r\x1b[K";
+  const HIDE_CURSOR = "\x1b[?25l";
+  const SHOW_CURSOR = "\x1b[?25h";
+
+  const render = () => {
+    for (let i = 0; i < CHOICES.length; i++) {
+      const prefix = i === selected ? `${BOLD}${CYAN}> ` : "  ";
+      process.stderr.write(`${CLEAR_LINE}${prefix}${CHOICES[i]!.label}${RESET}\n`);
+    }
+    // Move cursor back up to re-render in place
+    process.stderr.write(`\x1b[${CHOICES.length}A`);
+  };
+
+  process.stderr.write(`\nTrust project folder ${cwd}?\n`);
+  process.stderr.write("This allows railgun to load .railgun/ settings, extensions, and skills.\n\n");
+  process.stderr.write(HIDE_CURSOR);
+  render();
+
+  const { stdin } = process;
+  const prevRaw = stdin.isRaw;
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding("utf8");
+
+  const teardown = () => {
+    stdin.removeListener("data", onData);
+    stdin.setRawMode(prevRaw ?? false);
+    stdin.pause();
+    process.stderr.write(`\x1b[${CHOICES.length}B${SHOW_CURSOR}\n`);
+  };
+
+  const onData = (chunk: string) => {
+    if (chunk === "\x1b[A" || chunk === "k") {
+      selected = (selected - 1 + CHOICES.length) % CHOICES.length;
+      render();
+    } else if (chunk === "\x1b[B" || chunk === "j") {
+      selected = (selected + 1) % CHOICES.length;
+      render();
+    } else if (chunk === "\r" || chunk === "\n") {
+      teardown();
+      resolve(CHOICES[selected]!.value);
+    } else if (chunk === "\x03") {
+      teardown();
+      process.kill(process.pid, "SIGINT");
+    }
+  };
+
+  stdin.on("data", onData);
+  return promise;
 };
 
 export const assertProjectTrustedForRead = (

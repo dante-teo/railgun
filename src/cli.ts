@@ -33,7 +33,7 @@ import type { RpcModeOptions } from "./rpc/rpcMode.js";
 import { runAcpMode } from "./acp/acpMode.js";
 import type { AcpModeOptions } from "./acp/acpMode.js";
 
-export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp";
+export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp";
 
 export type CliMode =
   | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
@@ -76,14 +76,21 @@ export interface CliDependencies {
   runCronScheduler: (devin: DevinProvider, model: DevinModel, systemPrompt: readonly string[], config: AppConfig, signal: AbortSignal) => Promise<void>;
 }
 
-export const parseCliArgs = (args: readonly string[]): CliMode => {
+export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: string } => {
   let approve = false;
   let noApprove = false;
+  let cwdOverride: string | undefined;
 
   const filteredArgs: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
     if (arg === "--approve" || arg === "-a") { approve = true; }
     else if (arg === "--no-approve" || arg === "-na") { noApprove = true; }
+    else if (arg === "--cwd" || arg === "-C") {
+      const next = args[++i];
+      if (next === undefined) throw new CliUsageError();
+      cwdOverride = next;
+    }
     else { filteredArgs.push(arg); }
   }
 
@@ -91,49 +98,55 @@ export const parseCliArgs = (args: readonly string[]): CliMode => {
 
   const trustFlags = { ...(approve && { approve: true as const }), ...(noApprove && { noApprove: true as const }) };
 
-  if (filteredArgs.length === 0) return { kind: "fresh", ...trustFlags };
-  const [flag, ...rest] = filteredArgs;
-  if (flag === "login" && rest.length === 0) {
-    if (approve || noApprove) throw new CliUsageError();
-    return { kind: "login" };
-  }
-  if (flag === "logout" && rest.length === 0) {
-    if (approve || noApprove) throw new CliUsageError();
-    return { kind: "logout" };
-  }
-  if (flag === "config" && rest.length === 0) {
-    if (approve || noApprove) throw new CliUsageError();
-    return { kind: "config" };
-  }
-  if (flag === "cron" && rest.length === 0) {
-    if (approve || noApprove) throw new CliUsageError();
-    return { kind: "cron" };
-  }
-  if (flag === "import-notes" && rest.length === 1) {
-    if (approve || noApprove) throw new CliUsageError();
-    return { kind: "import-notes", folder: rest[0]! };
-  }
-  if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!", ...trustFlags };
-  if (flag === "--list-sessions" && rest.length === 0) {
-    if (approve || noApprove) throw new CliUsageError();
-    return { kind: "list" };
-  }
-  if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
-    return rest[0] === undefined ? { kind: "resume", ...trustFlags } : { kind: "resume", id: rest[0], ...trustFlags };
-  }
-  if (flag === "--mode") {
-    if (rest.length !== 1) throw new CliUsageError();
-    if (rest[0] === "rpc") {
+  const cwdResult = cwdOverride !== undefined ? { cwd: cwdOverride } : {};
+
+  const parseMode = (): CliMode => {
+    if (filteredArgs.length === 0) return { kind: "fresh", ...trustFlags };
+    const [flag, ...rest] = filteredArgs;
+    if (flag === "login" && rest.length === 0) {
       if (approve || noApprove) throw new CliUsageError();
-      return { kind: "rpc" };
+      return { kind: "login" };
     }
-    if (rest[0] === "acp") {
+    if (flag === "logout" && rest.length === 0) {
       if (approve || noApprove) throw new CliUsageError();
-      return { kind: "acp" };
+      return { kind: "logout" };
+    }
+    if (flag === "config" && rest.length === 0) {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "config" };
+    }
+    if (flag === "cron" && rest.length === 0) {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "cron" };
+    }
+    if (flag === "import-notes" && rest.length === 1) {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "import-notes", folder: rest[0]! };
+    }
+    if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!", ...trustFlags };
+    if (flag === "--list-sessions" && rest.length === 0) {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "list" };
+    }
+    if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
+      return rest[0] === undefined ? { kind: "resume", ...trustFlags } : { kind: "resume", id: rest[0], ...trustFlags };
+    }
+    if (flag === "--mode") {
+      if (rest.length !== 1) throw new CliUsageError();
+      if (rest[0] === "rpc") {
+        if (approve || noApprove) throw new CliUsageError();
+        return { kind: "rpc" };
+      }
+      if (rest[0] === "acp") {
+        if (approve || noApprove) throw new CliUsageError();
+        return { kind: "acp" };
+      }
+      throw new CliUsageError();
     }
     throw new CliUsageError();
-  }
-  throw new CliUsageError();
+  };
+
+  return { mode: parseMode(), ...cwdResult };
 };
 
 export const formatSessionTable = (sessions: readonly SessionSummary[]): string => {
@@ -450,8 +463,13 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
   }
 };
 
+const expandTilde = (p: string): string =>
+  p === "~" ? homedir() : p.startsWith("~/") ? resolve(homedir(), p.slice(2)) : p;
+
 export const main = async (args = process.argv.slice(2)): Promise<void> => {
-  await dispatchCli(parseCliArgs(args));
+  const { mode, cwd } = parseCliArgs(args);
+  if (cwd !== undefined) process.chdir(expandTilde(cwd));
+  await dispatchCli(mode);
 };
 
 const isEntryPoint = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
