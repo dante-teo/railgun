@@ -40,7 +40,7 @@ Two design choices needed recording:
 
 ## Decision
 
-Add a `memories` table to the existing `state.db` SQLite database (schema v2,
+Add a `memories` table to the existing `state.db` SQLite database (schema v3,
 migrating v1 databases transparently). Expose `readonly db: Database.Database`
 on the `SessionStore` interface so a `MemoryStore` can share the connection.
 
@@ -72,11 +72,11 @@ database and create a `MemoryStore` via the new `withStores` helper in
 
 ## Consequences
 
-- **Schema migration**: existing v1 databases are migrated transparently on
-  first open. The `if (version === 1)` branch runs only once per database;
-  it creates the `memories` table and bumps `user_version` to 2. Both the
-  v1→v2 migration and the v0 fresh-install path use `IF NOT EXISTS` to make
-  the DDL idempotent.
+- **Schema migration**: existing v1/v2 databases are migrated transparently on
+  first open via the `MIGRATIONS` array in `sessionStore.ts`. The `memories`
+  table is created as part of the v1→v2 migration (index 1). Each migration
+  step runs inside a transaction that atomically bumps `user_version`, so a
+  crash mid-migration cannot leave the schema and the version stamp out of sync.
 
 - **All modes open the DB**: `--print` mode now opens `state.db` to read
   memories, which was previously a no-op. This is a small behavior change

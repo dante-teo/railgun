@@ -25,7 +25,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, SOUL, trust, extension, cron, and skills paths from one fixed Railgun home (`~/.railgun`); recursively merges defaults with user JSON, validates recognized fields (`model`, `defaultProjectTrust`, `approvalMode`, `reviewerModel`, `moaPresets`, `activeMoaPreset`), preserves unknown fields (including `mcpServers`), and atomically persists model replacements | Solo project |
 | Authentication boundary (`src/auth.ts`) | Selects trimmed process-local `DEVIN_TOKEN` or the file cache, wraps model discovery and async streaming with source-aware 401 invalidation, and implements fresh-login verification plus idempotent cached logout without exposing token contents | Solo project |
 | Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, keeps resumes on an exact saved model, applies configuration to fresh sessions, coordinates interactive missing-model recovery before session construction, loads context/identity, and builds the system prompt once; accepts an optional `memoriesText` string that is injected as a `# Memories` prompt block when provided; exports `buildSessionCore` for silent mid-REPL session rebuilds during `/model` switches | Solo project |
-| Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: schema v2 with a parent_id tree structure for messages, a `memories` table for cross-session memory, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, recursive-CTE branch walks, atomic full-snapshot checkpoints, branch/fork/branchWithSummary operations, and a `readonly db` handle exposed for `MemoryStore` to share the connection. Branch-summarizer logic lives in `src/persistence/branchSummarizer.ts`. | Solo project |
+| Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: schema v3 with a parent_id tree structure for messages, a `memories` table for cross-session memory, strict message/todo codecs, fail-closed transcript validation, newest-first summaries, recursive-CTE branch walks, atomic full-snapshot checkpoints, branch/fork/branchWithSummary operations, and a `readonly db` handle exposed for `MemoryStore` to share the connection. Migrations live in a `MIGRATIONS: ReadonlyArray<fn>` array (index N = delta from schema N to N+1); `initializeSchema` runs each outstanding step in a transaction that atomically bumps `user_version` inside the same transaction — no separate `SCHEMA_VERSION` constant. Branch-summarizer logic lives in `src/persistence/branchSummarizer.ts`. | Solo project |
 | System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules (including `memory_write` instruction since Phase 25), cached session environment, and up to three optional context blocks — `soulIdentity` (`~/.railgun/SOUL.md`), `projectContext` (project context file), and `memories` (formatted memory list); environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus `readline`-based shell-approval and clarify prompts on stderr; when `activeMoaPreset` is set in config, the named preset is loaded and passed to `createAgentSession`, and MoA reference events are printed to stderr | Solo project |
 | RPC subsystem (`src/rpc/{jsonl,types,rpcMode,rpcClient}.ts`) | `serializeJsonLine`/`makeLineReader` framing that splits on `0x0a` only (not `U+2028`/`U+2029`); `RpcCommand`/`RpcResponse`/`RpcSessionState` types; `runRpcMode` headless loop that consumes stdin commands, dispatches one in-flight `prompt` at a time, handles synchronous `steer`/`abort`/`follow_up`, fans raw `AgentSessionEvent` objects to stdout, and shuts down on stdin EOF; `RpcClient` for spawning child processes, correlating responses by id, and forwarding events | Solo project |
@@ -311,15 +311,17 @@ guards live in `src/trust.ts`; the guards are not yet called in Phase 20
 The session database,
 `~/.railgun/state.db` (mode `0600`), stores interactive sessions, messages,
 todo snapshots, and user memories (Phase 25). The messages table uses a
-tree structure introduced in schema v2 (Phase 30): messages carry a
-`parent_id` self-reference and sessions carry `current_leaf_id`;
+tree structure introduced in schema v2 (Phase 30) and extended to v3: messages
+carry a `parent_id` self-reference and sessions carry `current_leaf_id`;
 `loadSession` walks the chain from the current leaf to root via a single
 recursive CTE. A `branch_summary` message role is used as a routing pivot
 when branching with summarization; these rows are never returned as
 conversation history. The database uses WAL, foreign keys, a busy timeout,
-and schema versioning with migration; malformed saved state aborts loading
-instead of being skipped. All session modes open this database to load
-memories into the system prompt. See ADR 0006 and ADR 0014.
+and a `MIGRATIONS` array for schema versioning: each migration runs inside a
+transaction that bumps `user_version` atomically, so the version stamp and
+schema changes are never split by a crash. Malformed saved state aborts
+loading instead of being skipped. All session modes open this database to
+load memories into the system prompt. See ADR 0006 and ADR 0014.
 
 Shadow-git checkpoint directories live at
 `~/.railgun/checkpoints/<12-char-sha256-of-cwd>/`. One directory per project

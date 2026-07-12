@@ -7,7 +7,6 @@ import type { TodoState, TodoStatus } from "../tools/todo.js";
 import { STATE_PATH } from "../paths.js";
 import { summarizeMessages } from "./branchSummarizer.js";
 
-const SCHEMA_VERSION = 2;
 const PREVIEW_LIMIT = 71;
 const TODO_STATUSES = new Set<TodoStatus>(["pending", "in_progress", "completed", "cancelled"]);
 
@@ -313,49 +312,57 @@ export const makeSessionPreview = (messages: readonly DevinMessage[]): string =>
   return collapsed.length <= PREVIEW_LIMIT ? collapsed : `${collapsed.slice(0, PREVIEW_LIMIT - 1).trimEnd()}…`;
 };
 
-const initializeSchema = (db: Database.Database): void => {
-  db.pragma("foreign_keys = ON");
-  db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
-  const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > SCHEMA_VERSION) throw new Error(`Session database schema ${version} is newer than supported version ${SCHEMA_VERSION}`);
-  if (version === 0) {
+interface SessionIdRow { id: string }
+interface MessageIdRow { id: number }
+
+/** Wire linear parent_id chains and set current_leaf_id for every session. */
+const wireParentChains = (db: Database.Database): void => {
+  const sessions = db.prepare("SELECT id FROM sessions").all() as SessionIdRow[];
+  const updateParent   = db.prepare("UPDATE messages SET parent_id = ? WHERE id = ?");
+  const updateLeafStmt = db.prepare("UPDATE sessions SET current_leaf_id = ? WHERE id = ?");
+  const wire = db.transaction(() => {
+    for (const session of sessions) {
+      const rows = db.prepare(
+        "SELECT id FROM messages WHERE session_id = ? ORDER BY id ASC",
+      ).all(session.id) as MessageIdRow[];
+      let prevId: number | null = null;
+      for (const row of rows) {
+        updateParent.run(prevId, row.id);
+        prevId = row.id;
+      }
+      updateLeafStmt.run(prevId, session.id);
+    }
+  });
+  wire();
+};
+
+/** Each entry migrates from index N to N+1. user_version is bumped automatically. */
+const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
+  // 0 → 1: historical initial schema (no parent_id, no INTEGER PK on messages, no current_leaf_id)
+  (db) => db.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      model TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      todos_json TEXT NOT NULL
+    );
+    CREATE TABLE messages (
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+      content_json TEXT NOT NULL,
+      tool_call_id TEXT,
+      tool_error INTEGER CHECK (tool_error IN (0, 1)),
+      response_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(session_id, ordinal)
+    );
+    CREATE INDEX messages_session_ordinal ON messages(session_id, ordinal);
+  `),
+
+  // 1 → 2: add parent_id + current_leaf_id; rebuild messages with INTEGER PK; add memories
+  (db) => {
     db.exec(`
-      BEGIN;
-      CREATE TABLE sessions (
-        id TEXT PRIMARY KEY,
-        model TEXT NOT NULL,
-        started_at TEXT NOT NULL,
-        todos_json TEXT NOT NULL,
-        current_leaf_id INTEGER NULL
-      );
-      CREATE TABLE messages (
-        id INTEGER PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        ordinal INTEGER NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'branch_summary')),
-        content_json TEXT NOT NULL,
-        tool_call_id TEXT,
-        tool_error INTEGER CHECK (tool_error IN (0, 1)),
-        response_id TEXT,
-        created_at TEXT NOT NULL,
-        parent_id INTEGER NULL
-      );
-      CREATE INDEX messages_session ON messages(session_id);
-      CREATE INDEX messages_parent ON messages(parent_id);
-      CREATE TABLE IF NOT EXISTS memories (
-        id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        category TEXT NOT NULL,
-        created_at REAL NOT NULL
-      );
-      PRAGMA user_version = 2;
-      COMMIT;
-    `);
-  }
-  if (version === 1) {
-    db.exec(`
-      BEGIN;
       CREATE TABLE messages_v2 (
         id INTEGER PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -382,31 +389,69 @@ const initializeSchema = (db: Database.Database): void => {
         category TEXT NOT NULL,
         created_at REAL NOT NULL
       );
-      PRAGMA user_version = 2;
-      COMMIT;
     `);
-    // Data migration: wire parent_id chains and current_leaf_id for existing sessions.
-    // Run inside a transaction so a crash mid-loop can't leave partially-wired chains
-    // on a DB already at version 2.
-    interface SessionIdRow { id: string }
-    interface MessageIdRow { id: number }
-    const wireChains = db.transaction(() => {
-      const sessions = db.prepare("SELECT id FROM sessions").all() as SessionIdRow[];
-      const updateParent = db.prepare("UPDATE messages SET parent_id = ? WHERE id = ?");
-      const updateLeafStmt = db.prepare("UPDATE sessions SET current_leaf_id = ? WHERE id = ?");
-      for (const session of sessions) {
-        const rows = db.prepare(
-          "SELECT id FROM messages WHERE session_id = ? ORDER BY id ASC",
-        ).all(session.id) as MessageIdRow[];
-        let prevId: number | null = null;
-        for (const row of rows) {
-          updateParent.run(prevId, row.id);
-          prevId = row.id;
-        }
-        updateLeafStmt.run(prevId, session.id);
-      }
-    });
-    wireChains();
+    wireParentChains(db);
+  },
+
+  // 2 → 3: repair — v2 DBs came in two shapes depending on when they were created:
+  //   (a) old shape: no parent_id, no INTEGER PK on messages, no current_leaf_id → needs full rebuild
+  //   (b) new shape: messages already has parent_id + INTEGER PK, but current_leaf_id may still be missing
+  (db) => {
+    interface ColInfo { name: string }
+    const msgCols  = db.pragma("table_info(messages)")  as ColInfo[];
+    const sessCols = db.pragma("table_info(sessions)") as ColInfo[];
+    const hasParentId       = msgCols.some(c => c.name === "parent_id");
+    const hasCurrentLeafId  = sessCols.some(c => c.name === "current_leaf_id");
+
+    if (!hasParentId) {
+      // Full rebuild identical to migration[1]: introduce INTEGER PK + parent_id, add memories.
+      db.exec(`
+        CREATE TABLE messages_v2 (
+          id INTEGER PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          ordinal INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'branch_summary')),
+          content_json TEXT NOT NULL,
+          tool_call_id TEXT,
+          tool_error INTEGER CHECK (tool_error IN (0, 1)),
+          response_id TEXT,
+          created_at TEXT NOT NULL,
+          parent_id INTEGER NULL
+        );
+        INSERT INTO messages_v2 (session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at)
+          SELECT session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at
+          FROM messages ORDER BY session_id, ordinal;
+        DROP TABLE messages;
+        ALTER TABLE messages_v2 RENAME TO messages;
+        CREATE INDEX messages_session ON messages(session_id);
+        CREATE INDEX messages_parent ON messages(parent_id);
+        CREATE TABLE IF NOT EXISTS memories (
+          id TEXT PRIMARY KEY,
+          content TEXT NOT NULL,
+          category TEXT NOT NULL,
+          created_at REAL NOT NULL
+        );
+      `);
+    }
+    if (!hasCurrentLeafId) {
+      db.exec(`ALTER TABLE sessions ADD COLUMN current_leaf_id INTEGER NULL;`);
+    }
+    wireParentChains(db);
+  },
+];
+
+const initializeSchema = (db: Database.Database): void => {
+  db.pragma("foreign_keys = ON");
+  db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
+  const version = db.pragma("user_version", { simple: true }) as number;
+  if (version > MIGRATIONS.length)
+    throw new Error(`Session database schema ${version} is newer than supported version ${MIGRATIONS.length}`);
+  for (let v = version; v < MIGRATIONS.length; v++) {
+    db.transaction(() => {
+      MIGRATIONS[v]!(db);
+      db.pragma(`user_version = ${v + 1}`);
+    })();
   }
 };
 

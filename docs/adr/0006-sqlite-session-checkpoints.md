@@ -59,17 +59,26 @@ Devin authentication. `--print` never creates a store.
 - Status: Accepted
 - Date: 2026-07-12
 
-Schema version bumped from 1 to 2. The `messages` table gains `id INTEGER
-PRIMARY KEY` and `parent_id INTEGER NULL` (self-reference); the
-`UNIQUE(session_id, ordinal)` constraint is dropped to allow forked branches
-to share ordinal values. The `sessions` table gains `current_leaf_id INTEGER
-NULL`. A new `branch_summary` role is added to the role CHECK.
+Schema versioned with a `MIGRATIONS: ReadonlyArray<fn>` array (index N = delta
+from schema N to N+1); `initializeSchema` applies outstanding steps in a loop,
+wrapping each in a transaction that bumps `user_version` atomically inside the
+same transaction. The current schema version is `MIGRATIONS.length` (v3); there
+is no separate `SCHEMA_VERSION` constant.
 
-A v1 → v2 data migration recreates the `messages` table, copies existing
-rows, and wires linear `parent_id` chains plus `current_leaf_id` values for
-all pre-existing sessions. The migration runs inside a transaction so a
-mid-migration crash cannot leave version-2 metadata with partially-wired
-chains.
+Migration history:
+- **v0 → v1** (index 0): creates the base `sessions`/`messages` schema (no
+  `parent_id`, no `INTEGER PRIMARY KEY` on messages, no `current_leaf_id`).
+- **v1 → v2** (index 1): rebuilds `messages` with `id INTEGER PRIMARY KEY` and
+  `parent_id INTEGER NULL` (drops the `UNIQUE(session_id, ordinal)` constraint),
+  adds `current_leaf_id INTEGER NULL` to `sessions`, creates the `memories`
+  table, and wires linear `parent_id` chains plus `current_leaf_id` for all
+  pre-existing sessions.
+- **v2 → v3** (index 2): repair migration for v2 DBs that shipped in two
+  divergent shapes depending on when they were created — (a) old shape: no
+  `parent_id`, no `INTEGER PRIMARY KEY` on messages → full rebuild identical to
+  index 1; (b) new shape: messages already rebuilt, only `current_leaf_id`
+  missing → `ALTER TABLE sessions ADD COLUMN` only. Both branches call
+  `wireParentChains` to backfill `parent_id` chains and `current_leaf_id`.
 
 `loadSession` no longer uses `ORDER BY ordinal`; it walks the `parent_id`
 chain from `current_leaf_id` to root using a single recursive CTE

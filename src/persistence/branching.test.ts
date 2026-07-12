@@ -82,10 +82,10 @@ describe("branching", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 1. v1 → v2 migration
+  // 1. v1 → v3 migration
   // -------------------------------------------------------------------------
 
-  it("migrates a v1 database to v2 with correct parent chains", async () => {
+  it("migrates a v1 database to v3 with correct parent chains", async () => {
     store.close();
 
     // Build a v1 schema database manually.
@@ -130,7 +130,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(2);
+    expect(db2.pragma("user_version", { simple: true })).toBe(3);
 
     interface MsgRow { id: number; parent_id: number | null; ordinal: number }
     const rows = db2.prepare("SELECT id, parent_id, ordinal FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -146,6 +146,153 @@ describe("branching", () => {
     interface SessionRow { current_leaf_id: number | null }
     const session = db2.prepare("SELECT current_leaf_id FROM sessions WHERE id = 's1'").get() as SessionRow;
     expect(session.current_leaf_id).toBe(rows[rows.length - 1]?.id);
+
+    db2.close();
+    migrated.close();
+  });
+
+  it("migrates a v2 old-schema database (no parent_id) to v3", async () => {
+    store.close();
+
+    // Simulates a v2 DB created before the branching feature: messages has no
+    // parent_id column and no INTEGER PK, sessions has no current_leaf_id.
+    const db = new Database(path);
+    db.exec(`
+      DROP TABLE IF EXISTS messages;
+      DROP TABLE IF EXISTS memories;
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        todos_json TEXT NOT NULL
+      );
+      CREATE TABLE messages (
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+        content_json TEXT NOT NULL,
+        tool_call_id TEXT,
+        tool_error INTEGER CHECK (tool_error IN (0, 1)),
+        response_id TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(session_id, ordinal)
+      );
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        created_at REAL NOT NULL
+      );
+      PRAGMA user_version = 2;
+    `);
+    db.prepare("INSERT INTO sessions VALUES (?, ?, ?, ?)").run("s1", "m1", startedAt, "[]");
+    const msgs: Array<[string, number, string, string]> = [
+      ["s1", 0, "user",      JSON.stringify("hello")],
+      ["s1", 1, "assistant", JSON.stringify([{ type: "text", text: "hi" }])],
+    ];
+    for (const [sid, ord, role, content] of msgs) {
+      db.prepare("INSERT INTO messages (session_id, ordinal, role, content_json, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run(sid, ord, role, content, startedAt);
+    }
+    db.close();
+
+    // Open with updated code — triggers migration[2].
+    const migrated = createSessionStore(path);
+
+    const db2 = new Database(path, { readonly: true });
+    expect(db2.pragma("user_version", { simple: true })).toBe(3);
+
+    interface MsgRow { id: number; parent_id: number | null; ordinal: number }
+    const rows = db2.prepare("SELECT id, parent_id, ordinal FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.parent_id).toBeNull();
+    expect(rows[1]?.parent_id).toBe(rows[0]?.id);
+
+    interface SessionRow { current_leaf_id: number | null }
+    const session = db2.prepare("SELECT current_leaf_id FROM sessions WHERE id = 's1'").get() as SessionRow;
+    expect(session.current_leaf_id).toBe(rows[1]?.id);
+
+    // Store is fully functional after migration.
+    const loaded = migrated.loadSession("s1");
+    expect(loaded?.messages).toHaveLength(2);
+
+    db2.close();
+    migrated.close();
+  });
+
+  it("migrates a v2 new-schema database (missing only current_leaf_id) to v3", () => {
+    store.close();
+
+    // Simulates a v2 DB created after the messages rebuild but before current_leaf_id
+    // was added to sessions: messages has parent_id + INTEGER PK, sessions does not
+    // have current_leaf_id.
+    const db = new Database(path);
+    db.exec(`
+      DROP TABLE IF EXISTS messages;
+      DROP TABLE IF EXISTS memories;
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        todos_json TEXT NOT NULL
+      );
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'branch_summary')),
+        content_json TEXT NOT NULL,
+        tool_call_id TEXT,
+        tool_error INTEGER CHECK (tool_error IN (0, 1)),
+        response_id TEXT,
+        created_at TEXT NOT NULL,
+        parent_id INTEGER NULL
+      );
+      CREATE INDEX messages_session ON messages(session_id);
+      CREATE INDEX messages_parent ON messages(parent_id);
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        created_at REAL NOT NULL
+      );
+      PRAGMA user_version = 2;
+    `);
+    db.prepare("INSERT INTO sessions VALUES (?, ?, ?, ?)").run("s1", "m1", startedAt, "[]");
+    const msgs = [
+      { ordinal: 0, role: "user",      content: JSON.stringify("hello") },
+      { ordinal: 1, role: "assistant", content: JSON.stringify([{ type: "text", text: "hi" }]) },
+    ];
+    let prevId: number | null = null;
+    for (const msg of msgs) {
+      const result = db.prepare(
+        "INSERT INTO messages (session_id, ordinal, role, content_json, created_at, parent_id) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run("s1", msg.ordinal, msg.role, msg.content, startedAt, prevId);
+      prevId = result.lastInsertRowid as number;
+    }
+    db.close();
+
+    // Open with updated code — triggers migration[2] branch (b): only adds current_leaf_id.
+    const migrated = createSessionStore(path);
+
+    const db2 = new Database(path, { readonly: true });
+    expect(db2.pragma("user_version", { simple: true })).toBe(3);
+
+    interface MsgRow { id: number; parent_id: number | null }
+    const rows = db2.prepare("SELECT id, parent_id FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
+    expect(rows).toHaveLength(2);
+    // parent_id chain was already correct and should be preserved.
+    expect(rows[0]?.parent_id).toBeNull();
+    expect(rows[1]?.parent_id).toBe(rows[0]?.id);
+
+    interface SessionRow { current_leaf_id: number | null }
+    const session = db2.prepare("SELECT current_leaf_id FROM sessions WHERE id = 's1'").get() as SessionRow;
+    expect(session.current_leaf_id).toBe(rows[1]?.id);
+
+    const loaded = migrated.loadSession("s1");
+    expect(loaded?.messages).toHaveLength(2);
 
     db2.close();
     migrated.close();
@@ -379,10 +526,10 @@ describe("branching", () => {
     expect(summaryCount.count).toBe(1);
     db2.close();
   });
-  it("schema version is 2 after creation", () => {
+  it("schema version is 3 after creation", () => {
     store.close();
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    expect(db.pragma("user_version", { simple: true })).toBe(3);
     db.close();
     store = createSessionStore(path); // reopen for afterEach
   });

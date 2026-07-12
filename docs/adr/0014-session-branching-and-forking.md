@@ -59,10 +59,11 @@ shared helper that would need flags to distinguish the two behaviors.
 
 **All multi-write operations are transactional.** `branchWithSummary`
 (insert + leaf update), `forkSession` (session insert + N message inserts +
-leaf update), and the v1→v2 data migration (parent-chain wiring + leaf
-pointers) each run inside `db.transaction(...)`. A crash mid-operation
-leaves either the full effect or nothing — never partial rows with a stale
-leaf pointer.
+leaf update), and each schema migration each run inside `db.transaction(...)`.
+A crash mid-operation leaves either the full effect or nothing — never partial
+rows with a stale leaf pointer, and never a schema change without its
+corresponding `user_version` bump (the pragma is issued inside the same
+transaction as the DDL).
 
 **`/branch` and `/fork` as REPL slash commands.** The branch/fork surface
 is two new commands. `/branch [--summary] [id]` with no id prints a recent-

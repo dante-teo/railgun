@@ -62,7 +62,7 @@ describe("createSessionStore", () => {
 
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    expect(db.pragma("user_version", { simple: true })).toBe(3);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").pluck().all())
       .toEqual(["memories", "messages", "sessions"]);
@@ -243,7 +243,7 @@ describe("schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a v1 database to v2 by adding the memories table", () => {
+  it("migrates a v1 database to v3 by adding the memories table and branching columns", () => {
     // Bootstrap a v1-era database manually (no memories table, user_version = 1).
     const bootstrap = new Database(path);
     bootstrap.exec(`
@@ -275,10 +275,15 @@ describe("schema migration", () => {
     store.close();
 
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    expect(db.pragma("user_version", { simple: true })).toBe(3);
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories'").pluck().all()
     ).toEqual(["memories"]);
+    interface ColInfo { name: string }
+    const msgCols = db.pragma("table_info(messages)") as ColInfo[];
+    expect(msgCols.some(c => c.name === "parent_id")).toBe(true);
+    const sessCols = db.pragma("table_info(sessions)") as ColInfo[];
+    expect(sessCols.some(c => c.name === "current_leaf_id")).toBe(true);
     db.close();
   });
 });
