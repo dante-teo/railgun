@@ -63,12 +63,13 @@ The advisor emits notes through a dedicated `advise` tool
 accepts a `note` string and an optional `severity` string with values `nit`,
 `concern`, or `blocker`:
 
-- **`concern`** or **`blocker`** — routed through `steer()`, placing the wrapped
-  note in the primary agent's steering queue. The note is picked up at the next
-  turn boundary when `takeSteer()` drains the queue.
-- **`nit`** — appended directly to `primaryMessages` via `appendToPrimary()`.
-  The note is picked up on the next model call within the same turn or the next
-  turn.
+- **`nit`**, **`concern`**, and **`blocker`** are all routed through `steer()`,
+  placing the wrapped note in the primary agent's steering queue. The note is
+  picked up at the next turn boundary when `takeSteer()` drains the queue.
+
+Using one delivery path is required for transcript correctness. Appending a nit
+after an assistant response could leave a completed history ending in a
+synthetic user message, which violates the checkpoint role protocol.
 
 The XML wrapper is:
 
@@ -77,6 +78,20 @@ The XML wrapper is:
 ESCAPED NOTE
 </advisory>
 ```
+
+### Presentation and persistence
+
+The XML wrapper is private transport, not user-facing formatting. The Ink REPL
+parses it into an `ADVISOR` transcript row and decodes escaped note text. Severity
+controls both foreground and background color: green `NIT`, amber `CONCERN`, and
+red `BLOCKER`.
+
+Advisor prompts are useful to the primary model during the active turn but are
+not durable conversation turns. Before an advisor-enabled agent consumes prior
+history or returns new history, `normalizeAdvisoryHistory` removes advisory user
+messages and merges the following assistant content into the preceding assistant
+message. This repairs histories created by older delivery behavior and ensures
+SQLite checkpoints always receive a valid alternating role sequence.
 
 ### Emission guards
 
@@ -158,8 +173,8 @@ message so each REPL message starts a correctly configured session.
 ## Consequences
 
 - When `advisor.enabled` is `true` and `advisor.model` is set, a second model
-  reviews every completed primary turn. If it has a concern, the primary agent
-  sees it as a steer or inline message and can adjust.
+  reviews every completed primary turn. If it emits a note, the primary agent
+  sees it as a steer and can adjust.
 - The operator must add `advisor` to `~/.railgun/config.json`, set `enabled` to
   `true`, and provide a valid model name. Disabling the advisor (`enabled: false`)
   requires no model and incurs no runtime cost.

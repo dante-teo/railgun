@@ -186,8 +186,17 @@ export const setConfiguredModel = async (
   path = CONFIG_PATH,
   options: ConfigWriteOptions = {},
 ): Promise<void> => {
+  await updateConfig(current => ({ ...current, model }), path, options);
+};
+
+export const updateConfig = async (
+  transform: (current: Readonly<AppConfig>) => AppConfig,
+  path = CONFIG_PATH,
+  options: ConfigWriteOptions = {},
+): Promise<AppConfig> => {
   const current = await loadConfig(path, options);
-  const updated = validateConfig({ ...current, model }, path);
+  const updated = validateConfig(transform(current), path);
   await (options.makeDirectory ?? defaultMakeDirectory)(dirname(path));
   await (options.atomicWrite ?? defaultAtomicWrite)(path, `${JSON.stringify(updated, null, 2)}\n`);
+  return updated;
 };

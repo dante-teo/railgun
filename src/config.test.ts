@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ConfigError, isAdvisorActive, loadConfig, mergeConfig, parseMoAPreset, setConfiguredModel } from "./config.js";
+import { ConfigError, isAdvisorActive, loadConfig, mergeConfig, parseMoAPreset, setConfiguredModel, updateConfig } from "./config.js";
 
 let directory: string;
 let path: string;
@@ -124,6 +124,29 @@ describe("setConfiguredModel", () => {
     await expect(setConfiguredModel("replacement", path, { atomicWrite })).rejects.toBeInstanceOf(ConfigError);
     expect(atomicWrite).not.toHaveBeenCalled();
     expect(await readFile(path, "utf8")).toBe("not-json");
+  });
+});
+
+describe("updateConfig", () => {
+  it("atomically validates a functional update and preserves unknown fields", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: "old", unknown: { keep: true } }));
+    const atomicWrite = vi.fn(async (target: string, contents: string) => writeFile(target, contents));
+
+    const updated = await updateConfig(current => ({
+      ...current,
+      advisor: { enabled: true, model: "advisor-model" },
+    }), path, { atomicWrite });
+
+    expect(updated).toMatchObject({ model: "old", unknown: { keep: true }, advisor: { enabled: true, model: "advisor-model" } });
+    expect(atomicWrite).toHaveBeenCalledOnce();
+  });
+
+  it("does not write an invalid transformed config", async () => {
+    const atomicWrite = vi.fn();
+    await expect(updateConfig(current => ({ ...current, advisor: { enabled: true } }), path, { atomicWrite }))
+      .rejects.toThrow(/no model/);
+    expect(atomicWrite).not.toHaveBeenCalled();
   });
 });
 

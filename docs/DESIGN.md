@@ -23,6 +23,13 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
 
 ## Interaction
 
+`/settings` provides keyboard-driven AI configuration for the primary model,
+the persisted MOA default, and the advisor. Selection interfaces share an
+immutable reducer and use Up/Down, Enter, and Escape. Their scroll window is
+initialized around the current selection and follows wrapping navigation.
+Trust decisions, clarification choices, bare `/moa`, and bare `/branch` follow
+the same model; text entry is reserved for free-form answers and preset names.
+
 - Enter submits; Shift+Enter inserts a newline when enhanced keyboard reporting
   is available. The composer grows from one to six rows and caps lower in short
   terminals. Paste may contain multiple lines.
@@ -36,12 +43,18 @@ set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
   unseen-row cue reserves one visible transcript row.
-- `/exit`, `/help`, `/clear`, `/model`, `/compact`, `/rollback`, `/moa`, `/trust`, `/branch [--summary] [id]`, and `/fork` are the available commands. `/moa` activates or deactivates Mixture of Agents mode for the session. `/moa <preset-name>` loads the named preset from `config.json`'s `moaPresets` and begins prepending advisory reference context to every subsequent turn. `/moa off` deactivates MoA. Bare `/moa` reports the current status and lists available presets. The active preset name appears in the status bar when MoA is on. `/branch [--summary] [id]` rewinds the session to the specified message id, making that message the new active leaf; with `--summary`, the abandoned path is summarized by the model and stored as a routing pivot before rewinding. With no id, it prints a numbered list of recent messages to pick from. `/fork` copies the active branch into a brand-new session and switches the displayed history to that copy; the original session is unaffected. `/rollback` restores the working directory to the snapshot taken before the agent's last file-mutating tool call (no-op if no snapshot exists yet this session). The `/trust` command opens a five-key numbered picker within the running REPL (keys `1`–`5` for Trust / Trust parent / Trust session-only / Deny / Deny session-only; Escape to cancel without changing). Choosing a persisted option writes to `~/.railgun/trust.json`; session-only options take effect for the process lifetime only. Shell approval uses `y`, `n`, or Escape.
-  Clarify prompts use number keys `1`–`4` to pick a displayed choice, Enter to
-  submit a freeform typed answer, or Escape to decline. When choices are shown
-  the composer unfocuses so number keystrokes reach only the clarify handler;
-  freeform-only prompts keep the composer focused. Both modes show an `❓`
-  prompt box above the composer with a contextual placeholder.
+- `/exit`, `/help`, `/clear`, `/model`, `/settings`, `/compact`, `/rollback`, `/moa`, `/trust`, `/branch [--summary] [id]`, and `/fork` are the available commands. `/moa <preset-name>` activates a named preset for subsequent turns and `/moa off` deactivates it; bare `/moa` opens a session-only picker containing Off and every configured preset. The active preset name appears in the status bar. Bare `/branch` opens an arrow-key picker of recent messages, while `/branch [--summary] <id>` remains available for direct selection. `/trust` opens an arrow-key picker for persisted or session-only trust/deny decisions. `/fork` copies the active branch into a new session, and `/rollback` restores the pre-mutation shadow-git snapshot. Shell approval remains a `y`/`n`/Escape confirmation rather than a list selection.
+
+- Advisor notes are visually separate from user turns. The REPL parses their
+  internal advisory envelope and renders an `ADVISOR` role with severity-specific
+  foreground and background colors: green for `nit`, amber for `concern`, and
+  red for `blocker`. Internal advisory prompts are normalized out of returned
+  history before checkpointing; the assistant response produced after a steer
+  is merged with the preceding assistant message to preserve a valid transcript.
+  Clarify prompts with choices use Up/Down and Enter, while prompts without
+  choices retain free-form text entry. Escape declines either form. During
+  choice mode the composer unfocuses so selection input reaches only the
+  clarify handler. Both modes show an `❓` prompt box above the composer.
 - Completed replies use GFM Markdown with wrapped prose, lists, links, tables,
   and themed fenced-code boxes with language labels. Streaming fragments remain
   plain until completion.
@@ -62,7 +75,7 @@ Seven observable states drive the visual treatment of the transcript and compose
 | Empty session (no messages) | Header with `RAILGUN · adaptive agent console` and the status bar are visible. The transcript area is empty; short content bottom-aligns against the composer (existing behavior in `transcriptJustification`). No placeholder text — the composer's prompt is invitation enough. |
 | Waiting for first token | An animated `dots2` spinner row with `theme.dim` styling and "Thinking…" label. Uses the existing `ink-spinner` in the Ink REPL; the Phase 36 non-Ink tree uses `theme.thinkingIndicator()`. |
 | Tool awaiting approval | A `theme.warning`-surface inline row with the command text and `y/n` prompt. The composer freezes (input disabled) until the approval resolves. Not a native OS dialog. Existing behavior in `App.tsx`'s approval modal state. |
-| Clarify question with choices | An `❓` prompt box above the composer. Number keys `1`–`4` select displayed choices; Enter submits freeform; Escape declines with `[user declined to answer]`. Composer unfocuses during choice mode. Existing behavior in `App.tsx`. |
+| Clarify question with choices | An `❓` prompt box above the composer. Up/Down moves the highlight, Enter selects it, and Escape declines with `[user declined to answer]`. Numeric shortcuts and free-form entry are disabled while choices are displayed. |
 | Connection lost (stdio pipe closes) | A `theme.error`-styled inline transcript line (`"Connection lost"`). The composer remains editable but submissions fail until the agent process is restarted. In RPC mode, the client detects EOF on the child's stdout. |
 | Error from model/API | A red (`theme.error`) transcript row with role label `ERROR`. The raw error is mapped through `src/errors.ts` to a one-line human message. The composer returns to interactive state. Existing behavior. |
 | Long tool output / long reply | Tool output is collapsed to a one-line label (`toolCallLabel`). Completed assistant replies render as Markdown; streaming fragments are plain text. No explicit truncation of assistant replies — the viewport scrolls. |
@@ -119,7 +132,7 @@ denies every project without prompting. Per-project decisions are persisted
 in `~/.railgun/trust.json`; `--approve`/`-a` and `--no-approve`/`-na`
 override for a single invocation.
 
-The optional `moaPresets` key defines named Mixture of Agents presets, each with a `referenceModels` array (up to 8 entries, each `{model, temperature?}`), an `aggregator` `{model, temperature?}`, and an optional positive `referenceMaxTokens`. The optional `activeMoaPreset` key names the default preset for one-shot mode (`--print`/`-p`); REPL sessions activate a preset at runtime with `/moa <preset-name>`. Preset validation at config load time rejects missing required fields, non-positive token caps, and `activeMoaPreset` pointing to an unknown preset name. Unknown extra keys inside a preset are preserved (forward-compatible).
+The optional `moaPresets` key defines named Mixture of Agents presets, each with a `referenceModels` array (up to 8 entries, each `{model, temperature?}`), an `aggregator` `{model, temperature?}`, and an optional positive `referenceMaxTokens`. The optional `activeMoaPreset` key names the default preset for both one-shot and interactive REPL sessions; `/moa` can override it for the current REPL session. Preset validation at config load time rejects missing required fields, non-positive token caps, and `activeMoaPreset` pointing to an unknown preset name. Unknown extra keys inside a preset are preserved (forward-compatible).
 
 A configured string requests that exact model for fresh sessions. When it is
 missing, interactive TTY launches show a model chooser using the resume

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { registry } from "./registry.js";
 import type { ToolContext } from "./registry.js";
 import type { AdvisoryContext } from "../advisor/advisoryContext.js";
-import type { DevinMessage } from "widevin";
 import "./advise.js";
 
 const makeAdvisoryContext = (overrides: Partial<AdvisoryContext> = {}): AdvisoryContext => ({
@@ -45,14 +44,12 @@ describe("advise tool", () => {
     expect(ctx.appendToPrimary).not.toHaveBeenCalled();
   });
 
-  it("no severity → appendToPrimary called with nit XML", async () => {
+  it("no severity → steers with nit XML so history remains role-valid", async () => {
     const ctx = makeAdvisoryContext();
     const result = await registry.run("advise", { note: "minor rename" }, makeContext(ctx));
     expect(result).toEqual({ content: "Recorded.", isError: false });
-    expect(ctx.appendToPrimary).toHaveBeenCalledOnce();
-    const msg = (ctx.appendToPrimary as ReturnType<typeof vi.fn>).mock.calls[0]![0] as DevinMessage;
-    expect(typeof msg.content === "string" && msg.content).toContain('<advisory severity="nit"');
-    expect(ctx.steer).not.toHaveBeenCalled();
+    expect(ctx.appendToPrimary).not.toHaveBeenCalled();
+    expect(ctx.steer).toHaveBeenCalledWith(expect.stringContaining('<advisory severity="nit"'));
   });
 
   it("content-free 'lgtm' → Recorded, no steer/append", async () => {
@@ -98,8 +95,8 @@ describe("advise tool", () => {
   it("XML-special chars in note are escaped", async () => {
     const ctx = makeAdvisoryContext();
     await registry.run("advise", { note: "use <tag> & 'quotes'", severity: "nit" }, makeContext(ctx));
-    const msg = (ctx.appendToPrimary as ReturnType<typeof vi.fn>).mock.calls[0]![0] as DevinMessage;
-    expect(typeof msg.content === "string" && msg.content).toContain("&lt;tag&gt;");
-    expect(typeof msg.content === "string" && msg.content).toContain("&amp;");
+    const message = (ctx.steer as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(message).toContain("&lt;tag&gt;");
+    expect(message).toContain("&amp;");
   });
 });

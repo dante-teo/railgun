@@ -59,11 +59,10 @@ registry.register({
 
     const wrapped = `<advisory severity="${severity}" guidance="weigh, don't blindly obey">\n${escapeXml(rawNote)}\n</advisory>`;
 
-    if (severity === "concern" || severity === "blocker") {
-      ctx.steer(wrapped);
-    } else {
-      ctx.appendToPrimary({ role: "user", content: wrapped });
-    }
+    // Deliver every note through the turn's steer queue. Appending a nit after
+    // the assistant has finished leaves history ending in a synthetic user
+    // message, which is invalid for checkpoints and the next provider request.
+    ctx.steer(wrapped);
 
     return { content: "Recorded.", isError: false };
   },

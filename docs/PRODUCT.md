@@ -71,9 +71,10 @@ analysis, next-steps, and risk notes. Their responses are collected and
 injected as a private guidance user message appended to the conversation before
 the aggregator's first round. A failed reference produces a labelled
 `[failed: ...]` note and never crashes the turn. MoA is activated for the
-current session with `/moa <preset-name>` and deactivated with `/moa off`; a
-persistent default for one-shot mode is configured via `activeMoaPreset` in
-`config.json`. Configuration: `moaPresets` is a top-level `config.json` key
+current session with `/moa <preset-name>` and deactivated with `/moa off`; bare
+`/moa` opens an arrow-key session picker. A persistent default for one-shot and
+interactive REPL sessions is configured via `activeMoaPreset` in `config.json`.
+Configuration: `moaPresets` is a top-level `config.json` key
 mapping preset names to objects with `referenceModels` (array of
 `{model, temperature?}`, at most 8), `aggregator` ({model, temperature?}), and
 optional `referenceMaxTokens` (positive integer). New file:
@@ -191,7 +192,7 @@ approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/
   in the persisted output of `setConfiguredModel`, and is rejected for values outside the
   `"ask"/"always"/"never"` set. See ADR-0013.
 
-Phase 19 adds a `clarify` tool (`src/tools/clarify.ts`) that lets the agent ask the user a clarifying question — with optional numbered multiple-choice answers — instead of guessing when information is missing. The design is callback-based: the tool itself is platform-agnostic; the actual user-interaction mechanism is injected as `ClarifyCallback` (`src/tools/registry.ts`) via `AgentDependencies.clarifyCallback` and threaded through `RunTurnOptions` into `ToolContext`. In the REPL (`src/repl/App.tsx`) the callback uses `Promise.withResolvers` and a ref, mirroring the existing `confirmShellCommand` pattern: an `❓` prompt box renders above the composer, number keys `1`–`4` pick choices (with the composer unfocused to prevent digit bleed-through), Enter submits a freeform typed answer, and Escape resolves with `[user declined to answer]`. In one-shot mode (`src/oneShot.ts`) the callback blocks on `readline`/`process.stdin`. Ctrl+C during a clarify prompt resolves it with `[user declined to answer]` and aborts cleanly. The `"clarify"` toolset is always enabled alongside `"file"`, `"terminal"`, and `"planning"`. The system prompt (`src/agent/systemPrompt.ts`) instructs the model to use `clarify` before irreversible actions when information is missing and to offer choices when the options are clear and few.
+Phase 19 adds a `clarify` tool (`src/tools/clarify.ts`) that lets the agent ask the user a clarifying question—with optional multiple-choice answers—instead of guessing when information is missing. The design is callback-based: the tool itself is platform-agnostic; the actual user-interaction mechanism is injected as `ClarifyCallback` (`src/tools/registry.ts`) via `AgentDependencies.clarifyCallback` and threaded through `RunTurnOptions` into `ToolContext`. In the REPL (`src/repl/App.tsx`) the callback uses `Promise.withResolvers` and a ref, mirroring the existing `confirmShellCommand` pattern: an `❓` prompt box renders above the composer, Up/Down and Enter select a displayed choice, and Escape resolves with `[user declined to answer]`. Numeric shortcuts and free-form input are disabled while choices are displayed; questions without choices retain free-form entry. In one-shot mode (`src/oneShot.ts`) the callback blocks on `readline`/`process.stdin`. Ctrl+C during a clarify prompt resolves it with `[user declined to answer]` and aborts cleanly. The `"clarify"` toolset is always enabled alongside `"file"`, `"terminal"`, and `"planning"`. The system prompt (`src/agent/systemPrompt.ts`) instructs the model to use `clarify` before irreversible actions when information is missing and to offer choices when the options are clear and few.
 
 Phase 18 replaces `src/agent/turn.ts`'s `LoopCallbacks` with a typed,
 two-layer event stream: `src/agent/agent.ts`'s low-level `Agent` now emits a

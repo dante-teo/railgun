@@ -195,6 +195,19 @@ protocol failures, and unrelated errors fail immediately.
 
 ### Configuration
 
+Run `/settings` in the interactive REPL to configure the primary model, the
+persisted default MOA preset, and the advisor. Pickers use Up/Down, Enter, and
+Escape; confirmed changes apply to subsequent turns and are atomically saved to
+`~/.railgun/config.json`. Bare `/moa` opens a session-only preset picker.
+Long lists open with the current selection already scrolled into view.
+
+When enabled, the advisor reviews completed primary-model steps with read-only
+filesystem access. It stays silent when it finds no meaningful issue and emits
+at most one note per review cycle. Notes appear as dedicated `ADVISOR` transcript
+rows rather than user messages: green `NIT`, amber `CONCERN`, or red `BLOCKER`.
+The XML envelope used internally is decoded before display and removed from
+persisted history, so advisory steering cannot invalidate session checkpoints.
+
 ```sh
 pnpm start config
 ```

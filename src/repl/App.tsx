@@ -14,7 +14,7 @@ import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import { buildSessionCore } from "../session.js";
 import type { DevinSession } from "../session.js";
-import { loadConfig, parseMoAPreset, setConfiguredModel, isAdvisorActive } from "../config.js";
+import { loadConfig, parseMoAPreset, setConfiguredModel, isAdvisorActive, updateConfig } from "../config.js";
 import type { MoAPreset } from "../agent/moa.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
@@ -39,14 +39,21 @@ import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
 import { expandSkillCommand } from "../skills.js";
+import type { AdviceSeverity } from "../advisor/advisoryContext.js";
+import { parseAdvisoryMessage } from "../advisor/advisoryMessage.js";
+import { Selector, createSelectorState, reduceSelector } from "./selector.js";
+import type { SelectorItem, SelectorState } from "./selector.js";
 
-const TRUST_CHOICES: Readonly<Record<string, TrustChoice>> = {
-  "1": "trust", "2": "trust-parent", "3": "trust-session", "4": "deny", "5": "deny-session",
-};
+const TRUST_CHOICES: readonly { readonly label: string; readonly value: TrustChoice }[] = [
+  { label: "Trust this project", value: "trust" }, { label: "Trust parent directory", value: "trust-parent" },
+  { label: "Trust for this session", value: "trust-session" }, { label: "Deny this project", value: "deny" },
+  { label: "Deny for this session", value: "deny-session" },
+];
 
 export interface DisplayLine {
-  kind: "user" | "assistant" | "error" | "tool";
+  kind: "user" | "assistant" | "advisory" | "error" | "tool";
   text: string;
+  severity?: AdviceSeverity;
   failed?: boolean;
   partial?: boolean;
   pending?: boolean;
@@ -84,22 +91,26 @@ const userContentText = (message: UserMessage): string =>
     ? message.content
     : message.content.filter(part => part.type === "text").map(part => part.text).join(" ");
 
+export { parseAdvisoryMessage } from "../advisor/advisoryMessage.js";
+
 const assistantContentText = (message: Extract<DevinMessage, { role: "assistant" }>): string =>
   message.content.filter(part => part.type === "text").map(part => part.text).join("");
 
 export const historyToDisplayLines = (history: readonly DevinMessage[]): readonly DisplayLine[] => {
-  const groups = history.reduce<Array<{ user: string; assistant: string }>>((turns, message) => {
-    if (isUserMessage(message)) return [...turns, { user: userContentText(message), assistant: "" }];
-    if (message.role !== "assistant" || turns.length === 0) return turns;
+  return history.reduce<readonly DisplayLine[]>((lines, message) => {
+    if (isUserMessage(message)) {
+      const text = userContentText(message);
+      const advisory = parseAdvisoryMessage(text);
+      return [...lines, advisory ? { kind: "advisory", ...advisory } : { kind: "user", text }];
+    }
+    if (message.role !== "assistant") return lines;
     const text = assistantContentText(message);
-    if (text === "") return turns;
-    const prior = turns.at(-1)!;
-    return [...turns.slice(0, -1), { ...prior, assistant: prior.assistant + text }];
+    if (text === "") return lines;
+    const prior = lines.at(-1);
+    return prior?.kind === "assistant"
+      ? [...lines.slice(0, -1), { ...prior, text: prior.text + text }]
+      : [...lines, { kind: "assistant", text }];
   }, []);
-  return groups.flatMap(({ user, assistant }) => [
-    { kind: "user" as const, text: user },
-    ...(assistant === "" ? [] : [{ kind: "assistant" as const, text: assistant }]),
-  ]);
 };
 
 export const createHydratedTodoStore = (todos: TodoState): TodoStore => createTodoStore(todos);
@@ -164,7 +175,14 @@ export interface TranscriptRow {
   readonly text: string;
   readonly failed: boolean;
   readonly pending: boolean;
+  readonly severity?: AdviceSeverity;
 }
+
+const advisoryColor = (severity: AdviceSeverity | undefined, theme: Theme): string =>
+  severity === "blocker" ? theme.error : severity === "concern" ? theme.warning : theme.success;
+
+const advisorySurface = (severity: AdviceSeverity | undefined, theme: Theme): string =>
+  severity === "blocker" ? theme.errorSurface : severity === "concern" ? theme.warningSurface : theme.successSurface;
 
 const chunkText = (text: string, width: number): readonly string[] =>
   text === "" ? [""] : Array.from({ length: Math.ceil(text.length / width) }, (_, index) => text.slice(index * width, (index + 1) * width));
@@ -175,25 +193,28 @@ const wrapPlainText = (text: string, width: number): readonly string[] =>
 export const displayLineToTranscriptRows = (line: DisplayLine, theme: Theme, width: number): readonly TranscriptRow[] => {
   const bodyWidth = Math.max(8, width - ROLE_GUTTER_WIDTH - 2);
   const contentWidth = Math.max(8, bodyWidth - (line.kind === "tool" || line.partial ? 3 : 0));
-  const role = line.kind === "user" ? "YOU" : line.kind === "error" ? "ERROR" : line.kind === "tool" ? "TOOL" : "RAILGUN";
+  const role = line.kind === "user" ? "YOU" : line.kind === "advisory" ? "ADVISOR" : line.kind === "error" ? "ERROR" : line.kind === "tool" ? "TOOL" : "RAILGUN";
   const rendered = line.kind === "assistant" && !line.partial
     ? renderAssistantMarkdown(line.text, theme, bodyWidth).replace(/^\n+|\n+$/g, "").split("\n")
     : wrapPlainText(line.text || (line.partial ? "Thinking" : ""), contentWidth);
   return rendered.map((text, index) => ({
     kind: line.kind,
     role: index === 0 ? role : "",
-    text,
+    text: line.kind === "advisory" && index === 0 ? `${(line.severity ?? "nit").toUpperCase()} · ${text}` : text,
     failed: !!line.failed,
     pending: !!line.pending || (!!line.partial && line.text === ""),
+    ...(line.severity ? { severity: line.severity } : {}),
   }));
 };
 
 export const TranscriptRowLine = ({ row, theme }: { readonly row: TranscriptRow; readonly theme: Theme }): React.ReactElement => {
   const roleColor = row.kind === "error" || row.failed ? theme.error
+    : row.kind === "advisory" ? advisoryColor(row.severity, theme)
     : row.kind === "user" ? theme.accent
     : row.kind === "tool" && !row.pending ? theme.success
     : theme.strong;
   const backgroundColor = row.kind === "user" ? theme.surface
+    : row.kind === "advisory" ? advisorySurface(row.severity, theme)
     : row.kind === "tool" ? row.failed ? theme.errorSurface : row.pending ? theme.warningSurface : theme.successSurface
     : undefined;
   return (
@@ -202,7 +223,7 @@ export const TranscriptRowLine = ({ row, theme }: { readonly row: TranscriptRow;
         <Text color={roleColor} bold>{row.role}</Text>
       </Box>
       <Box flexGrow={1} flexDirection="column">
-        <Text color={row.kind === "error" || row.failed ? theme.error : row.kind === "tool" && row.pending ? theme.warning : theme.text}>
+        <Text color={row.kind === "error" || row.failed ? theme.error : row.kind === "advisory" ? roleColor : row.kind === "tool" && row.pending ? theme.warning : theme.text}>
           {row.pending && <><Spinner type="dots2" />{" "}</>}
           {row.kind === "tool" && !row.pending && row.role !== "" ? `${toolLineIcon(row.failed)} ` : ""}
           {row.text}{row.pending ? "…" : ""}
@@ -257,6 +278,13 @@ interface ModelPickerState {
   readonly sessionOnly: boolean;
 }
 
+interface ActionPickerState {
+  readonly title: string;
+  readonly items: readonly SelectorItem[];
+  readonly selector: SelectorState;
+  readonly onSelect: (index: number) => void | Promise<void>;
+}
+
 
 const ChatApp = ({
   session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore, noteStore,
@@ -306,8 +334,11 @@ const ChatApp = ({
   const pendingClarifyRef = useRef<{ resolve: (answer: string) => void } | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
+  const [actionPicker, setActionPicker] = useState<ActionPickerState | null>(null);
   const [trustDecision, setTrustDecision] = useState<TrustDecision>(initialTrustDecision ?? { status: "unknown" });
   const [pendingTrust, setPendingTrust] = useState(false);
+  const [trustSelector, setTrustSelector] = useState(() => createSelectorState(TRUST_CHOICES.length, TRUST_CHOICES.length));
+  const [clarifySelector, setClarifySelector] = useState(() => createSelectorState(0, 4));
   const [approvalMode, setApprovalMode] = useState<CommandApprovalMode>("manual");
   const [reviewerModel, setReviewerModel] = useState<string | undefined>(undefined);
   const [activeMoaPreset, setActiveMoaPreset] = useState<MoAPreset | null>(null);
@@ -319,6 +350,7 @@ const ChatApp = ({
       if (c.approvalMode) setApprovalMode(c.approvalMode);
       if (c.reviewerModel) setReviewerModel(c.reviewerModel);
       if (isAdvisorActive(c)) setAdvisorModel(c.advisor!.model!);
+      if (c.activeMoaPreset && c.moaPresets?.[c.activeMoaPreset]) setActiveMoaPreset(parseMoAPreset(c.activeMoaPreset, c.moaPresets[c.activeMoaPreset]));
     }).catch(console.error);
   }, []);
 
@@ -328,8 +360,9 @@ const ChatApp = ({
   const pickerVisibleCount = modelPicker ? Math.max(1, Math.min(modelPicker.models.length, Math.floor((rows - 15) / 3))) : 0;
   const pickerRows = modelPicker ? pickerVisibleCount * 3 + 1 : 0;
    const clarifyRows = pendingClarify ? 2 + (pendingClarify.choices?.length ?? 0) : 0;
-   const trustPickerRows = pendingTrust ? 10 : 0;
-   const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + trustPickerRows + 1;
+   const trustPickerRows = pendingTrust ? 8 : 0;
+   const actionPickerRows = actionPicker ? Math.min(actionPicker.items.length, actionPicker.selector.visibleCount) + 3 : 0;
+   const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + trustPickerRows + actionPickerRows + 1;
   const transcriptRows = Math.max(1, rows - 3 - lowerRows);
   const ephemeralLines: readonly DisplayLine[] = busy
     ? toolLabels.size > 0
@@ -381,17 +414,21 @@ const ChatApp = ({
     const { promise, resolve } = Promise.withResolvers<string>();
     pendingClarifyRef.current = { resolve };
     setPendingClarify({ question, ...(choices !== undefined ? { choices: choices.slice(0, 4) } : {}) });
+    setClarifySelector(createSelectorState(choices?.slice(0, 4).length ?? 0, 4));
     return promise;
   }, []);
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     const pending = pendingClarifyRef.current;
     const clarify = pendingClarify;
     if (!pending || !clarify) return;
     if (clarify.choices && clarify.choices.length > 0) {
-      const idx = parseInt(input, 10) - 1;
-      if (idx >= 0 && idx < clarify.choices.length) {
-        pending.resolve(clarify.choices[idx] ?? input);
+      if (key.upArrow || key.downArrow) {
+        setClarifySelector(state => reduceSelector(state, { type: key.upArrow ? "up" : "down" }));
+        return;
+      }
+      if (key.return) {
+        pending.resolve(clarify.choices[clarifySelector.selectedIndex] ?? "");
         pendingClarifyRef.current = null;
         setPendingClarify(null);
         return;
@@ -402,7 +439,21 @@ const ChatApp = ({
       pendingClarifyRef.current = null;
       setPendingClarify(null);
     }
-  }, { isActive: pendingClarify !== null });
+  }, { isActive: pendingClarify !== null && (pendingClarify.choices?.length ?? 0) > 0 });
+
+  useInput((_input, key) => {
+    if (!actionPicker) return;
+    if (key.upArrow || key.downArrow) {
+      setActionPicker(current => current && ({ ...current, selector: reduceSelector(current.selector, { type: key.upArrow ? "up" : "down" }) }));
+    } else if (key.return) {
+      const { selectedIndex } = actionPicker.selector;
+      const select = actionPicker.onSelect;
+      setActionPicker(null);
+      void Promise.resolve(select(selectedIndex)).catch(error => {
+        setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+      });
+    } else if (key.escape) setActionPicker(null);
+  }, { isActive: actionPicker !== null });
 
   useInput((input, key) => {
     const pending = pendingApprovalRef.current;
@@ -445,11 +496,12 @@ const ChatApp = ({
     }
   }, { isActive: modelPicker !== null });
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     if (!pendingTrust) return;
-    const choice = TRUST_CHOICES[input];
-    if (choice !== undefined && trustStore !== undefined) {
-      const newDecision = trustStore.set(cwd ?? process.cwd(), choice);
+    if (key.upArrow || key.downArrow) {
+      setTrustSelector(state => reduceSelector(state, { type: key.upArrow ? "up" : "down" }));
+    } else if (key.return && trustStore !== undefined) {
+      const newDecision = trustStore.set(cwd ?? process.cwd(), TRUST_CHOICES[trustSelector.selectedIndex]!.value);
       setTrustDecision(newDecision);
       setPendingTrust(false);
       const scopeLabel = "scope" in newDecision ? (newDecision.scope === "persisted" ? " (persisted)" : " (session only)") : "";
@@ -525,7 +577,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /compact, /rollback, /trust, /branch [--summary] [id], /fork, /skill:<name>" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /skill:<name>" }]);
         return;
       }
       if (command === "/clear") {
@@ -555,6 +607,58 @@ const ChatApp = ({
           }
         } catch (error) {
           setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+        }
+        return;
+      }
+      if (command === "/settings") {
+        try {
+          const config = await loadConfig();
+          const models = await activeSession.devin.listModels();
+          const openModelSetting = (): void => setActionPicker({
+            title: "Settings · Primary model",
+            items: models.map(model => ({ id: model.id, label: model.id, current: model.id === activeSession.model.id })),
+            selector: createSelectorState(models.length, Math.min(8, models.length), Math.max(0, models.findIndex(model => model.id === activeSession.model.id))),
+            onSelect: async index => {
+              const model = models[index];
+              if (!model) return;
+              const rebuilt = await buildSessionCore(activeSession.devin, model);
+              await setConfiguredModel(model.id);
+              setActiveSession(rebuilt);
+              setLines(previous => [...previous, { kind: "assistant", text: `Primary model changed to ${model.id}.` }]);
+            },
+          });
+          const openMoaSetting = (): void => {
+            const names = Object.keys(config.moaPresets ?? {});
+            const values = ["Off", ...names];
+            setActionPicker({ title: "Settings · Default MoA preset", items: values.map(name => ({ id: name, label: name, current: name === (config.activeMoaPreset ?? "Off") })), selector: createSelectorState(values.length, Math.min(8, values.length), Math.max(0, values.indexOf(config.activeMoaPreset ?? "Off"))), onSelect: async index => {
+              const name = values[index]!;
+              const updated = await updateConfig(current => {
+                if (name !== "Off") return { ...current, activeMoaPreset: name };
+                const { activeMoaPreset: _removed, ...rest } = current;
+                return rest as typeof current;
+              });
+              setActiveMoaPreset(name === "Off" ? null : parseMoAPreset(name, updated.moaPresets![name]));
+              setLines(previous => [...previous, { kind: "assistant", text: name === "Off" ? "Default MoA disabled." : `Default MoA preset changed to ${name}.` }]);
+            } });
+          };
+          const openAdvisorSetting = (): void => {
+            const values = ["Off", ...models.map(model => model.id)];
+            const current = isAdvisorActive(config) ? config.advisor!.model! : "Off";
+            setActionPicker({ title: "Settings · Advisor", items: values.map(name => ({ id: name, label: name, current: name === current })), selector: createSelectorState(values.length, Math.min(8, values.length), Math.max(0, values.indexOf(current))), onSelect: async index => {
+              const name = values[index]!;
+              await updateConfig(value => ({ ...value, advisor: name === "Off" ? { ...value.advisor, enabled: false } : { ...value.advisor, enabled: true, model: name } }));
+              setAdvisorModel(name === "Off" ? undefined : name);
+              setLines(previous => [...previous, { kind: "assistant", text: name === "Off" ? "Advisor disabled." : `Advisor enabled with ${name}.` }]);
+            } });
+          };
+          const sections = [openModelSetting, openMoaSetting, openAdvisorSetting];
+          setActionPicker({ title: "AI Settings", items: [
+            { id: "model", label: "Primary model", detail: activeSession.model.id },
+            { id: "moa", label: "MOA", detail: config.activeMoaPreset ?? "Off" },
+            { id: "advisor", label: "Advisor", detail: isAdvisorActive(config) ? config.advisor!.model! : "Off" },
+          ], selector: createSelectorState(3, 3), onSelect: index => sections[index]?.() });
+        } catch (error) {
+          setLines(previous => [...previous, { kind: "error", text: `Settings error: ${error instanceof Error ? error.message : String(error)}` }]);
         }
         return;
       }
@@ -598,6 +702,7 @@ const ChatApp = ({
           const statusText = trustDecision.status === "unknown" ? "unknown" : `${trustDecision.status} (${trustDecision.scope})`;
           setLines(previous => [...previous, { kind: "assistant", text: `Current trust status: ${statusText}. (Trust store not available in this session.)` }]);
         } else {
+          setTrustSelector(createSelectorState(TRUST_CHOICES.length, TRUST_CHOICES.length));
           setPendingTrust(true);
         }
         return;
@@ -607,9 +712,12 @@ const ChatApp = ({
           const moaConfig = await loadConfig();
           if (!arg || arg === "") {
             const presetNames = Object.keys(moaConfig.moaPresets ?? {});
-            const status = activeMoaPreset !== null ? `MoA active: ${activeMoaPreset.name}` : "MoA is off";
-            const available = presetNames.length > 0 ? ` Available presets: ${presetNames.join(", ")}` : " No presets configured.";
-            setLines(previous => [...previous, { kind: "assistant", text: `${status}.${available}` }]);
+            const items = ["Off", ...presetNames];
+            setActionPicker({ title: "MoA for this session", items: items.map(name => ({ id: name, label: name, current: name === (activeMoaPreset?.name ?? "Off") })), selector: createSelectorState(items.length, Math.min(8, items.length), Math.max(0, items.indexOf(activeMoaPreset?.name ?? "Off"))), onSelect: index => {
+              const name = items[index]!;
+              if (name === "Off") { setActiveMoaPreset(null); setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated for this session." }]); }
+              else { const preset = parseMoAPreset(name, moaConfig.moaPresets![name]); setActiveMoaPreset(preset); setLines(previous => [...previous, { kind: "assistant", text: `MoA activated: ${name}` }]); }
+            } });
           } else if (arg === "off") {
             setActiveMoaPreset(null);
             setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated." }]);
@@ -637,10 +745,18 @@ const ChatApp = ({
         const idStr = arg?.replace("--summary", "").trim();
         if (!idStr || !/^\d+$/.test(idStr)) {
           const recent = persistence.getRecentMessages();
-          for (const msg of recent) {
-            setLines(prev => [...prev, { kind: "assistant", text: `  ${msg.id}: [${msg.role}] ${msg.preview}` }]);
-          }
-          setLines(prev => [...prev, { kind: "assistant", text: "Run /branch <id> [--summary] to branch to a message." }]);
+          setActionPicker({ title: "Branch from recent message", items: recent.map(msg => ({ id: String(msg.id), label: `[${msg.role}] ${msg.preview}` })), selector: createSelectorState(recent.length, Math.min(8, recent.length)), onSelect: async index => {
+            const selected = recent[index];
+            if (!selected) return;
+            if (withSummary && persistence.branchWithSummary) await persistence.branchWithSummary(selected.id);
+            else persistence.branch!(selected.id);
+            if (persistence.loadBranch) {
+              const newHistory = persistence.loadBranch();
+              setHistory(newHistory);
+              setLines(historyToDisplayLines(newHistory));
+            }
+            setLines(previous => [...previous, { kind: "assistant", text: `Branched to message ${selected.id}${withSummary ? " with summary" : ""}.` }]);
+          } });
           return;
         }
         const messageId = parseInt(idStr, 10);
@@ -754,9 +870,10 @@ const ChatApp = ({
           sawInitialUserMessage = true;
         } else if (typeof event.message.content === "string") {
           const userText = event.message.content;
+          const advisory = parseAdvisoryMessage(userText);
           flushStreamingLine();
           setQueuedSteer(false);
-          setLines(previous => [...previous, { kind: "user", text: userText }]);
+          setLines(previous => [...previous, advisory ? { kind: "advisory", ...advisory } : { kind: "user", text: userText }]);
         }
       }
     });
@@ -837,10 +954,8 @@ const ChatApp = ({
       {pendingClarify !== null && (
         <Box flexDirection="column" backgroundColor={theme.warningSurface} paddingX={1}>
           <Text color={approvalColor(theme)}>❓ {pendingClarify.question}</Text>
-          {pendingClarify.choices?.map((c, i) => (
-            <Text key={i} color={approvalColor(theme)}>  {i + 1}. {c}</Text>
-          ))}
-          <Text color={theme.dim}>{pendingClarify.choices ? "Press 1-" + pendingClarify.choices.length + ", type your own answer, or Esc to skip" : "Type your answer and press Enter, or Esc to skip"}</Text>
+          {pendingClarify.choices?.map((c, i) => <Text key={i} color={i === clarifySelector.selectedIndex ? theme.accent : approvalColor(theme)}>{i === clarifySelector.selectedIndex ? "›" : " "} {c}</Text>)}
+          <Text color={theme.dim}>{pendingClarify.choices ? "↑/↓ select · Enter answer · Esc skip" : "Type your answer and press Enter, or Esc to skip"}</Text>
         </Box>
       )}
       {queuedSteer && <Text color={theme.warning}>Queued · steering will apply at the next boundary</Text>}
@@ -859,17 +974,9 @@ const ChatApp = ({
         );
       })()}
       {pendingTrust && (
-        <Box flexDirection="column" borderStyle="single" borderColor={theme.border} paddingX={1}>
-          <Text color={theme.accent}>Trust project folder {cwd ?? process.cwd()}?</Text>
-          <Text color={theme.dim}>This allows railgun to load .railgun/ settings, extensions, and skills.</Text>
-          <Text>  1. Trust</Text>
-          <Text>  2. Trust parent folder</Text>
-          <Text>  3. Trust (this session only)</Text>
-          <Text>  4. Do not trust</Text>
-          <Text>  5. Do not trust (this session only)</Text>
-          <Text color={theme.dim}>Press 1-5 to choose · Esc to cancel</Text>
-        </Box>
+        <Selector title={`Trust project folder ${cwd ?? process.cwd()}?`} items={TRUST_CHOICES.map(choice => ({ id: choice.value, label: choice.label }))} state={trustSelector} theme={theme} />
       )}
+      {actionPicker && <Selector title={actionPicker.title} items={actionPicker.items} state={actionPicker.selector} theme={theme} />}
       <Box borderStyle="round" borderColor={theme.border} paddingX={1} height={composerHeight + 2}>
         <Text color={theme.accent}>❯ </Text>
         <MultilineInput
@@ -879,7 +986,7 @@ const ChatApp = ({
           onSubmit={value => { void handleSubmit(value); }}
           rows={composerHeight}
           maxRows={composerHeight}
-           focus={pendingCommand === null && modelPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0) && !pendingTrust}
+           focus={pendingCommand === null && modelPicker === null && actionPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0) && !pendingTrust}
            placeholder={busy ? (pendingClarify ? "Type your answer…" : "Steer the active run…") : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : pendingTrust ? "Choosing trust…" : "Message Railgun"}
           textStyle={{ color: theme.text }}
           highlightStyle={{ color: theme.text }}

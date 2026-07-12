@@ -13,6 +13,7 @@ export interface AdvisorRuntime {
   onPrimaryTurnEnd(
     primaryMessages: readonly DevinMessage[],
     steer: (text: string) => void,
+    /** @deprecated Retained for API compatibility; advisory delivery uses steer. */
     appendToPrimary: (msg: DevinMessage) => void,
   ): Promise<void>;
 }

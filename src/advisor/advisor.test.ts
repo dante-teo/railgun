@@ -179,7 +179,7 @@ describe("AdvisorRuntime.onPrimaryTurnEnd", () => {
     expect(appendSpy).not.toHaveBeenCalled();
   });
 
-  it("advisor calls advise with no severity → appendToPrimary called with nit XML", async () => {
+  it("advisor calls advise with no severity → steers with nit XML", async () => {
     const steerSpy = vi.fn<(text: string) => void>();
     const appendSpy = vi.fn<(msg: DevinMessage) => void>();
 
@@ -203,10 +203,8 @@ describe("AdvisorRuntime.onPrimaryTurnEnd", () => {
       appendSpy as unknown as (msg: DevinMessage) => void,
     );
 
-    expect(appendSpy).toHaveBeenCalledOnce();
-    const msg = appendSpy.mock.calls[0]![0];
-    expect(typeof msg.content === "string" && msg.content).toContain('<advisory severity="nit"');
-    expect(steerSpy).not.toHaveBeenCalled();
+    expect(appendSpy).not.toHaveBeenCalled();
+    expect(steerSpy).toHaveBeenCalledWith(expect.stringContaining('<advisory severity="nit"'));
   });
 
   it("streamChat throws → no exception propagates and console.error is called", async () => {

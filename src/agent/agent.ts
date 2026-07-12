@@ -12,6 +12,7 @@ import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
 import { createAdvisorRuntime } from "../advisor/advisor.js";
+import { normalizeAdvisoryHistory } from "../advisor/advisoryMessage.js";
 
 export interface AgentDependencies {
   readonly devin: DevinProvider;
@@ -80,11 +81,12 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
     const currentController = new AbortController();
     controller = currentController;
     const normalized = typeof input === "string" ? { text: input, history: [] } : { text: input.text, history: input.history ?? [] };
-    advisor?.seedFrom(normalized.history);
+    const runHistory = advisor ? normalizeAdvisoryHistory(normalized.history) : normalized.history;
+    advisor?.seedFrom(runHistory);
     try {
-      return await runTurn(
+      const outcome = await runTurn(
         dependencies.devin, dependencies.model, dependencies.contextWindow, dependencies.systemPrompt,
-        normalized.history, normalizedText(normalized.text),
+        runHistory, normalizedText(normalized.text),
         (dependencies.iterationBudget ?? IterationBudget.create)(), dependencies.confirmShellCommand,
         processEvents,
         {
@@ -112,6 +114,8 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           delegationDepth: 0,
         },
       );
+      if (!advisor || !("messages" in outcome)) return outcome;
+      return { ...outcome, messages: normalizeAdvisoryHistory(outcome.messages) };
     } finally {
       queues.clear();
       controller = undefined;

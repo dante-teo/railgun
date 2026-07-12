@@ -8,6 +8,7 @@ import {
   attemptCheckpoint,
   createHydratedTodoStore,
   historyToDisplayLines,
+  parseAdvisoryMessage,
   shouldAppendToolTranscriptLine,
   shouldShowToolLine,
   transcriptJustification,
@@ -105,6 +106,30 @@ describe("TranscriptLine", () => {
 });
 
 describe("persistent REPL hydration", () => {
+  it("parses advisor envelopes without displaying raw XML", () => {
+    expect(parseAdvisoryMessage('<advisory severity="concern" guidance="weigh, don\'t blindly obey">\nCheck &lt;this&gt; &amp; that.\n</advisory>')).toEqual({
+      severity: "concern",
+      text: "Check <this> & that.",
+    });
+    expect(parseAdvisoryMessage("ordinary user text")).toBeNull();
+  });
+
+  it("classifies persisted advisory messages separately from user turns", () => {
+    const history: readonly DevinMessage[] = [
+      { role: "user", content: "Question" },
+      { role: "assistant", content: [{ type: "text", text: "Answer" }] },
+      { role: "user", content: '<advisory severity="blocker" guidance="weigh">\nUnsafe change\n</advisory>' },
+      { role: "assistant", content: [{ type: "text", text: "Corrected" }] },
+    ];
+
+    expect(historyToDisplayLines(history)).toEqual([
+      { kind: "user", text: "Question" },
+      { kind: "assistant", text: "Answer" },
+      { kind: "advisory", severity: "blocker", text: "Unsafe change" },
+      { kind: "assistant", text: "Corrected" },
+    ]);
+  });
+
   it("groups historical assistant text with each user turn and omits tool frames", () => {
     const history: readonly DevinMessage[] = [
       { role: "user", content: "Find it" },
