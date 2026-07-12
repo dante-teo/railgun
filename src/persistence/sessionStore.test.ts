@@ -62,10 +62,10 @@ describe("createSessionStore", () => {
 
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(4);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
-    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '%_fts%' AND name != 'sqlite_sequence' ORDER BY name").pluck().all())
-      .toEqual(["memories", "messages", "notes", "sessions"]);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '%_fts%' AND name NOT LIKE 'notes\\_vec\\_%' ESCAPE '\\' AND name != 'sqlite_sequence' ORDER BY name").pluck().all())
+      .toEqual(["memories", "messages", "notes", "notes_vec", "sessions"]);
     db.close();
 
     const reopened = createSessionStore(path);
@@ -243,7 +243,7 @@ describe("schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a v1 database to v4 by adding the memories table, branching columns, and notes tables", () => {
+  it("migrates a v1 database to v5 by adding the memories table, branching columns, notes tables, and notes_vec", () => {
     // Bootstrap a v1-era database manually (no memories table, user_version = 1).
     const bootstrap = new Database(path);
     bootstrap.exec(`
@@ -275,7 +275,7 @@ describe("schema migration", () => {
     store.close();
 
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(4);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories'").pluck().all()
     ).toEqual(["memories"]);
@@ -285,10 +285,11 @@ describe("schema migration", () => {
     const sessCols = db.pragma("table_info(sessions)") as ColInfo[];
     expect(sessCols.some(c => c.name === "current_leaf_id")).toBe(true);
     const tableNames = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('notes', 'notes_fts')")
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('notes', 'notes_fts', 'notes_vec')")
       .pluck().all() as string[];
     expect(tableNames).toContain("notes");
     expect(tableNames).toContain("notes_fts");
+    expect(tableNames).toContain("notes_vec");
     db.close();
   });
 });
@@ -304,7 +305,7 @@ describe("notes schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a fresh database to v4 with notes and notes_fts tables", () => {
+  it("migrates a fresh database to v5 with notes, notes_fts, and notes_vec tables", () => {
     const path = join(dir, "state.db");
     const store = createSessionStore(path);
     store.close();
@@ -312,14 +313,15 @@ describe("notes schema migration", () => {
     const db = new Database(path);
     try {
       const version = db.pragma("user_version", { simple: true }) as number;
-      expect(version).toBe(4);
+      expect(version).toBe(5);
 
       const tables = db
-        .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'shadow') AND name IN ('notes', 'notes_fts')")
+        .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'shadow') AND name IN ('notes', 'notes_fts', 'notes_vec')")
         .pluck()
         .all() as string[];
       expect(tables).toContain("notes");
       expect(tables).toContain("notes_fts");
+      expect(tables).toContain("notes_vec");
     } finally {
       db.close();
     }

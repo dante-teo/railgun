@@ -6,6 +6,7 @@ import "./todo.js";
 import "./clarify.js";
 import "./memory.js";
 import "./noteSearch.js";
+import "./noteSearchSemantic.js";
 import "./skillView.js";
 import "./advise.js";
 import "./delegate.js";

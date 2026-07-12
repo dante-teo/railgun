@@ -76,7 +76,7 @@ database and create a `MemoryStore` via the new `withStores` helper in
 
 - **Schema migration**: existing v1/v2 databases are migrated transparently on
   first open via the `MIGRATIONS` array in `sessionStore.ts`. The `memories`
-  table is created as part of the v1→v2 migration (index 1); Phase 26 adds a v3→v4 migration (index 3) for the `notes` + `notes_fts` tables. Each migration
+  table is created as part of the v1→v2 migration (index 1); Phase 26 adds a v3→v4 migration (index 3) for the `notes` + `notes_fts` tables; Phase 27 adds a v4→v5 migration (index 4) for the `notes_vec` sqlite-vec virtual table. Each migration
   step runs inside a transaction that atomically bumps `user_version`, so a
   crash mid-migration cannot leave the schema and the version stamp out of sync.
 
@@ -88,8 +88,8 @@ database and create a `MemoryStore` via the new `withStores` helper in
 - **`SessionStore.db` exposure**: the `db` handle is typed `readonly` on the
   interface. Callers that only receive `SessionStore` (e.g. `cli.test.ts`
   mocks) must supply a `db` field. The test mock uses an in-memory SQLite DB
-  with the `memories`, `notes`, and `notes_fts` tables, sufficient for
-  `withStores` to call `createMemoryStore` and `createNoteStore`.
+  with the `memories`, `notes`, `notes_fts`, and `notes_vec` tables (loading the
+  sqlite-vec extension first), sufficient for `withStores` to call `createMemoryStore` and `createNoteStore`.
 
 - **No categorization enforcement at the handler level**: the category value
   is constrained by the JSON schema `enum` sent to the model but not validated

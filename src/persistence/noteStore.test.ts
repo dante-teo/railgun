@@ -113,4 +113,110 @@ describe("createNoteStore", () => {
       sessionStore.close();
     }
   });
+
+  // ── Vector / semantic search ──────────────────────────────────────────────
+
+  const makeVec = (fill: number): Float32Array => new Float32Array(384).fill(fill);
+
+  it("storeVector + searchSemantic: round-trip returns the stored note at distance ~0", () => {
+    const { sessionStore, noteStore } = openStore();
+    try {
+      // Insert a note via importFolder so FTS5 trigger fires, then storeVector manually
+      // using the id obtained from importFolder's side-effect on notes table.
+      noteStore.importFolder(notesDir); // empty dir → 0 chunks; table exists
+      // Insert directly so we control the id
+      const db = sessionStore.db;
+      const { lastInsertRowid } = db
+        .prepare("INSERT INTO notes (source_path, content, created_at) VALUES (?, ?, ?)")
+        .run("/test/hiking.md", "went hiking this weekend loved it", Date.now() / 1000);
+      const noteId = Number(lastInsertRowid);
+
+      const vec = makeVec(0.5);
+      noteStore.storeVector(noteId, vec);
+
+      const results = noteStore.searchSemantic(vec);
+      expect(results).toHaveLength(1);
+      expect(results[0]!.sourcePath).toBe("/test/hiking.md");
+      expect(results[0]!.content).toContain("hiking");
+      expect(results[0]!.distance).toBeCloseTo(0, 3);
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("searchSemantic returns empty array when notes_vec is empty", () => {
+    const { sessionStore, noteStore } = openStore();
+    try {
+      const results = noteStore.searchSemantic(makeVec(0.1));
+      expect(results).toEqual([]);
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("importFolderWithEmbeddings: inserts chunks and stores vectors via embedFn", async () => {
+    await writeFile(join(notesDir, "a.md"), "first note content here");
+    await writeFile(join(notesDir, "b.md"), "second note content here");
+    const { sessionStore, noteStore } = openStore();
+    try {
+      const fakeEmbed = async (_text: string, _kind: "query" | "passage") => makeVec(0.7);
+      const count = await noteStore.importFolderWithEmbeddings(notesDir, fakeEmbed);
+      expect(count).toBe(2);
+      // searchSemantic should find both via the stored vector
+      const results = noteStore.searchSemantic(makeVec(0.7));
+      expect(results.length).toBe(2);
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("backfillEmbeddings: embeds notes imported without vectors, is idempotent", async () => {
+    await writeFile(join(notesDir, "old.md"), "old note imported before phase 27");
+    const { sessionStore, noteStore } = openStore();
+    try {
+      // Sync import — inserts note rows + FTS5 but no vectors
+      noteStore.importFolder(notesDir);
+
+      const fakeEmbed = async (_text: string, _kind: "query" | "passage") => makeVec(0.3);
+
+      // First backfill: should embed 1 note
+      const backfilled = await noteStore.backfillEmbeddings(fakeEmbed);
+      expect(backfilled).toBe(1);
+
+      // searchSemantic should now find it
+      const results = noteStore.searchSemantic(makeVec(0.3));
+      expect(results.length).toBe(1);
+      expect(results[0]!.content).toContain("old note");
+
+      // Second backfill: nothing left to embed
+      const backfilledAgain = await noteStore.backfillEmbeddings(fakeEmbed);
+      expect(backfilledAgain).toBe(0);
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("backfillEmbeddings: recovers chunks skipped by a partial importFolderWithEmbeddings", async () => {
+    await writeFile(join(notesDir, "a.md"), "first chunk");
+    await writeFile(join(notesDir, "b.md"), "second chunk");
+    const { sessionStore, noteStore } = openStore();
+    try {
+      let callCount = 0;
+      const flakyEmbed = async (_text: string, _kind: "query" | "passage"): Promise<Float32Array> => {
+        callCount++;
+        if (callCount > 1) throw new Error("network failure");
+        return makeVec(0.9);
+      };
+
+      // importFolderWithEmbeddings inserts both note rows but only stores 1 vector
+      await expect(noteStore.importFolderWithEmbeddings(notesDir, flakyEmbed)).rejects.toThrow("network failure");
+
+      const goodEmbed = async (_text: string, _kind: "query" | "passage") => makeVec(0.9);
+      const backfilled = await noteStore.backfillEmbeddings(goodEmbed);
+      // Exactly 1 note was left without a vector
+      expect(backfilled).toBe(1);
+    } finally {
+      sessionStore.close();
+    }
+  });
 });

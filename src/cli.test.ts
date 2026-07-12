@@ -1,11 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DevinSession } from "./session.js";
 import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
 import { dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
 import type { ProjectTrustStore, TrustChoice, TrustDecision } from "./trust.js";
 import type { DevinProvider, DevinModel } from "widevin";
+import { embedText } from "./persistence/embedder.js";
+
+vi.mock("./persistence/embedder.js", () => ({
+  embedText: vi.fn(async () => new Float32Array(384).fill(0.5)),
+}));
 
 
 const summary = (id: string): SessionSummary => ({
@@ -18,9 +27,11 @@ const summary = (id: string): SessionSummary => ({
 
 const makeMemoriesDb = (): Database.Database => {
   const db = new Database(":memory:");
+  sqliteVec.load(db);
   db.exec("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, category TEXT NOT NULL, created_at REAL NOT NULL)");
   db.exec("CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, source_path TEXT, content TEXT NOT NULL, created_at REAL NOT NULL)");
   db.exec("CREATE VIRTUAL TABLE notes_fts USING fts5(content)");
+  db.exec("CREATE VIRTUAL TABLE notes_vec USING vec0(embedding FLOAT[384])");
   return db;
 };
 
@@ -312,4 +323,76 @@ describe("dispatchCli — cron mode", () => {
     expect(calledConfig).toEqual(config);
     expect(calledSignal).toBeInstanceOf(AbortSignal);
   });
+});
+
+describe("dispatchCli — import-notes", () => {
+  let notesDir: string;
+
+  beforeEach(async () => {
+    notesDir = await mkdtemp(join(tmpdir(), "railgun-cli-import-notes-"));
+    vi.mocked(embedText).mockReset();
+    vi.mocked(embedText).mockResolvedValue(new Float32Array(384).fill(0.5));
+  });
+
+  afterEach(async () => {
+    await rm(notesDir, { recursive: true });
+  });
+
+  it("imports chunks, stores vectors, and prints the count", async () => {
+    await writeFile(join(notesDir, "a.md"), "note alpha content");
+    await writeFile(join(notesDir, "b.md"), "note beta content");
+    const store = fakeStore();
+    const deps = dependencies(store);
+    await dispatchCli({ kind: "import-notes", folder: notesDir }, deps);
+    expect(vi.mocked(deps.stdout).mock.calls.map(c => c[0])).toEqual(
+      expect.arrayContaining([expect.stringContaining("Imported 2 note chunks")]),
+    );
+    // Both notes and both vectors are in the DB
+    expect(store.db.prepare("SELECT count(*) FROM notes").pluck().get()).toBe(2);
+    expect(store.db.prepare("SELECT count(*) FROM notes_vec").pluck().get()).toBe(2);
+  });
+
+  it("rethrows the import error but still backfills partial import, leaving notes_vec complete", async () => {
+    await writeFile(join(notesDir, "a.md"), "first note");
+    await writeFile(join(notesDir, "b.md"), "second note");
+    const importError = new Error("embedder network failure");
+    // call 1 (import chunk a): succeeds; call 2 (import chunk b): throws;
+    // call 3 (backfill chunk b): succeeds
+    vi.mocked(embedText)
+      .mockResolvedValueOnce(new Float32Array(384).fill(0.1))
+      .mockRejectedValueOnce(importError)
+      .mockResolvedValueOnce(new Float32Array(384).fill(0.2));
+    const store = fakeStore();
+    const deps = dependencies(store);
+    await expect(
+      dispatchCli({ kind: "import-notes", folder: notesDir }, deps),
+    ).rejects.toThrow("embedder network failure");
+    // Backfill ran: both note rows exist and both have vectors
+    expect(store.db.prepare("SELECT count(*) FROM notes").pluck().get()).toBe(2);
+    expect(store.db.prepare("SELECT count(*) FROM notes_vec").pluck().get()).toBe(2);
+    // Import failure means success line was NOT printed
+    const lines = vi.mocked(deps.stdout).mock.calls.map(c => c[0]);
+    expect(lines.some((l: string) => l.includes("Imported"))).toBe(false);
+    // Backfill line printed
+    expect(lines.some((l: string) => l.includes("Backfilled"))).toBe(true);
+  });
+
+  it("surfaces the import error, not a secondary backfill error, when both fail", async () => {
+    await writeFile(join(notesDir, "a.md"), "first note");
+    await writeFile(join(notesDir, "b.md"), "second note");
+    const importError = new Error("import embedder failure");
+    const backfillError = new Error("backfill embedder failure");
+    // call 1 (import chunk a): succeeds; call 2 (import chunk b): throws importError;
+    // call 3 (backfill chunk b): throws backfillError
+    vi.mocked(embedText)
+      .mockResolvedValueOnce(new Float32Array(384).fill(0.1))
+      .mockRejectedValueOnce(importError)
+      .mockRejectedValueOnce(backfillError);
+    const store = fakeStore();
+    const deps = dependencies(store);
+    await expect(
+      dispatchCli({ kind: "import-notes", folder: notesDir }, deps),
+    ).rejects.toBe(importError);
+  });
+
 });

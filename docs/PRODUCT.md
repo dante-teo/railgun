@@ -62,6 +62,16 @@ strips syntax characters (`"`, `(`, `)`, `:`, `*`) from raw user input before pa
 to SQLite `MATCH`. `NoteStore` shares the existing `SessionStore.db` connection handle.
 See `docs/adr/0026-notes-fts5-search.md`.
 
+**Phase 27 (semantic note search via embeddings):**
+Phase 27 extends notes search with embedding-based semantic retrieval so the agent can
+find relevant notes even when the query shares no keywords with the stored text. Schema v5
+(migrating from v4) adds a `notes_vec` sqlite-vec virtual table for embedding vectors alongside each chunk.
+The `import-notes` command now embeds chunks during import and automatically backfills
+any pre-existing notes that lack vectors. A new `note_search_semantic` tool complements
+`note_search` under the `"memory"` toolset; the agent tries keyword search first and
+falls back to semantic search for broad or feeling-based queries.
+See `docs/adr/0027-semantic-note-search.md`.
+
 **Phase 32 (Mixture of Agents):**
 Phase 32 adds an opt-in Mixture of Agents (MoA) mode. When active, every user
 turn fans out parallel advisory calls to a configurable set of reference models

@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import type { DevinAssistantContentPart, DevinContentPart, DevinMessage, DevinProvider } from "widevin";
 import { normalizeTodoState } from "../tools/todo.js";
 import type { TodoState, TodoStatus } from "../tools/todo.js";
@@ -461,12 +462,20 @@ const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
       INSERT INTO notes_fts(rowid, content) VALUES (new.id, new.content);
     END;
   `),
+
+  // 4 → 5: add vector embedding table for semantic note search (sqlite-vec)
+  (db) => db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
+      embedding FLOAT[384]
+    );
+  `),
 ];
 
 const initializeSchema = (db: Database.Database): void => {
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
+  sqliteVec.load(db);
   const version = db.pragma("user_version", { simple: true }) as number;
   if (version > MIGRATIONS.length)
     throw new Error(`Session database schema ${version} is newer than supported version ${MIGRATIONS.length}`);

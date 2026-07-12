@@ -38,7 +38,7 @@ export const buildSystemPrompt = ({
     "- Respect the existing shell approval flow; shell commands may be declined by the user.",
     "- Use the clarify tool to ask the user a question when you need information you cannot safely guess, especially before irreversible actions. Offer choices when the options are clear and few.",
     "- When the user shares a personal fact, preference, or project detail they want remembered, call memory_write to save it for future sessions.",
-    "- Use note_search to look up information in the user's imported notes before saying you don't know something.",
+    "- For recalling the user's notes and history, try `note_search` (exact keywords) first — it is faster. If it finds nothing, or the question is about a general topic or feeling, use `note_search_semantic` instead.",
     "- Keep tool use focused on the user's current task."
   ].join("\n"),
   [

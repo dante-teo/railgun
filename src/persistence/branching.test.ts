@@ -130,7 +130,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(4);
+    expect(db2.pragma("user_version", { simple: true })).toBe(5);
 
     interface MsgRow { id: number; parent_id: number | null; ordinal: number }
     const rows = db2.prepare("SELECT id, parent_id, ordinal FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -201,7 +201,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(4);
+    expect(db2.pragma("user_version", { simple: true })).toBe(5);
 
     interface MsgRow { id: number; parent_id: number | null; ordinal: number }
     const rows = db2.prepare("SELECT id, parent_id, ordinal FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -278,7 +278,7 @@ describe("branching", () => {
     const migrated = createSessionStore(path);
 
     const db2 = new Database(path, { readonly: true });
-    expect(db2.pragma("user_version", { simple: true })).toBe(4);
+    expect(db2.pragma("user_version", { simple: true })).toBe(5);
 
     interface MsgRow { id: number; parent_id: number | null }
     const rows = db2.prepare("SELECT id, parent_id FROM messages WHERE session_id = 's1' ORDER BY id ASC").all() as MsgRow[];
@@ -526,10 +526,10 @@ describe("branching", () => {
     expect(summaryCount.count).toBe(1);
     db2.close();
   });
-  it("schema version is 4 after creation", () => {
+  it("schema version is 5 after creation", () => {
     store.close();
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(4);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
     db.close();
     store = createSessionStore(path); // reopen for afterEach
   });

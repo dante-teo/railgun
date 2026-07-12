@@ -89,6 +89,15 @@ describe("snapshot and rollback", () => {
     const nonexistentGitDir = join(tmpdir(), `railgun-no-exist-${Date.now()}`);
     expect(() => rollback(nonexistentGitDir, cwd)).toThrow();
   });
+
+  it("rollback with existing but empty/uninitialised gitDir throws", async () => {
+    const emptyGitDir = await mkdtemp(join(tmpdir(), "railgun-empty-git-"));
+    try {
+      expect(() => rollback(emptyGitDir, cwd)).toThrow("No checkpoint repo");
+    } finally {
+      await rm(emptyGitDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("createCheckpointGuard", () => {

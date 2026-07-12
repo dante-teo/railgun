@@ -27,6 +27,7 @@ import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memory
 import type { MemoryStore } from "./persistence/memoryStore.js";
 import { createNoteStore } from "./persistence/noteStore.js";
 import type { NoteStore } from "./persistence/noteStore.js";
+import { embedText } from "./persistence/embedder.js";
 import { runRpcMode } from "./rpc/rpcMode.js";
 import type { RpcModeOptions } from "./rpc/rpcMode.js";
 import { runAcpMode } from "./acp/acpMode.js";
@@ -380,8 +381,25 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
   }
   if (mode.kind === "import-notes") {
     await withStores(dependencies, async (_store, _memoryStore, noteStore) => {
-      const count = noteStore.importFolder(mode.folder);
-      dependencies.stdout(`Imported ${count} note chunks from ${mode.folder}.`);
+      let importError: unknown;
+      let imported = 0;
+      let backfilled = 0;
+      try {
+        imported = await noteStore.importFolderWithEmbeddings(mode.folder, embedText);
+        dependencies.stdout(`Imported ${imported} note chunks from ${mode.folder}.`);
+      } catch (err) {
+        importError = err;
+      }
+      try {
+        backfilled = await noteStore.backfillEmbeddings(embedText);
+      } catch (err) {
+        if (importError === undefined) throw err;
+        // import already failed — suppress secondary backfill error
+      }
+      if (backfilled > 0) {
+        dependencies.stdout(`Backfilled embeddings for ${backfilled} previously imported notes.`);
+      }
+      if (importError !== undefined) throw importError;
     });
     return;
   }

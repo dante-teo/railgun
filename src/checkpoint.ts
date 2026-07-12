@@ -32,6 +32,7 @@ export const snapshot = (gitDir: string, cwd: string): boolean => {
 
 /** Restore working tree to the last snapshot (HEAD of the shadow repo). */
 export const rollback = (gitDir: string, cwd: string): void => {
+  if (!existsSync(join(gitDir, "HEAD"))) throw new Error(`No checkpoint repo at ${gitDir}`);
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: cwd };
   execFileSync("git", ["checkout", "HEAD", "--", "."], { cwd, env });
 };
