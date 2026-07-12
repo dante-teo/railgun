@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ConfigError, loadConfig, mergeConfig, parseMoAPreset, setConfiguredModel } from "./config.js";
+import { ConfigError, isAdvisorActive, loadConfig, mergeConfig, parseMoAPreset, setConfiguredModel } from "./config.js";
 
 let directory: string;
 let path: string;
@@ -255,5 +255,64 @@ describe("parseMoAPreset", () => {
     });
     expect(result.referenceModels[0]?.temperature).toBe(0.7);
     expect(result.aggregator.temperature).toBe(0.5);
+  });
+});
+
+describe("advisor config", () => {
+  it("accepts advisor with enabled and model", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: true, model: "cheap-model" } }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ advisor: { enabled: true, model: "cheap-model" } });
+  });
+
+  it("accepts advisor with enabled: false and no model", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: false } }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ advisor: { enabled: false } });
+  });
+
+  it("rejects advisor enabled but no model", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: true } }));
+    await expect(loadConfig(path)).rejects.toThrow('"advisor" is enabled but no model is assigned');
+  });
+
+  it("rejects advisor with empty model string", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: true, model: "" } }));
+    await expect(loadConfig(path)).rejects.toThrow('"advisor.model" must be a non-empty string without whitespace');
+  });
+
+  it("rejects advisor that is not an object", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: "not-an-object" }));
+    await expect(loadConfig(path)).rejects.toThrow('"advisor" must be an object');
+  });
+
+  it("isAdvisorActive returns true when enabled and model are set", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: true, model: "advisor-model" } }));
+    const config = await loadConfig(path);
+    expect(isAdvisorActive(config)).toBe(true);
+  });
+
+  it("isAdvisorActive returns false when enabled is false", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: false, model: "advisor-model" } }));
+    const config = await loadConfig(path);
+    expect(isAdvisorActive(config)).toBe(false);
+  });
+
+  it("rejects advisor with non-boolean enabled", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null, advisor: { enabled: "yes" } }));
+    await expect(loadConfig(path)).rejects.toThrow('"advisor.enabled" must be a boolean');
+  });
+
+  it("isAdvisorActive returns false when advisor is absent", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ model: null }));
+    const config = await loadConfig(path);
+    expect(isAdvisorActive(config)).toBe(false);
   });
 });

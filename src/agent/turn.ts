@@ -42,6 +42,7 @@ export interface RunTurnOptions {
   extensionRunner?: ExtensionRunner;
   memoryStore?: MemoryStore;
   moaPreset?: MoAPreset;
+  onTurnEnd?: (messages: readonly DevinMessage[], pushMessage: (msg: DevinMessage) => void) => Promise<void> | void;
 }
 
 const pushMessage = async (
@@ -336,6 +337,7 @@ export const runTurn = async (
       );
       await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });
       turnEndedThisAttempt = true;
+      await options?.onTurnEnd?.(messages, (msg: DevinMessage) => messages.push(msg));
       if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
       const steer = options?.takeSteer?.();
       if (steer !== undefined) {

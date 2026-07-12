@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { initFreshDevinSession } from "./session.js";
 import { createAgentSession } from "./agent/agentSession.js";
-import { loadConfig, parseMoAPreset } from "./config.js";
+import { loadConfig, isAdvisorActive, parseMoAPreset } from "./config.js";
 import { startSpinner } from "./spinner.js";
 import { buildToolLabel } from "./tools/toolLabel.js";
 import { createTodoStore } from "./tools/todo.js";
@@ -60,6 +60,7 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
       if (raw === undefined) return {};
       try { return { moaPreset: parseMoAPreset(presetName, raw) }; } catch { return {}; }
     })()),
+    ...(isAdvisorActive(config) ? { advisor: { model: config.advisor!.model! } } : {}),
   });
 
   const activeStops = new Map<string, (isError: boolean) => void>();

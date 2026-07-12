@@ -1,6 +1,7 @@
 import type { DevinProvider, DevinTool } from "widevin";
 import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
+import type { AdvisoryContext } from "../advisor/advisoryContext.js";
 
 export type ClarifyCallback = (question: string, choices?: string[]) => Promise<string>;
 
@@ -19,6 +20,7 @@ export interface ToolContext {
     formatForInjection(): string;
   };
   memoryStore?: MemoryStore;
+  advisoryContext?: AdvisoryContext;
 }
 
 export interface ToolRunResult {

@@ -10,6 +10,7 @@ import type { AgentEvent, AgentEventListener } from "./events.js";
 import { createMessageQueues } from "./queue.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
+import { createAdvisorRuntime } from "../advisor/advisor.js";
 
 export interface AgentDependencies {
   readonly devin: DevinProvider;
@@ -27,6 +28,7 @@ export interface AgentDependencies {
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
   readonly moaPreset?: MoAPreset;
+  readonly advisor?: { readonly model: string };
 }
 
 export interface AgentRunInput {
@@ -53,6 +55,9 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
   const queues = createMessageQueues();
   const listeners = new Set<AgentEventListener>();
   let controller: AbortController | undefined;
+  const advisor = dependencies.advisor
+    ? createAdvisorRuntime(dependencies.devin, dependencies.advisor)
+    : undefined;
 
   const processEvents = async (event: AgentEvent): Promise<void> => {
     for (const listener of listeners) {
@@ -73,6 +78,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
     const currentController = new AbortController();
     controller = currentController;
     const normalized = typeof input === "string" ? { text: input, history: [] } : { text: input.text, history: input.history ?? [] };
+    advisor?.seedFrom(normalized.history);
     try {
       return await runTurn(
         dependencies.devin, dependencies.model, dependencies.contextWindow, dependencies.systemPrompt,
@@ -93,6 +99,11 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.extensionRunner ? { extensionRunner: dependencies.extensionRunner } : {}),
           ...(dependencies.memoryStore !== undefined ? { memoryStore: dependencies.memoryStore } : {}),
           ...(dependencies.moaPreset ? { moaPreset: dependencies.moaPreset } : {}),
+          ...(advisor ? {
+            onTurnEnd: async (msgs: readonly DevinMessage[], push: (msg: DevinMessage) => void) => {
+              await advisor.onPrimaryTurnEnd(msgs, queues.enqueueSteer, push);
+            },
+          } : {}),
         },
       );
     } finally {

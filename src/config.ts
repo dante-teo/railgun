@@ -11,6 +11,7 @@ export interface AppConfig {
   readonly reviewerModel?: string;
   readonly moaPresets?: Record<string, unknown>;
   readonly activeMoaPreset?: string;
+  readonly advisor?: { readonly enabled?: boolean; readonly model?: string };
   readonly [key: string]: unknown;
 }
 
@@ -90,6 +91,21 @@ const validateConfig = (value: unknown, path: string): AppConfig => {
   if (typeof activeMoaPreset === "string" && isObject(moaPresets) && !(activeMoaPreset in moaPresets)) {
     throw new ConfigError(path, `"activeMoaPreset" refers to unknown preset "${activeMoaPreset}"`);
   }
+  const advisor = merged.advisor;
+  if (advisor !== undefined) {
+    if (!isObject(advisor)) throw new ConfigError(path, '"advisor" must be an object');
+    if (advisor.enabled !== undefined && typeof advisor.enabled !== "boolean") {
+      throw new ConfigError(path, '"advisor.enabled" must be a boolean');
+    }
+    if (advisor.model !== undefined) {
+      if (typeof advisor.model !== "string" || advisor.model.length === 0 || /\s/.test(advisor.model)) {
+        throw new ConfigError(path, '"advisor.model" must be a non-empty string without whitespace');
+      }
+    }
+    if (advisor.enabled === true && !advisor.model) {
+      throw new ConfigError(path, '"advisor" is enabled but no model is assigned');
+    }
+  }
   return merged as AppConfig;
 };
 
@@ -131,6 +147,8 @@ export const parseMoAPreset = (name: string, raw: unknown): MoAPreset => {
     ...(referenceMaxTokens !== undefined ? { referenceMaxTokens } : {}),
   };
 };
+export const isAdvisorActive = (config: AppConfig): boolean =>
+  config.advisor?.enabled === true && typeof config.advisor.model === "string" && config.advisor.model.length > 0;
 
 const isMissingFile = (error: unknown): boolean =>
   typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";

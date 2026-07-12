@@ -14,7 +14,7 @@ import { createTodoStore, summarizeTodos } from "../tools/todo.js";
 import type { NormalizedTodoItem, TodoState, TodoStore } from "../tools/todo.js";
 import { buildSessionCore } from "../session.js";
 import type { DevinSession } from "../session.js";
-import { loadConfig, parseMoAPreset, setConfiguredModel } from "../config.js";
+import { loadConfig, parseMoAPreset, setConfiguredModel, isAdvisorActive } from "../config.js";
 import type { MoAPreset } from "../agent/moa.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
@@ -309,12 +309,14 @@ const ChatApp = ({
   const [approvalMode, setApprovalMode] = useState<CommandApprovalMode>("manual");
   const [reviewerModel, setReviewerModel] = useState<string | undefined>(undefined);
   const [activeMoaPreset, setActiveMoaPreset] = useState<MoAPreset | null>(null);
+  const [advisorModel, setAdvisorModel] = useState<string | undefined>(undefined);
   const sessionApprovalsRef = useRef(new Set<string>());
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
   useEffect(() => {
     void loadConfig().then(c => {
       if (c.approvalMode) setApprovalMode(c.approvalMode);
       if (c.reviewerModel) setReviewerModel(c.reviewerModel);
+      if (isAdvisorActive(c)) setAdvisorModel(c.advisor!.model!);
     }).catch(console.error);
   }, []);
 
@@ -714,6 +716,7 @@ const ChatApp = ({
       ...(extensionRunner ? { extensionRunner } : {}),
       ...(memoryStore ? { memoryStore } : {}),
       ...(activeMoaPreset !== null ? { moaPreset: activeMoaPreset } : {}),
+      ...(advisorModel ? { advisor: { model: advisorModel } } : {}),
     });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
