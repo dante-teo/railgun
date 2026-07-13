@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 
-interface ShellApprovalProps {
+export interface ShellApprovalProps {
   readonly command: string;
   readonly onApprove: () => void;
   readonly onDeny: () => void;

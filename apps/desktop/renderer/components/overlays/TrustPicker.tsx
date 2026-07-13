@@ -1,26 +1,41 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import type { TrustChoice } from "@railgun/core/trust.js";
-import { useOverlayKeyNav } from "../../hooks/useOverlayKeyNav.js";
+import { useListKeyboard } from "./useListKeyboard.js";
 
-interface TrustPickerItem {
+export interface TrustPickerItem {
   readonly label: string;
   readonly value: TrustChoice;
 }
 
-interface TrustPickerProps {
+export interface TrustPickerProps {
   readonly choices: readonly TrustPickerItem[];
   readonly selectedIndex: number;
-  readonly onSelect: (index: number) => void;
+  readonly onNavigate: (index: number) => void;
+  readonly onConfirm: (index: number) => void;
   readonly onCancel: () => void;
 }
 
 export const TrustPicker: React.FC<TrustPickerProps> = ({
   choices,
   selectedIndex,
-  onSelect,
+  onNavigate,
+  onConfirm,
   onCancel,
 }) => {
-  useOverlayKeyNav({ length: choices.length, selectedIndex, onSelect, onCancel, wrap: true });
+  const selectedRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  useListKeyboard({
+    length: choices.length,
+    selectedIndex,
+    wrap: true,
+    onNavigate,
+    onConfirm,
+    onCancel,
+  });
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label="Trust decision">
@@ -29,10 +44,11 @@ export const TrustPicker: React.FC<TrustPickerProps> = ({
         {choices.map((choice, i) => (
           <div
             key={choice.value}
+            ref={i === selectedIndex ? selectedRef : undefined}
             className={`overlay__item${i === selectedIndex ? " overlay__item--selected" : ""}`}
             role="option"
             aria-selected={i === selectedIndex}
-            onClick={() => onSelect(i)}
+            onClick={() => onConfirm(i)}
           >
             {choice.label}
           </div>

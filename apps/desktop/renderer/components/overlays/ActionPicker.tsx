@@ -1,18 +1,19 @@
-import React from "react";
-import { useOverlayKeyNav } from "../../hooks/useOverlayKeyNav.js";
+import React, { useEffect, useRef } from "react";
+import { useListKeyboard } from "./useListKeyboard.js";
 
-interface ActionPickerItem {
+export interface ActionPickerItem {
   readonly id: string;
   readonly label: string;
   readonly detail?: string;
   readonly current?: boolean;
 }
 
-interface ActionPickerProps {
+export interface ActionPickerProps {
   readonly title: string;
   readonly items: readonly ActionPickerItem[];
   readonly selectedIndex: number;
-  readonly onSelect: (index: number) => void;
+  readonly onNavigate: (index: number) => void;
+  readonly onConfirm: (index: number) => void;
   readonly onCancel: () => void;
 }
 
@@ -20,10 +21,23 @@ export const ActionPicker: React.FC<ActionPickerProps> = ({
   title,
   items,
   selectedIndex,
-  onSelect,
+  onNavigate,
+  onConfirm,
   onCancel,
 }) => {
-  useOverlayKeyNav({ length: items.length, selectedIndex, onSelect, onCancel });
+  const selectedRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  useListKeyboard({
+    length: items.length,
+    selectedIndex,
+    onNavigate,
+    onConfirm,
+    onCancel,
+  });
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label={title}>
@@ -32,6 +46,7 @@ export const ActionPicker: React.FC<ActionPickerProps> = ({
         {items.map((item, i) => (
           <div
             key={item.id}
+            ref={i === selectedIndex ? selectedRef : undefined}
             className={[
               "overlay__item",
               i === selectedIndex ? "overlay__item--selected" : "",
@@ -39,7 +54,7 @@ export const ActionPicker: React.FC<ActionPickerProps> = ({
             ].filter(Boolean).join(" ")}
             role="option"
             aria-selected={i === selectedIndex}
-            onClick={() => onSelect(i)}
+            onClick={() => onConfirm(i)}
           >
             <span>{item.label}</span>
             {item.detail !== undefined && (

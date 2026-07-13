@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-interface ClarifyPromptProps {
+export interface ClarifyPromptProps {
   readonly question: string;
   readonly choices?: readonly string[];
   readonly onAnswer: (answer: string) => void;

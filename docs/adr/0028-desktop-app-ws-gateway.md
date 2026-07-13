@@ -161,3 +161,37 @@ When the suggestion list is long (all 13 commands on bare `/`) and the user navi
 `@testing-library/react` (v16+, includes `renderHook`) and `jsdom` are added as devDependencies. The vitest config gains `environmentMatchGlobs: [["renderer/**", "jsdom"]]` so renderer tests run under jsdom while gateway tests remain in the default `node` environment.
 
 `apps/desktop/renderer/hooks/useComposer.test.ts` (13 cases) covers: initial state, live filtering, single-match Tab completion, multi-match Tab cycling with full wrap-around, `handleArrowDown` / `handleArrowUp` freeze-and-navigate, wrap-around in both directions, no-op on non-slash input, two-phase Escape, Ctrl+U revision increment, and submit guard on empty draft.
+
+## Sprint 1 — Overlay components
+
+Six overlay components (`ModelPicker`, `TrustPicker`, `ClarifyPrompt`, `ShellApproval`, `ActionPicker`, `SessionChooser`) were added to `renderer/components/overlays/`. They mount inside `.overlay-zone` one at a time and cover the four gateway round-trips that park the agent: model selection, trust decision, clarification, and shell approval.
+
+### Keyboard contract
+
+All overlays attach keydown listeners to `window` (not the focused element) so they intercept input regardless of DOM focus. The four list-based overlays (`ModelPicker`, `TrustPicker`, `ActionPicker`, `SessionChooser`) use a shared `useOverlayKeyNav` hook (`renderer/hooks/useOverlayKeyNav.ts`) that handles Escape unconditionally and arrow/Enter when `length > 0`. The overlays separate cursor movement from selection via `onNavigate(index)` (arrow keys) and `onConfirm(index)` (Enter/click) props:
+
+- Arrow keys → `onNavigate(newIndex)` — parent updates `selectedIndex`; the overlay re-renders.
+- Enter → `onConfirm(selectedIndex)` — signals that the highlighted item was chosen.
+- Click on an item → `onConfirm(i)` directly — clicking is always a confirmation, not navigation.
+- Escape (and Ctrl+C for `SessionChooser`) → `onCancel()`.
+
+Conflating navigation and confirmation into a single `onSelect` callback (the earlier design) made it impossible for the parent to distinguish "the user moved the cursor" from "the user picked something." The split also lets `DevShell` share a single `overlayIndex` state for `selectedIndex` across all overlay variants without triggering premature confirmation on every arrow keystroke.
+
+`useOverlayKeyNav` accepts a `wrap: boolean` option. `TrustPicker` and `SessionChooser` wrap (ArrowDown at the last item goes to index 0); `ModelPicker` and `ActionPicker` clamp.
+
+### Scroll-into-view
+
+`.overlay__list` has `max-height: 240px; overflow-y: auto`. Each list overlay attaches a `selectedRef` to the currently selected `.overlay__item` div and calls `selectedRef.current?.scrollIntoView({ block: "nearest" })` in a `useEffect` keyed on `selectedIndex`. This keeps the highlighted item visible after arrow-key navigation without JS scroll calculation.
+
+### ClarifyPrompt
+
+`ClarifyPrompt` is the only overlay that manages its own `selectedIndex` state (via `useState`) rather than receiving it as a prop. It supports two modes determined by whether the `choices` prop is provided:
+
+- **Choice list** (up to 4 options): arrow-key handler is a `useEffect` on `window`; Enter calls `onAnswer(trimmedChoices[selectedIndex])`.
+- **Free text**: renders an `<input>` that auto-focuses on mount (`inputRef.current?.focus()` in a `useEffect`); Enter and Escape are bound on the input's `onKeyDown`.
+
+The gateway's `clarify_request` frame already carries `question` and optional `choices?`, so both modes map directly to protocol fields without any renderer-side transformation.
+
+### DevShell keyboard guard
+
+`DevShell` activates overlays via digit keys 1–7 bound on `window`. The handler checks `e.target.tagName` and `isContentEditable` before acting, so typing digits in the Composer textarea does not spuriously open an overlay.

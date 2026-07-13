@@ -1,12 +1,13 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import type { DevinModel } from "widevin";
-import { useOverlayKeyNav } from "../../hooks/useOverlayKeyNav.js";
+import { useListKeyboard } from "./useListKeyboard.js";
 
-interface ModelPickerProps {
+export interface ModelPickerProps {
   readonly models: readonly DevinModel[];
   readonly selectedIndex: number;
   readonly sessionOnly: boolean;
-  readonly onSelect: (index: number) => void;
+  readonly onNavigate: (index: number) => void;
+  readonly onConfirm: (index: number) => void;
   readonly onCancel: () => void;
 }
 
@@ -14,10 +15,23 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   models,
   selectedIndex,
   sessionOnly,
-  onSelect,
+  onNavigate,
+  onConfirm,
   onCancel,
 }) => {
-  useOverlayKeyNav({ length: models.length, selectedIndex, onSelect, onCancel });
+  const selectedRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  useListKeyboard({
+    length: models.length,
+    selectedIndex,
+    onNavigate,
+    onConfirm,
+    onCancel,
+  });
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label="Select model">
@@ -28,10 +42,11 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         {models.map((model, i) => (
           <div
             key={model.id}
+            ref={i === selectedIndex ? selectedRef : undefined}
             className={`overlay__item${i === selectedIndex ? " overlay__item--selected" : ""}`}
             role="option"
             aria-selected={i === selectedIndex}
-            onClick={() => onSelect(i)}
+            onClick={() => onConfirm(i)}
           >
             <span>{model.id}</span>
           </div>
