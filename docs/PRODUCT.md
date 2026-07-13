@@ -8,7 +8,7 @@ built one small, always-usable phase at a time, in TypeScript
 (see `~/Projects/hermes-agent/replication_plan.md`, Part 1 "The Core Engine"
 onward). Each phase must leave the app runnable end to end — no phase ships
 "not usable yet." The end goal is a full agent: chat loop, tool calling,
-memory, safety, and multiple front doors (CLI, messaging, GUIs) — but the
+memory, safety, and multiple terminal or stdio entry points — but the
 project deliberately restricts itself to a single AI backend (Devin, via the
 `widevin` npm package) rather than a multi-provider abstraction, so effort
 goes toward agent logic instead of provider plumbing (see
@@ -131,7 +131,7 @@ session runs and emit `session_start`/`session_shutdown` around it. See ADR-0013
 
 Phase 33 adds a `--mode rpc` flag to the railgun CLI. The process accepts JSONL
 commands on stdin and emits typed responses plus `AgentSessionEvent` objects on
-stdout. Each GUI client or test script spawns `railgun --mode rpc` as a child
+stdout. Each external client or test script spawns `railgun --mode rpc` as a child
 process and drives it over stdio — one process per client, no shared gateway, no
 socket server. The protocol defines 10 `RpcCommand` types: `prompt` (fires an
 agent run with the accumulated history), `steer` and `follow_up` (injected during
@@ -659,11 +659,6 @@ protocol failures, and unrelated errors fail immediately.
 
 ## Open Questions
 
-- Which later phases (GUIs, messaging gateways) get built, and in what
-  order, beyond the replication plan's suggested sequence — deferred
-  until each phase is actually started. Interrupt and steering queues shipped
-  in Phase 17; the typed event bus replacing `LoopCallbacks` shipped in
-  Phase 18; the clarify tool shipped in Phase 19; command risk gate and smart approval shipped in Phase 21; shadow-git checkpoints and `/rollback` shipped in Phase 22; the extension system shipped in Phase 23; MCP client support shipped in Phase 24.
 - Project-local extension trust gating: the `trusted` parameter is wired but
   unconditionally `true`; a future phase should gate it on an explicit user
   opt-in (e.g. `railgun trust` command or a `~/.railgun/trusted-projects` list).

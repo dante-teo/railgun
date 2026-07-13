@@ -33,9 +33,22 @@ an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the wo
 ## Prerequisites
 
 - Node.js >= 22.19.0
-- pnpm
+- pnpm 11.11.0 (pinned by `packageManager` in `package.json`)
 - A Devin/Cascade account you are permitted to access programmatically (see
   [Compliance](#compliance) below)
+
+## Supported surfaces
+
+Railgun is a single Node.js package with four supported entry points:
+
+- the full-screen terminal REPL (`pnpm start`)
+- one-shot terminal output (`pnpm start --print "..."`)
+- JSONL RPC over stdio (`--mode rpc`)
+- Agent Client Protocol over stdio (`--mode acp`)
+
+There is no graphical application, browser runtime, daemon, or socket service
+in this repository. Installation, scripts, dependency resolution, and lockfile
+management use pnpm.
 
 ## Install
 

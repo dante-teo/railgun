@@ -8,9 +8,8 @@
 Railgun's terminal UI has historically been Ink-only: the `Theme` interface in
 `src/repl/theme.ts` stores raw hex color strings that Ink's `color`/
 `backgroundColor` props consume directly. Phase 36 introduces a non-Ink
-component tree that renders directly to stdout as ANSI-escaped strings. Phase
-37 (Desktop) and Phase 38 (Mobile) need the same color values in a
-JSON-serializable form.
+component tree that renders directly to stdout as ANSI-escaped strings. Future
+clients need the same color values in a JSON-serializable form.
 
 Before this ADR, the only ANSI color helper in the codebase was a private `rgb`
 function defined inline in `src/repl/markdown.ts` (used to remap `markdansi`'s
@@ -71,7 +70,7 @@ never mutates the theme object it receives).
 
 - Phase 36's non-Ink renderer can `import { createAnsiTheme } from
   "../ui/theme.js"` and get styled strings immediately.
-- Desktop/Mobile clients can `import { palettes, glyphs } from
+- Other clients can `import { palettes, glyphs } from
   "../ui/palette.js"` and receive JSON-serializable tokens to pass over any
   transport.
 - A single change to a hex value in `src/ui/palette.ts` propagates to every

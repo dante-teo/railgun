@@ -10,7 +10,7 @@ Accepted
 
 Hermes Agent (the system this project replicates) supports 18+ AI providers through a generic
 provider-resolver abstraction. Building and maintaining that abstraction is a large amount of
-work unrelated to the actual agent logic (chat loop, tools, memory, GUIs) this project exists to
+work unrelated to the actual agent logic (chat loop, tools, memory, and interfaces) this project exists to
 practice.
 
 ## Decision

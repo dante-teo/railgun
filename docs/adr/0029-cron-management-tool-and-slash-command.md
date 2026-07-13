@@ -36,10 +36,6 @@ The handler wraps all `await` calls in `setBusy(true)` / `finally { setBusy(fals
 
 The `extractString(args, key)` helper was copy-pasted into four tool files (`memory.ts`, `noteSearch.ts`, `noteSearchSemantic.ts`, and the new `cron.ts`). Extracted to `src/tools/args.ts` and imported by all four. No behavioral change — the implementations were identical.
 
-### Vitest workspace config (`vitest.config.ts`)
-
-Running `npx vitest run` from the repo root discovered `apps/desktop/gateway/wsServer.test.ts` but processed it without the `@railgun/core → ../../src` path alias defined in `apps/desktop/vite.config.ts`, causing a module-not-found failure. Added `vitest.config.ts` at the repo root using vitest 4's `projects` array (replacing the removed `defineWorkspace` API), with two entries: an inline `core` project covering `src/**/*.test.ts` and a reference to `apps/desktop/vite.config.ts` that carries the alias.
-
 ## Consequences
 
 - Jobs previously required direct file editing; they can now be managed from within a session via the agent or the slash command.

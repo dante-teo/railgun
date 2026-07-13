@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-The codebase had interactive REPL and one-shot modes but no headless, programmatic session mode. GUI clients (TUI, desktop app, test script) needed a way to drive the agent without importing agent internals or sharing a gateway process. A socket server would add lifecycle complexity (port management, authentication, multiplexing). The AgentSession interface (run/abort/steer/followUp/subscribe) and the AgentSessionEvent discriminated union already provide a complete session API; what was missing was a transport that exposes it over a process boundary.
+The codebase had interactive REPL and one-shot modes but no headless, programmatic session mode. External clients and test scripts needed a way to drive the agent without importing agent internals or sharing a gateway process. A socket server would add lifecycle complexity (port management, authentication, multiplexing). The AgentSession interface (run/abort/steer/followUp/subscribe) and the AgentSessionEvent discriminated union already provide a complete session API; what was missing was a transport that exposes it over a process boundary.
 
 ## Decision
 
