@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React from "react";
+import type React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -11,11 +11,13 @@ import { ShellApproval } from "./ShellApproval.js";
 import { ActionPicker } from "./ActionPicker.js";
 import { SessionChooser } from "./SessionChooser.js";
 
+const originalScrollIntoView = Element.prototype.scrollIntoView;
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
+  Element.prototype.scrollIntoView = originalScrollIntoView;
   cleanup();
 });
 

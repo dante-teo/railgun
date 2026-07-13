@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
+import type React from "react";
 import type { ComposerState } from "../hooks/useComposer.js";
 import { SlashSuggestions } from "./SlashSuggestions.js";
-
-type ComposerMode = "idle" | "busy" | "awaiting_approval" | "steering";
+import type { ComposerMode } from "../lib/useAgentEvents.js";
 
 interface ComposerProps {
   readonly state: ComposerState;
@@ -30,7 +30,8 @@ export const Composer: React.FC<ComposerProps> = ({ state, mode, onSubmit, onAbo
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    const lineHeight = parseFloat(getComputedStyle(el).lineHeight || "24");
+    const lineHeightRaw = getComputedStyle(el).lineHeight;
+    const lineHeight = parseFloat(lineHeightRaw) || 24;
     const maxHeight = lineHeight * MAX_ROWS;
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";

@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { glyphs } from "../lib/theme.js";
 
 export type ToolCallState = "running" | "done" | "error";

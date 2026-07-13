@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DisplayLine } from "@railgun/core/repl/App.js";

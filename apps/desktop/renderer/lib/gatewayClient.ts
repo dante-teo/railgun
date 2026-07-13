@@ -52,24 +52,25 @@ export const createGatewayClient = (url: string): GatewayClient => {
     };
 
     socket.onmessage = (event: MessageEvent) => {
-      let parsed: GatewayEvent;
+      if (typeof event.data !== "string") return;
+      let gatewayEvent: GatewayEvent;
       try {
-        parsed = JSON.parse(event.data as string) as GatewayEvent;
+        gatewayEvent = JSON.parse(event.data) as GatewayEvent;
       } catch {
         return;
       }
 
-      if (parsed.type === "response") {
-        const entry = pending.get(parsed.id);
+      if (gatewayEvent.type === "response") {
+        const entry = pending.get(gatewayEvent.id);
         if (entry !== undefined) {
           clearTimeout(entry.timer);
-          pending.delete(parsed.id);
-          entry.resolve({ success: parsed.success, data: parsed.data, error: parsed.error });
+          pending.delete(gatewayEvent.id);
+          entry.resolve({ success: gatewayEvent.success, data: gatewayEvent.data, error: gatewayEvent.error });
         }
         return;
       }
 
-      broadcast(parsed);
+      broadcast(gatewayEvent);
     };
 
     socket.onclose = () => {
@@ -114,13 +115,15 @@ export const createGatewayClient = (url: string): GatewayClient => {
 
   const close = (): void => {
     closed = true;
+    connectionStatus = "disconnected";
     ws?.close();
     ws = null;
-    // Reject all pending requests
-    for (const [id, entry] of pending) {
+    // Reject all pending requests; snapshot keys first to avoid mutating while iterating
+    const pendingEntries = [...pending.entries()];
+    pending.clear();
+    for (const [, entry] of pendingEntries) {
       clearTimeout(entry.timer);
       entry.resolve({ success: false, error: "Client closed" });
-      pending.delete(id);
     }
   };
 

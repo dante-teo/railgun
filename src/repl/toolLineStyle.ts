@@ -31,3 +31,7 @@ export const toolFrameBorder = (theme: Theme, state: ToolFrameState): string =>
   state === "pending" ? theme.border
   : state === "success" ? theme.success
   : theme.error;
+
+export const shouldAppendToolTranscriptLine = (name: string): boolean => name !== "todo";
+export const shouldShowToolLine = (name: string, isError: boolean): boolean =>
+  shouldAppendToolTranscriptLine(name) || isError;

@@ -3,12 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAgentEvents } from "./useAgentEvents.js";
 import type { GatewayEvent } from "../../gateway/protocol.js";
+import { installFakeWebSocket } from "./test/fakeWebSocket.js";
 
 // ---------------------------------------------------------------------------
-// Mock WebSocket harness
+// Harness
 // ---------------------------------------------------------------------------
-// Patches globalThis.WebSocket with a synchronous-open fake so tests drive
-// the gateway client without real network I/O or timers.
 
 interface WsHarness {
   /** Push a GatewayEvent through the WebSocket onmessage handler. */
@@ -17,61 +16,33 @@ interface WsHarness {
   readonly resolveRequest: (id: string, data?: unknown, success?: boolean) => void;
   /** All messages sent by the client, parsed as objects. */
   readonly getSent: () => Array<Record<string, unknown>>;
+  /** Trigger socket open and mark it ready. */
+  readonly _open: () => void;
 }
 
 const buildWsHarness = (): WsHarness => {
-  let onmessage: ((e: { data: string }) => void) | null = null;
-  let openCallback: (() => void) | null = null;
-  let _readyState = 0;
-  const sent: string[] = [];
-
-  class FakeWebSocket {
-    static readonly OPEN = 1;
-    get readyState(): number { return _readyState; }
-
-    set onopen(fn: (() => void) | null) {
-      openCallback = fn;
-    }
-    set onmessage(fn: ((e: { data: string }) => void) | null) {
-      onmessage = fn;
-    }
-    set onclose(_fn: unknown) { /* unused in these tests */ }
-    set onerror(_fn: unknown) { /* unused in these tests */ }
-
-    send(data: string): void { sent.push(data); }
-    close(): void { _readyState = 3; }
-  }
-
-  vi.stubGlobal("WebSocket", FakeWebSocket);
-
-  const deliver = (payload: unknown): void => {
-    onmessage?.({ data: JSON.stringify(payload) });
-  };
-
+  const ws = installFakeWebSocket();
   const getSent = (): Array<Record<string, unknown>> =>
-    sent.map(s => JSON.parse(s) as Record<string, unknown>);
-
+    ws.rawSent.map(s => JSON.parse(s) as Record<string, unknown>);
   return {
-    injectEvent: deliver,
+    injectEvent: ws.simulateMessage,
     resolveRequest: (id: string, data?: unknown, success = true) =>
-      deliver({ type: "response", id, command: "unknown", success, data }),
+      ws.simulateMessage({ type: "response", id, command: "unknown", success, data }),
     getSent,
-    // Allow the test setup to trigger the open callback and mark the socket ready
-    // We expose this via the returned object for use in `render()`.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    _open: () => { _readyState = 1; openCallback?.(); },
-  } as WsHarness & { _open: () => void };
+    _open: ws.simulateOpen,
+  };
 };
+
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("useAgentEvents", () => {
-  let harness: WsHarness & { _open: () => void };
+  let harness: WsHarness;
 
   beforeEach(() => {
-    harness = buildWsHarness() as WsHarness & { _open: () => void };
+    harness = buildWsHarness();
   });
 
   afterEach(() => {

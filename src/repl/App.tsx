@@ -18,7 +18,7 @@ import { loadConfig, parseMoAPreset, setConfiguredModel, isAdvisorActive, update
 import type { MoAPreset } from "../agent/moa.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
-import { toolLineIcon, approvalColor } from "./toolLineStyle.js";
+import { toolLineIcon, approvalColor, shouldAppendToolTranscriptLine, shouldShowToolLine } from "./toolLineStyle.js";
 import { ModelRow, resolveModelCommand } from "./ModelChooser.js";
 import { Suggestions } from "./Suggestions.js";
 import { moveSelection, selectionListWindow } from "./SessionChooser.js";
@@ -160,8 +160,7 @@ export const TodoPanel = ({ todos, isLoading, theme }: { todos: TodoState; isLoa
   );
 };
 
-export const shouldAppendToolTranscriptLine = (name: string): boolean => name !== "todo";
-export const shouldShowToolLine = (name: string, isError: boolean): boolean => shouldAppendToolTranscriptLine(name) || isError;
+export { shouldAppendToolTranscriptLine, shouldShowToolLine } from "./toolLineStyle.js";
 
 const Header = ({ theme }: { readonly theme: Theme }): React.ReactElement => (
   <Box borderStyle="single" borderColor={theme.border} paddingX={1} height={3}>

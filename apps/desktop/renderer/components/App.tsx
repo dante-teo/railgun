@@ -1,4 +1,5 @@
-import React, { useMemo, useCallback } from "react";
+import type React from "react";
+import { useMemo, useCallback } from "react";
 import type { DisplayLine } from "@railgun/core/repl/App.js";
 import { Transcript } from "./Transcript.js";
 import { Composer } from "./Composer.js";

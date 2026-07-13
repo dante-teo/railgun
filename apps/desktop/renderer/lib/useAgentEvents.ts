@@ -2,10 +2,7 @@ import { useEffect, useReducer, useRef, useCallback } from "react";
 import type { DevinModel } from "widevin";
 import { parseSlashCommand } from "@railgun/core/commands.js";
 import type { DisplayLine } from "@railgun/core/repl/App.js";
-import {
-  shouldAppendToolTranscriptLine,
-  shouldShowToolLine,
-} from "@railgun/core/repl/App.js";
+import { shouldAppendToolTranscriptLine, shouldShowToolLine } from "@railgun/core/repl/toolLineStyle.js";
 import type { StreamSegments } from "@railgun/core/repl/streamingTranscript.js";
 import {
   createStreamSegments,
@@ -51,7 +48,7 @@ export interface ShellState {
   readonly connected: ConnectionStatus;
   // Overlay-specific data
   readonly pendingCommand: string | null;
-  readonly pendingClarify: { question: string; choices?: string[] } | null;
+  readonly pendingClarify: { readonly question: string; readonly choices?: readonly string[] } | null;
   readonly availableModels: readonly DevinModel[];
   readonly activeMoaPreset: { name: string } | null;
   // Actions
@@ -70,44 +67,44 @@ export interface ShellState {
 // ---------------------------------------------------------------------------
 
 interface ReducerState {
-  lines: readonly DisplayLine[];
-  streaming: string;
-  busy: boolean;
-  queuedSteer: boolean;
-  toolLabels: ReadonlyMap<string, string>;
-  todos: TodoState;
-  todoLoading: boolean;
-  model: string;
-  overlay: OverlayState | null;
-  composerMode: ComposerMode;
-  connected: ConnectionStatus;
-  pendingCommand: string | null;
-  pendingClarify: { question: string; choices?: string[] } | null;
-  availableModels: readonly DevinModel[];
+  readonly lines: readonly DisplayLine[];
+  readonly streaming: string;
+  readonly busy: boolean;
+  readonly queuedSteer: boolean;
+  readonly toolLabels: ReadonlyMap<string, string>;
+  readonly todos: TodoState;
+  readonly todoLoading: boolean;
+  readonly model: string;
+  readonly overlay: OverlayState | null;
+  readonly composerMode: ComposerMode;
+  readonly connected: ConnectionStatus;
+  readonly pendingCommand: string | null;
+  readonly pendingClarify: { readonly question: string; readonly choices?: readonly string[] } | null;
+  readonly availableModels: readonly DevinModel[];
 }
 
 type ReducerAction =
-  | { type: "set_connected"; status: ConnectionStatus }
-  | { type: "streaming_delta"; segment: string }
-  | { type: "flush_streaming"; line: string | null }
-  | { type: "tool_start"; toolCallId: string; label: string; isTodo: boolean }
-  | { type: "tool_end"; toolCallId: string; toolName: string; isError: boolean; label: string }
-  | { type: "append_line"; line: DisplayLine }
-  | { type: "update_last_moa_ref"; index: number; model: string; summary: string }
-  | { type: "state_update"; busy: boolean; model: string; todos: TodoState }
-  | { type: "run_complete"; finalSegment: string }
-  | { type: "approval_request"; command: string }
-  | { type: "clarify_request"; question: string; choices?: string[] }
-  | { type: "approve_done" }
-  | { type: "clarify_done" }
-  | { type: "set_overlay"; overlay: OverlayState | null }
-  | { type: "navigate_overlay"; index: number }
-  | { type: "set_model_optimistic"; modelId: string }
-  | { type: "set_models"; models: readonly DevinModel[] }
-  | { type: "clear_lines" }
-  | { type: "abort_done" }
-  | { type: "mark_queued_steer" }
-  | { type: "reset_streaming" };
+  | { readonly type: "set_connected"; readonly status: ConnectionStatus }
+  | { readonly type: "streaming_delta"; readonly segment: string }
+  | { readonly type: "flush_streaming"; readonly line: string | null }
+  | { readonly type: "tool_start"; readonly toolCallId: string; readonly label: string; readonly isTodo: boolean }
+  | { readonly type: "tool_end"; readonly toolCallId: string; readonly toolName: string; readonly isError: boolean; readonly label: string }
+  | { readonly type: "append_line"; readonly line: DisplayLine }
+  | { readonly type: "update_last_moa_ref"; readonly index: number; readonly model: string; readonly summary: string }
+  | { readonly type: "state_update"; readonly busy: boolean; readonly model: string; readonly todos: TodoState }
+  | { readonly type: "run_complete"; readonly finalSegment: string }
+  | { readonly type: "approval_request"; readonly command: string }
+  | { readonly type: "clarify_request"; readonly question: string; readonly choices?: readonly string[] }
+  | { readonly type: "approve_done" }
+  | { readonly type: "clarify_done" }
+  | { readonly type: "set_overlay"; readonly overlay: OverlayState | null }
+  | { readonly type: "navigate_overlay"; readonly index: number }
+  | { readonly type: "set_model_optimistic"; readonly modelId: string }
+  | { readonly type: "set_models"; readonly models: readonly DevinModel[] }
+  | { readonly type: "clear_lines" }
+  | { readonly type: "abort_done" }
+  | { readonly type: "mark_queued_steer" }
+  | { readonly type: "reset_streaming" };
 
 const EMPTY_TOOL_LABELS: ReadonlyMap<string, string> = new Map();
 

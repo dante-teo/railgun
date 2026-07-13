@@ -274,3 +274,50 @@ Auto-reconnect: `onclose`/`onerror` schedule a reconnect via exponential backoff
 - `"trust"` / `"session"` → `TrustPicker` / `SessionChooser` with `dismissOverlay` as confirm (both are stubs pending T8+)
 
 **Test coverage:** `renderer/lib/gatewayClient.test.ts` (12 cases) and `renderer/lib/useAgentEvents.test.ts` (13 cases) added. Both use a synchronous `FakeWebSocket` stub injected via `vi.stubGlobal`. Total suite: 132 tests.
+
+---
+
+## Post-T7 — Boy Scout Fixes
+
+Several correctness and type-safety issues were addressed after T7 landed.
+
+### `@railgun/core/repl/App.js` ink-contamination fix
+
+`useAgentEvents.ts` originally imported the value symbols `shouldAppendToolTranscriptLine` and `shouldShowToolLine` from `@railgun/core/repl/App.js`. Because `src/repl/App.tsx` imports `ink`, this created a transitive `ink` dependency in the browser bundle. `ink` uses top-level `await` (for optional devtools loading and `yoga-layout`), which Vite's browser target (`chrome87`/`es2020`) cannot handle, causing a fatal build error.
+
+**Fix:** the two functions were moved to `src/repl/toolLineStyle.ts` (which has no `ink` dependency). `src/repl/App.tsx` re-exports them from there for backward compatibility. `useAgentEvents.ts` now imports from `@railgun/core/repl/toolLineStyle.js` directly. The functions were also missing from `App.tsx`'s own local import (they were re-exported but not locally bound), which caused a `TS2304: Cannot find name` error — fixed simultaneously.
+
+**Rule:** the renderer must only import values from `src/repl/` modules that do not transitively import `ink`. Type-only imports (`import type`) are always safe. See the Architecture doc's Desktop renderer row for the approved value-import list.
+
+### `gatewayClient.ts` close() correctness
+
+Two bugs in `close()`:
+
+1. `connectionStatus` was not set to `"disconnected"` on close, so `status()` would keep returning `"connecting"` or `"connected"` after the client was closed.
+2. The `for...of` loop over `pending` while calling `pending.delete(id)` inside was safe in JS (Map allows concurrent mutation during iteration) but fragile. Replaced with a snapshot (`[...pending.entries()]`) + `pending.clear()` before iterating.
+
+Additionally, `socket.onmessage` previously cast `event.data as string` without a type guard. It now checks `typeof event.data !== "string"` before parsing.
+
+### `useAgentEvents.ts` type tightening
+
+`ReducerState` and all `ReducerAction` discriminant union members gained `readonly` on every field. `ShellState.pendingClarify` was updated to `{ readonly question: string; readonly choices?: readonly string[] }` to match — the mutable `string[]` caused a `TS2322` assignment error once `ReducerState` was fully `readonly`.
+
+### Shared test harness
+
+`gatewayClient.test.ts` and `useAgentEvents.test.ts` each contained an identical inline `FakeWebSocket` class. Extracted into `renderer/lib/test/fakeWebSocket.ts` which exports `installFakeWebSocket(): FakeSocketPrimitives`. Each test file builds its own higher-level harness on top of the shared primitives. The `GatewayEvent` import that was dropped from `gatewayClient.test.ts` during the refactor was restored.
+
+### JSX runtime — dead `import React` value imports
+
+The renderer is built with `jsx: react-jsx` (automatic JSX transform), so `import React from "react"` is a dead value import — React's namespace is only needed as a type reference (`React.FC`, `React.ReactNode`, etc.). Sixteen component and overlay files were updated to `import type React from "react"`, removing the value dependency entirely. Combined-form imports (`import React, { useEffect, useRef }`) were split into `import type React from "react"` + `import { useEffect, useRef } from "react"`.
+
+### `Composer.tsx` — `parseFloat("normal")` NaN fix
+
+`getComputedStyle(el).lineHeight` returns the string `"normal"` when no explicit `line-height` is set in some browsers. `parseFloat("normal")` is `NaN`, producing `height: "NaNpx"` and collapsing the textarea. Fixed with `parseFloat(raw) || 24` to fall back to 24 px.
+
+### `ComposerMode` type deduplication
+
+`Composer.tsx` declared a local `type ComposerMode` that was identical to the exported `ComposerMode` in `lib/useAgentEvents.ts`. The local copy was removed and `Composer.tsx` now imports the canonical type.
+
+### `lib/theme.ts` cleanup
+
+`ThemeMode` was imported and re-exported on separate lines, producing a duplicate import. Consolidated to a single `import type` + `export type`. The `"(prefers-color-scheme: dark)"` media query string appeared in both `getInitialTheme` and `subscribeThemeChanges`; extracted to a module-level `DARK_MODE_QUERY` constant.

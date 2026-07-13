@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import type React from "react";
+import { useEffect, useRef } from "react";
 import type { DevinModel } from "widevin";
 import { useListKeyboard } from "./useListKeyboard.js";
 

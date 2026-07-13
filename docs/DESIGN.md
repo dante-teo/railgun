@@ -295,9 +295,9 @@ interface UseOverlayKeyNavOptions {
 
 `ClarifyPrompt` and `ShellApproval` do not use `useOverlayKeyNav` because their key contracts are not list navigation. The free-text input in `ClarifyPrompt` receives a `:focus-visible` accent ring for keyboard users.
 
-### What the browser renderer does not do (Sprint 1)
+### What the browser renderer does not do
 
-- No live gateway connection — `DevShell` provides mock data guarded by `import.meta.env.DEV`. Gateway wiring (WS client + state machine) is Sprint 2.
-- No Electron shell — the renderer is a plain web app served by Vite. Electron wrapping is Sprint 3.
-- No virtual scrolling — the transcript uses `overflow-y: auto` on a DOM list. Virtualization is a Sprint 2+ optimization if needed.
+- No virtual scrolling — the transcript uses `overflow-y: auto` on a DOM list. Virtualization is deferred.
 - No alternate-screen management — irrelevant in a browser context.
+- No Electron shell — the renderer is a plain web app served by Vite. Electron wrapping is a later sprint.
+- `/moa`, `/trust`, `/branch`, `/fork`, `/rollback`, `/dream`, `/cron` are not yet implemented in the desktop app (they return an error line); `/clear`, `/help`, `/model`, `/compact`, and `/settings` are fully wired.

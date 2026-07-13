@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { GatewayClient } from "./gatewayClient.js";
 import { createGatewayClient } from "./gatewayClient.js";
+import { installFakeWebSocket } from "./test/fakeWebSocket.js";
 import type { GatewayEvent } from "../../gateway/protocol.js";
 
 // ---------------------------------------------------------------------------
-// Mock WebSocket harness
+// Harness
 // ---------------------------------------------------------------------------
-// Builds a fake WebSocket class that exposes simulateOpen/simulateMessage/
-// simulateClose helpers for driving tests synchronously.
 
 interface MockHarness {
   readonly client: GatewayClient;
@@ -18,35 +17,17 @@ interface MockHarness {
 }
 
 const buildHarness = (): MockHarness => {
-  let onopen: (() => void) | null = null;
-  let onmessage: ((e: { data: string }) => void) | null = null;
-  let onclose: (() => void) | null = null;
-  let _readyState = 0;
-  const sent: string[] = [];
-
-  class FakeWebSocket {
-    static readonly OPEN = 1;
-    get readyState() { return _readyState; }
-    set onopen(fn: (() => void) | null) { onopen = fn; }
-    set onmessage(fn: ((e: { data: string }) => void) | null) { onmessage = fn; }
-    set onclose(fn: (() => void) | null) { onclose = fn; }
-    set onerror(_fn: unknown) { /* ignored */ }
-    send(data: string): void { sent.push(data); }
-    close(): void { _readyState = 3; }
-  }
-
-  vi.stubGlobal("WebSocket", FakeWebSocket);
-
+  const ws = installFakeWebSocket();
   const client = createGatewayClient("ws://localhost:9400");
-
   return {
     client,
-    getSent: () => sent.map(s => JSON.parse(s) as unknown),
-    simulateOpen: () => { _readyState = 1; onopen?.(); },
-    simulateMessage: (data: unknown) => onmessage?.({ data: JSON.stringify(data) }),
-    simulateClose: () => { _readyState = 3; onclose?.(); },
+    getSent: () => ws.rawSent.map(s => JSON.parse(s) as unknown),
+    simulateOpen: ws.simulateOpen,
+    simulateMessage: ws.simulateMessage,
+    simulateClose: ws.simulateClose,
   };
 };
+
 
 // ---------------------------------------------------------------------------
 // Tests

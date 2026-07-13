@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { summarizeTodos, type TodoState, type TodoStatus } from "@railgun/core/tools/todo.js";
 import { glyphs } from "../lib/theme.js";
 

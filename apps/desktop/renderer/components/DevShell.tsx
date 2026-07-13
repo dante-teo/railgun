@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import type { DisplayLine } from "@railgun/core/repl/App.js";
 import type { TodoState } from "@railgun/core/tools/todo.js";
 import type { DevinModel } from "widevin";
