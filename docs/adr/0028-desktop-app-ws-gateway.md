@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (Sprint 0 + Sprint 1 complete; Sprint 2 Composer + slash commands complete)
+Accepted (Sprint 0 + Sprint 1 complete; Sprint 2 Composer + slash commands complete; T5 component parity complete)
 
 ## Context
 
@@ -44,7 +44,14 @@ The root `pnpm-workspace.yaml` gains `packages: ["apps/*"]`. The desktop package
 
 React 19 DOM, no Electron APIs, no Node.js builtins. CSS custom properties drive the entire visual system — palette hex values are copied once from `src/ui/palette.ts` into `styles/tokens.css` and never repeated. Components are named and structured to match their TUI counterparts in `src/repl/`.
 
-`DevShell` (guarded by `import.meta.env.DEV`) mounts all Sprint 1 components with static mock data so the visual design is reviewable without a running gateway.
+**T5 component parity additions (completed after Sprint 1):**
+
+- **`TodoPanel`** — now renders a `div.todo-panel__header` above the item list. The header shows `"Todos"` on the left and `"{completed}/{total}"` (from `summarizeTodos()`, imported from `@railgun/core/tools/todo.js`) on the right, matching the REPL's summary line. The header only appears when todos are present (not during the skeleton loading state). The item list is wrapped in a dedicated `div[role="list"]` (separate from the outer `.todo-panel` container) so the `todo-panel__header` sibling is not a direct child of a list role — this satisfies the ARIA spec's requirement that all direct children of `role="list"` carry `role="listitem"`.
+- **`StatusBar`** — gains a `readonly cwd: string` prop. When `cwd` is non-empty, it is rendered in `.status-bar__left` inside a `<span title="Working directory">` wrapper. A `·` separator (`div.status-bar__separator`) appears between the git branch block and the cwd span only when both are visible (branch non-null and cwd non-empty). The `cwd` value is presentational only; sourcing it from the gateway (`GatewaySessionState`) is deferred to T7.
+- **CSS** — three new utility classes added to `styles/layout.css`: `.todo-panel__header` (flex, baseline-aligned, mono 12px bold, `var(--color-strong)`), `.todo-panel__summary` (weight 400, `var(--color-muted)`), and `.status-bar__separator` (`var(--color-dim)`).
+- **Tests** — `renderer/components/TodoPanel.test.tsx` (8 cases) and `renderer/components/StatusBar.test.tsx` (9 cases) added; both call components as plain functions and inspect the returned React element tree without a DOM renderer. The Vite config's `test.include` is extended to `["gateway/**/*.test.ts", "renderer/**/*.test.tsx"]`.
+
+`DevShell` (guarded by `import.meta.env.DEV`) mounts all components with static mock data so the visual design is reviewable without a running gateway. The `StatusBar` mock now passes `cwd="~/Projects/railgun"`.
 
 ## Alternatives considered
 

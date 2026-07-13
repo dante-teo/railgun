@@ -275,6 +275,26 @@ body,
 .todo-item--cancelled   { color: var(--color-dim); }
 .todo-item--pending     { color: var(--color-muted); }
 
+.todo-panel__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-strong);
+  padding-bottom: 2px;
+}
+
+.todo-panel__summary {
+  font-weight: 400;
+  color: var(--color-muted);
+}
+
+.status-bar__separator {
+  color: var(--color-dim);
+}
+
 /* Skeleton loading */
 .skeleton {
   border-radius: var(--radius-sm);

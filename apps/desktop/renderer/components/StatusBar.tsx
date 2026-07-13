@@ -17,6 +17,7 @@ interface ActiveMoaPreset {
 interface StatusBarProps {
   readonly model: string;
   readonly gitStatus: GitStatus;
+  readonly cwd: string;
   readonly sessionMetadata?: SessionMetadata;
   readonly unsaved: boolean;
   readonly activeMoaPreset: ActiveMoaPreset | null;
@@ -25,6 +26,7 @@ interface StatusBarProps {
 export const StatusBar: React.FC<StatusBarProps> = ({
   model,
   gitStatus,
+  cwd,
   sessionMetadata,
   unsaved,
   activeMoaPreset,
@@ -37,6 +39,14 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           {gitStatus.dirty && (
             <span className="status-bar__dirty-dot" title="Uncommitted changes" aria-label="Uncommitted changes" />
           )}
+        </>
+      )}
+      {cwd && (
+        <>
+          {gitStatus.branch !== null && (
+            <span className="status-bar__separator" aria-hidden="true">·</span>
+          )}
+          <span title="Working directory">{cwd}</span>
         </>
       )}
     </div>

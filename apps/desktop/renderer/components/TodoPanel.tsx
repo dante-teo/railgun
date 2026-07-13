@@ -1,5 +1,5 @@
 import React from "react";
-import type { TodoState, TodoStatus } from "@railgun/core/tools/todo.js";
+import { summarizeTodos, type TodoState, type TodoStatus } from "@railgun/core/tools/todo.js";
 import { glyphs } from "../lib/theme.js";
 
 interface TodoPanelProps {
@@ -28,19 +28,27 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({ todos, isLoading }) => {
     );
   }
 
+  const summary = summarizeTodos(todos);
+
   return (
-    <div className="todo-panel" role="list" aria-label="Task list">
-      {todos.map(item => (
-        <div
-          key={item.id}
-          className={`todo-item todo-item--${item.status}`}
-          role="listitem"
-          aria-label={`${item.status}: ${item.content}`}
-        >
-          <span className="todo-item__glyph" aria-hidden="true">{GLYPH[item.status]}</span>
-          <span className="todo-item__content">{item.content}</span>
-        </div>
-      ))}
+    <div className="todo-panel" aria-label="Task list">
+      <div className="todo-panel__header">
+        <span>Todos</span>
+        <span className="todo-panel__summary">{summary.completed}/{summary.total}</span>
+      </div>
+      <div role="list">
+        {todos.map(item => (
+          <div
+            key={item.id}
+            className={`todo-item todo-item--${item.status}`}
+            role="listitem"
+            aria-label={`${item.status}: ${item.content}`}
+          >
+            <span className="todo-item__glyph" aria-hidden="true">{GLYPH[item.status]}</span>
+            <span className="todo-item__content">{item.content}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

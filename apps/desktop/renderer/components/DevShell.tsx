@@ -70,6 +70,7 @@ export const DevShell: React.FC = () => {
         <StatusBar
           model="claude-sonnet-4"
           gitStatus={{ branch: "main", dirty: true }}
+          cwd="~/Projects/railgun"
           unsaved={false}
           activeMoaPreset={null}
         />
