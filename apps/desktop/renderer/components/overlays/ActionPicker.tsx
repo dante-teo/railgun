@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import React from "react";
+import { useOverlayKeyNav } from "../../hooks/useOverlayKeyNav.js";
 
 interface ActionPickerItem {
   readonly id: string;
@@ -22,25 +23,7 @@ export const ActionPicker: React.FC<ActionPickerProps> = ({
   onSelect,
   onCancel,
 }) => {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        onSelect(Math.min(selectedIndex + 1, items.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        onSelect(Math.max(selectedIndex - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        onSelect(selectedIndex);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [selectedIndex, items.length, onSelect, onCancel]);
+  useOverlayKeyNav({ length: items.length, selectedIndex, onSelect, onCancel });
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label={title}>
@@ -60,9 +43,7 @@ export const ActionPicker: React.FC<ActionPickerProps> = ({
           >
             <span>{item.label}</span>
             {item.detail !== undefined && (
-              <span style={{ marginLeft: "auto", color: "var(--color-dim)", fontSize: 12 }}>
-                {item.detail}
-              </span>
+              <span className="overlay__item__detail">{item.detail}</span>
             )}
           </div>
         ))}

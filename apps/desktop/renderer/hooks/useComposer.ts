@@ -5,7 +5,6 @@ export interface ComposerState {
   readonly draft: string;
   readonly completionIndex: number | null;
   readonly completionMatches: readonly string[];
-  readonly composerRevision: number;
   readonly liveMatches: readonly string[];
   readonly setDraft: (value: string) => void;
   readonly handleTab: () => void;
@@ -18,7 +17,6 @@ export const useComposer = (): ComposerState => {
   const [draft, setDraftRaw] = useState("");
   const [completionIndex, setCompletionIndex] = useState<number | null>(null);
   const [completionMatches, setCompletionMatches] = useState<readonly string[]>([]);
-  const [composerRevision, setComposerRevision] = useState(0);
 
   const liveMatches: readonly string[] =
     draft.startsWith("/") && !draft.includes(" ") ? findMatches(draft) : [];
@@ -50,7 +48,6 @@ export const useComposer = (): ComposerState => {
     setDraftRaw("");
     setCompletionIndex(null);
     setCompletionMatches([]);
-    setComposerRevision(r => r + 1);
   };
 
   const handleSubmit = (onSubmit: (text: string) => void): void => {
@@ -66,7 +63,6 @@ export const useComposer = (): ComposerState => {
     draft,
     completionIndex,
     completionMatches,
-    composerRevision,
     liveMatches,
     setDraft,
     handleTab,

@@ -1,5 +1,6 @@
-import React, { useEffect } from "react";
+import React from "react";
 import type { TrustChoice } from "@railgun/core/trust.js";
+import { useOverlayKeyNav } from "../../hooks/useOverlayKeyNav.js";
 
 interface TrustPickerItem {
   readonly label: string;
@@ -19,25 +20,7 @@ export const TrustPicker: React.FC<TrustPickerProps> = ({
   onSelect,
   onCancel,
 }) => {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        onSelect((selectedIndex + 1) % choices.length);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        onSelect((selectedIndex - 1 + choices.length) % choices.length);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        onSelect(selectedIndex);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [selectedIndex, choices.length, onSelect, onCancel]);
+  useOverlayKeyNav({ length: choices.length, selectedIndex, onSelect, onCancel, wrap: true });
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label="Trust decision">

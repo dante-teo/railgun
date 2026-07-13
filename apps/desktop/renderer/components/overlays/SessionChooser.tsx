@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { useOverlayKeyNav } from "../../hooks/useOverlayKeyNav.js";
 
 interface SessionEntry {
   readonly id: string;
@@ -19,25 +20,16 @@ export const SessionChooser: React.FC<SessionChooserProps> = ({
   onSelect,
   onCancel,
 }) => {
+  useOverlayKeyNav({ length: sessions.length, selectedIndex, onSelect, onCancel, wrap: true });
+
+  // Ctrl+C also cancels the session chooser (matches TUI convention)
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        onSelect((selectedIndex + 1) % sessions.length);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        onSelect((selectedIndex - 1 + sessions.length) % sessions.length);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        onSelect(selectedIndex);
-      } else if (e.key === "Escape" || (e.key === "c" && e.ctrlKey)) {
-        e.preventDefault();
-        onCancel();
-      }
+      if (e.key === "c" && e.ctrlKey) { e.preventDefault(); onCancel(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedIndex, sessions.length, onSelect, onCancel]);
+  }, [onCancel]);
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label="Resume session">
@@ -51,12 +43,8 @@ export const SessionChooser: React.FC<SessionChooserProps> = ({
             aria-selected={i === selectedIndex}
             onClick={() => onSelect(i)}
           >
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {session.preview}
-            </span>
-            <span style={{ color: "var(--color-dim)", fontSize: 11, fontFamily: "var(--font-mono)", marginLeft: "var(--spacing-sm)" }}>
-              {session.date}
-            </span>
+            <span className="session-item__preview">{session.preview}</span>
+            <span className="session-item__date">{session.date}</span>
           </div>
         ))}
       </div>

@@ -50,7 +50,7 @@ export const ClarifyPrompt: React.FC<ClarifyPromptProps> = ({
   return (
     <div className="overlay clarify-overlay" role="dialog" aria-modal="true" aria-label="Clarification needed">
       <div className="clarify-overlay__title">❓ Clarification needed</div>
-      <div style={{ marginBottom: "var(--spacing-sm)", color: "var(--color-text)" }}>{question}</div>
+      <div className="clarify-overlay__question">{question}</div>
 
       {hasChoices ? (
         <div className="overlay__list" role="listbox">
@@ -67,7 +67,7 @@ export const ClarifyPrompt: React.FC<ClarifyPromptProps> = ({
           ))}
         </div>
       ) : (
-        <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
+        <div className="clarify-overlay__free-text-row">
           <input
             ref={inputRef}
             value={freeText}
@@ -76,22 +76,12 @@ export const ClarifyPrompt: React.FC<ClarifyPromptProps> = ({
               if (e.key === "Enter") { e.preventDefault(); onAnswer(freeText); }
               if (e.key === "Escape") { e.preventDefault(); onDismiss(); }
             }}
-            style={{
-              flex: 1,
-              background: "var(--color-code-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--color-text)",
-              fontFamily: "var(--font-sans)",
-              fontSize: 14,
-              padding: "var(--spacing-xs) var(--spacing-sm)",
-              outline: "none",
-            }}
+            className="clarify-overlay__input"
             aria-label="Your answer"
           />
         </div>
       )}
-      <div className="clarify-overlay__hint" style={{ marginTop: "var(--spacing-xs)" }}>
+      <div className="clarify-overlay__hint">
         {hasChoices ? "↑↓ navigate · Enter confirm · Escape dismiss" : "Enter submit · Escape dismiss"}
       </div>
     </div>

@@ -71,5 +71,3 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ line, streaming })
   );
 };
 
-// Export the glyph mapping so tests can reference it
-export { glyphs };
