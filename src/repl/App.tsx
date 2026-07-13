@@ -344,6 +344,7 @@ const ChatApp = ({
   const [clarifySelector, setClarifySelector] = useState(() => createSelectorState(0, 4));
   const [approvalMode, setApprovalMode] = useState<CommandApprovalMode>("manual");
   const [reviewerModel, setReviewerModel] = useState<string | undefined>(undefined);
+  const [operationTimeoutMs, setOperationTimeoutMs] = useState(600_000);
   const [activeMoaPreset, setActiveMoaPreset] = useState<MoAPreset | null>(null);
   const [advisorModel, setAdvisorModel] = useState<string | undefined>(undefined);
   const sessionApprovalsRef = useRef(new Set<string>());
@@ -352,6 +353,7 @@ const ChatApp = ({
     void loadConfig().then(c => {
       if (c.approvalMode) setApprovalMode(c.approvalMode);
       if (c.reviewerModel) setReviewerModel(c.reviewerModel);
+      if (c.operationTimeoutMs) setOperationTimeoutMs(c.operationTimeoutMs);
       if (isAdvisorActive(c)) setAdvisorModel(c.advisor!.model!);
       if (c.activeMoaPreset && c.moaPresets?.[c.activeMoaPreset]) setActiveMoaPreset(parseMoAPreset(c.activeMoaPreset, c.moaPresets[c.activeMoaPreset]));
     }).catch(console.error);
@@ -908,6 +910,7 @@ const ChatApp = ({
       checkpointGuard,
       clarifyCallback,
       commandApprovalMode: approvalMode,
+      operationTimeoutMs,
       sessionApprovals: sessionApprovalsRef.current,
       ...(reviewerModel !== undefined ? { reviewerModel } : {}),
       ...(extensionRunner ? { extensionRunner } : {}),

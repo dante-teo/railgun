@@ -16,6 +16,7 @@ import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MoAPreset, ReferenceCallbacks } from "./moa.js";
 import { runReferences, buildAggregatorGuidance } from "./moa.js";
 import { PRIMARY_TOOLSETS } from "../tools/toolsets.js";
+import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
@@ -52,6 +53,7 @@ export interface RunTurnOptions {
   contextWindow?: number;
   delegationDepth?: number;
   enabledToolsets?: readonly string[];
+  operationTimeoutMs?: number;
 }
 
 const pushMessage = async (
@@ -85,34 +87,41 @@ const runStep = async (
   await doEmit({ type: "message_start", message: { role: "assistant", content: [] } });
 
   try {
-    for await (const event of devin.streamChat({
-      model,
-      messages,
-      tools: registry.getSchemas(enabledToolsets),
-      systemPrompt: prompt,
-      signal: context.signal,
-    })) {
-      if (event.type !== "usage" && event.type !== "done") {
-        await doEmit({ type: "message_update", streamEvent: event });
+    let flushAlreadyProduced = context.signal.aborted;
+    await runBoundedOperation(context.signal, context.operationTimeoutMs, "Provider stream", async scopedSignal => {
+      for await (const event of devin.streamChat({
+        model,
+        messages,
+        tools: registry.getSchemas(enabledToolsets),
+        systemPrompt: prompt,
+        signal: scopedSignal,
+      })) {
+        if (scopedSignal.aborted) {
+          if (!flushAlreadyProduced) break;
+          flushAlreadyProduced = false;
+        }
+        if (event.type !== "usage" && event.type !== "done") {
+          await doEmit({ type: "message_update", streamEvent: event });
+        }
+        if (event.type === "text_delta") {
+          textParts.push(event.delta);
+          allTextParts.push(event.delta);
+        }
+        if (event.type === "toolcall_delta") {
+          rawArgsById.set(event.id, (rawArgsById.get(event.id) ?? "") + event.delta);
+        }
+        if (event.type === "toolcall_end") {
+          toolOrder.push({ id: event.id, name: event.name });
+        }
+        if (event.type === "usage") {
+          lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+        }
       }
-      if (event.type === "text_delta") {
-        textParts.push(event.delta);
-      }
-      if (event.type === "toolcall_delta") {
-        rawArgsById.set(event.id, (rawArgsById.get(event.id) ?? "") + event.delta);
-      }
-      if (event.type === "toolcall_end") {
-        toolOrder.push({ id: event.id, name: event.name });
-      }
-      if (event.type === "usage") {
-        lastUsage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
-      }
-    }
+    }, { flushAlreadyProduced: true });
   } catch (error) {
     const partialText = textParts.join("");
     if (context.signal.aborted && partialText !== "") {
       messages.push({ role: "assistant", content: [{ type: "text", text: partialText }] });
-      allTextParts.push(partialText);
     }
     await doEmit({
       type: "message_end",
@@ -141,10 +150,8 @@ const runStep = async (
   const toolResults: ToolResult[] = [];
 
   if (resolved.length === 0) {
-    allTextParts.push(...textParts);
     return { done: true, assistantText: allTextParts.join(""), usage: lastUsage, message: assistantMessage, toolResults };
   }
-  allTextParts.push(...textParts);
 
   for (const call of resolved) {
     if (call.corrupted) {
@@ -169,23 +176,24 @@ const runStep = async (
       if (context.signal.aborted) return { result: { content: STOPPED_BY_USER, isError: true }, completed: false };
       try {
         if (extensionRunner) {
-          const before = await extensionRunner.emitToolCall({
+          const before = await runBoundedOperation(context.signal, context.operationTimeoutMs, `Extension tool_call hook for "${call.name}"`, () => extensionRunner.emitToolCall({
             type: "tool_call",
             toolCallId: call.id,
             toolName: call.name,
             input: call.arguments as Record<string, unknown>,
-          });
+          }));
           if (before.block) {
             return { result: { content: `Blocked by extension: ${before.reason ?? ""}`, isError: true }, completed: true };
           }
         }
         const start = Date.now();
-        const raw = await registry.run(call.name, call.arguments, context);
+        const timeoutMs = call.name === "clarify" || call.name === "run_shell_command" ? undefined : context.operationTimeoutMs;
+        const raw = await runBoundedOperation(context.signal, timeoutMs, `Tool "${call.name}"`, scopedSignal => registry.run(call.name, call.arguments, { ...context, signal: scopedSignal }));
         const durationMs = Date.now() - start;
         let content = raw.content;
         let isError = raw.isError;
         if (extensionRunner) {
-          const after = await extensionRunner.emitToolResult({
+          const after = await runBoundedOperation(context.signal, context.operationTimeoutMs, `Extension tool_result hook for "${call.name}"`, () => extensionRunner.emitToolResult({
             type: "tool_result",
             toolCallId: call.id,
             toolName: call.name,
@@ -193,7 +201,7 @@ const runStep = async (
             content,
             isError,
             durationMs,
-          });
+          }));
           if (after.content !== undefined) content = after.content;
           if (after.isError !== undefined) isError = after.isError;
         }
@@ -224,12 +232,12 @@ const runStep = async (
       await doEmit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments });
       try {
         if (extensionRunner) {
-          const before = await extensionRunner.emitToolCall({
+          const before = await runBoundedOperation(context.signal, context.operationTimeoutMs, `Extension tool_call hook for "${call.name}"`, () => extensionRunner.emitToolCall({
             type: "tool_call",
             toolCallId: call.id,
             toolName: call.name,
             input: call.arguments as Record<string, unknown>,
-          });
+          }));
           if (before.block) {
             const blocked = { content: `Blocked by extension: ${before.reason ?? ""}`, isError: true };
             const blockedResult: ToolResult = { toolCallId: call.id, ...blocked };
@@ -240,12 +248,13 @@ const runStep = async (
           }
         }
         const start = Date.now();
-        const raw = await registry.run(call.name, call.arguments, context);
+        const timeoutMs = call.name === "clarify" || call.name === "run_shell_command" ? undefined : context.operationTimeoutMs;
+        const raw = await runBoundedOperation(context.signal, timeoutMs, `Tool "${call.name}"`, scopedSignal => registry.run(call.name, call.arguments, { ...context, signal: scopedSignal }));
         const durationMs = Date.now() - start;
         let content = raw.content;
         let isError = raw.isError;
         if (extensionRunner) {
-          const after = await extensionRunner.emitToolResult({
+          const after = await runBoundedOperation(context.signal, context.operationTimeoutMs, `Extension tool_result hook for "${call.name}"`, () => extensionRunner.emitToolResult({
             type: "tool_result",
             toolCallId: call.id,
             toolName: call.name,
@@ -253,7 +262,7 @@ const runStep = async (
             content,
             isError,
             durationMs,
-          });
+          }));
           if (after.content !== undefined) content = after.content;
           if (after.isError !== undefined) isError = after.isError;
         }
@@ -312,6 +321,7 @@ export const runTurn = async (
     contextWindow: options?.contextWindow ?? contextWindow,
     delegationDepth: options?.delegationDepth ?? 0,
     emit: doEmit,
+    operationTimeoutMs: options?.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;
@@ -326,7 +336,8 @@ export const runTurn = async (
   };
   const compress = async (reason: "threshold" | "overflow"): Promise<void> => {
     await doEmit({ type: "compaction_start", reason });
-    const result = await runCompaction(devin, model, systemPrompt, messages, signal);
+    const result = await runBoundedOperation(signal, context.operationTimeoutMs, "Compaction model work", scopedSignal =>
+      runCompaction(devin, model, systemPrompt, messages, scopedSignal));
     messages.length = 0;
     messages.push(...result.messages);
     compactedThisRound = true;
@@ -344,7 +355,8 @@ export const runTurn = async (
       onStart: async (index, count, model) => doEmit({ type: "moa_reference_start", index, count, model }),
       onEnd: async (index, model, text) => doEmit({ type: "moa_reference_end", index, model, text }),
     };
-    const refs = await runReferences(devin, preset, messages, signal, callbacks);
+    const refs = await runBoundedOperation(signal, context.operationTimeoutMs, "Delegated reference model work", scopedSignal =>
+      runReferences(devin, preset, messages, scopedSignal, callbacks));
     const guidance = buildAggregatorGuidance(refs);
     await doEmit({ type: "moa_aggregating", aggregator: preset.aggregator.model, refCount: refs.length });
     // Guidance is private context for the aggregator — not a real user message.
@@ -370,7 +382,10 @@ export const runTurn = async (
       );
       await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });
       turnEndedThisAttempt = true;
-      await options?.onTurnEnd?.(messages, (msg: DevinMessage) => messages.push(msg));
+      if (options?.onTurnEnd) {
+        await runBoundedOperation(signal, context.operationTimeoutMs, "Turn-end advisor work", () =>
+          Promise.resolve(options.onTurnEnd!(messages, (msg: DevinMessage) => messages.push(msg))));
+      }
       if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
       const steer = options?.takeSteer?.();
       if (steer !== undefined) {

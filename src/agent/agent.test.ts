@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DevinProvider, DevinStreamEvent } from "widevin";
 import { createAgent } from "./agent.js";
 
@@ -18,6 +18,12 @@ const dependencies = (devin: DevinProvider) => ({
 });
 
 describe("createAgent", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([0, -1, 1.5, Number.NaN])("rejects invalid operation timeout %s", operationTimeoutMs => {
+    expect(() => createAgent({ ...dependencies(provider([])), operationTimeoutMs })).toThrow(/operationTimeoutMs/);
+  });
+
   it("rejects queue operations while idle and concurrent runs", async () => {
     const gate = Promise.withResolvers<void>();
     const devin: DevinProvider = {
@@ -84,6 +90,28 @@ describe("createAgent", () => {
 
     const aborted = await first;
     expect(aborted).toMatchObject({ ok: false, aborted: true, assistantText: "partial" });
+    await expect(agent.run("again")).resolves.toMatchObject({ ok: true, assistantText: "recovered" });
+  });
+
+  it("times out a non-cooperative provider stream, clears running state, and remains reusable", async () => {
+    vi.useFakeTimers();
+    const started = Promise.withResolvers<void>();
+    let calls = 0;
+    const devin: DevinProvider = {
+      ...provider([]),
+      streamChat: async function* () {
+        if (calls++ > 0) { yield { type: "text_delta", delta: "recovered" }; return; }
+        started.resolve();
+        await new Promise<void>(() => {});
+      },
+    };
+    const agent = createAgent({ ...dependencies(devin), operationTimeoutMs: 25 });
+    const first = agent.run("hang");
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(first).resolves.toMatchObject({ ok: false, error: expect.objectContaining({ name: "OperationTimeoutError" }) });
+    expect(agent.isRunning).toBe(false);
     await expect(agent.run("again")).resolves.toMatchObject({ ok: true, assistantText: "recovered" });
   });
 

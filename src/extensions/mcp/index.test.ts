@@ -113,7 +113,7 @@ describe("createMcpExtension", () => {
     const factory = createMcpExtension({ fs: { command: "fake" } });
     await factory(api);
 
-    await registered[0]!.execute({ path: "/tmp" }, { sessionId: "s1" });
-    expect(conn.call).toHaveBeenCalledWith("read_file", { path: "/tmp" });
+    await registered[0]!.execute({ path: "/tmp" }, { sessionId: "s1", signal: new AbortController().signal });
+    expect(conn.call).toHaveBeenCalledWith("read_file", { path: "/tmp" }, expect.any(AbortSignal));
   });
 });

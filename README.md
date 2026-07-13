@@ -60,11 +60,13 @@ session becomes durable after its first successful turn:
   Terminal and OS changes repaint the interface live. The terminal's own canvas
   background remains untouched. Appearance is not configurable.
 - **Configuration**: `~/.railgun/config.json` is the single configuration
-  source. A missing file has the effective default `{ "model": null }`, which
+  source. A missing file has the effective defaults `{ "model": null,
+  "defaultProjectTrust": "ask", "operationTimeoutMs": 600000 }`, which
   selects the first model returned by Devin. Unknown fields are preserved;
   malformed files and invalid recognized values fail without automatic repair.
   Optional recognized fields: `model` (string or null), `approvalMode`
-  (`"manual"` | `"smart"` | `"off"`, default `"manual"`), and `reviewerModel`
+  (`"manual"` | `"smart"` | `"off"`, default `"manual"`), `operationTimeoutMs`
+  (positive integer, default `600000`), and `reviewerModel`
   (string — the Devin model ID used for smart-mode LLM review; defaults to the
   session model when absent).
 - **Authentication**: a nonempty, trimmed `DEVIN_TOKEN` takes precedence for
@@ -247,8 +249,11 @@ authenticate, open SQLite, create files, or enter the TUI. Recognized fields:
 | `model` | string \| null | `null` | Devin model ID to use for new sessions; `null` selects Devin's first available model |
 | `approvalMode` | `"manual"` \| `"smart"` \| `"off"` | `"manual"` | Shell command approval tier: manual y/n prompt, LLM review, or no prompt (hardline blocks always apply) |
 | `reviewerModel` | string | _(session model)_ | Devin model ID used for smart-mode LLM review; omit to use the same model as the session |
+| `operationTimeoutMs` | positive integer | `600000` | Per-operation deadline for providers, tools, extensions, listeners, compaction, and delegated work; approval and clarification prompts have no automatic deadline |
 
 Unknown fields are preserved on read and write. Malformed files and invalid recognized values fail without automatic repair.
+
+Async operations yield Node's event loop while they wait. A synchronous, CPU-bound extension can still block the process and cannot be preempted without worker or process isolation.
 
 If a configured model disappears, an interactive launch opens the themed,
 resize-aware model chooser. Up/Down wraps, Enter atomically saves the selected

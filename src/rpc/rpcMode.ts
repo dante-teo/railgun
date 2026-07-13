@@ -56,6 +56,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
       },
       todoStore,
       commandApprovalMode: config.approvalMode ?? "manual",
+      ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
       sessionApprovals,
       ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
       ...(extensionRunner !== undefined ? { extensionRunner } : {}),

@@ -15,7 +15,7 @@ export interface McpTool {
 export interface McpConnection {
   readonly serverName: string;
   readonly tools: readonly McpTool[];
-  call(toolName: string, args: Record<string, unknown>): Promise<string>;
+  call(toolName: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<string>;
   close(): void;
 }
 
@@ -114,17 +114,25 @@ export const connectMcpServer = async (name: string, config: McpServerConfig): P
     if (stderrBuf) process.stderr.write(`[mcp:${name}] ${stderrBuf}\n`);
   });
 
-  const sendRpc = (method: string, params: Record<string, unknown>, timeoutMs: number): Promise<unknown> => {
+  const sendRpc = (method: string, params: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<unknown> => {
     const id = nextId++;
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+    const onAbort = (): void => {
+      pending.delete(id);
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    };
     const timer = setTimeout(() => {
       pending.delete(id);
+      signal?.removeEventListener("abort", onAbort);
       reject(new Error(`MCP RPC timeout after ${timeoutMs}ms: ${method}`));
     }, timeoutMs);
     pending.set(id, {
-      resolve: (r) => { clearTimeout(timer); resolve(r); },
-      reject: (e) => { clearTimeout(timer); reject(e); },
+      resolve: (r) => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); resolve(r); },
+      reject: (e) => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); reject(e); },
     });
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
     proc.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
     return promise;
   };
@@ -146,8 +154,8 @@ export const connectMcpServer = async (name: string, config: McpServerConfig): P
     return {
       serverName: name,
       tools,
-      call: async (toolName, args) => {
-        const result = await sendRpc("tools/call", { name: toolName, arguments: args }, 30_000);
+      call: async (toolName, args, signal) => {
+        const result = await sendRpc("tools/call", { name: toolName, arguments: args }, 30_000, signal);
         return parseCallResult(result);
       },
       close: () => {

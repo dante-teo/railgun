@@ -24,8 +24,8 @@ export const createMcpExtension = (
             name: prefixedName,
             description: tool.description ?? `MCP tool ${tool.name} from server "${name}"`,
             inputSchema: tool.inputSchema,
-            execute: async (args) => {
-              const content = await conn.call(tool.name, args);
+            execute: async (args, context) => {
+              const content = await conn.call(tool.name, args, context.signal);
               return { content };
             },
           });

@@ -73,6 +73,7 @@ export interface ExtensionRegisteredTool {
 
 export interface ExtensionContext {
   readonly sessionId: string;
+  readonly signal: AbortSignal;
 }
 
 export interface ExtensionAPI {

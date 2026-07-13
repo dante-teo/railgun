@@ -12,10 +12,11 @@ export interface AppConfig {
   readonly moaPresets?: Record<string, unknown>;
   readonly activeMoaPreset?: string;
   readonly advisor?: { readonly enabled?: boolean; readonly model?: string };
+  readonly operationTimeoutMs?: number;
   readonly [key: string]: unknown;
 }
 
-export const DEFAULT_CONFIG: AppConfig = { model: null, defaultProjectTrust: "ask" };
+export const DEFAULT_CONFIG: AppConfig = { model: null, defaultProjectTrust: "ask", operationTimeoutMs: 600_000 };
 
 type JsonObject = Record<string, unknown>;
 
@@ -67,6 +68,10 @@ const validateConfig = (value: unknown, path: string): AppConfig => {
   const approvalMode = merged.approvalMode;
   if (approvalMode !== undefined && approvalMode !== "manual" && approvalMode !== "smart" && approvalMode !== "off") {
     throw new ConfigError(path, '"approvalMode" must be "manual", "smart", or "off"');
+  }
+  const operationTimeoutMs = merged.operationTimeoutMs;
+  if (!Number.isInteger(operationTimeoutMs) || (operationTimeoutMs as number) <= 0) {
+    throw new ConfigError(path, '"operationTimeoutMs" must be a positive integer');
   }
   const reviewerModel = merged.reviewerModel;
   if (reviewerModel !== undefined && (typeof reviewerModel !== "string" || reviewerModel.length === 0 || /\s/.test(reviewerModel))) {

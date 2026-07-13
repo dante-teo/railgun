@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("loadConfig", () => {
   it("uses the effective defaults when the file is missing without creating it", async () => {
-    await expect(loadConfig(path)).resolves.toEqual({ model: null, defaultProjectTrust: "ask" });
+    await expect(loadConfig(path)).resolves.toEqual({ model: null, defaultProjectTrust: "ask", operationTimeoutMs: 600_000 });
     await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -35,7 +35,7 @@ describe("loadConfig", () => {
 
   it.each([null, "devin-model"])('accepts model %j', async model => {
     await writeFile(path = join(directory, "config.json"), JSON.stringify({ model, unknown: { keep: true } }));
-    await expect(loadConfig(path)).resolves.toEqual({ model, defaultProjectTrust: "ask", unknown: { keep: true } });
+    await expect(loadConfig(path)).resolves.toEqual({ model, defaultProjectTrust: "ask", operationTimeoutMs: 600_000, unknown: { keep: true } });
   });
 
   it.each([
@@ -57,6 +57,20 @@ describe("loadConfig", () => {
     const failure = Object.assign(new Error("permission denied"), { code: "EACCES" });
     await expect(loadConfig("/blocked/config.json", { readFile: vi.fn(async () => { throw failure; }) }))
       .rejects.toMatchObject({ name: "ConfigError", path: "/blocked/config.json" } satisfies Partial<ConfigError>);
+  });
+});
+
+describe("operationTimeoutMs validation", () => {
+  it("accepts a custom positive integer", async () => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ operationTimeoutMs: 1234 }));
+    await expect(loadConfig(path)).resolves.toMatchObject({ operationTimeoutMs: 1234 });
+  });
+
+  it.each([0, -1, 1.5, "1000", null])("rejects invalid value %j", async operationTimeoutMs => {
+    path = join(directory, "config.json");
+    await writeFile(path, JSON.stringify({ operationTimeoutMs }));
+    await expect(loadConfig(path)).rejects.toThrow(/operationTimeoutMs/);
   });
 });
 
@@ -113,8 +127,8 @@ describe("setConfiguredModel", () => {
 
     await setConfiguredModel("replacement", path, { atomicWrite });
 
-    expect(atomicWrite).toHaveBeenLastCalledWith(path, '{\n  "model": "replacement",\n  "defaultProjectTrust": "ask",\n  "unknown": {\n    "keep": true\n  }\n}\n');
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ model: "replacement", defaultProjectTrust: "ask", unknown: { keep: true } });
+    expect(atomicWrite).toHaveBeenLastCalledWith(path, '{\n  "model": "replacement",\n  "defaultProjectTrust": "ask",\n  "operationTimeoutMs": 600000,\n  "unknown": {\n    "keep": true\n  }\n}\n');
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ model: "replacement", defaultProjectTrust: "ask", operationTimeoutMs: 600_000, unknown: { keep: true } });
   });
 
   it("does not invoke the writer or alter an invalid config", async () => {

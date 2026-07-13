@@ -48,6 +48,7 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
     devin, model: model.id, contextWindow: model.contextWindow, systemPrompt,
     confirmShellCommand, clarifyCallback, todoStore,
     commandApprovalMode: config.approvalMode ?? "manual",
+    ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
     sessionApprovals,
     ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
     ...(extensionRunner ? { extensionRunner } : {}),

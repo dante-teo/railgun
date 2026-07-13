@@ -1,4 +1,5 @@
 import { registry } from "./registry.js";
+import { runBoundedOperation } from "../asyncOperation.js";
 
 const extractQuestion = (args: unknown): string | undefined => {
   if (typeof args !== "object" || args === null) return undefined;
@@ -48,7 +49,7 @@ registry.register({
       return { content: "Error: clarify is not available in this context", isError: true };
     }
     const choices = extractChoices(args);
-    const answer = await context.clarifyCallback(question, choices);
+    const answer = await runBoundedOperation(context.signal, undefined, "Clarification prompt", () => context.clarifyCallback!(question, choices));
     return {
       content: JSON.stringify({ question, answer }),
       isError: false,

@@ -96,8 +96,8 @@ export const registerExtensionTools = (
         description: extTool.description,
         inputSchema: extTool.inputSchema as Record<string, unknown>,
       },
-      handler: async (args) => {
-        const result = await extTool.execute(args as Record<string, unknown>, { sessionId });
+      handler: async (args, context) => {
+        const result = await extTool.execute(args as Record<string, unknown>, { sessionId, signal: context.signal });
         return { content: result.content, isError: result.isError ?? false };
       },
     });

@@ -34,6 +34,7 @@ export const runCronJob = async (
     confirmShellCommand,
     todoStore: createTodoStore(),
     commandApprovalMode: approvalMode,
+    ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
     iterationBudget: () => IterationBudget.create(30),
   });
 

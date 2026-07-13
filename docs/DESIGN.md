@@ -103,11 +103,23 @@ Enter confirms the latest highlight even before React repaints it.
 ## Configuration and model recovery
 
 `~/.railgun/config.json` is active as the single configuration source. Its
-effective default is `{ "model": null, "defaultProjectTrust": "ask" }`: fresh REPL and one-shot sessions use
-Devin's first returned model. `railgun config` renders the recursively merged,
+effective defaults include `{ "model": null, "defaultProjectTrust": "ask",
+"operationTimeoutMs": 600000 }`: fresh REPL and one-shot sessions use Devin's
+first returned model, and each non-interactive asynchronous operation has a
+ten-minute deadline. `railgun config` renders the recursively merged,
 pretty JSON without crossing authentication, SQLite, file-creation, or TUI
 boundaries. Unknown fields remain visible and preserved; invalid configuration
 fails in place rather than being repaired.
+
+`operationTimeoutMs` must be a positive integer and applies independently to
+provider work, tools, extension hooks, event listeners, compaction, advisor and
+delegated-model work. Approval and clarification prompts have no automatic
+deadline, but settle when the run is cancelled. A timeout aborts the scoped
+operation signal; late events from a provider that ignores cancellation are
+discarded. Shell cancellation terminates the process group with `SIGTERM`, then
+`SIGKILL` after two seconds if necessary. These guards bound asynchronous work;
+synchronous extension code that blocks Node's thread requires worker or process
+isolation and cannot be preempted by an `AbortSignal`.
 
 The optional `mcpServers` object configures MCP (Model Context Protocol) servers.
 Each key is a server name; each value is `{ command: string, args?: string[],

@@ -146,6 +146,38 @@ describe("runTurn", () => {
     expect(outcome).toEqual({ ok: false, error: boom });
   });
 
+  it("ignores provider events yielded after the operation deadline", async () => {
+    vi.useFakeTimers();
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const updates: DevinStreamEvent[] = [];
+    const devin: DevinProvider = {
+      ...fakeProvider([]),
+      streamChat: async function* () {
+        started.resolve();
+        await release.promise;
+        yield { type: "text_delta", delta: "late" };
+      },
+    };
+
+    const turn = runTurn(
+      devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll,
+      async event => {
+        if (event.type === "message_update") updates.push(event.streamEvent);
+      },
+      { operationTimeoutMs: 25 },
+    );
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(turn).resolves.toMatchObject({ ok: false });
+
+    release.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(updates).toEqual([]);
+  });
+
   it("pushes a corruption marker and never invokes registry.run when tool-call JSON never parses", async () => {
     const runSpy = vi.spyOn(registry, "run");
     try {

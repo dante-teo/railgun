@@ -3,6 +3,7 @@ import { checkCommandApproval } from "../security/commandApproval.js";
 import { smartApprove } from "../security/smartApproval.js";
 import { registry } from "./registry.js";
 import type { ToolRunResult } from "./registry.js";
+import { runBoundedOperation } from "../asyncOperation.js";
 
 const extractCommand = (args: unknown): string | undefined => {
   if (typeof args !== "object" || args === null) return undefined;
@@ -11,6 +12,10 @@ const extractCommand = (args: unknown): string | undefined => {
 };
 
 const STOPPED_RESULT: ToolRunResult = { content: "[stopped by user]", isError: true };
+
+const runShellBounded = (command: string, context: Parameters<typeof registry.run>[2]): Promise<ToolRunResult> =>
+  runBoundedOperation(context.signal, context.operationTimeoutMs, `Tool "run_shell_command"`, signal => execShell(command, signal))
+    .catch(error => context.signal.aborted ? STOPPED_RESULT : Promise.reject(error));
 
 const awaitApproval = (
   confirm: () => Promise<boolean>,
@@ -100,7 +105,7 @@ registry.register({
     }
 
     if (requirement.kind === "skip") {
-      return execShell(command, context.signal);
+      return runShellBounded(command, context);
     }
 
     // needs_approval
@@ -108,7 +113,7 @@ registry.register({
       const verdict = await smartApprove(context.devin, context.reviewerModel, command, requirement.reason);
       if (verdict === "approve") {
         context.sessionApprovals.add(requirement.patternId);
-        return execShell(command, context.signal);
+        return runShellBounded(command, context);
       }
       if (verdict === "deny") {
         return { content: `Smart approval denied: ${requirement.reason}`, isError: true };
@@ -121,6 +126,6 @@ registry.register({
     if (!approved) return { content: `Command not approved: ${command}`, isError: true };
     context.checkpointGuard?.beforeMutation();
     context.sessionApprovals.add(requirement.patternId);
-    return execShell(command, context.signal);
+    return runShellBounded(command, context);
   }
 });

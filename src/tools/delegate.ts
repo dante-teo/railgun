@@ -32,6 +32,7 @@ async function runOneChild(
   role: "leaf" | "orchestrator",
   parentDepth: number,
   parentSignal: AbortSignal,
+  operationTimeoutMs: number | undefined,
 ): Promise<string> {
   const childDepth = parentDepth + 1;
 
@@ -62,6 +63,7 @@ async function runOneChild(
         model,
         contextWindow,
         delegationDepth: childDepth,
+        ...(operationTimeoutMs !== undefined ? { operationTimeoutMs } : {}),
       },
     );
 
@@ -83,6 +85,7 @@ async function runBatched(
   parentDepth: number,
   parentSignal: AbortSignal,
   emit: ((event: AgentEvent) => Promise<void>) | undefined,
+  operationTimeoutMs: number | undefined,
 ): Promise<string[]> {
   const results: string[] = new Array(jobs.length);
   const count = jobs.length;
@@ -99,6 +102,7 @@ async function runBatched(
           job.role ?? "leaf",
           parentDepth,
           parentSignal,
+          operationTimeoutMs,
         );
         await emit?.({ type: "subagent_end", goal: job.goal, index: globalIndex, result });
         results[globalIndex] = result;
@@ -193,7 +197,7 @@ registry.register({
         }));
 
     const results = await runBatched(
-      jobs, devin, model, contextWindow, parentDepth, parentSignal, context.emit,
+      jobs, devin, model, contextWindow, parentDepth, parentSignal, context.emit, context.operationTimeoutMs,
     );
 
     const payload = jobs.map((job, i) => ({ task: job.goal, result: results[i] }));

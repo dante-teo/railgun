@@ -74,6 +74,7 @@ export const createAcpApp = (options: AcpAppOptions): AgentApp => {
         },
         todoStore,
         commandApprovalMode: config.approvalMode ?? "manual",
+        ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
         sessionApprovals,
         ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
         ...(extensionRunner !== undefined ? { extensionRunner } : {}),

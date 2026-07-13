@@ -13,6 +13,7 @@ import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
 import { createAdvisorRuntime } from "../advisor/advisor.js";
 import { normalizeAdvisoryHistory } from "../advisor/advisoryMessage.js";
+import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
 
 export interface AgentDependencies {
   readonly devin: DevinProvider;
@@ -33,6 +34,7 @@ export interface AgentDependencies {
   readonly moaPreset?: MoAPreset;
   readonly enabledToolsets?: readonly string[];
   readonly advisor?: { readonly model: string };
+  readonly operationTimeoutMs?: number;
 }
 
 export interface AgentRunInput {
@@ -56,6 +58,10 @@ export const normalizedText = (text: string): string => {
 };
 
 export const createAgent = (dependencies: AgentDependencies): Agent => {
+  if (dependencies.operationTimeoutMs !== undefined &&
+      (!Number.isInteger(dependencies.operationTimeoutMs) || dependencies.operationTimeoutMs <= 0)) {
+    throw new TypeError("operationTimeoutMs must be a positive integer");
+  }
   const queues = createMessageQueues();
   const listeners = new Set<AgentEventListener>();
   let controller: AbortController | undefined;
@@ -66,7 +72,8 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
   const processEvents = async (event: AgentEvent): Promise<void> => {
     for (const listener of listeners) {
       try {
-        await listener(event);
+        const signal = controller?.signal ?? new AbortController().signal;
+        await runBoundedOperation(signal, dependencies.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS, `Event listener for "${event.type}"`, () => Promise.resolve(listener(event)));
       } catch (err) {
         console.error("Event listener failed:", err);
       }
@@ -114,6 +121,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           model: dependencies.model,
           contextWindow: dependencies.contextWindow,
           delegationDepth: 0,
+          operationTimeoutMs: dependencies.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
         },
       );
       if (!advisor || !("messages" in outcome)) return outcome;

@@ -28,6 +28,7 @@ export interface ToolContext {
   contextWindow?: number;
   delegationDepth?: number;
   emit?: (event: AgentEvent) => Promise<void>;
+  operationTimeoutMs?: number;
 }
 
 export interface ToolRunResult {
