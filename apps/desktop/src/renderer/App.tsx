@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Bot, CirclePlus, MessageSquare, Send, Settings, Square, TerminalSquare } from "lucide-react";
+import { MockScenarioIdSchema } from "../shared/schemas";
 import type { BackendPhase, BackendSnapshot, MockScenario } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader } from "./components/ui/card";
@@ -11,9 +13,7 @@ const PHASE_COPY: Record<BackendPhase, { readonly title: string; readonly descri
   disconnected: { title: "Railgun disconnected", description: "The backend process exited after connecting." },
 };
 
-export interface BackendStatusProps {
-  readonly snapshot: BackendSnapshot;
-}
+export interface BackendStatusProps { readonly snapshot: BackendSnapshot }
 
 export const BackendStatus = ({ snapshot }: BackendStatusProps): React.JSX.Element => {
   const copy = PHASE_COPY[snapshot.phase];
@@ -27,12 +27,7 @@ export const BackendStatus = ({ snapshot }: BackendStatusProps): React.JSX.Eleme
       </CardHeader>
       <CardContent>
         {snapshot.error === undefined ? null : <p className="error-detail">{snapshot.error}</p>}
-        {snapshot.diagnostics.length === 0 ? null : (
-          <details>
-            <summary>Diagnostics</summary>
-            <pre>{snapshot.diagnostics.join("\n")}</pre>
-          </details>
-        )}
+        {snapshot.diagnostics.length === 0 ? null : <details><summary>Diagnostics</summary><pre>{snapshot.diagnostics.join("\n")}</pre></details>}
       </CardContent>
     </Card>
   );
@@ -47,91 +42,192 @@ interface MockPanelProps {
 export const MockPanel = ({ snapshot, scenarios, onSelect }: MockPanelProps): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState(snapshot.scenarioId ?? scenarios[0]?.id ?? "");
   const [restarting, setRestarting] = useState(false);
-
-  useEffect(() => {
-    if (snapshot.scenarioId !== undefined) setSelectedId(snapshot.scenarioId);
-  }, [snapshot.scenarioId]);
-
+  useEffect(() => { if (snapshot.scenarioId !== undefined) setSelectedId(snapshot.scenarioId); }, [snapshot.scenarioId]);
   const restart = async (): Promise<void> => {
     if (selectedId.length === 0) return;
     setRestarting(true);
-    try {
-      await onSelect(selectedId);
-    } finally {
-      setRestarting(false);
-    }
+    try { await onSelect(selectedId); } finally { setRestarting(false); }
   };
-
   return (
     <Card className="mock-panel">
-      <CardHeader>
-        <p className="eyebrow">Mock developer panel</p>
-        <h2>Backend scenario</h2>
-      </CardHeader>
+      <CardHeader><p className="eyebrow">Mock diagnostics</p><h2>Backend scenario</h2></CardHeader>
       <CardContent>
         <div className="scenario-controls">
           <Select value={selectedId} onValueChange={setSelectedId}>
             <SelectTrigger aria-label="Mock scenario"><SelectValue placeholder="Choose a scenario" /></SelectTrigger>
-            <SelectContent>
-              {scenarios.map((scenario) => <SelectItem value={scenario.id} key={scenario.id}>{scenario.label}</SelectItem>)}
-            </SelectContent>
+            <SelectContent>{scenarios.map((scenario) => <SelectItem value={scenario.id} key={scenario.id}>{scenario.label}</SelectItem>)}</SelectContent>
           </Select>
           <Button type="button" disabled={restarting || selectedId.length === 0} onClick={() => void restart()}>
             {restarting ? "Restarting…" : "Restart backend"}
           </Button>
         </div>
-        <p className="scenario-description">
-          {scenarios.find((scenario) => scenario.id === selectedId)?.description}
-        </p>
-        <div className="transport">
-          <h3>Transport log</h3>
-          <ol>
-            {snapshot.transportLog.map((entry, index) => (
-              <li key={`${String(index)}-${entry.direction}`}>
-                <span>{entry.direction}</span>
-                <code>{entry.text}</code>
-              </li>
-            ))}
-          </ol>
-        </div>
+        <p className="scenario-description">{scenarios.find((scenario) => scenario.id === selectedId)?.description}</p>
+        <div className="transport"><h3>Transport log</h3><ol>{snapshot.transportLog.map((entry, index) => (
+          <li key={`${String(index)}-${entry.direction}`}><span>{entry.direction}</span><code>{entry.text}</code></li>
+        ))}</ol></div>
       </CardContent>
     </Card>
   );
 };
 
+interface ChatMessage { readonly id: number; readonly role: "user" | "assistant" | "error"; readonly text: string }
+
+const errorText = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
   const [scenarios, setScenarios] = useState<readonly MockScenario[]>([]);
+  const [area, setArea] = useState<"chat" | "settings">("chat");
+  const [messages, setMessages] = useState<readonly ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [running, setRunning] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<string>();
+  const nextMessageId = useRef(1);
 
   useEffect(() => {
     let active = true;
-    void window.railgunDesktop.getBackendSnapshot().then((next) => {
-      if (active) setSnapshot(next);
+    void window.railgunDesktop.getBackendSnapshot().then(
+      (next) => { if (active) setSnapshot(next); },
+      (error: unknown) => { if (active) setBootstrapError(errorText(error, "Unable to connect to Railgun")); },
+    );
+    void window.railgunDesktop.listMockScenarios().then(
+      (next) => { if (active) setScenarios(next); },
+      (error: unknown) => { if (active) setBootstrapError(errorText(error, "Unable to load diagnostics")); },
+    );
+    const unsubscribeSnapshot = window.railgunDesktop.onBackendSnapshot(setSnapshot);
+    const unsubscribeAgent = window.railgunDesktop.onAgentEvent((event) => {
+      if (event.type === "run-start") setRunning(true);
+      if (event.type === "run-end") setRunning(false);
+      if (event.type === "assistant-delta") {
+        setMessages((current) => {
+          const last = current.at(-1);
+          if (last?.role === "assistant") return [...current.slice(0, -1), { ...last, text: last.text + event.text }];
+          return [...current, { id: nextMessageId.current++, role: "assistant", text: event.text }];
+        });
+      }
     });
-    void window.railgunDesktop.listMockScenarios().then((next) => {
-      if (active) setScenarios(next);
-    });
-    const unsubscribe = window.railgunDesktop.onBackendSnapshot(setSnapshot);
-    return () => {
-      active = false;
-      unsubscribe();
-    };
+    return () => { active = false; unsubscribeSnapshot(); unsubscribeAgent(); };
   }, []);
 
-  if (snapshot === undefined) return <main className="app-shell"><p>Connecting to Railgun…</p></main>;
+  useEffect(() => {
+    if (snapshot?.phase !== "ready") setRunning(false);
+  }, [snapshot?.phase]);
+
+  const send = async (): Promise<void> => {
+    const message = draft.trim();
+    if (message.length === 0 || snapshot?.phase !== "ready" || running) return;
+    setDraft("");
+    setRunning(true);
+    setMessages((current) => [...current, { id: nextMessageId.current++, role: "user", text: message }]);
+    try {
+      await window.railgunDesktop.sendPrompt(message);
+    } catch (error) {
+      setRunning(false);
+      setMessages((current) => [...current, {
+        id: nextMessageId.current++,
+        role: "error",
+        text: errorText(error, "The request failed"),
+      }]);
+    }
+  };
+
+  const abort = async (): Promise<boolean> => {
+    try {
+      await window.railgunDesktop.abortPrompt();
+      return true;
+    } catch (error) {
+      setRunning(false);
+      setMessages((current) => [...current, {
+        id: nextMessageId.current++,
+        role: "error",
+        text: errorText(error, "Unable to stop the request"),
+      }]);
+      return false;
+    }
+  };
+
+  const startNewChat = async (): Promise<void> => {
+    if (running && !await abort()) return;
+    try {
+      const nextSnapshot = await window.railgunDesktop.startNewChat();
+      setSnapshot(nextSnapshot);
+      setMessages([]);
+      setArea("chat");
+    } catch (error) {
+      setMessages((current) => [...current, {
+        id: nextMessageId.current++,
+        role: "error",
+        text: errorText(error, "Unable to start a new chat"),
+      }]);
+    }
+  };
+
+  if (snapshot === undefined) return (
+    <main className={`loading-shell${bootstrapError === undefined ? "" : " failed"}`}>
+      <Bot aria-hidden="true" />
+      <p>{bootstrapError ?? "Connecting to Railgun…"}</p>
+    </main>
+  );
 
   return (
-    <main className="app-shell">
-      <BackendStatus snapshot={snapshot} />
-      {snapshot.mode === "mock" ? (
-        <MockPanel
-          snapshot={snapshot}
-          scenarios={scenarios}
-          onSelect={async (id) => {
-            setSnapshot(await window.railgunDesktop.selectMockScenario(id));
-          }}
-        />
-      ) : null}
+    <main className="desktop-shell">
+      <div className="titlebar" aria-hidden="true" />
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
+        <Button className="new-chat" onClick={() => void startNewChat()}><CirclePlus />New chat</Button>
+        <nav aria-label="Main navigation">
+          <button className={area === "chat" ? "active" : ""} onClick={() => setArea("chat")}><MessageSquare />Chat</button>
+          <button className={area === "settings" ? "active" : ""} onClick={() => setArea("settings")}><Settings />Settings</button>
+        </nav>
+        <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
+      </aside>
+
+      {area === "chat" ? (
+        <section className="chat-surface">
+          <header className="content-toolbar"><div><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
+          <div className={`transcript ${messages.length === 0 ? "empty" : ""}`}>
+            {messages.length === 0 ? <div className="welcome"><span><Bot /></span><h2>What are we building?</h2><p>Ask Railgun to inspect, explain, or change your project.</p></div> : messages.map((message) => (
+              <article className={`message ${message.role}`} key={message.id}>
+                <div className="message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Railgun" : "Error"}</div>
+                <p>{message.text}</p>
+              </article>
+            ))}
+            {running && messages.at(-1)?.role !== "assistant" ? <div className="thinking"><i /><i /><i /><span>Railgun is thinking</span></div> : null}
+          </div>
+          <div className="composer-wrap">
+            <div className="composer">
+              <textarea
+                aria-label="Message Railgun"
+                placeholder={snapshot.phase === "ready" ? "Message Railgun…" : "Backend unavailable"}
+                value={draft}
+                disabled={snapshot.phase !== "ready"}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
+                }}
+              />
+              {running ? (
+                <button className="send-button stop" aria-label="Stop" onClick={() => void abort()}><Square /></button>
+              ) : (
+                <button className="send-button" aria-label="Send" disabled={draft.trim().length === 0 || snapshot.phase !== "ready"} onClick={() => void send()}><Send /></button>
+              )}
+            </div>
+            <p className="composer-hint">Railgun can make mistakes. Review changes before committing.</p>
+          </div>
+        </section>
+      ) : (
+        <section className="settings-surface">
+          <header className="content-toolbar"><div><h1>Settings</h1><p>Runtime and diagnostics</p></div></header>
+          <div className="settings-content">
+            <BackendStatus snapshot={snapshot} />
+            {snapshot.mode === "mock" ? <MockPanel snapshot={snapshot} scenarios={scenarios} onSelect={async (value) => {
+              setSnapshot(await window.railgunDesktop.selectMockScenario(MockScenarioIdSchema.parse(value)));
+            }} /> : null}
+            <Card className="boundary-note"><CardHeader><TerminalSquare /><div><h2>Secure desktop boundary</h2><p>Renderer access is limited to the validated Railgun API.</p></div></CardHeader></Card>
+          </div>
+        </section>
+      )}
     </main>
   );
 };

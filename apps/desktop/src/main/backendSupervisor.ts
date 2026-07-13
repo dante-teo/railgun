@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolve } from "node:path";
-import type { BackendMode, BackendSnapshot, TransportLogEntry } from "../shared/types";
+import type { BackendMode, BackendSnapshot, MockScenarioId, TransportLogEntry } from "../shared/types";
 
 export interface BackendChild {
-  readonly stdin: NodeJS.WritableStream;
+  readonly stdin: NodeJS.WritableStream & {
+    on(event: "error", listener: (error: Error) => void): NodeJS.WritableStream;
+  };
   readonly stdout: NodeJS.ReadableStream;
   readonly stderr: NodeJS.ReadableStream;
   once(event: "error", listener: (error: Error) => void): this;
@@ -12,7 +14,7 @@ export interface BackendChild {
   kill(signal?: NodeJS.Signals): boolean;
 }
 
-export type BackendChildFactory = (mode: BackendMode, scenarioId: string | undefined) => BackendChild;
+export type BackendChildFactory = (mode: BackendMode, scenarioId: MockScenarioId | undefined) => BackendChild;
 
 export type BackendRuntime =
   | {
@@ -36,11 +38,15 @@ export interface BackendSpawnSpec {
 export interface BackendSupervisorOptions {
   readonly mode: BackendMode;
   readonly spawnChild: BackendChildFactory;
-  readonly initialScenarioId?: string;
+  readonly initialScenarioId?: MockScenarioId;
   readonly readinessTimeoutMs?: number;
   readonly maxDiagnostics?: number;
   readonly maxTransportEntries?: number;
 }
+
+export type BackendRpcCommand =
+  | { readonly type: "prompt"; readonly message: string }
+  | { readonly type: "abort" };
 
 const appendBounded = <T>(values: readonly T[], value: T, limit: number): readonly T[] =>
   [...values, value].slice(-limit);
@@ -53,7 +59,10 @@ export class BackendSupervisor {
   readonly #maxDiagnostics: number;
   readonly #maxTransportEntries: number;
   readonly #listeners = new Set<(snapshot: BackendSnapshot) => void>();
+  readonly #backendEventListeners = new Set<(event: unknown) => void>();
+  readonly #pendingCalls = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
   #generation = 0;
+  #nextCallId = 1;
   #child: BackendChild | undefined;
   #readinessTimer: ReturnType<typeof setTimeout> | undefined;
   #snapshot: BackendSnapshot;
@@ -81,6 +90,30 @@ export class BackendSupervisor {
     return () => this.#listeners.delete(listener);
   }
 
+  subscribeBackendEvents(listener: (event: unknown) => void): () => void {
+    this.#backendEventListeners.add(listener);
+    return () => this.#backendEventListeners.delete(listener);
+  }
+
+  call(command: BackendRpcCommand): Promise<void> {
+    const child = this.#child;
+    if (child === undefined || this.#snapshot.phase !== "ready") {
+      return Promise.reject(new Error("Backend is not ready"));
+    }
+    const id = `desktop-rpc-${this.#nextCallId++}`;
+    return new Promise<void>((resolveCall, rejectCall) => {
+      this.#pendingCalls.set(id, { resolve: resolveCall, reject: rejectCall });
+      try {
+        this.#write(child, JSON.stringify({ id, ...command }));
+      } catch (error) {
+        this.#pendingCalls.delete(id);
+        const message = `Unable to write to backend: ${errorMessage(error)}`;
+        this.#fail(this.#generation, message);
+        rejectCall(new Error(message));
+      }
+    });
+  }
+
   start(scenarioId = this.#snapshot.scenarioId): BackendSnapshot {
     const generation = ++this.#generation;
     this.#stopActiveChild();
@@ -101,6 +134,11 @@ export class BackendSupervisor {
       return this.#snapshot;
     }
     this.#child = child;
+
+    child.stdin.on("error", (error) => {
+      if (!this.#isCurrent(generation, child)) return;
+      this.#fail(generation, `Backend stdin error: ${error.message}`);
+    });
 
     let stdoutBuffer = "";
     child.stdout.on("data", (chunk: Buffer | string) => {
@@ -136,6 +174,7 @@ export class BackendSupervisor {
     child.once("exit", (code, signal) => {
       if (!this.#isCurrent(generation, child)) return;
       this.#child = undefined;
+      this.#rejectPendingCalls(new Error("Backend exited"));
       this.#clearReadinessTimer();
       const detail = signal === null ? `exit code ${String(code)}` : `signal ${signal}`;
       this.#snapshot = {
@@ -152,14 +191,19 @@ export class BackendSupervisor {
     });
 
     const request = JSON.stringify({ id: `desktop-ready-${generation}`, type: "get_state" });
-    this.#write(child, request);
+    try {
+      this.#write(child, request);
+    } catch (error) {
+      this.#fail(generation, `Unable to write backend readiness probe: ${errorMessage(error)}`);
+      return this.#snapshot;
+    }
     this.#readinessTimer = setTimeout(() => {
       this.#fail(generation, "Backend readiness probe timed out");
     }, this.#readinessTimeoutMs);
     return this.#snapshot;
   }
 
-  restartWithScenario(scenarioId: string): BackendSnapshot {
+  restartWithScenario(scenarioId: MockScenarioId): BackendSnapshot {
     if (this.#snapshot.mode !== "mock") throw new Error("Mock scenarios are unavailable in real backend mode");
     return this.start(scenarioId);
   }
@@ -169,6 +213,7 @@ export class BackendSupervisor {
     this.#clearReadinessTimer();
     this.#stopActiveChild();
     this.#listeners.clear();
+    this.#backendEventListeners.clear();
   }
 
   #handleStdoutLine(generation: number, child: BackendChild, line: string): void {
@@ -192,7 +237,18 @@ export class BackendSupervisor {
       return;
     }
     const record = message as Record<string, unknown>;
+    if (record.type === "response" && record.id !== `desktop-ready-${generation}`) {
+      const id = typeof record.id === "string" ? record.id : undefined;
+      const pending = id === undefined ? undefined : this.#pendingCalls.get(id);
+      if (id !== undefined) this.#pendingCalls.delete(id);
+      if (pending !== undefined) {
+        if (record.success === true) pending.resolve();
+        else pending.reject(new Error(typeof record.error === "string" ? record.error : "Backend RPC failed"));
+      }
+      return;
+    }
     if (record.id !== `desktop-ready-${generation}`) {
+      for (const listener of this.#backendEventListeners) listener(message);
       this.#emit();
       return;
     }
@@ -229,6 +285,7 @@ export class BackendSupervisor {
     this.#clearReadinessTimer();
     const child = this.#child;
     this.#child = undefined;
+    this.#rejectPendingCalls(new Error(message));
     child?.kill("SIGTERM");
     this.#snapshot = {
       ...this.#snapshot,
@@ -251,7 +308,13 @@ export class BackendSupervisor {
     this.#clearReadinessTimer();
     const child = this.#child;
     this.#child = undefined;
+    this.#rejectPendingCalls(new Error("Backend stopped"));
     child?.kill("SIGTERM");
+  }
+
+  #rejectPendingCalls(error: Error): void {
+    for (const pending of this.#pendingCalls.values()) pending.reject(error);
+    this.#pendingCalls.clear();
   }
 
   #clearReadinessTimer(): void {
@@ -267,7 +330,7 @@ export class BackendSupervisor {
 export const createBackendSpawnSpec = (
   runtime: BackendRuntime,
   mode: BackendMode,
-  scenarioId?: string,
+  scenarioId?: MockScenarioId,
 ): BackendSpawnSpec => {
   if (runtime.kind === "development") {
     const entry = mode === "real"

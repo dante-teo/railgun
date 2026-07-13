@@ -42,7 +42,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules (including `memory_write`, `note_search`, and `note_search_semantic` guidance since Phases 25/26/27, and — new in Phase 28 — explicit instructions that the agent can create or update `~/.railgun/SOUL.md` and `.railgun.md` via `write_file`), cached session environment, and up to three optional context blocks — `soulIdentity` (`~/.railgun/SOUL.md`), `projectContext` (project context file), and `memories` (formatted memory list). The `# Persistent Identity` block is always emitted: when `soulIdentity` is present it includes the loaded content; when absent it includes a "file does not exist yet" hint pointing the agent to `write_file`. Environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus `readline`-based shell-approval and clarify prompts on stderr; when `activeMoaPreset` is set in config, the named preset is loaded and passed to `createAgentSession`, and MoA reference events are printed to stderr | Solo project |
 | RPC subsystem (`src/rpc/{jsonl,types,rpcMode,rpcClient}.ts`) | `serializeJsonLine`/`makeLineReader` framing that splits on `0x0a` only (not `U+2028`/`U+2029`); `RpcCommand`/`RpcResponse`/`RpcSessionState` types; `runRpcMode` headless loop that consumes stdin commands, dispatches one in-flight `prompt` at a time, handles synchronous `steer`/`abort`/`follow_up`, fans raw `AgentSessionEvent` objects to stdout, and shuts down on stdin EOF; `RpcClient` for spawning child processes, correlating responses by id, and forwarding events | Solo project |
-| Desktop scaffold (`apps/desktop`) | Private Electron 43 / Forge 7 / Vite 8 / React workspace. Main owns a bounded backend supervisor and mock scenario restarts; preload exposes four typed backend operations; the sandboxed renderer uses shadcn/ui primitives to display startup, ready, failed, and disconnected states plus a mock-only transport panel. Real and mock backends use the same JSONL stdio path. | Solo project |
+| Desktop app (`apps/desktop`) | Private Electron 43 / Forge 7 / Vite 8 / React workspace. Main owns the bounded JSONL backend supervisor, prompt/abort correlation, new-chat process resets, and mock scenario restarts. The packaged renderer is served only from `railgun://app/`; a sandboxed preload exposes individually validated operations and reduced agent events. The renderer provides a native-style chat shell, with mock scenarios and bounded transport diagnostics under Settings. Real and mock backends use the same JSONL stdio path. | Solo project |
 | ACP subsystem (`src/acp/{acpMode,toolKind}.ts`) | `createAcpApp(options)` builds an `AgentApp` (from `@agentclientprotocol/sdk`) with handlers for `initialize`, `authenticate`, `session/set_mode`, `session/new`, `session/prompt`, and `session/cancel`; `runAcpMode` connects it to stdio via `ndJsonStream`; `mapToolKind` maps internal tool names to ACP tool-kind strings (`"read"`, `"edit"`, `"execute"`, `"think"`, `"other"`); each `session/prompt` creates a fresh `AgentSession`, streams `agent_message_chunk`/`tool_call`/`tool_call_update` `session/update` notifications to the client, and accumulates per-session conversation history; `session/cancel` calls `agentSession.abort()` on any in-flight run | Solo project |
 | Error presentation (`src/errors.ts`) | Maps widevin and source-aware credential errors to one-line messages while preserving API/protocol formatting and reporting cache-removal failures alongside the original 401 | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
@@ -307,7 +307,11 @@ This document records the intended system architecture for Railgun. Keep it curr
 **Desktop bootstrap (`pnpm dev` / `pnpm dev:mock`):**
 
 1. Forge builds separate main, preload, and renderer targets. The window starts
-   with context isolation and sandboxing enabled and Node integration disabled.
+   with context isolation and sandboxing enabled; Node integration in frames,
+   subframes, and workers, webviews, insecure content, and production DevTools
+   are explicitly disabled. Packaged assets load through the standard, secure
+   `railgun://app/` origin instead of `file://`; its handler accepts only
+   `GET`/`HEAD` requests for files contained by the renderer bundle.
 2. In development, Electron main starts either the root CLI through pnpm/tsx
    with `--mode rpc` or the stateful mock JSONL child. Forge packages a
    production-only deployment of the compiled root CLI and a bundled mock
@@ -316,14 +320,37 @@ This document records the intended system architecture for Railgun. Keep it curr
    a system Node.js installation, or a system pnpm. Both paths use the same
    JSONL stdio boundary. A correlated `get_state` probe moves the snapshot from
    `starting` to `ready`; parse errors, rejected probes, timeouts, and exits
-   become `failed` or `disconnected` snapshots.
-3. Preload exposes only snapshot read/subscription and mock scenario
-   list/selection. Renderer code has no generic IPC, filesystem, process, or
-   Node access. Diagnostics and transport logs are bounded in main.
+   become `failed` or `disconnected` snapshots. Synchronous write failures and
+   asynchronous stdin stream errors both fail the active generation, reject
+   its pending calls, and terminate the child instead of escaping into Electron
+   as unhandled stream errors.
+3. Main accepts IPC only from a known Railgun window, its main frame, and the
+   exact development or production origin. Shared strict Zod schemas validate
+   arguments and every payload in main and preload; malformed pushed events are
+   withheld. Preload exposes no generic IPC, filesystem, process, Electron, or
+   Node object. Backend agent events are reduced to run state, text deltas, and
+   redacted tool lifecycle records before crossing the boundary. Diagnostics
+   and transport logs remain bounded in main. The validated New Chat operation
+   replaces the backend child before clearing the renderer, guaranteeing a new
+   in-memory RPC history rather than only hiding the existing transcript.
 4. Mock scenarios live in one typed registry and include ready/idle, delayed
    startup, rejection, malformed output, crash-before-ready, and
    disconnect-after-ready. Selecting a scenario terminates and replaces the
-   child, and generation checks discard late events from the old process.
+   child, and generation checks discard late events from the old process. The
+   mock accepts one prompt at a time; abort cancels its scheduled and queued
+   output, emits one terminal event, and settles both the prompt and abort calls
+   in order so stale deltas cannot appear after cancellation.
+5. Environment-specific CSP and central guards deny unrelated connections,
+   objects, frames, workers, forms, navigation, redirects, popups, webviews,
+   downloads, and permissions. Production fuses enable cookie encryption,
+   embedded ASAR integrity, ASAR-only loading, and WASM trap handlers while
+   disabling Node options, CLI inspection, browser-specific snapshots, and
+   extra `file://` privileges. `RunAsNode` remains enabled only because the
+   accepted packaged backend launcher sets `ELECTRON_RUN_AS_NODE`; removing it
+   requires replacing that DESK-001 transport. Development CSP additionally
+   allows only Forge's exact origin, its loopback HMR websocket, and the hashed
+   React Refresh preamble injected by Vite; arbitrary inline scripts remain
+   blocked.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added

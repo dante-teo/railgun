@@ -1,4 +1,5 @@
-import type { MockScenario } from "../shared/types";
+import { MockScenarioIdSchema, MockScenarioSchema } from "../shared/schemas";
+import type { MockScenario, MockScenarioId } from "../shared/types";
 
 export type MockScenarioBehavior =
   | "ready"
@@ -8,19 +9,21 @@ export type MockScenarioBehavior =
   | "crash-before-ready"
   | "disconnect-after-ready";
 
-export interface MockScenarioDefinition extends MockScenario {
+export interface MockScenarioDefinition extends Omit<MockScenario, "id"> {
+  readonly id: string;
   readonly behavior: MockScenarioBehavior;
 }
 
 export const defineMockScenarios = (
   definitions: readonly MockScenarioDefinition[],
-): ReadonlyMap<string, MockScenarioDefinition> => {
-  const registry = new Map<string, MockScenarioDefinition>();
+): ReadonlyMap<MockScenarioId, MockScenarioDefinition> => {
+  const registry = new Map<MockScenarioId, MockScenarioDefinition>();
   for (const definition of definitions) {
-    if (registry.has(definition.id)) {
+    const id = MockScenarioIdSchema.parse(definition.id);
+    if (registry.has(id)) {
       throw new Error(`Duplicate mock scenario id: ${definition.id}`);
     }
-    registry.set(definition.id, Object.freeze({ ...definition }));
+    registry.set(id, Object.freeze({ ...definition, id }));
   }
   return registry;
 };
@@ -65,9 +68,13 @@ export const MOCK_SCENARIOS = defineMockScenarios([
 ] as const);
 
 export const listMockScenarios = (): readonly MockScenario[] =>
-  [...MOCK_SCENARIOS.values()].map(({ id, label, description }) => ({ id, label, description }));
+  [...MOCK_SCENARIOS.values()].map(({ id, label, description }) =>
+    MockScenarioSchema.parse({ id, label, description }));
 
-export const getMockScenario = (id: string): MockScenarioDefinition => {
+export const getMockScenario = (value: string): MockScenarioDefinition => {
+  const parsedId = MockScenarioIdSchema.safeParse(value);
+  if (!parsedId.success) throw new Error(`Unknown mock scenario: ${value}`);
+  const id = parsedId.data;
   const scenario = MOCK_SCENARIOS.get(id);
   if (scenario === undefined) throw new Error(`Unknown mock scenario: ${id}`);
   return scenario;

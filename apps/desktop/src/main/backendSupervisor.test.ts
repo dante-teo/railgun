@@ -123,6 +123,82 @@ describe("BackendSupervisor", () => {
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
     vi.useRealTimers();
   });
+
+  it("correlates RPC calls and forwards non-response backend events", async () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    const listener = vi.fn();
+    supervisor.subscribeBackendEvents(listener);
+    supervisor.start();
+    child.stdout.write(`${readinessResponse(1)}\n`);
+
+    const call = supervisor.call({ type: "prompt", message: "hello" });
+    const written = child.stdin.read()?.toString() ?? "";
+    expect(written).toContain('"type":"prompt"');
+    expect(written).toContain('"message":"hello"');
+    child.stdout.write(`${JSON.stringify({ type: "agent_start" })}\n`);
+    expect(listener).toHaveBeenCalledWith({ type: "agent_start" });
+    child.stdout.write(`${JSON.stringify({
+      id: "desktop-rpc-1",
+      type: "response",
+      command: "prompt",
+      success: true,
+    })}\n`);
+    await expect(call).resolves.toBeUndefined();
+    supervisor.shutdown();
+  });
+
+  it("rejects a call cleanly when writing to backend stdin throws", async () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    child.stdout.write(`${readinessResponse(1)}\n`);
+    vi.spyOn(child.stdin, "write").mockImplementationOnce(() => {
+      throw new Error("pipe closed");
+    });
+
+    await expect(supervisor.call({ type: "prompt", message: "hello" })).rejects.toThrow(
+      "Unable to write to backend: pipe closed",
+    );
+    expect(supervisor.getSnapshot()).toMatchObject({
+      phase: "failed",
+      error: "Unable to write to backend: pipe closed",
+    });
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    supervisor.shutdown();
+  });
+
+  it("turns a synchronous readiness write failure into a startup failure", () => {
+    const child = new FakeChild();
+    vi.spyOn(child.stdin, "write").mockImplementationOnce(() => {
+      throw new Error("readiness pipe closed");
+    });
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+
+    expect(() => supervisor.start()).not.toThrow();
+    expect(supervisor.getSnapshot()).toMatchObject({
+      phase: "failed",
+      error: "Unable to write backend readiness probe: readiness pipe closed",
+    });
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("handles asynchronous stdin errors without leaving an RPC call pending", async () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    child.stdout.write(`${readinessResponse(1)}\n`);
+
+    const call = supervisor.call({ type: "prompt", message: "hello" });
+    child.stdin.emit("error", new Error("write EPIPE"));
+
+    await expect(call).rejects.toThrow("Backend stdin error: write EPIPE");
+    expect(supervisor.getSnapshot()).toMatchObject({
+      phase: "failed",
+      error: "Backend stdin error: write EPIPE",
+    });
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
 });
 
 describe("createBackendSpawnSpec", () => {

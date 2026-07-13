@@ -17,8 +17,8 @@ describe("mock scenario registry", () => {
   it("rejects unknown and duplicate scenario ids", () => {
     expect(() => getMockScenario("missing")).toThrow("Unknown mock scenario: missing");
     expect(() => defineMockScenarios([
-      { id: "duplicate", label: "First", description: "First", behavior: "ready" },
-      { id: "duplicate", label: "Second", description: "Second", behavior: "ready" },
-    ])).toThrow("Duplicate mock scenario id: duplicate");
+      { id: "ready-idle", label: "First", description: "First", behavior: "ready" },
+      { id: "ready-idle", label: "Second", description: "Second", behavior: "ready" },
+    ])).toThrow("Duplicate mock scenario id: ready-idle");
   });
 });

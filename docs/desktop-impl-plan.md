@@ -148,10 +148,21 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     loading, error, cancellation, and disconnection coverage as each desktop
     feature is implemented.
 
-- [ ] **DESK-002 — Secure the Electron boundary**
-  - Harden `BrowserWindow` and production Electron fuses.
-  - Add a narrow typed preload API with runtime validation.
-  - Block arbitrary navigation, popups, and filesystem/process access.
+- [x] **DESK-002 — Secure the Electron boundary**
+  - Load packaged renderer assets only through the standard, secure
+    `railgun://app/` protocol; development remains on Forge's exact Vite origin.
+  - Validate every preload argument, response, and pushed event with shared Zod
+    schemas, and authorize IPC only from a known Railgun window's trusted main
+    frame and expected environment-specific origin.
+  - Harden `BrowserWindow`, CSP, navigation, popups, webviews, downloads,
+    permissions, and unexpected renderer creation. Production disables DevTools.
+  - Apply a complete production fuse policy with ASAR integrity and ASAR-only
+    loading. `RunAsNode` is deliberately retained because DESK-001's packaged
+    real and mock JSONL backends use Electron's embedded Node runtime.
+  - Replace the mock-first diagnostic screen with the desktop chat shell. Both
+    modes use the same prompt/abort/new-chat transport and reduced renderer
+    event stream. New Chat restarts the supervised child so the RPC history is
+    actually empty; mock scenarios remain under Settings diagnostics.
 
 - [ ] **DESK-003 — Add desktop RPC support**
   - Add protocol handshake/versioning.

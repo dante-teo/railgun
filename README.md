@@ -574,9 +574,14 @@ pnpm dev
 pnpm dev:mock
 ```
 
-Mock behavior belongs in `apps/desktop/src/mock/scenarios.ts`, not renderer
-fixtures. As desktop features are added, extend that registry with their
-success, empty, loading, error, cancellation, and disconnection cases.
+`pnpm dev:mock` opens the same desktop chat shell as real mode, backed by the
+deterministic JSONL child instead of the Devin provider. Mock behavior belongs
+in `apps/desktop/src/mock/scenarios.ts`, not renderer fixtures; scenario and
+transport controls live under Settings diagnostics rather than replacing the
+product UI. New Chat restarts the supervised backend before clearing the
+transcript, so the next prompt has empty RPC history in both modes. Aborting a
+mock prompt cancels all remaining scheduled output and settles its pending RPC
+response before another prompt can start.
 
 Run the desktop checks and create a local Electron package with:
 
@@ -594,6 +599,14 @@ in the ignored `apps/desktop/backend/` directory. Forge copies those files to
 `Resources/backend`, and the packaged app launches them with Electron's
 embedded Node runtime. It therefore does not require a repository checkout or
 a separately installed Node.js or pnpm at runtime.
+
+The packaged renderer uses `railgun://app/`, not `file://`. IPC is restricted
+to the known main frame and all preload traffic is runtime-validated.
+Production fuses intentionally retain `RunAsNode` for the packaged real/mock
+backend launcher while disabling Node options, CLI inspection, and extra
+file-protocol privileges. Development uses Forge's exact origin and a CSP hash
+for Vite's injected React Refresh preamble rather than allowing arbitrary
+inline scripts.
 
 ```sh
 pnpm run typecheck   # tsc --noEmit

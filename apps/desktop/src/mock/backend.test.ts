@@ -39,6 +39,19 @@ const send = (child: ChildProcessWithoutNullStreams, value: unknown): void => {
 const waitForExit = (child: ChildProcessWithoutNullStreams): Promise<number | null> =>
   new Promise((resolveExit) => child.once("exit", resolveExit));
 
+const expectNoOutput = (child: ChildProcessWithoutNullStreams, durationMs = 70): Promise<void> =>
+  new Promise((resolveQuiet, reject) => {
+    const onData = (chunk: Buffer): void => {
+      clearTimeout(timer);
+      reject(new Error(`unexpected mock output: ${chunk.toString()}`));
+    };
+    const timer = setTimeout(() => {
+      child.stdout.off("data", onData);
+      resolveQuiet();
+    }, durationMs);
+    child.stdout.once("data", onData);
+  });
+
 describe("mock backend process", () => {
   it("preserves ids, fragments frames, and maintains state", async () => {
     const child = startMock("ready-idle");
@@ -49,6 +62,9 @@ describe("mock backend process", () => {
       expect(JSON.parse(first.line)).toMatchObject({ id: "state-1", success: true, data: { messageCount: 0 } });
 
       send(child, { id: "prompt-1", type: "prompt", message: "hello" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "agent_start" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "message_update" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "agent_end" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "prompt-1", success: true });
       send(child, { id: "state-2", type: "get_state" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "state-2", data: { messageCount: 2 } });
@@ -106,5 +122,23 @@ describe("mock backend process", () => {
     send(disconnect, { id: "ready", type: "get_state" });
     expect(JSON.parse((await nextLine(disconnect)).line)).toMatchObject({ id: "ready", success: true });
     expect(await waitForExit(disconnect)).toBe(23);
+  });
+
+  it("cancels pending prompt output and settles both calls on abort", async () => {
+    const child = startMock("ready-idle");
+    try {
+      send(child, { id: "ready", type: "get_state" });
+      await nextLine(child);
+      send(child, { id: "prompt", type: "prompt", message: "do not emit this" });
+      send(child, { id: "abort", type: "abort" });
+
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "agent_start" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "agent_end" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "prompt", success: true });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "abort", success: true });
+      await expectNoOutput(child);
+    } finally {
+      child.kill();
+    }
   });
 });
