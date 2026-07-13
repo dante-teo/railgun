@@ -8,7 +8,7 @@ import { registry } from "./tools/index.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig } from "./config.js";
+import { loadConfig, updateConfig } from "./config.js";
 import type { AppConfig } from "./config.js";
 import { createMcpExtension, parseMcpServers } from "./extensions/mcp/index.js";
 import { describeDevinError } from "./errors.js";
@@ -35,6 +35,8 @@ import type { RpcModeOptions } from "./rpc/rpcMode.js";
 import { runAcpMode } from "./acp/acpMode.js";
 import type { AcpModeOptions } from "./acp/acpMode.js";
 import { runDreamSession } from "./dream/dreamJob.js";
+import { loadJobs, saveJobs } from "./cron/jobs.js";
+import { loadSkills } from "./skills.js";
 
 export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
 
@@ -454,9 +456,27 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     const config = await dependencies.loadConfig();
     const { runner, cleanup } = await bootstrapExtensions("rpc", config);
     try {
-      await runner.emitSessionStart({ type: "session_start", reason: "new" });
-      await dependencies.runRpc({ session, config, stdin: process.stdin, stdout: process.stdout, extensionRunner: runner });
-      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+      await withStores(dependencies, async (sessionStore, memoryStore, noteStore) => {
+        await runner.emitSessionStart({ type: "session_start", reason: "new" });
+        await dependencies.runRpc({
+          session,
+          config,
+          stdin: process.stdin,
+          stdout: process.stdout,
+          extensionRunner: runner,
+          sessionStore,
+          memoryStore,
+          noteStore,
+          updateConfig: transform => updateConfig(transform),
+          loadJobs: () => loadJobs(),
+          saveJobs: jobs => saveJobs(jobs),
+          loadSkills,
+          embedText,
+          randomId: dependencies.randomId,
+          now: dependencies.now,
+        });
+        await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+      });
     } finally {
       cleanup();
     }

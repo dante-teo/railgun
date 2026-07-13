@@ -7,6 +7,12 @@ export const MockScenarioIdSchema = z.enum([
   "malformed-output",
   "crash-before-ready",
   "disconnect-after-ready",
+  "handshake-failure",
+  "empty-stores",
+  "store-error",
+  "approval",
+  "clarification",
+  "cancellation",
 ]);
 
 export const TransportLogEntrySchema = z.strictObject({

@@ -44,9 +44,10 @@ export interface BackendSupervisorOptions {
   readonly maxTransportEntries?: number;
 }
 
-export type BackendRpcCommand =
-  | { readonly type: "prompt"; readonly message: string }
-  | { readonly type: "abort" };
+export type BackendRpcCommand = Readonly<{ type: string; [key: string]: unknown }>;
+
+const DESKTOP_RPC_VERSION = 1;
+const REQUIRED_CAPABILITIES = ["sessions", "interaction.approval", "interaction.clarification"] as const;
 
 const appendBounded = <T>(values: readonly T[], value: T, limit: number): readonly T[] =>
   [...values, value].slice(-limit);
@@ -60,7 +61,12 @@ export class BackendSupervisor {
   readonly #maxTransportEntries: number;
   readonly #listeners = new Set<(snapshot: BackendSnapshot) => void>();
   readonly #backendEventListeners = new Set<(event: unknown) => void>();
-  readonly #pendingCalls = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  readonly #pendingCalls = new Map<string, {
+    resolve: (data: unknown) => void;
+    reject: (error: Error) => void;
+    validate: (data: unknown) => unknown;
+    command: string;
+  }>();
   #generation = 0;
   #nextCallId = 1;
   #child: BackendChild | undefined;
@@ -95,14 +101,24 @@ export class BackendSupervisor {
     return () => this.#backendEventListeners.delete(listener);
   }
 
-  call(command: BackendRpcCommand): Promise<void> {
+  call(command: { readonly type: "prompt"; readonly message: string } | { readonly type: "abort" }): Promise<void>;
+  call<T>(command: BackendRpcCommand, validate: (data: unknown) => T): Promise<T>;
+  call<T = void>(command: BackendRpcCommand, validate?: (data: unknown) => T): Promise<T> {
     const child = this.#child;
     if (child === undefined || this.#snapshot.phase !== "ready") {
       return Promise.reject(new Error("Backend is not ready"));
     }
     const id = `desktop-rpc-${this.#nextCallId++}`;
-    return new Promise<void>((resolveCall, rejectCall) => {
-      this.#pendingCalls.set(id, { resolve: resolveCall, reject: rejectCall });
+    return new Promise<T>((resolveCall, rejectCall) => {
+      this.#pendingCalls.set(id, {
+        resolve: data => resolveCall(data as T),
+        reject: rejectCall,
+        validate: validate ?? (data => {
+          if (data !== undefined) throw new Error("Backend RPC returned unexpected response data");
+          return undefined as T;
+        }),
+        command: command.type,
+      });
       try {
         this.#write(child, JSON.stringify({ id, ...command }));
       } catch (error) {
@@ -190,11 +206,11 @@ export class BackendSupervisor {
       this.#emit();
     });
 
-    const request = JSON.stringify({ id: `desktop-ready-${generation}`, type: "get_state" });
+    const request = JSON.stringify({ id: `desktop-init-${generation}`, type: "initialize", version: DESKTOP_RPC_VERSION, clientName: "railgun-desktop" });
     try {
       this.#write(child, request);
     } catch (error) {
-      this.#fail(generation, `Unable to write backend readiness probe: ${errorMessage(error)}`);
+      this.#fail(generation, `Unable to write backend initialization request: ${errorMessage(error)}`);
       return this.#snapshot;
     }
     this.#readinessTimer = setTimeout(() => {
@@ -237,17 +253,48 @@ export class BackendSupervisor {
       return;
     }
     const record = message as Record<string, unknown>;
-    if (record.type === "response" && record.id !== `desktop-ready-${generation}`) {
+    const initId = `desktop-init-${generation}`;
+    const readyId = `desktop-ready-${generation}`;
+    if (record.id === initId) {
+      if (record.type !== "response" || record.command !== "initialize" || record.success !== true) {
+        this.#fail(generation, typeof record.error === "string" ? `Backend protocol initialization failed: ${record.error}` : "Backend rejected protocol initialization");
+        return;
+      }
+      const data = typeof record.data === "object" && record.data !== null ? record.data as Record<string, unknown> : undefined;
+      const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : [];
+      if (data?.version !== DESKTOP_RPC_VERSION) {
+        this.#fail(generation, `Backend protocol version mismatch: expected ${DESKTOP_RPC_VERSION}, received ${String(data?.version)}`);
+        return;
+      }
+      const missing = REQUIRED_CAPABILITIES.filter(capability => !capabilities.includes(capability));
+      if (missing.length > 0) {
+        this.#fail(generation, `Backend is missing required capabilities: ${missing.join(", ")}`);
+        return;
+      }
+      try {
+        this.#write(child, JSON.stringify({ id: readyId, type: "get_state" }));
+      } catch (error) {
+        this.#fail(generation, `Unable to write backend readiness probe: ${errorMessage(error)}`);
+      }
+      return;
+    }
+    if (record.type === "response" && record.id !== readyId) {
       const id = typeof record.id === "string" ? record.id : undefined;
       const pending = id === undefined ? undefined : this.#pendingCalls.get(id);
       if (id !== undefined) this.#pendingCalls.delete(id);
       if (pending !== undefined) {
-        if (record.success === true) pending.resolve();
-        else pending.reject(new Error(typeof record.error === "string" ? record.error : "Backend RPC failed"));
+        if (record.command !== pending.command) {
+          pending.reject(new Error(`Invalid backend RPC response: expected command ${pending.command}, received ${String(record.command)}`));
+          return;
+        }
+        if (record.success === true) {
+          try { pending.resolve(pending.validate(record.data)); }
+          catch (error) { pending.reject(new Error(`Invalid backend RPC response: ${errorMessage(error)}`)); }
+        } else pending.reject(new Error(typeof record.error === "string" ? record.error : "Backend RPC failed"));
       }
       return;
     }
-    if (record.id !== `desktop-ready-${generation}`) {
+    if (record.id !== readyId) {
       for (const listener of this.#backendEventListeners) listener(message);
       this.#emit();
       return;
@@ -257,6 +304,10 @@ export class BackendSupervisor {
         generation,
         typeof record.error === "string" ? record.error : "Backend rejected the readiness probe",
       );
+      return;
+    }
+    if (typeof record.data !== "object" || record.data === null || typeof (record.data as Record<string, unknown>).running !== "boolean") {
+      this.#fail(generation, "Backend returned invalid session state");
       return;
     }
     if (!this.#isCurrent(generation, child)) return;

@@ -23,12 +23,33 @@ const readinessResponse = (generation: number): string => JSON.stringify({
   data: { running: false },
 });
 
+const initializationResponse = (generation: number, overrides: Record<string, unknown> = {}): string => JSON.stringify({
+  id: `desktop-init-${generation}`,
+  type: "response",
+  command: "initialize",
+  success: true,
+  data: { version: 1, capabilities: ["sessions", "interaction.approval", "interaction.clarification"] },
+  ...overrides,
+});
+
+const makeReady = (child: FakeChild, generation: number): void => {
+  child.stdin.read();
+  child.stdout.write(`${initializationResponse(generation)}\n`);
+  child.stdin.read();
+  child.stdout.write(`${readinessResponse(generation)}\n`);
+};
+
 describe("BackendSupervisor", () => {
   it("correlates a fragmented readiness response and transitions to ready", () => {
     const child = new FakeChild();
     const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
     supervisor.start();
 
+    expect(child.stdin.read()?.toString()).toContain('"type":"initialize"');
+    const initResponse = initializationResponse(1);
+    child.stdout.write(initResponse.slice(0, 20));
+    expect(supervisor.getSnapshot().phase).toBe("starting");
+    child.stdout.write(`${initResponse.slice(20)}\n`);
     expect(child.stdin.read()?.toString()).toContain('"type":"get_state"');
     const response = readinessResponse(1);
     child.stdout.write(response.slice(0, 20));
@@ -44,6 +65,8 @@ describe("BackendSupervisor", () => {
     const rejectedChild = new FakeChild();
     const rejected = new BackendSupervisor({ mode: "mock", spawnChild: () => rejectedChild });
     rejected.start("command-rejection");
+    rejectedChild.stdin.read();
+    rejectedChild.stdout.write(`${initializationResponse(1)}\n`);
     rejectedChild.stdout.write(`${JSON.stringify({
       id: "desktop-ready-1",
       type: "response",
@@ -58,6 +81,20 @@ describe("BackendSupervisor", () => {
     malformed.start("malformed-output");
     malformedChild.stdout.write("{not-json\n");
     expect(malformed.getSnapshot()).toMatchObject({ phase: "failed", error: "Backend emitted malformed JSONL output" });
+  });
+
+  it("fails clearly on protocol version or capability mismatch", () => {
+    const versionChild = new FakeChild();
+    const versionSupervisor = new BackendSupervisor({ mode: "real", spawnChild: () => versionChild });
+    versionSupervisor.start();
+    versionChild.stdout.write(`${initializationResponse(1, { data: { version: 2, capabilities: ["sessions", "interaction.approval", "interaction.clarification"] } })}\n`);
+    expect(versionSupervisor.getSnapshot()).toMatchObject({ phase: "failed", error: expect.stringContaining("version mismatch") });
+
+    const capabilityChild = new FakeChild();
+    const capabilitySupervisor = new BackendSupervisor({ mode: "real", spawnChild: () => capabilityChild });
+    capabilitySupervisor.start();
+    capabilityChild.stdout.write(`${initializationResponse(1, { data: { version: 1, capabilities: ["sessions"] } })}\n`);
+    expect(capabilitySupervisor.getSnapshot()).toMatchObject({ phase: "failed", error: expect.stringContaining("missing required capabilities") });
   });
 
   it("bounds diagnostics and transport entries", () => {
@@ -88,9 +125,9 @@ describe("BackendSupervisor", () => {
     supervisor.restartWithScenario("delayed-startup");
     expect(first.kill).toHaveBeenCalledWith("SIGTERM");
 
-    first.stdout.write(`${readinessResponse(1)}\n`);
+    first.stdout.write(`${initializationResponse(1)}\n${readinessResponse(1)}\n`);
     expect(supervisor.getSnapshot().phase).toBe("starting");
-    second.stdout.write(`${readinessResponse(2)}\n`);
+    makeReady(second, 2);
     expect(supervisor.getSnapshot().phase).toBe("ready");
 
     supervisor.shutdown();
@@ -108,7 +145,7 @@ describe("BackendSupervisor", () => {
     expect(supervisor.getSnapshot()).toMatchObject({ phase: "failed", error: "Backend exited with exit code 17" });
 
     supervisor.start();
-    second.stdout.write(`${readinessResponse(2)}\n`);
+    makeReady(second, 2);
     second.exit(23);
     expect(supervisor.getSnapshot()).toMatchObject({ phase: "disconnected", error: "Backend exited with exit code 23" });
   });
@@ -130,7 +167,7 @@ describe("BackendSupervisor", () => {
     const listener = vi.fn();
     supervisor.subscribeBackendEvents(listener);
     supervisor.start();
-    child.stdout.write(`${readinessResponse(1)}\n`);
+    makeReady(child, 1);
 
     const call = supervisor.call({ type: "prompt", message: "hello" });
     const written = child.stdin.read()?.toString() ?? "";
@@ -148,11 +185,26 @@ describe("BackendSupervisor", () => {
     supervisor.shutdown();
   });
 
+  it("returns correlated RPC response data", async () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    makeReady(child, 1);
+    const call = supervisor.call({ type: "session_save" }, data => {
+      if (typeof data !== "object" || data === null || (data as Record<string, unknown>).saved !== true) throw new Error("expected saved response");
+      return data as { saved: true };
+    });
+    child.stdin.read();
+    child.stdout.write(`${JSON.stringify({ id: "desktop-rpc-1", type: "response", command: "session_save", success: true, data: { saved: true } })}\n`);
+    await expect(call).resolves.toEqual({ saved: true });
+    supervisor.shutdown();
+  });
+
   it("rejects a call cleanly when writing to backend stdin throws", async () => {
     const child = new FakeChild();
     const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
     supervisor.start();
-    child.stdout.write(`${readinessResponse(1)}\n`);
+    makeReady(child, 1);
     vi.spyOn(child.stdin, "write").mockImplementationOnce(() => {
       throw new Error("pipe closed");
     });
@@ -178,7 +230,7 @@ describe("BackendSupervisor", () => {
     expect(() => supervisor.start()).not.toThrow();
     expect(supervisor.getSnapshot()).toMatchObject({
       phase: "failed",
-      error: "Unable to write backend readiness probe: readiness pipe closed",
+      error: "Unable to write backend initialization request: readiness pipe closed",
     });
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
@@ -187,7 +239,7 @@ describe("BackendSupervisor", () => {
     const child = new FakeChild();
     const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
     supervisor.start();
-    child.stdout.write(`${readinessResponse(1)}\n`);
+    makeReady(child, 1);
 
     const call = supervisor.call({ type: "prompt", message: "hello" });
     child.stdin.emit("error", new Error("write EPIPE"));

@@ -164,7 +164,7 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     event stream. New Chat restarts the supervised child so the RPC history is
     actually empty; mock scenarios remain under Settings diagnostics.
 
-- [ ] **DESK-003 — Add desktop RPC support**
+- [x] **DESK-003 — Add desktop RPC support**
   - Add protocol handshake/versioning.
   - Add persistent sessions, approval, clarification, and supported store commands.
   - Preserve the existing RPC protocol behavior for current clients.

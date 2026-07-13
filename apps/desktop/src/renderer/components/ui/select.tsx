@@ -16,10 +16,21 @@ export const SelectTrigger = ({ className, children, ...props }: React.Component
   </SelectPrimitive.Trigger>
 );
 
-export const SelectContent = ({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Content>): React.JSX.Element => (
+export const SelectContent = ({ className, children, position = "popper", sideOffset = 6, ...props }: React.ComponentProps<typeof SelectPrimitive.Content>): React.JSX.Element => (
   <SelectPrimitive.Portal>
-    <SelectPrimitive.Content className={cn("relative z-50 max-h-96 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md", className)} {...props}>
-      <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+    <SelectPrimitive.Content
+      position={position}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 max-h-[min(18rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md",
+        position === "popper" && "w-[var(--radix-select-trigger-width)]",
+        className,
+      )}
+      {...props}
+    >
+      <SelectPrimitive.Viewport className="max-h-[min(18rem,var(--radix-select-content-available-height))] overflow-y-auto p-1">
+        {children}
+      </SelectPrimitive.Viewport>
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
 );

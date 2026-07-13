@@ -37,6 +37,7 @@ interface ActivePrompt {
 }
 
 let activePrompt: ActivePrompt | undefined;
+let activeInteraction: { readonly kind: "approval" | "clarification"; readonly requestId: string; readonly promptId: unknown } | undefined;
 
 const schedulePromptOutput = (prompt: ActivePrompt, value: unknown, delayMs: number): void => {
   const timer = setTimeout(() => {
@@ -85,6 +86,20 @@ if (scenario.behavior === "crash-before-ready") {
       process.stdout.write("{malformed-json\n");
       return;
     }
+    if (type === "initialize") {
+      if (scenario.behavior === "handshake-failure") {
+        respond(type, command.id, { error: "mock protocol mismatch" });
+        return;
+      }
+      const sendHandshake = (): void => respond(type, command.id, {
+        data: {
+          version: 1,
+          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "notes", "skills"],
+        },
+      });
+      setTimeout(sendHandshake, scenario.behavior === "delayed-startup" ? 600 : 5);
+      return;
+    }
     if (scenario.behavior === "reject-commands") {
       respond(type, command.id, { error: `mock rejected ${type}` });
       return;
@@ -96,7 +111,10 @@ if (scenario.behavior === "crash-before-ready") {
             running: false,
             model: "mock-model",
             messageCount,
-            todos: { items: [] },
+            todos: [],
+            protocolVersion: 1,
+            sessionId: "mock-session",
+            persistence: "unsaved",
           },
         });
         if (scenario.behavior === "disconnect-after-ready") {
@@ -104,6 +122,15 @@ if (scenario.behavior === "crash-before-ready") {
         }
       };
       setTimeout(sendState, scenario.behavior === "delayed-startup" ? 600 : 15);
+      return;
+    }
+    const emptyStoreData: Record<string, unknown> = {
+      session_list: { sessions: [] }, memory_list: { memories: [] }, memory_search: { memories: [] },
+      notes_search: { notes: [] }, cron_list: { jobs: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
+    };
+    if (type in emptyStoreData) {
+      if (scenario.behavior === "store-error") respond(type, command.id, { error: `mock store error: ${type}` });
+      else respond(type, command.id, { data: emptyStoreData[type] });
       return;
     }
     if (type === "prompt") {
@@ -115,6 +142,15 @@ if (scenario.behavior === "crash-before-ready") {
       messageCount += 2;
       const prompt: ActivePrompt = { id: command.id, timers: new Set() };
       activePrompt = prompt;
+      if (scenario.behavior === "approval" || scenario.behavior === "clarification") {
+        const kind = scenario.behavior;
+        const requestId = `mock-${kind}-1`;
+        activeInteraction = { kind, requestId, promptId: command.id };
+        writeFragmented(kind === "approval"
+          ? { type: "approval_request", requestId, command: "sudo mock-command" }
+          : { type: "clarification_request", requestId, question: "Which option should the mock use?" });
+        return;
+      }
       writeFragmented({ type: "agent_start" }, 8, prompt);
       schedulePromptOutput(prompt, {
         type: "message_update",
@@ -126,14 +162,29 @@ if (scenario.behavior === "crash-before-ready") {
         if (activePrompt !== prompt) return;
         activePrompt = undefined;
         respond(type, command.id);
-      }, 30);
+      }, scenario.behavior === "cancellation" ? 5_000 : 30);
       prompt.timers.add(responseTimer);
+      return;
+    }
+    if (type === "approval_response" || type === "clarification_response") {
+      const interaction = activeInteraction;
+      const expected = type === "approval_response" ? "approval" : "clarification";
+      if (interaction === undefined || interaction.kind !== expected || command.requestId !== interaction.requestId) {
+        respond(type, command.id, { error: "unknown or mismatched interaction request" });
+        return;
+      }
+      activeInteraction = undefined;
+      activePrompt = undefined;
+      respond(type, command.id);
+      if (type === "approval_response" && command.approved !== true) respond("prompt", interaction.promptId, { error: "shell command denied" });
+      else respond("prompt", interaction.promptId);
       return;
     }
     if (type === "abort") {
       const prompt = activePrompt;
       if (prompt !== undefined) {
         activePrompt = undefined;
+        activeInteraction = undefined;
         for (const timer of prompt.timers) clearTimeout(timer);
         prompt.timers.clear();
         for (let index = frameQueue.length - 1; index >= 0; index -= 1) {

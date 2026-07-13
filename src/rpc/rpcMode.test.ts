@@ -4,6 +4,7 @@ import type { DevinProvider, DevinStreamEvent } from "widevin";
 import type { DevinSession } from "../session.js";
 import type { AppConfig } from "../config.js";
 import { runRpcMode } from "./rpcMode.js";
+import type { SessionStore } from "../persistence/sessionStore.js";
 
 type FakeRound = readonly DevinStreamEvent[];
 type OutputLine = Record<string, unknown>;
@@ -71,7 +72,206 @@ const sendAndClose = (stdin: PassThrough, ...commands: object[]): void => {
   stdin.push(null);
 };
 
+const waitForLine = async (getLines: () => OutputLine[], predicate: (line: OutputLine) => boolean): Promise<OutputLine> => {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const line = getLines().find(predicate);
+    if (line !== undefined) return line;
+    await new Promise(resolve => setTimeout(resolve, 1));
+  }
+  throw new Error("timed out waiting for RPC output");
+};
+
+const fakeSessionStore = (): SessionStore => ({
+  db: {} as SessionStore["db"],
+  loadSession: vi.fn(),
+  listSessions: vi.fn(() => []),
+  saveCheckpoint: vi.fn(checkpoint => checkpoint),
+  branch: vi.fn(),
+  branchWithSummary: vi.fn(async () => {}),
+  forkSession: vi.fn(() => "fork-id"),
+  getRecentMessages: vi.fn(() => []),
+  close: vi.fn(),
+});
+
 describe("runRpcMode", () => {
+  it("finishes compaction on its original session before activating a new session", async () => {
+    const { promise: compactionEntered, resolve: signalCompactionEntered } = Promise.withResolvers<void>();
+    const { promise: releaseCompaction, resolve: release } = Promise.withResolvers<void>();
+    let callCount = 0;
+    const devin: DevinProvider = {
+      login: vi.fn(), setToken: vi.fn(), clearToken: vi.fn(), listModels: vi.fn(async () => []),
+      streamChat: async function* () {
+        callCount += 1;
+        if (callCount === 1) {
+          yield { type: "text_delta", delta: "first answer" } as const;
+          yield { type: "done", reason: "stop" } as const;
+          return;
+        }
+        signalCompactionEntered();
+        await releaseCompaction;
+        yield { type: "text_delta", delta: "summary" } as const;
+        yield { type: "done", reason: "stop" } as const;
+      },
+    };
+    const store = fakeSessionStore();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const ids = ["session-a", "session-b"];
+    const runPromise = runRpcMode({ session: fakeSession(devin), config: fakeConfig(), stdin, stdout, sessionStore: store, randomId: () => ids.shift()! });
+
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    send(stdin, { id: "prompt", type: "prompt", message: "first" });
+    await waitForLine(getLines, line => line["id"] === "prompt");
+    send(stdin, { id: "compact", type: "compact" });
+    await compactionEntered;
+    send(stdin, { id: "new", type: "session_new" });
+    await Promise.resolve();
+    expect(getLines().find(line => line["id"] === "new")).toBeUndefined();
+    release();
+    await waitForLine(getLines, line => line["id"] === "new");
+    send(stdin, { id: "state", type: "get_state" });
+    await waitForLine(getLines, line => line["id"] === "state");
+    stdin.push(null);
+    await runPromise;
+
+    expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { sessionId: "session-b", messageCount: 0, persistence: "unsaved" } });
+    expect(vi.mocked(store.saveCheckpoint).mock.calls.every(([checkpoint]) => checkpoint.id === "session-a")).toBe(true);
+  });
+
+  it("moves a saved transcript to new session metadata when its model changes", async () => {
+    const devin = fakeProvider([[{ type: "text_delta", delta: "answer" }, { type: "done", reason: "stop" }]]);
+    const store = fakeSessionStore();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const ids = ["session-a", "session-b"];
+    const resolveModelRuntime = vi.fn(async (modelId: string): Promise<DevinSession> => ({
+      ...fakeSession(devin),
+      model: { ...fakeSession(devin).model, id: modelId, contextWindow: 42_000 },
+      systemPrompt: [`system:${modelId}`],
+    }));
+    const rpcOptions = { session: fakeSession(devin), config: fakeConfig(), stdin, stdout, sessionStore: store, randomId: () => ids.shift()!, resolveModelRuntime };
+    const runPromise = runRpcMode(rpcOptions);
+
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    send(stdin, { id: "prompt", type: "prompt", message: "hello" });
+    await waitForLine(getLines, line => line["id"] === "prompt");
+    send(stdin, { id: "model", type: "set_model", modelId: "other-model" });
+    await waitForLine(getLines, line => line["id"] === "model");
+    send(stdin, { id: "save", type: "session_save" });
+    await waitForLine(getLines, line => line["id"] === "save");
+    send(stdin, { id: "state", type: "get_state" });
+    stdin.push(null);
+    await runPromise;
+
+    expect(resolveModelRuntime).toHaveBeenCalledWith("other-model");
+    expect(vi.mocked(store.saveCheckpoint).mock.calls.map(([checkpoint]) => ({ id: checkpoint.id, model: checkpoint.model })))
+      .toEqual([{ id: "session-a", model: "test-model" }, { id: "session-b", model: "other-model" }]);
+    expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { sessionId: "session-b", model: "other-model", persistence: "saved" } });
+  });
+
+  it("uses resolved model metadata and system prompt after loading a session", async () => {
+    const requests: Array<{ model: string; systemPrompt?: readonly string[] }> = [];
+    const devin: DevinProvider = {
+      login: vi.fn(), setToken: vi.fn(), clearToken: vi.fn(), listModels: vi.fn(async () => []),
+      streamChat: async function* (request) {
+        requests.push({ model: request.model, ...(request.systemPrompt === undefined ? {} : { systemPrompt: request.systemPrompt }) });
+        yield { type: "text_delta", delta: "continued" } as const;
+        yield { type: "done", reason: "stop" } as const;
+      },
+    };
+    const store = fakeSessionStore();
+    vi.mocked(store.loadSession).mockReturnValue({
+      id: "saved", model: "loaded-model", startedAt: "2026-01-01T00:00:00.000Z",
+      messages: [{ role: "user", content: "old" }, { role: "assistant", content: [{ type: "text", text: "answer" }] }],
+      todos: [],
+    });
+    const loadedRuntime: DevinSession = {
+      ...fakeSession(devin),
+      model: { ...fakeSession(devin).model, id: "loaded-model", contextWindow: 8_192 },
+      systemPrompt: ["loaded-model-system"],
+    };
+    const resolveModelRuntime = vi.fn(async () => loadedRuntime);
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const rpcOptions = { session: fakeSession(devin), config: fakeConfig(), stdin, stdout, sessionStore: store, resolveModelRuntime };
+    const runPromise = runRpcMode(rpcOptions);
+
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    send(stdin, { id: "load", type: "session_load", sessionId: "saved" });
+    await waitForLine(getLines, line => line["id"] === "load");
+    send(stdin, { id: "prompt", type: "prompt", message: "continue" });
+    await waitForLine(getLines, line => line["id"] === "prompt");
+    stdin.push(null);
+    await runPromise;
+
+    expect(resolveModelRuntime).toHaveBeenCalledWith("loaded-model");
+    expect(requests[0]).toEqual({ model: "loaded-model", systemPrompt: ["loaded-model-system"] });
+  });
+
+  it("negotiates protocol v1 and reports capabilities plus active session metadata", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const runPromise = runRpcMode({ session: fakeSession(fakeProvider([])), config: fakeConfig(), stdin, stdout, randomId: () => "session-1", now: () => new Date("2026-01-02T03:04:05Z") });
+    sendAndClose(stdin, { id: "init", type: "initialize", version: 1 }, { id: "state", type: "get_state" });
+    await runPromise;
+
+    expect(getLines().find(line => line["id"] === "init")).toMatchObject({ success: true, data: { version: 1, capabilities: expect.arrayContaining(["sessions", "memory", "notes"]) } });
+    expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { sessionId: "session-1", startedAt: "2026-01-02T03:04:05.000Z", persistence: "unsaved" } });
+  });
+
+  it("rejects unsupported initialization without leaving legacy mode", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const runPromise = runRpcMode({ session: fakeSession(fakeProvider([])), config: fakeConfig(), stdin, stdout });
+    sendAndClose(stdin, { id: "bad", type: "initialize", version: 9 }, { id: "state", type: "get_state" });
+    await runPromise;
+    expect(getLines().find(line => line["id"] === "bad")).toMatchObject({ success: false, error: expect.stringContaining("unsupported protocol version") });
+    expect((getLines().find(line => line["id"] === "state")?.["data"] as Record<string, unknown>)).not.toHaveProperty("protocolVersion");
+  });
+
+  it("automatically checkpoints a completed v1 transcript", async () => {
+    const store = fakeSessionStore();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const devin = fakeProvider([[{ type: "text_delta", delta: "hello" }, { type: "done", reason: "stop" }]]);
+    const runPromise = runRpcMode({ session: fakeSession(devin), config: fakeConfig(), stdin, stdout, sessionStore: store, randomId: () => "session-1" });
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    send(stdin, { id: "prompt", type: "prompt", message: "hello" });
+    await waitForLine(getLines, line => line["id"] === "prompt");
+    sendAndClose(stdin, { id: "state", type: "get_state" });
+    await runPromise;
+
+    expect(store.saveCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ id: "session-1", messages: expect.arrayContaining([expect.objectContaining({ role: "user" })]) }));
+    expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { persistence: "saved" } });
+  });
+
+  it("round-trips a v1 shell approval request and denial", async () => {
+    const devin = fakeProvider([
+      [{ type: "toolcall_delta", id: "call-1", delta: JSON.stringify({ command: "sudo echo rpc-test" }) }, { type: "toolcall_end", id: "call-1", name: "run_shell_command", arguments: { command: "sudo echo rpc-test" } }],
+      [{ type: "text_delta", delta: "Denied." }, { type: "done", reason: "stop" }],
+    ]);
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const ids = ["session-1", "approval-1"];
+    const runPromise = runRpcMode({ session: fakeSession(devin), config: { ...fakeConfig(), approvalMode: "manual" }, stdin, stdout, sessionStore: fakeSessionStore(), randomId: () => ids.shift()! });
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    send(stdin, { id: "prompt", type: "prompt", message: "run it" });
+    await waitForLine(getLines, line => line["type"] === "approval_request");
+    send(stdin, { id: "approval-response", type: "approval_response", requestId: "approval-1", approved: false });
+    await waitForLine(getLines, line => line["id"] === "prompt");
+    stdin.push(null);
+    await runPromise;
+
+    expect(getLines().find(line => line["type"] === "approval_request")).toMatchObject({ requestId: "approval-1", command: "sudo echo rpc-test" });
+    expect(getLines().find(line => line["id"] === "approval-response")).toMatchObject({ success: true });
+  });
   it("responds to prompt command with success after agent finishes", async () => {
     const devin = fakeProvider([
       [{ type: "text_delta", delta: "4" }, { type: "done", reason: "stop" }],

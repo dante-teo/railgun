@@ -7,7 +7,13 @@ export type MockScenarioBehavior =
   | "reject-commands"
   | "malformed-output"
   | "crash-before-ready"
-  | "disconnect-after-ready";
+  | "disconnect-after-ready"
+  | "handshake-failure"
+  | "empty-stores"
+  | "store-error"
+  | "approval"
+  | "clarification"
+  | "cancellation";
 
 export interface MockScenarioDefinition extends Omit<MockScenario, "id"> {
   readonly id: string;
@@ -64,6 +70,42 @@ export const MOCK_SCENARIOS = defineMockScenarios([
     label: "Disconnect after ready",
     description: "Becomes ready and then exits unexpectedly.",
     behavior: "disconnect-after-ready",
+  },
+  {
+    id: "handshake-failure",
+    label: "Handshake failure",
+    description: "Rejects the protocol v1 initialization handshake.",
+    behavior: "handshake-failure",
+  },
+  {
+    id: "empty-stores",
+    label: "Empty stores",
+    description: "Reports empty session, memory, note, cron, MCP, and skill stores.",
+    behavior: "empty-stores",
+  },
+  {
+    id: "store-error",
+    label: "Store error",
+    description: "Returns correlated errors for management commands.",
+    behavior: "store-error",
+  },
+  {
+    id: "approval",
+    label: "Approval request",
+    description: "Requests shell approval during a prompt.",
+    behavior: "approval",
+  },
+  {
+    id: "clarification",
+    label: "Clarification request",
+    description: "Requests clarification during a prompt.",
+    behavior: "clarification",
+  },
+  {
+    id: "cancellation",
+    label: "Cancellation",
+    description: "Keeps a prompt active until it is aborted.",
+    behavior: "cancellation",
   },
 ] as const);
 

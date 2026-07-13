@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { serializeJsonLine } from "./jsonl.js";
-import type { RpcCommand } from "./types.js";
 
 // ESM modules are not reconfigurable — vi.mock must hoist a factory before imports resolve.
 vi.mock("node:child_process", () => {
@@ -70,7 +69,7 @@ describe("RpcClient", () => {
   it("rejects call() when a matching error response arrives", async () => {
     const client = new RpcClient({ cliPath: "node", args: ["dist/cli.js"] });
 
-    const callPromise = client.call({ type: "prompt", message: "hello" } as Omit<RpcCommand, "id">);
+    const callPromise = client.call({ type: "prompt", message: "hello" });
 
     const response = { id: "1", type: "response", command: "prompt", success: false, error: "agent is already running" };
     fake.childStdout.push(Buffer.from(serializeJsonLine(response)));
@@ -90,6 +89,26 @@ describe("RpcClient", () => {
     await Promise.resolve();
 
     expect(events).toEqual([{ type: "agent_start" }]);
+    client.stop();
+  });
+
+  it("initializes only when requested and exposes interactive request subscriptions", async () => {
+    const client = new RpcClient({ cliPath: "node", args: ["dist/cli.js"] });
+    const approvals: unknown[] = [];
+    const clarifications: unknown[] = [];
+    client.onApprovalRequest(request => approvals.push(request));
+    client.onClarificationRequest(request => clarifications.push(request));
+
+    const initialized = client.initialize("test-client");
+    fake.childStdout.push(Buffer.from(serializeJsonLine({ id: "1", type: "response", command: "initialize", success: true, data: { version: 1, capabilities: [] } })));
+    await expect(initialized).resolves.toEqual({ version: 1, capabilities: [] });
+    fake.childStdout.push(Buffer.from(
+      serializeJsonLine({ type: "approval_request", requestId: "a", command: "sudo x" }) +
+      serializeJsonLine({ type: "clarification_request", requestId: "c", question: "Which?" }),
+    ));
+    await Promise.resolve();
+    expect(approvals).toEqual([{ type: "approval_request", requestId: "a", command: "sudo x" }]);
+    expect(clarifications).toEqual([{ type: "clarification_request", requestId: "c", question: "Which?" }]);
     client.stop();
   });
 

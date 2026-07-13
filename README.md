@@ -545,12 +545,40 @@ already running returns an error response with `success: false`. `steer`,
 while idle returns an error response.
 
 When stdin reaches EOF, any in-flight run is aborted and the process exits
-cleanly. RPC mode does not persist sessions.
+cleanly.
 
 Shell commands are auto-approved in RPC mode because there is no human at the
 terminal; the configured `approvalMode` still applies but the human confirmation
 callback always returns true. The `clarify` tool throws as a tool error and
 surfaces in the transcript.
+
+These are the unchanged legacy semantics. Desktop-capable clients may opt into
+protocol v1 before the first run:
+
+```json
+{ "id": "init", "type": "initialize", "version": 1, "clientName": "my-client" }
+```
+
+The handshake returns `version` and `capabilities`. V1 adds persistent session
+commands (`session_new`, `session_list`, `session_load`, `session_save`,
+`session_branch`, `session_fork`, `session_recent_messages`), interactive
+`approval_request`/`approval_response` and
+`clarification_request`/`clarification_response` pairs, and config/MCP, cron,
+memory, notes, and skills management commands. Active transcripts checkpoint
+after completed or aborted runs; enhanced `get_state` reports session identity
+and persistence status. MCP responses expose environment key presence but never
+secret values. See [ADR 0032](docs/adr/0032-versioned-desktop-rpc.md) for the
+compatibility and lifecycle rules.
+
+`initialize` is accepted once and only before a run starts. An unsupported
+version returns a correlated error without changing the connection from legacy
+mode. In protocol v1, session mutations, model changes, and manual compaction
+are serialized, so a pending compaction cannot write its transcript into a
+newly activated session. Loading or forking a session resolves that session's
+model metadata and model-specific prompt before it becomes active. Changing
+the model of a persisted session creates a new unsaved session identity with a
+copy of the active transcript and todos; it never rewrites the saved session's
+immutable model metadata.
 
 `--approve` and `--no-approve` are incompatible with `--mode rpc` and produce a
 usage error.

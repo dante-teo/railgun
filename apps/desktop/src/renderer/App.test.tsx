@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, BackendStatus, MockPanel } from "./App";
 import type { BackendPhase, BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../shared/types";
 
+Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+
 afterEach(cleanup);
 
 const snapshot = (phase: BackendPhase): BackendSnapshot => ({
@@ -30,7 +32,7 @@ describe("BackendStatus", () => {
 });
 
 describe("MockPanel", () => {
-  it("renders scenarios and restarts the selected backend", () => {
+  it("opens the scenario menu, updates the selection, and restarts that backend", async () => {
     const onSelect = vi.fn(async () => undefined);
     render(<MockPanel
       snapshot={snapshot("ready")}
@@ -41,11 +43,17 @@ describe("MockPanel", () => {
       onSelect={onSelect}
     />);
 
-    expect(screen.getByRole("combobox", { name: "Mock scenario" })).toBeTruthy();
+    const scenarioSelect = screen.getByRole("combobox", { name: "Mock scenario" });
+    expect(scenarioSelect).toBeTruthy();
     expect(screen.getByText("Ready now")).toBeTruthy();
     expect(screen.getByText("Starting backend")).toBeTruthy();
+    fireEvent.keyDown(scenarioSelect, { key: "ArrowDown" });
+    const delayedOption = await screen.findByRole("option", { name: "Delayed startup" });
+    expect(delayedOption.closest("[data-side]")?.className).toContain("radix-select-trigger-width");
+    fireEvent.click(delayedOption);
+    expect(screen.getByText("Ready later")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Restart backend" }));
-    expect(onSelect).toHaveBeenCalledWith("ready-idle");
+    expect(onSelect).toHaveBeenCalledWith("delayed-startup");
   });
 });
 

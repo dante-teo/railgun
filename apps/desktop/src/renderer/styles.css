@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
 @theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
   --color-accent: hsl(var(--accent));
@@ -10,6 +16,12 @@
 }
 
 :root {
+  --background: 150 17% 98%;
+  --foreground: 158 26% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 158 26% 11%;
+  --popover: 150 20% 99%;
+  --popover-foreground: 158 26% 11%;
   --primary: 160 67% 34%; --primary-foreground: 0 0% 100%;
   --accent: 155 22% 91%; --accent-foreground: 160 45% 20%;
   --input: 158 12% 78%; --ring: 160 60% 38%;
@@ -69,14 +81,39 @@ nav button.active { background: rgba(255,255,255,.72); box-shadow: 0 1px 5px rgb
 .status-ready .status-mark { background:#28a679;box-shadow:0 0 0 5px rgba(40,166,121,.13)}.status-failed .status-mark,.status-disconnected .status-mark{background:#d65365;box-shadow:0 0 0 5px rgba(214,83,101,.13)}
 .eyebrow { margin: 0 0 6px; color: #667c74; font-size: 10px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
 .status h1,.mock-panel h2,.boundary-note h2 { margin: 0 0 5px; font-size: 18px; }.description,.scenario-description,.boundary-note p { margin: 0; color:#667b73;font-size:13px }.error-detail{color:#b43c50;font-weight:600}
-details{margin-top:16px}pre{overflow:auto;padding:12px;border-radius:10px;background:rgba(21,49,41,.06);white-space:pre-wrap}.scenario-controls{display:flex;gap:10px;margin:14px 0 10px}.scenario-controls>button{flex:none}.transport{margin-top:18px;border-top:1px solid rgba(20,61,49,.1);padding-top:14px}.transport h3{font-size:12px}.transport ol{max-height:160px;overflow:auto;margin:0;padding:0;list-style:none}.transport li{display:grid;grid-template-columns:54px 1fr;gap:8px;margin:6px 0;font-size:11px}.transport span{color:#688078;font-weight:700}.transport code{overflow-wrap:anywhere}.boundary-note>div{display:flex;gap:12px;align-items:center}.boundary-note svg{width:22px;color:#278263}
+details{margin-top:16px}pre{overflow:auto;padding:12px;border-radius:10px;background:rgba(21,49,41,.06);white-space:pre-wrap}.scenario-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) auto;
+  align-items: center;
+  justify-content: start;
+  gap: 10px;
+  margin: 14px 0 10px;
+}
+.scenario-controls > button { white-space: nowrap; }
+.transport{margin-top:18px;border-top:1px solid rgba(20,61,49,.1);padding-top:14px}.transport h3{font-size:12px}.transport ol{max-height:160px;overflow:auto;margin:0;padding:0;list-style:none}.transport li{display:grid;grid-template-columns:54px 1fr;gap:8px;margin:6px 0;font-size:11px}.transport span{color:#688078;font-weight:700}.transport code{overflow-wrap:anywhere}.boundary-note>div{display:flex;gap:12px;align-items:center}.boundary-note svg{width:22px;color:#278263}
 .loading-shell { height: 100%; display: grid; place-content: center; justify-items: center; gap: 12px; color: #657a72; }.loading-shell svg{color:#288564}
 
 @media (prefers-color-scheme: dark) {
-  :root { --accent:157 18% 20%;--accent-foreground:150 38% 95%;--input:156 13% 28%;background:#101613;color:#edf5f1; }
+  :root {
+    --background: 150 16% 8%;
+    --foreground: 150 29% 95%;
+    --card: 154 17% 14%;
+    --card-foreground: 150 29% 95%;
+    --popover: 154 19% 12%;
+    --popover-foreground: 150 29% 95%;
+    --accent: 157 18% 20%;
+    --accent-foreground: 150 38% 95%;
+    --input: 156 13% 28%;
+    background: #101613;
+    color: #edf5f1;
+  }
   .desktop-shell,.chat-surface,.settings-surface{background:#121916}.sidebar{border-color:rgba(190,225,212,.09);background:rgba(24,35,31,.82)}nav button:hover{background:rgba(255,255,255,.05)}nav button.active{background:rgba(255,255,255,.09)}.content-toolbar{border-color:rgba(190,225,212,.08)}.welcome span,.message.user p{border-color:rgba(190,225,212,.1);background:#1c2924}.composer,.status,.mock-panel,.boundary-note{border-color:rgba(190,225,212,.12);background:rgba(29,41,36,.88);box-shadow:0 12px 36px rgba(0,0,0,.22)}.send-button:disabled{background:#2a3732}.eyebrow,.description,.scenario-description,.boundary-note p,.sidebar-footer,.content-toolbar p,.message-role,.welcome p{color:#91a69e}pre{background:rgba(230,255,246,.06)}
 }
 
 @media (prefers-reduced-motion: no-preference) { @keyframes bounce { to { transform: translateY(-4px); opacity:.55; } } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }
 @media (prefers-contrast: more) { .sidebar,.composer,.status,.mock-panel,.boundary-note { border-width: 2px; backdrop-filter: none; } }
+@media (max-width: 860px) {
+  .scenario-controls { grid-template-columns: minmax(0, 1fr); }
+  .scenario-controls > button { width: 100%; }
+}

@@ -265,16 +265,21 @@ describe("dispatchCli", () => {
     expect(deps.runRepl).toHaveBeenCalledOnce();
   });
 
-  it("dispatches rpc mode: initializes session and calls runRpc without opening the store", async () => {
-    const deps = dependencies();
+  it("dispatches rpc mode with persistent stores and closes them after shutdown", async () => {
+    const store = fakeStore();
+    const deps = dependencies(store);
     await dispatchCli({ kind: "rpc" }, deps);
     expect(deps.initSession).toHaveBeenCalledOnce();
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.runRpc).toHaveBeenCalledWith(expect.objectContaining({
       session: fakeSession,
       config: expect.objectContaining({ model: null }),
+      sessionStore: store,
+      memoryStore: expect.anything(),
+      noteStore: expect.anything(),
     }));
-    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.createStore).toHaveBeenCalledOnce();
+    expect(store.close).toHaveBeenCalledOnce();
     expect(deps.runRepl).not.toHaveBeenCalled();
   });
 

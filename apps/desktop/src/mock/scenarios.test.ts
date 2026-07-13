@@ -10,6 +10,12 @@ describe("mock scenario registry", () => {
       "malformed-output",
       "crash-before-ready",
       "disconnect-after-ready",
+      "handshake-failure",
+      "empty-stores",
+      "store-error",
+      "approval",
+      "clarification",
+      "cancellation",
     ]);
     expect(listMockScenarios()[0]).not.toHaveProperty("behavior");
   });
