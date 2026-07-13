@@ -1,10 +1,5 @@
 import { registry } from "./registry.js";
-
-const extractString = (args: unknown, key: string): string | undefined => {
-  if (typeof args !== "object" || args === null) return undefined;
-  const value = (args as Record<string, unknown>)[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
+import { extractString } from "./args.js";
 
 registry.register({
   name: "note_search",

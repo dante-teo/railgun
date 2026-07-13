@@ -40,6 +40,8 @@ import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
 import { runDreamSession } from "../dream/dreamJob.js";
 import { expandSkillCommand } from "../skills.js";
+import { loadJobs, saveJobs, validateJob, CronJobsError } from "../cron/jobs.js";
+import { CRON_PATH } from "../paths.js";
 import type { AdviceSeverity } from "../advisor/advisoryContext.js";
 import { parseAdvisoryMessage } from "../advisor/advisoryMessage.js";
 import { Selector, createSelectorState, reduceSelector } from "./selector.js";
@@ -578,7 +580,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /skill:<name>" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /cron [add|remove], /skill:<name>" }]);
         return;
       }
       if (command === "/clear") {
@@ -809,6 +811,63 @@ const ChatApp = ({
           setLines(prev => [...prev, { kind: "assistant", text: "Dream complete. Memories consolidated." }]);
         } catch (error) {
           setLines(prev => [...prev, { kind: "error", text: `Dream failed: ${error instanceof Error ? error.message : String(error)}` }]);
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+      if (command === "/cron") {
+        setBusy(true);
+        try {
+          if (!arg) {
+            // List all jobs
+            const jobs = await loadJobs();
+            if (jobs.length === 0) {
+              setLines(prev => [...prev, { kind: "assistant", text: "No cron jobs configured. Use /cron add <id> <schedule> <prompt> to create one." }]);
+            } else {
+              const lines = jobs.map(j => `[${j.id}] ${j.schedule} — ${j.prompt}`).join("\n");
+              setLines(prev => [...prev, { kind: "assistant", text: lines }]);
+            }
+          } else {
+            const parts = arg.split(/\s+/);
+            const subcommand = parts[0];
+            if (subcommand === "add") {
+              // /cron add <id> <field1> <field2> <field3> <field4> <field5> <...prompt>
+              const id = parts[1];
+              const scheduleFields = parts.slice(2, 7);
+              const prompt = parts.slice(7).join(" ");
+              if (!id || scheduleFields.length < 5 || !prompt) {
+                setLines(prev => [...prev, { kind: "error", text: "Usage: /cron add <id> <cron-schedule> <prompt>  (schedule is 5 fields, e.g. 0 9 * * *)" }]);
+                return;
+              }
+              const schedule = scheduleFields.join(" ");
+              const jobs = await loadJobs();
+              if (jobs.some(j => j.id === id)) {
+                setLines(prev => [...prev, { kind: "error", text: `A cron job with id "${id}" already exists.` }]);
+                return;
+              }
+              const newJob = validateJob({ id, schedule, prompt, lastRun: null }, CRON_PATH);
+              await saveJobs([...jobs, newJob]);
+              setLines(prev => [...prev, { kind: "assistant", text: `Added cron job "${id}": ${schedule} — ${prompt}` }]);
+            } else if (subcommand === "remove") {
+              const id = parts[1];
+              if (!id) {
+                setLines(prev => [...prev, { kind: "error", text: "Usage: /cron remove <id>" }]);
+                return;
+              }
+              const jobs = await loadJobs();
+              if (!jobs.some(j => j.id === id)) {
+                setLines(prev => [...prev, { kind: "error", text: `No cron job found with id "${id}".` }]);
+                return;
+              }
+              await saveJobs(jobs.filter(j => j.id !== id));
+              setLines(prev => [...prev, { kind: "assistant", text: `Removed cron job "${id}".` }]);
+            } else {
+              setLines(prev => [...prev, { kind: "error", text: `Unknown /cron subcommand "${subcommand}". Use: /cron, /cron add, /cron remove` }]);
+            }
+          }
+        } catch (error) {
+          setLines(prev => [...prev, { kind: "error", text: `Cron error: ${error instanceof CronJobsError ? error.message : error instanceof Error ? error.message : String(error)}` }]);
         } finally {
           setBusy(false);
         }

@@ -13,7 +13,7 @@ const MAX_SPAWN_DEPTH = 2;
 const MAX_CONCURRENT_CHILDREN = 3;
 const CHILD_ITERATION_BUDGET = 50;
 
-const LEAF_TOOLSETS: readonly string[] = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills"];
+const LEAF_TOOLSETS: readonly string[] = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills", "cron"];
 const ORCHESTRATOR_TOOLSETS: readonly string[] = [...LEAF_TOOLSETS, "delegation"];
 
 interface TaskSpec {

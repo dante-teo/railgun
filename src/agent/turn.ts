@@ -23,7 +23,7 @@ export type TurnOutcome =
 
 export const STOPPED_BY_USER = "[stopped by user]";
 
-const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills", "delegation"] as const;
+const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills", "delegation", "cron"] as const;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }

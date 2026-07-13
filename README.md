@@ -146,6 +146,10 @@ session becomes durable after its first successful turn:
   - `/model --session` — open the picker; the selected model applies to this session only.
   - `/compact` — manually summarize and compact the current conversation history now, without waiting for the automatic 90%-context-window trigger. Prints `Compacted conversation history to stay under the context limit.` on success.
   - `/dream` — manually trigger memory consolidation. Reviews all stored memories, merges duplicates, deletes stale entries, and promotes stable user preferences to `~/.railgun/SOUL.md`. Requires at least 5 stored memories. Progress lines appear in the transcript.
+  - `/cron` — list all scheduled jobs.
+  - `/cron add <id> <schedule> <prompt>` — create a new cron job. `<schedule>` is a 5-field cron expression (e.g. `0 9 * * *`); `<prompt>` is the remainder of the line. Validates the expression and rejects duplicate ids.
+  - `/cron remove <id>` — delete a scheduled job by id.
+  (The agent tool can also manage jobs via natural language — ask "list my scheduled tasks" or "add a daily summary job".)
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
   `Esc` to dismiss the dropdown.
@@ -417,6 +421,8 @@ Behavior in cron mode:
 
 A missing `~/.railgun/cron/jobs.json` is treated as an empty list — the scheduler runs but never fires. The `schedule` field uses standard cron syntax (`* * * * *` — minute, hour, day-of-month, month, day-of-week); five-field expressions are supported via `cron-parser`.
 
+Jobs can now be managed without editing the file directly: the `/cron` REPL slash command (`/cron`, `/cron add`, `/cron remove`) provides quick in-session access, and the agent `cron` tool (`action: list|add|remove|update`) lets the LLM manage jobs on behalf of the user via natural language.
+
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
 the supported `login`, `logout`, `--print`, `--resume`/`-r`, and
 `--list-sessions` usage to stderr and exits non-zero without launching anything.
@@ -540,7 +546,7 @@ rendering helpers, alongside tests for
 (token-budgeted history summarization and truncation), `src/agent/projectContext.ts`
 (context-file discovery, git-root walk, injection scan, truncation,
 `SOUL.md` loading), `src/security/threatPatterns.ts` (injection-pattern
-matching), each tool's own handler logic in `src/tools/` (including delegation depth/concurrency/abort propagation for `delegate_task`),
+matching), `src/tools/cron.ts` (cron job management) and each tool's own handler logic in `src/tools/` (including delegation depth/concurrency/abort propagation for `delegate_task`),
 `src/commands.ts` (slash-command prefix matching and parsing), theme detection,
 physical-row viewport/navigation, mouse parsing and lifecycle cleanup, composer
 sizing/actions, chronological streaming/tool segmentation, terminal resizing,

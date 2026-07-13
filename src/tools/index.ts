@@ -5,6 +5,7 @@ import "./runShell.js";
 import "./todo.js";
 import "./clarify.js";
 import "./memory.js";
+import "./cron.js";
 import "./noteSearch.js";
 import "./noteSearchSemantic.js";
 import "./skillView.js";

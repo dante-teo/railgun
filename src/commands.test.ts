@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOWN_COMMANDS } from "./commands.js";
 
 describe("KNOWN_COMMANDS", () => {
-  it("contains commands without the removed skin override", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream"]);
+  it("contains /cron along with the other commands", () => {
+     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
+     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
   });
 });
 
@@ -35,6 +35,10 @@ describe("matchCommand", () => {
 
   it("returns '/trust' for the unique prefix '/tru'", () => {
     expect(matchCommand("/tru")).toBe("/trust");
+  });
+
+  it("returns '/cron' for the unique prefix '/cr'", () => {
+    expect(matchCommand("/cr")).toBe("/cron");
   });
 });
 
@@ -67,8 +71,8 @@ describe("parseSlashCommand", () => {
 });
 describe("findMatches", () => {
   it("returns all commands for '/'", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream"]);
+     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
+     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
   });
 
   it("returns no matches for '/sk'", () => {
