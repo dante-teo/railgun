@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (Sprint 0 + Sprint 1 complete; Sprint 2 Composer + slash commands complete; T5 component parity complete)
+Accepted (Sprint 0 + Sprint 1 complete; Sprint 2 Composer + slash commands complete; T5 component parity complete; T7 gateway client + production App shell complete)
 
 ## Context
 
@@ -57,10 +57,10 @@ React 19 DOM, no Electron APIs, no Node.js builtins. CSS custom properties drive
 
 `DisplayLine.partial: true` signals that an assistant line is still in flight. `MessageBubble` renders partial lines in one of two states:
 
-- **Streaming** (`partial && text !== ""`): renders `line.text` via `react-markdown` + `StreamingCursor`. Transcript passes `text: streaming` directly into the ephemeral `DisplayLine` — streaming content is not a separate prop.
+- **Streaming** (`partial && text !== ""`): renders `line.text` via `react-markdown` + `StreamingCursor`. `Transcript` receives `streaming` as a dedicated prop and renders the streaming bubble independently of the `lines` array — streaming text is never embedded in `lines` while it is still accumulating. The production `App` passes `state.streaming` directly to `<Transcript streaming={...}>` and keeps it out of the `displayLines` memo.
 - **Thinking** (`partial && text === ""`): renders `"Thinking" + StreamingCursor` with `.thinking-text` styling (dimmed, italic). Transcript emits this line when `busy && !streaming` (agent is running but no text deltas have arrived yet).
 
-These two states are mutually exclusive: `Transcript` renders at most one ephemeral partial bubble at a time.
+These two states are mutually exclusive: `Transcript` renders at most one ephemeral partial bubble at a time. Tool-call progress lines (ephemeral pending tool labels) are appended to the `lines` prop by the `App` shell's `displayLines` memo while `toolLabels.size > 0`; they never coexist with the streaming bubble because an incoming `tool_execution_start` event flushes any in-progress stream segment before adding the tool label.
 
 ### Component tests
 
@@ -195,3 +195,82 @@ The gateway's `clarify_request` frame already carries `question` and optional `c
 ### DevShell keyboard guard
 
 `DevShell` activates overlays via digit keys 1–7 bound on `window`. The handler checks `e.target.tagName` and `isContentEditable` before acting, so typing digits in the Composer textarea does not spuriously open an overlay.
+
+---
+
+## T7 — Gateway Client + Production App Shell
+
+T7 wires the desktop renderer to the running gateway, replacing the `DevShell` mock with a live stateful shell.
+
+### `renderer/lib/gatewayClient.ts`
+
+`createGatewayClient(url)` returns a `GatewayClient` with five operations:
+
+| Operation | Behaviour |
+|---|---|
+| `send(cmd)` | Serialises a `GatewayCommand` to JSON and writes it if `readyState === OPEN`; drops silently otherwise |
+| `request(cmd)` | `send` + `Promise<GatewayResponse>` keyed by `cmd.id`; resolved when a `{ type: "response", id }` frame arrives; rejects with `{ success: false, error: "Request timed out" }` after 10 s |
+| `subscribe(fn)` | Adds `fn` to a `Set` of listeners; returns an unsubscribe thunk; `response` frames bypass broadcast and resolve their `request` promise directly |
+| `close()` | Disables reconnect, closes the socket, resolves all pending `request` promises with `{ success: false, error: "Client closed" }` |
+| `status()` | Returns `"connecting" \| "connected" \| "disconnected"` from the last socket event |
+
+Auto-reconnect: `onclose`/`onerror` schedule a reconnect via exponential backoff (1 s → 2 s → 4 s → 8 s cap). Backoff index resets on `onopen`. `close()` sets a `closed` flag that suppresses reconnect scheduling.
+
+`nextCmdId()` is a module-level monotonic counter (`"cmd-${++seq}"`) exported for callers that need to fabricate a correlation id before calling `request`.
+
+### `renderer/lib/useAgentEvents.ts`
+
+`useAgentEvents(gatewayUrl)` is the single stateful hook driving the shell. It owns:
+
+- A `GatewayClient` in a `useRef` (stable across renders, closed on unmount).
+- A `StreamSegments` ref for accumulating streaming text deltas without triggering renders on every character.
+- A `toolLabelTextRef` (`Map<toolCallId, label>`) for retaining the display label after a tool call id is removed from the `toolLabels` render state.
+- A `useReducer` whose `ReducerState` holds all render-visible fields: `lines`, `streaming`, `busy`, `toolLabels`, `todos`, `overlay`, `composerMode`, `connected`, `pendingCommand`, `pendingClarify`, `availableModels`.
+
+**Event mapping:**
+
+| `GatewayEvent` | Effect |
+|---|---|
+| `{ type: "event", event: { type: "message_update", streamEvent: { type: "text_delta" } } }` | `appendStreamDelta` into the ref; dispatch `streaming_delta` with the new segment |
+| `tool_execution_start` | `flushStreamSegment` (commits in-progress stream to a `DisplayLine` if non-empty); add to `toolLabels`; set `todoLoading` if tool is `"todo"` |
+| `tool_execution_end` | Remove from `toolLabels`; if `shouldShowToolLine`, append a `{ kind: "tool" }` line; clear `todoLoading` if tool is `"todo"` |
+| `message_start` (role `"user"`) | Flush stream; parse with `parseAdvisoryMessage`; append advisory or user `DisplayLine`; mark `queuedSteer = false` |
+| `compaction_end` | Append `"Context compacted."` assistant line |
+| `moa_reference_start` / `moa_reference_end` / `moa_aggregating` | Append / mutate MoA progress lines |
+| `subagent_start` / `subagent_end` | Append pending/settled subagent tool lines |
+| `{ type: "approval_request" }` | Set `pendingCommand`, open approval overlay, set `composerMode = "awaiting_approval"` |
+| `{ type: "clarify_request" }` | Set `pendingClarify`, open clarify overlay |
+| `{ type: "state_update" }` | Sync `busy`, `model`, `todos`; on `busy → !busy` transition, call `finishStreamSegments` and dispatch `run_complete` (appends final segment, resets streaming/toolLabels) |
+
+**Slash command dispatch** (renderer-local, no round-trip):
+
+| Command | Action |
+|---|---|
+| `/clear` | `dispatch({ type: "clear_lines" })` |
+| `/help` | Append hardcoded help text as assistant line |
+| `/model` | `client.request({ type: "get_available_models" })` → populate `availableModels`, open model overlay |
+| `/compact` | `client.send({ type: "compact" })`; append `"Compacting…"` assistant line |
+| `/settings` | Open action overlay with theme-toggle item |
+| `/moa`, `/trust`, `/branch`, `/fork`, `/rollback`, `/exit`, `/dream`, `/cron` | Append error line: `"${command} is not yet implemented in the desktop app."` |
+
+**Initial hydration:** on mount, `client.request({ type: "get_state" })` hydrates `busy`, `model`, `todos` from the gateway's current session state. The renderer starts with an empty transcript; no history replay is attempted (gateway does not return message history in `get_state`).
+
+**Connection status:** polled every 500 ms via `setInterval` calling `client.status()`. This is a lightweight read — no extra WS traffic. The banner is shown in the `App` header when `connected !== "connected"`.
+
+**Type guards:** `GatewayResponse.data` is `unknown`. Two inline type guards (`isStateData`, `isModelArray`) validate network response payloads using `in` / `typeof` checks before reading fields — no unchecked inline casts.
+
+### `renderer/components/App.tsx`
+
+`App` is the production shell (rendered when `import.meta.env.DEV` is false; `DevShell` is rendered in dev mode). It calls `useAgentEvents` and `useComposer`, assembles the layout, and owns overlay dispatch.
+
+**Ephemeral `displayLines` memo:** computed from `[state.lines, state.toolLabels, state.busy]`. When `busy && toolLabels.size > 0`, one `{ kind: "tool", pending: true }` line is appended per active tool call. Streaming text is intentionally excluded — `Transcript` renders it via its own `streaming` prop to avoid double-rendering the streaming bubble.
+
+**Overlay routing** — `renderOverlay()` switches on `state.overlay.kind`:
+
+- `"model"` → `ModelPicker` with `state.availableModels`; confirm calls `state.setModel(model.id)`
+- `"approval"` → `ShellApproval` with `state.pendingCommand`; approve/deny calls `state.approveCommand(bool)`
+- `"clarify"` → `ClarifyPrompt` with `state.pendingClarify`; answer calls `state.answerClarify(answer)`
+- `"action"` → `ActionPicker` with `SETTINGS_ITEMS`; confirm handles theme toggle by reading `document.documentElement.getAttribute("data-theme")` (source of truth written by `applyTheme`) rather than the OS media query (which would get stuck after the first toggle)
+- `"trust"` / `"session"` → `TrustPicker` / `SessionChooser` with `dismissOverlay` as confirm (both are stubs pending T8+)
+
+**Test coverage:** `renderer/lib/gatewayClient.test.ts` (12 cases) and `renderer/lib/useAgentEvents.test.ts` (13 cases) added. Both use a synchronous `FakeWebSocket` stub injected via `vi.stubGlobal`. Total suite: 132 tests.
