@@ -81,10 +81,10 @@ Vitest 4.x with `@testing-library/react` covers all renderer components — 41 t
 
 ## Consequences
 
-- Gateway process must be started separately in development (`terminal 1: gateway`, `terminal 2: pnpm dev`). Sprint 3 (Electron) will fold this into a single launch command via the main process spawning the gateway.
+- Gateway process must be started separately in development (`terminal 1: gateway`, `terminal 2: pnpm dev`). Sprint 3 (Electrobun) will fold this into a single launch command via the Bun main process spawning the gateway.
 - The `@railgun/core/*` path alias means Vite (not tsc) resolves gateway imports against the filesystem. The gateway is Node.js-only code and is excluded from Vite's browser bundle.
 - `ws` package is added as a production dependency of `@railgun/desktop` only. The root package is unaffected.
-- Sprint 3 adds Electron: main process spawns the gateway, passes the chosen port to the BrowserWindow via a query param or IPC, and loads the Vite build.
+- Sprint 3 adds Electrobun (see `docs/adr/0031-electrobun-desktop-runtime.md`): the Bun main process spawns the gateway, passes the chosen port to the webview via Electrobun RPC, and loads the built renderer. Electron's `BrowserWindow`/`ipcMain`/`contextBridge` pattern is replaced by Electrobun's typed RPC.
 
 ---
 

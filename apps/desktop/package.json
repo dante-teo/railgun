@@ -1,14 +1,17 @@
 {
   "name": "@railgun/desktop",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "electrobun dev --watch",
+    "build": "electrobun build",
+    "build:canary": "electrobun build --env=canary",
+    "build:stable": "electrobun build --env=stable",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.bun.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "electrobun": "^1.18.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
@@ -19,15 +22,14 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.3.2",
+    "@types/bun": "^1.3.14",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@types/ws": "^8.18.0",
     "@vitejs/plugin-react": "^4.5.0",
-    "electron": "43.1.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vite": "^6.3.0",
-    "vite-plugin-electron": "^0.28.8",
     "vitest": "^4.1.10"
   }
 }
