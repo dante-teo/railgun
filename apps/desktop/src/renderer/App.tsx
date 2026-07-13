@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CirclePlus, MessageSquare, Send, Settings, Square, TerminalSquare } from "lucide-react";
+import { Bot, CirclePlus, MessageSquare, PanelLeft, Send, Settings, Square, TerminalSquare } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { BackendPhase, BackendSnapshot, MockScenario } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader } from "./components/ui/card";
+import { Textarea } from "./components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { EmptyState, ErrorState, LoadingState } from "./components/ui/state";
 
 const PHASE_COPY: Record<BackendPhase, { readonly title: string; readonly description: string }> = {
   starting: { title: "Starting Railgun", description: "Checking the local backend connection…" },
@@ -29,8 +31,13 @@ export interface BackendStatusProps {
 
 export const BackendStatus = ({ snapshot, onRetry }: BackendStatusProps): React.JSX.Element => {
   const copy = PHASE_COPY[snapshot.phase];
+  const isFailure = snapshot.phase === "failed" || snapshot.phase === "disconnected";
   return (
-    <Card className={`status status-${snapshot.phase}`} aria-live="polite">
+    <Card
+      className={`status status-${snapshot.phase}`}
+      role={isFailure ? "alert" : "status"}
+      aria-live={isFailure ? "assertive" : "polite"}
+    >
       <CardHeader>
         <div className="status-mark" aria-hidden="true" />
         <p className="eyebrow">Backend status</p>
@@ -41,7 +48,7 @@ export const BackendStatus = ({ snapshot, onRetry }: BackendStatusProps): React.
         {snapshot.error === undefined ? null : <p className="error-detail">{snapshot.error}</p>}
         {snapshot.diagnostics.length === 0 ? null : <details><summary>Diagnostics</summary><pre>{snapshot.diagnostics.join("\n")}</pre></details>}
         {onRetry !== undefined && RETRYABLE_PHASES.has(snapshot.phase)
-          ? <Button type="button" onClick={() => void onRetry()}>Retry</Button>
+          ? <Button type="button" variant="glass" onClick={() => void onRetry()}>Retry</Button>
           : null}
       </CardContent>
     </Card>
@@ -72,7 +79,7 @@ export const MockPanel = ({ snapshot, scenarios, onSelect }: MockPanelProps): Re
             <SelectTrigger aria-label="Mock scenario"><SelectValue placeholder="Choose a scenario" /></SelectTrigger>
             <SelectContent>{scenarios.map((scenario) => <SelectItem value={scenario.id} key={scenario.id}>{scenario.label}</SelectItem>)}</SelectContent>
           </Select>
-          <Button type="button" disabled={restarting || selectedId.length === 0} onClick={() => void restart()}>
+          <Button type="button" variant="glass" disabled={restarting || selectedId.length === 0} onClick={() => void restart()}>
             {restarting ? "Restarting…" : "Restart backend"}
           </Button>
         </div>
@@ -97,6 +104,7 @@ export const App = (): React.JSX.Element => {
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string>();
   const nextMessageId = useRef(1);
 
@@ -190,34 +198,49 @@ export const App = (): React.JSX.Element => {
     }
   };
 
-  if (snapshot === undefined) return (
-    <main className={`loading-shell${bootstrapError === undefined ? "" : " failed"}`}>
-      <Bot aria-hidden="true" />
-      <p>{bootstrapError ?? "Connecting to Railgun…"}</p>
+  if (snapshot === undefined) return bootstrapError === undefined ? (
+    <main className="loading-shell">
+      <LoadingState title="Connecting to Railgun…" description="Starting the secure desktop connection." />
+    </main>
+  ) : (
+    <main className="loading-shell">
+      <ErrorState title="Unable to connect" description={bootstrapError} />
     </main>
   );
 
   return (
-    <main className="desktop-shell">
+    <main className={`desktop-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <div className="titlebar" aria-hidden="true" />
-      <aside className="sidebar">
+      <aside id="app-sidebar" className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
-        <Button className="new-chat" onClick={() => void startNewChat()}><CirclePlus />New chat</Button>
+        <Button className="new-chat" variant="glass" onClick={() => void startNewChat()}><CirclePlus aria-hidden="true" />New chat</Button>
         <nav aria-label="Main navigation">
-          <button className={area === "chat" ? "active" : ""} onClick={() => setArea("chat")}><MessageSquare />Chat</button>
-          <button className={area === "settings" ? "active" : ""} onClick={() => setArea("settings")}><Settings />Settings</button>
+          <Button variant="ghost" className={area === "chat" ? "active" : ""} aria-current={area === "chat" ? "page" : undefined} onClick={() => setArea("chat")}><MessageSquare aria-hidden="true" />Chat</Button>
+          <Button variant="ghost" className={area === "settings" ? "active" : ""} aria-current={area === "settings" ? "page" : undefined} onClick={() => setArea("settings")}><Settings aria-hidden="true" />Settings</Button>
         </nav>
-        <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
+        <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
       </aside>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="sidebar-toggle"
+        aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        aria-controls="app-sidebar"
+        aria-expanded={!sidebarCollapsed}
+        onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+      >
+        <PanelLeft aria-hidden="true" />
+      </Button>
 
       {area === "chat" ? (
         <section className="chat-surface">
-          <header className="content-toolbar"><div><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
+          <header className="content-toolbar"><div className="content-toolbar-title"><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
           <div className={`transcript ${messages.length === 0 ? "empty" : ""}`}>
-            {messages.length === 0 && snapshot.phase === "ready" ? <div className="welcome"><span><Bot /></span><h2>What are we building?</h2><p>Ask Railgun to inspect, explain, or change your project.</p></div> : null}
+            {messages.length === 0 && snapshot.phase === "ready" ? <EmptyState className="welcome" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." /> : null}
             {messages.length === 0 && snapshot.phase !== "ready" ? <BackendStatus snapshot={snapshot} onRetry={restartBackend} /> : null}
             {messages.map((message) => (
-              <article className={`message ${message.role}`} key={message.id}>
+              <article className={`message ${message.role}`} role={message.role === "error" ? "alert" : undefined} key={message.id}>
                 <div className="message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Railgun" : "Error"}</div>
                 <p>{message.text}</p>
               </article>
@@ -226,7 +249,7 @@ export const App = (): React.JSX.Element => {
           </div>
           <div className="composer-wrap">
             <div className="composer">
-              <textarea
+              <Textarea
                 aria-label="Message Railgun"
                 placeholder={snapshot.phase === "ready" ? "Message Railgun…" : "Backend unavailable"}
                 value={draft}
@@ -237,9 +260,9 @@ export const App = (): React.JSX.Element => {
                 }}
               />
               {running ? (
-                <button className="send-button stop" aria-label="Stop" onClick={() => void abort()}><Square /></button>
+                <Button variant="destructive" size="icon" className="send-button" aria-label="Stop" onClick={() => void abort()}><Square aria-hidden="true" /></Button>
               ) : (
-                <button className="send-button" aria-label="Send" disabled={draft.trim().length === 0 || snapshot.phase !== "ready"} onClick={() => void send()}><Send /></button>
+                <Button size="icon" className="send-button" aria-label="Send" disabled={draft.trim().length === 0 || snapshot.phase !== "ready"} onClick={() => void send()}><Send aria-hidden="true" /></Button>
               )}
             </div>
             <p className="composer-hint">Railgun can make mistakes. Review changes before committing.</p>
@@ -247,7 +270,7 @@ export const App = (): React.JSX.Element => {
         </section>
       ) : (
         <section className="settings-surface">
-          <header className="content-toolbar"><div><h1>Settings</h1><p>Runtime and diagnostics</p></div></header>
+          <header className="content-toolbar"><div className="content-toolbar-title"><h1>Settings</h1><p>Runtime and diagnostics</p></div></header>
           <div className="settings-content">
             <BackendStatus snapshot={snapshot} onRetry={restartBackend} />
             {snapshot.mode === "mock" ? <MockPanel snapshot={snapshot} scenarios={scenarios} onSelect={async (value) => {

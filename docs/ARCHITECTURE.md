@@ -370,6 +370,19 @@ This document records the intended system architecture for Railgun. Keep it curr
    allows only Forge's exact origin, its loopback HMR websocket, and the hashed
    React Refresh preamble injected by Vite; arbitrary inline scripts remain
    blocked.
+8. The renderer's semantic CSS custom properties are the styling contract for
+   colors, materials, typography, spacing, radii, shadows, layering, and motion.
+   The content canvas spans the full `BrowserWindow`; the Liquid Glass sidebar
+   is an overlaid pane with one uniform outer gutter, so its material never
+   creates a divider in the main canvas. The main-process traffic-light position
+   is coordinated with renderer titlebar tokens, and the title/subtitle block
+   and toolbar actions share that centerline. Sidebar collapse is renderer-local
+   and session-only: the same labelled control moves from the expanded sidebar
+   to the titlebar, while the hidden pane becomes inert and is removed from the
+   accessibility tree. Shared controls use Radix primitives where focus and
+   keyboard management require them, with opaque, increased-contrast, and
+   reduced-motion media-query fallbacks. This presentation state does not cross
+   preload or IPC and is not persisted.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added

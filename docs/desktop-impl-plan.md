@@ -60,16 +60,20 @@ Keep the app to four main areas:
 3. **Knowledge** — memories, notes, Dream, and skills.
 4. **Settings** — model, agent behavior, trust, MCP, authentication, and diagnostics.
 
-Use a standard Mac layout:
+The main content canvas spans the full window. The sidebar is a floating pane
+over that canvas rather than a separate grid column, so the area around it and
+the main pane read as one uninterrupted surface:
 
 ```text
-┌─ sidebar ─────┬─ chat/content ─────────────┬─ optional inspector ─┐
-│ New chat      │ transcript                 │ files / tool detail  │
-│ Sessions      │                            │                      │
-│ Automation    │                            │                      │
-│ Knowledge     │ composer                   │                      │
-│ Settings      │                            │                      │
-└───────────────┴────────────────────────────┴──────────────────────┘
+┌──────────────────── full-window content canvas ────────────────────┐
+│  ╭─ floating sidebar ─╮  titlebar / toolbar                       │
+│  │ New chat           │                                           │
+│  │ Sessions           │  transcript          optional inspector   │
+│  │ Automation         │                                           │
+│  │ Knowledge          │  composer                                 │
+│  │ Settings           │                                           │
+│  ╰────────────────────╯                                           │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ## macOS 26 design direction
@@ -83,6 +87,26 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
 - Support light/dark appearance, Reduce Transparency, Increase Contrast, and Reduce Motion.
 - Use one shared token system for materials, color, type, spacing, radius, shadow, and motion.
 - Avoid nested glass cards and generic web-dashboard styling.
+
+### Implemented shell contract
+
+- The main canvas is a flat, continuous surface. The floating sidebar owns its
+  glass tint and gradient; no divider, shadow seam, or sidebar material may
+  extend into the surrounding canvas.
+- `--sidebar-gutter` supplies the same outer inset on every sidebar edge.
+- Electron's traffic-light position and the renderer's titlebar tokens are a
+  coordinated contract. The toolbar title/subtitle block and present or future
+  toolbar actions share `--titlebar-control-center-y`, keeping them vertically
+  aligned with the traffic lights.
+- One labelled `PanelLeft` control collapses and restores the sidebar. It is a
+  ghost button at the sidebar's top-right while expanded and a circular glass
+  button beside the traffic lights while collapsed. Collapse state is
+  session-only; the hidden sidebar is inert and removed from the accessibility
+  tree.
+- Renderer components consume semantic CSS custom properties and shared
+  material recipes instead of raw palette values. Reduced Transparency removes
+  blur, Reduced Motion removes animated transitions, and Increase Contrast uses
+  stronger solid boundaries and focus indicators.
 
 Design references:
 
@@ -184,13 +208,14 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 ### Shell and design
 
-- [ ] **DESK-005 — Build the Liquid Glass design system**
+- [x] **DESK-005 — Build the Liquid Glass design system**
   - Create semantic material, color, type, spacing, radius, shadow, and motion tokens.
   - Create shared buttons, inputs, menus, sheets, dialogs, lists, loading, empty, and error states.
   - Add accessibility fallbacks for reduced transparency/motion and increased contrast.
 
 - [ ] **DESK-006 — Build the native Mac shell**
-  - Transparent titlebar and correct traffic-light spacing.
+  - The transparent titlebar, traffic-light alignment, and session-only
+    collapsible floating sidebar foundation are implemented.
   - Session sidebar, main content, optional inspector, resizing, and saved pane widths.
   - Native application menu, context menus, `⌘K` command palette, and keyboard shortcuts.
 

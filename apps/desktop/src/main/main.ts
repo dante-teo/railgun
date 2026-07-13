@@ -133,7 +133,8 @@ const createWindow = (): BrowserWindow => {
       minHeight: 520,
       title: "Railgun",
       titleBarStyle: "hiddenInset",
-      trafficLightPosition: { x: 18, y: 18 },
+      // Keep the Y position in sync with --traffic-light-top in renderer/styles.css.
+      trafficLightPosition: { x: 24, y: 20 },
       backgroundColor: "#101613",
       webPreferences: {
         preload: resolve(__dirname, "preload.js"),

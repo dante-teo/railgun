@@ -1,23 +1,28 @@
 import { Slot } from "@radix-ui/react-slot";
 import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
+import { forwardRef } from "react";
 import type * as React from "react";
 import { cn } from "../../lib/utils";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+export const buttonVariants = cva(
+  "ui-button",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        primary: "ui-button-primary",
+        glass: "ui-button-glass",
+        ghost: "ui-button-ghost",
+        destructive: "ui-button-destructive",
+        capsule: "ui-button-capsule",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
+        default: "ui-button-md",
+        sm: "ui-button-sm",
+        icon: "ui-button-icon",
       },
     },
-    defaultVariants: { variant: "default", size: "default" },
+    defaultVariants: { variant: "primary", size: "default" },
   },
 );
 
@@ -26,7 +31,13 @@ export interface ButtonProps
   readonly asChild?: boolean;
 }
 
-export const Button = ({ className, variant, size, asChild = false, ...props }: ButtonProps): React.JSX.Element => {
-  const Component = asChild ? Slot : "button";
-  return <Component className={cn(buttonVariants({ variant, size, className }))} {...props} />;
-};
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Component = asChild ? Slot : "button";
+    return <Component ref={ref} className={cn(buttonVariants({ variant, size, className }))} {...props} />;
+  },
+);
+Button.displayName = "Button";
+
+export const ButtonGroup = ({ className, ...props }: React.ComponentProps<"div">): React.JSX.Element =>
+  <div role="group" className={cn("ui-button-group", className)} {...props} />;
