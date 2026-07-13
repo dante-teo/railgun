@@ -149,6 +149,24 @@ describe("parseCliArgs", () => {
   });
 });
 
+describe("parseCliArgs — dream mode", () => {
+  it("parses dream with no extra arguments", () => {
+    expect(parseCliArgs(["dream"])).toEqual({ mode: { kind: "dream" } });
+  });
+
+  it("rejects dream with extra arguments", () => {
+    expect(() => parseCliArgs(["dream", "extra"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects dream with --approve flag", () => {
+    expect(() => parseCliArgs(["--approve", "dream"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects dream with --no-approve flag", () => {
+    expect(() => parseCliArgs(["--no-approve", "dream"])).toThrow(/Usage: railgun/);
+  });
+});
+
 
 describe("dispatchCli", () => {
   it("prints effective pretty configuration without authentication, SQLite, file writes, or TUI startup", async () => {
@@ -271,6 +289,23 @@ describe("dispatchCli", () => {
     }));
     expect(deps.createStore).not.toHaveBeenCalled();
     expect(deps.runRepl).not.toHaveBeenCalled();
+  });
+});
+
+describe("dispatchCli — dream mode", () => {
+  it("opens the store and calls initSession for dream mode", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "dream" }, deps);
+    expect(deps.initSession).toHaveBeenCalledOnce();
+    expect(deps.createStore).toHaveBeenCalledOnce();
+  });
+
+  it("exits cleanly when there are fewer than 5 memories", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "dream" }, deps);
+    expect(deps.initSession).toHaveBeenCalledOnce();
+    expect(deps.runRepl).not.toHaveBeenCalled();
+    expect(deps.runOneShot).not.toHaveBeenCalled();
   });
 });
 

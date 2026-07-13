@@ -38,6 +38,7 @@ import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js"
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
+import { runDreamSession } from "../dream/dreamJob.js";
 import { expandSkillCommand } from "../skills.js";
 import type { AdviceSeverity } from "../advisor/advisoryContext.js";
 import { parseAdvisoryMessage } from "../advisor/advisoryMessage.js";
@@ -577,7 +578,7 @@ const ChatApp = ({
       const { command, arg } = parseSlashCommand(text);
       if (command === "/exit") { exit(); return; }
       if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /skill:<name>" }]);
+        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /skill:<name>" }]);
         return;
       }
       if (command === "/clear") {
@@ -791,6 +792,25 @@ const ChatApp = ({
           setLines(prev => [...prev, { kind: "assistant", text: `Forked to new session: ${result.sessionId}` }]);
         } catch (error) {
           setLines(prev => [...prev, { kind: "error", text: `Fork failed: ${error instanceof Error ? error.message : String(error)}` }]);
+        }
+        return;
+      }
+      if (command === "/dream") {
+        if (!memoryStore) {
+          setLines(prev => [...prev, { kind: "error", text: "Dream not available (no memory store in this session)." }]);
+          return;
+        }
+        setBusy(true);
+        try {
+          setLines(prev => [...prev, { kind: "assistant", text: "Dreaming… reviewing and consolidating memories." }]);
+          await runDreamSession(memoryStore, activeSession.devin, activeSession.model, msg => {
+            setLines(prev => [...prev, { kind: "assistant", text: msg }]);
+          });
+          setLines(prev => [...prev, { kind: "assistant", text: "Dream complete. Memories consolidated." }]);
+        } catch (error) {
+          setLines(prev => [...prev, { kind: "error", text: `Dream failed: ${error instanceof Error ? error.message : String(error)}` }]);
+        } finally {
+          setBusy(false);
         }
         return;
       }

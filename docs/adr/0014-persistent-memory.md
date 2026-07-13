@@ -45,7 +45,7 @@ Add a `memories` table to the existing `state.db` SQLite database (schema v3,
 migrating v1 databases transparently). Expose `readonly db: Database.Database`
 on the `SessionStore` interface so a `MemoryStore` can share the connection.
 
-`createMemoryStore(db)` owns three prepared statements:
+`createMemoryStore(db)` owns seven prepared statements:
 - `insertMemory`: UUID id, content, category, Unix epoch seconds as REAL.
 - `selectRecent`: `ORDER BY created_at DESC, rowid DESC LIMIT ?` — `rowid`
   as tiebreaker ensures stable insertion order when two saves happen within
@@ -100,3 +100,5 @@ database and create a `MemoryStore` via the new `withStores` helper in
 
 - **No `close()` on `MemoryStore`**: lifecycle stays with `SessionStore`.
   `MemoryStore` prepares statements but never owns the connection.
+- **Extended `MemoryStore` API for dream consolidation**: three new operations — `all()` (returns all memories in ascending `created_at` order), `delete(id)` (returns whether the row existed), and `update(id, content, category)` (uses `UPDATE … RETURNING` so the returned `Memory` always carries the original `created_at`, not `Date.now()`) — plus `runInTransaction(fn)` to wrap batch operations atomically. These are required by the `memory_consolidate` tool and the `railgun dream` subsystem.
+- **`memory_consolidate` tool under the `"dream"` toolset**: a batch operation tool (`src/tools/memoryConsolidate.ts`) registered exclusively in the `"dream"` toolset, unavailable to normal agent sessions. Accepts an `operations` array of `merge` (delete N sources, save 1 combined memory), `delete`, and `update` actions, all executed inside a single `runInTransaction` call. Error records within a batch use `continue` semantics — one bad operation does not abort the rest.

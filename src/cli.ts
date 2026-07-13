@@ -32,8 +32,9 @@ import { runRpcMode } from "./rpc/rpcMode.js";
 import type { RpcModeOptions } from "./rpc/rpcMode.js";
 import { runAcpMode } from "./acp/acpMode.js";
 import type { AcpModeOptions } from "./acp/acpMode.js";
+import { runDreamSession } from "./dream/dreamJob.js";
 
-export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp";
+export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
 
 export type CliMode =
   | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
@@ -46,7 +47,8 @@ export type CliMode =
   | { kind: "cron" }
   | { kind: "rpc" }
   | { kind: "acp" }
-  | { kind: "import-notes"; folder: string };
+  | { kind: "import-notes"; folder: string }
+  | { kind: "dream" };
 
 export class CliUsageError extends Error {
   constructor() {
@@ -122,6 +124,10 @@ export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: st
     if (flag === "import-notes" && rest.length === 1) {
       if (approve || noApprove) throw new CliUsageError();
       return { kind: "import-notes", folder: rest[0]! };
+    }
+    if (flag === "dream" && rest.length === 0) {
+      if (approve || noApprove) throw new CliUsageError();
+      return { kind: "dream" };
     }
     if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!", ...trustFlags };
     if (flag === "--list-sessions" && rest.length === 0) {
@@ -413,6 +419,13 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
         dependencies.stdout(`Backfilled embeddings for ${backfilled} previously imported notes.`);
       }
       if (importError !== undefined) throw importError;
+    });
+    return;
+  }
+  if (mode.kind === "dream") {
+    const session = await dependencies.initSession();
+    await withStores(dependencies, async (_store, memoryStore) => {
+      await runDreamSession(memoryStore, session.devin, session.model);
     });
     return;
   }

@@ -57,3 +57,5 @@ in the system prompt array.
 - No user-visible feature depends on `SOUL.md` existing; a missing file
   is silently ignored, so the common case (no `SOUL.md` created yet)
   produces no warning or behavioral change.
+- **Agent-writable `SOUL.md`**: the system prompt now always emits a `# Persistent Identity` block — either with the loaded content when `SOUL.md` exists, or with a "file does not exist yet" hint and instructions to create it via `write_file`. The tool rules block explicitly tells the agent it can create or update `~/.railgun/SOUL.md` using `write_file` when the user asks it to remember something about itself or its behavior. Changes take effect on the next session (the injection scanner still runs at load time).
+- **Dream-driven SOUL.md promotion**: the `railgun dream` subsystem (Phase 28) can promote stable `"preference"` memories into `SOUL.md` automatically. The dream agent receives `write_file` access (via the `"file"` toolset) and the current `SOUL.md` content in its user message so it can append without overwriting. Promoted memories are deleted from the database since they now live in the identity file.

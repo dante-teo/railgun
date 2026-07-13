@@ -3,6 +3,8 @@ import type { AdvisoryContext } from "./advisoryContext.js";
 import type { ToolContext } from "../tools/registry.js";
 import { registry } from "../tools/index.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
+import type { MemoryStore } from "../persistence/memoryStore.js";
+import type { NoteStore } from "../persistence/noteStore.js";
 
 export interface AdvisorConfig {
   readonly model: string;
@@ -18,7 +20,7 @@ export interface AdvisorRuntime {
   ): Promise<void>;
 }
 
-export const ADVISOR_ALLOWED_TOOLS: readonly string[] = ["read_file", "list_directory", "advise"];
+export const ADVISOR_ALLOWED_TOOLS: readonly string[] = ["read_file", "list_directory", "advise", "memory_search", "note_search"];
 
 const getAdvisorTools = () =>
   ADVISOR_ALLOWED_TOOLS.flatMap(name => {
@@ -29,6 +31,7 @@ const getAdvisorTools = () =>
 export const ADVISOR_SYSTEM_PROMPT: readonly string[] = [
   "You are an advisor reviewing another AI agent's work. Your job is to watch for mistakes, missed requirements, and risky decisions.",
   "You have read-only access to the filesystem via read_file and list_directory. Use them to verify claims the primary agent made.",
+  "You have access to the user's saved memories via memory_search and imported notes via note_search. Use them to check if the primary agent's response contradicts known facts or preferences.",
   "If you spot an issue, call the advise tool ONCE with your most important observation. Use 'blocker' only for clear waste or breakage, 'concern' for likely wrong direction, 'nit' for cleanup suggestions.",
   "If you have no concerns, do nothing — do NOT call advise just to say 'looks good'.",
   "You cannot write files, run commands, or approve anything. You observe and advise only.",
@@ -71,7 +74,7 @@ export const formatDeltaForAdvisor = (delta: readonly DevinMessage[]): string =>
     return "";
   }).filter(Boolean).join("\n\n");
 
-export const createAdvisorRuntime = (devin: DevinProvider, config: AdvisorConfig): AdvisorRuntime => {
+export const createAdvisorRuntime = (devin: DevinProvider, config: AdvisorConfig, memoryStore?: MemoryStore, noteStore?: NoteStore): AdvisorRuntime => {
   const history: DevinMessage[] = [];
   let cursor = 0;
   const dedupe = new Set<string>();
@@ -98,6 +101,8 @@ export const createAdvisorRuntime = (devin: DevinProvider, config: AdvisorConfig
         commandApprovalMode: "manual",
         sessionApprovals: new Set<string>(),
         advisoryContext: guard,
+        ...(memoryStore !== undefined ? { memoryStore } : {}),
+        ...(noteStore !== undefined ? { noteStore } : {}),
       };
 
       history.push({ role: "user", content: formatDeltaForAdvisor(delta) });

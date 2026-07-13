@@ -100,6 +100,68 @@ describe("createMemoryStore", () => {
     }
   });
 
+  it("all returns all memories ordered by created_at ascending", () => {
+    const { sessionStore, memoryStore } = openStore();
+    try {
+      const a = memoryStore.save("first", "fact");
+      const b = memoryStore.save("second", "preference");
+      const c = memoryStore.save("third", "project");
+      const all = memoryStore.all();
+      expect(all).toHaveLength(3);
+      // ascending order: oldest first
+      expect(all[0]!.content).toBe("first");
+      expect(all[2]!.content).toBe("third");
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("delete removes memory by id and returns true; returns false for unknown id", () => {
+    const { sessionStore, memoryStore } = openStore();
+    try {
+      const m = memoryStore.save("to delete", "fact");
+      expect(memoryStore.delete(m.id)).toBe(true);
+      expect(memoryStore.all()).toHaveLength(0);
+      expect(memoryStore.delete("nonexistent-id")).toBe(false);
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("update changes content and category; returns null for unknown id", () => {
+    const { sessionStore, memoryStore } = openStore();
+    try {
+      const m = memoryStore.save("original", "fact");
+      const updated = memoryStore.update(m.id, "updated content", "preference");
+      expect(updated).not.toBeNull();
+      expect(updated!.content).toBe("updated content");
+      expect(updated!.category).toBe("preference");
+      // verify it's in the store
+      const all = memoryStore.all();
+      expect(all[0]!.content).toBe("updated content");
+      // null for missing id
+      expect(memoryStore.update("missing", "x", "fact")).toBeNull();
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("runInTransaction wraps operations atomically", () => {
+    const { sessionStore, memoryStore } = openStore();
+    try {
+      const a = memoryStore.save("a", "fact");
+      const b = memoryStore.save("b", "fact");
+      memoryStore.runInTransaction(() => {
+        memoryStore.delete(a.id);
+        memoryStore.delete(b.id);
+      });
+      expect(memoryStore.all()).toHaveLength(0);
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+
   it("memories persist across store re-opens", () => {
     const sessionStore = createSessionStore(path);
     const memoryStore = createMemoryStore(sessionStore.db);

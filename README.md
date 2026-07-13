@@ -22,9 +22,12 @@ Markdown replies, transcript history navigation, a multiline composer, slash
 commands (`/exit`, `/help`, `/clear`, `/model`, `/compact`), and Tab completion. A `.railgun.md` (or
 `RAILGUN.md`) found in the project tree (walking up to the git root), or
 an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the working directory,
-is loaded into the system prompt automatically at session startup — as is
-a personal `~/.railgun/SOUL.md` — with untrusted content truncated and
-scanned for prompt-injection patterns before use.
+ is loaded into the system prompt automatically at session startup — as is
+ a personal `~/.railgun/SOUL.md` — with untrusted content truncated and
+ scanned for prompt-injection patterns before use. The agent is explicitly
+ told it can create or update `~/.railgun/SOUL.md` using `write_file`; changes
+ take effect on the next session. The `/dream` command and `railgun dream` CLI
+ mode can also promote stable preferences into `SOUL.md` automatically.
 
 ## Prerequisites
 
@@ -142,6 +145,7 @@ session becomes durable after its first successful turn:
   - `/model <name-or-index> --session` — switch for this session only (not saved).
   - `/model --session` — open the picker; the selected model applies to this session only.
   - `/compact` — manually summarize and compact the current conversation history now, without waiting for the automatic 90%-context-window trigger. Prints `Compacted conversation history to stay under the context limit.` on success.
+  - `/dream` — manually trigger memory consolidation. Reviews all stored memories, merges duplicates, deletes stale entries, and promotes stable user preferences to `~/.railgun/SOUL.md`. Requires at least 5 stored memories. Progress lines appear in the transcript.
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
   `Esc` to dismiss the dropdown.
@@ -202,8 +206,10 @@ Escape; confirmed changes apply to subsequent turns and are atomically saved to
 Long lists open with the current selection already scrolled into view.
 
 When enabled, the advisor reviews completed primary-model steps with read-only
-filesystem access. It stays silent when it finds no meaningful issue and emits
-at most one note per review cycle. Notes appear as dedicated `ADVISOR` transcript
+filesystem access (`read_file`, `list_directory`) and can query the user's saved
+memories (`memory_search`) and imported notes (`note_search`) to detect responses
+that contradict known facts or preferences.
+It stays silent when it finds no meaningful issue and emits at most one note per review cycle. Notes appear as dedicated `ADVISOR` transcript
 rows rather than user messages: green `NIT`, amber `CONCERN`, or red `BLOCKER`.
 The XML envelope used internally is decoded before display and removed from
 persisted history, so advisory steering cannot invalidate session checkpoints.

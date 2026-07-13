@@ -43,7 +43,7 @@ surface advice through the existing steering mechanisms.
 
 ### Advisor lifecycle
 
-`createAdvisorRuntime(devin, config)` is called once at agent construction and
+`createAdvisorRuntime(devin, config, memoryStore?, noteStore?)` is called once at agent construction and
 stored on the agent. Before each `runTurn` the agent calls `seedFrom(history)`,
 which advances the runtime's cursor to the end of the pre-existing history. This
 ensures the first delta the advisor sees is only the messages produced by the
@@ -112,19 +112,18 @@ The `advise` tool applies three guards to keep the advisor quiet:
 
 ### Read-only enforcement
 
-The advisor is restricted to three tools: `read_file`, `list_directory`, and
-`advise`. This is enforced at two levels:
-
+The advisor is restricted to five tools: `read_file`, `list_directory`, `advise`, `memory_search`, and `note_search`. This is enforced at two levels:
 - **Schema level**: `getAdvisorTools()` maps `ADVISOR_ALLOWED_TOOLS` through the
-  registry and only returns the schemas for those three names.
+  registry and only returns the schemas for those five names.
 - **Execution level**: inside the mini tool-use loop, the runtime checks
   `ADVISOR_ALLOWED_TOOLS.includes(name)` before calling `registry.run`. Any
   other tool name returns an error result.
 
 The `ADVISOR_SYSTEM_PROMPT` reinforces this: the advisor is told it has
 read-only access, should verify claims with `read_file` and `list_directory`,
-may call `advise` at most once if it spots an issue, and must otherwise do
-nothing.
+may search saved memories and notes via `memory_search` and `note_search` to
+detect contradictions with known user facts or preferences, may call `advise`
+at most once if it spots an issue, and must otherwise do nothing.
 
 ### Mini tool-use loop
 
@@ -179,7 +178,7 @@ message so each REPL message starts a correctly configured session.
   `true`, and provide a valid model name. Disabling the advisor (`enabled: false`)
   requires no model and incurs no runtime cost.
 - The advisor cannot write files, run shell commands, or call any mutating tool.
-  It can only read files and directories and emit advice.
+  It can read files and directories, query memories and notes, and emit advice.
 - The advisor cannot approve anything. Its notes are wrapped with
   `guidance="weigh, don't blindly obey"`; the primary agent is responsible for
   deciding whether to act on them.

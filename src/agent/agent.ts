@@ -31,6 +31,7 @@ export interface AgentDependencies {
   readonly memoryStore?: MemoryStore;
   readonly noteStore?: NoteStore;
   readonly moaPreset?: MoAPreset;
+  readonly enabledToolsets?: readonly string[];
   readonly advisor?: { readonly model: string };
 }
 
@@ -59,7 +60,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
   const listeners = new Set<AgentEventListener>();
   let controller: AbortController | undefined;
   const advisor = dependencies.advisor
-    ? createAdvisorRuntime(dependencies.devin, dependencies.advisor)
+    ? createAdvisorRuntime(dependencies.devin, dependencies.advisor, dependencies.memoryStore, dependencies.noteStore)
     : undefined;
 
   const processEvents = async (event: AgentEvent): Promise<void> => {
@@ -104,6 +105,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.memoryStore !== undefined ? { memoryStore: dependencies.memoryStore } : {}),
           ...(dependencies.noteStore !== undefined ? { noteStore: dependencies.noteStore } : {}),
           ...(dependencies.moaPreset ? { moaPreset: dependencies.moaPreset } : {}),
+          ...(dependencies.enabledToolsets !== undefined ? { enabledToolsets: dependencies.enabledToolsets } : {}),
           ...(advisor ? {
             onTurnEnd: async (msgs: readonly DevinMessage[], push: (msg: DevinMessage) => void) => {
               await advisor.onPrimaryTurnEnd(msgs, queues.enqueueSteer, push);

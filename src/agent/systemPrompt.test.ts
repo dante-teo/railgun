@@ -67,14 +67,14 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("cannot safely guess");
   });
 
-  it("appends project context as array entry [3] with exact header", () => {
+  it("appends project context as array entry [4] with exact header", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,
       projectContext: "Always use British English spelling.",
     });
 
-    expect(prompt).toHaveLength(4);
-    expect(prompt[3]).toBe(
+    expect(prompt).toHaveLength(5);
+    expect(prompt[4]).toBe(
       "# Project Context\n\nThe following project context has been loaded and should be followed:\n\nAlways use British English spelling."
     );
   });
@@ -105,16 +105,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt[4]).toContain("PROJECT_CONTENT");
   });
 
-  it("omits both blocks when neither field is set (backward compat)", () => {
+  it("includes identity hint but omits project context when neither field is set", () => {
     const prompt = buildSystemPrompt(defaultInput);
 
     const joined = prompt.join("\n");
     expect(joined).not.toContain("# Project Context");
-    expect(joined).not.toContain("# Persistent Identity");
-    expect(prompt).toHaveLength(3);
+    expect(joined).toContain("No ~/.railgun/SOUL.md file exists yet");
+    expect(prompt).toHaveLength(4);
   });
 
-  it("omits blocks for null values", () => {
+  it("includes identity hint for null values", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,
       soulIdentity: null,
@@ -123,8 +123,16 @@ describe("buildSystemPrompt", () => {
 
     const joined = prompt.join("\n");
     expect(joined).not.toContain("# Project Context");
-    expect(joined).not.toContain("# Persistent Identity");
-    expect(prompt).toHaveLength(3);
+    expect(joined).toContain("No ~/.railgun/SOUL.md file exists yet");
+    expect(prompt).toHaveLength(4);
+  });
+
+  it("includes create-SOUL.md hint when soulIdentity is absent", () => {
+    const prompt = buildSystemPrompt(defaultInput);
+    const soulBlock = prompt.find(block => block.includes("# Persistent Identity"));
+    expect(soulBlock).toBeDefined();
+    expect(soulBlock).toContain("No ~/.railgun/SOUL.md file exists yet");
+    expect(soulBlock).toContain("write_file");
   });
 });
 
@@ -158,14 +166,14 @@ describe("buildSystemPrompt memories field", () => {
     const prompt = buildSystemPrompt({ ...defaultInput, memories: null });
 
     expect(prompt.join("\n")).not.toContain("# Memories");
-    expect(prompt).toHaveLength(3);
+    expect(prompt).toHaveLength(4);
   });
 
   it("omits memories block when memories is undefined", () => {
     const prompt = buildSystemPrompt(defaultInput);
 
     expect(prompt.join("\n")).not.toContain("# Memories");
-    expect(prompt).toHaveLength(3);
+    expect(prompt).toHaveLength(4);
   });
 
   it("places soulIdentity at [3], projectContext at [4], memories at [5] when all three present", () => {

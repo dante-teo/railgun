@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DevinProvider, DevinMessage, DevinStreamEvent } from "widevin";
+import type { MemoryStore } from "../persistence/memoryStore.js";
 import {
   createAdvisorRuntime,
   formatDeltaForAdvisor,
@@ -243,5 +244,57 @@ describe("AdvisorRuntime.onPrimaryTurnEnd", () => {
 
     // Budget is 3 — streamChat must not be called more than 3 times
     expect((devin.streamChat as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("ADVISOR_ALLOWED_TOOLS", () => {
+  it("includes memory_search", () => {
+    expect(ADVISOR_ALLOWED_TOOLS).toContain("memory_search");
+  });
+
+  it("includes note_search", () => {
+    expect(ADVISOR_ALLOWED_TOOLS).toContain("note_search");
+  });
+
+  it("does not include memory_write", () => {
+    expect(ADVISOR_ALLOWED_TOOLS).not.toContain("memory_write");
+  });
+});
+
+describe("createAdvisorRuntime with memoryStore", () => {
+  it("passes memoryStore to tool context so memory_search returns results instead of error", async () => {
+    // Mock memory store
+    const mockMemoryStore = {
+      save: vi.fn(),
+      search: vi.fn().mockReturnValue([{ id: "1", content: "prefers TypeScript", category: "preference", createdAt: 1234 }]),
+      recent: vi.fn().mockReturnValue([]),
+      all: vi.fn().mockReturnValue([]),
+      delete: vi.fn(),
+      update: vi.fn(),
+      runInTransaction: vi.fn(),
+    };
+
+    // Provide a memory_search round: the advisor calls memory_search, gets results, then ends
+    const searchResultEvent: readonly DevinStreamEvent[] = [
+      { type: "toolcall_delta", id: "tc1", delta: '{"query":"typescript"}' },
+      toolcallEnd("tc1", "memory_search"),
+    ];
+    const doneEvent: readonly DevinStreamEvent[] = [];
+
+    const provider = makeProvider([searchResultEvent, doneEvent]);
+    const runtime = createAdvisorRuntime(provider, { model: "test-model" }, mockMemoryStore as unknown as MemoryStore);
+    runtime.seedFrom([]);
+
+    const steer = makeSteer();
+    const append = makeAppend();
+    // Run with one primary turn message so delta is non-empty
+    await runtime.onPrimaryTurnEnd(
+      [{ role: "user", content: "hello" }],
+      steer,
+      append,
+    );
+
+    // memory_search should have been called on the mock store
+    expect(mockMemoryStore.search).toHaveBeenCalledWith("typescript");
   });
 });

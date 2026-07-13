@@ -39,7 +39,10 @@ export const buildSystemPrompt = ({
     "- Use the clarify tool to ask the user a question when you need information you cannot safely guess, especially before irreversible actions. Offer choices when the options are clear and few.",
     "- When the user shares a personal fact, preference, or project detail they want remembered, call memory_write to save it for future sessions.",
     "- For recalling the user's notes and history, try `note_search` (exact keywords) first — it is faster. If it finds nothing, or the question is about a general topic or feeling, use `note_search_semantic` instead.",
-    "- Keep tool use focused on the user's current task."
+    "- Keep tool use focused on the user's current task.",
+    "- You can create or update ~/.railgun/SOUL.md to store persistent identity notes, preferences, and personality that should persist across all sessions and projects. Use write_file to update it when the user asks you to remember something about yourself or how they want you to behave.",
+    "- You can create or update .railgun.md (or RAILGUN.md) in the project root to store project-specific context, conventions, and preferences that should be loaded at session start. This is the project-level equivalent of SOUL.md.",
+    "- SOUL.md and .railgun.md are injected into the system prompt at session start. Changes take effect on the next session.",
   ].join("\n"),
   [
     "Environment:",
@@ -52,7 +55,7 @@ export const buildSystemPrompt = ({
   ].join("\n"),
   ...(soulIdentity
     ? [`# Persistent Identity\n\nThe following personal identity notes have been loaded from ~/.railgun/SOUL.md and should be followed:\n\n${soulIdentity}`]
-    : []),
+    : [`# Persistent Identity\n\nNo ~/.railgun/SOUL.md file exists yet. You can create one with write_file to store persistent identity notes and preferences that should apply across all sessions.`]),
   ...(projectContext
     ? [`# Project Context\n\nThe following project context has been loaded and should be followed:\n\n${projectContext}`]
     : []),
