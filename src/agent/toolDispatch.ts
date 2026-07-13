@@ -1,7 +1,7 @@
 import { resolve, sep } from "node:path";
 
 export const NEVER_PARALLEL_TOOLS: Record<string, true> = { clarify: true, delegate_task: true };
-export const PARALLEL_SAFE_TOOLS: Record<string, true> = { read_file: true }; // only tools that exist today AND are read-only with no shared state; extend as later phases add search_files/web_search/etc.
+export const PARALLEL_SAFE_TOOLS: Record<string, true> = { read_file: true, web_search: true, web_fetch: true };
 export const PATH_SCOPED_TOOLS: Record<string, true> = { read_file: true, write_file: true };
 
 export const pathsOverlap = (a: string, b: string): boolean => {

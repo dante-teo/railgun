@@ -15,6 +15,7 @@ import type { AgentEvent, ToolResult } from "./events.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MoAPreset, ReferenceCallbacks } from "./moa.js";
 import { runReferences, buildAggregatorGuidance } from "./moa.js";
+import { PRIMARY_TOOLSETS } from "../tools/toolsets.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
@@ -23,7 +24,7 @@ export type TurnOutcome =
 
 export const STOPPED_BY_USER = "[stopped by user]";
 
-const ENABLED_TOOLSETS = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills", "delegation", "cron"] as const;
+const ENABLED_TOOLSETS = PRIMARY_TOOLSETS;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }

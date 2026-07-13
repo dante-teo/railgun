@@ -6,7 +6,8 @@ core agent loop, built incrementally, phase by phase (see
 files, list directories, run shell commands (gated behind a three-tier risk
 classifier — catastrophic commands blocked unconditionally, dangerous ones
 requiring approval or LLM review, safe ones running immediately), and maintain
-a flat todo plan before answering, looping the conversation with Devin until it
+a flat todo plan before answering. It also has zero-configuration, read-only
+internet access for public web search and readable page extraction, looping the conversation with Devin until it
 has a final text answer. The loop is hardened with
 parallel-safe tool batching, corrupted tool-call JSON self-healing,
 transient API retry, automatic context compaction, and a 90-step
@@ -31,7 +32,7 @@ an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the wo
 
 ## Prerequisites
 
-- Node.js >= 22
+- Node.js >= 22.19.0
 - pnpm
 - A Devin/Cascade account you are permitted to access programmatically (see
   [Compliance](#compliance) below)
@@ -98,6 +99,18 @@ session becomes durable after its first successful turn:
   and one `✓ N/N tools completed` line, not one pair per call.
   Assistant narration is committed before the tool row that follows it, so
   multi-step turns retain chronological user → assistant → tool ordering.
+- Ask about current or unfamiliar information and the agent can use `web_search`
+  to discover public pages, then `web_fetch` to extract useful text from them.
+  Search returns up to 10 results through an automatic provider chain. It uses
+  configured Brave, Tavily, Jina, or SearXNG credentials when available, then
+  Exa's public MCP endpoint; the unofficial DuckDuckGo scraper is only a final
+  fallback and may be rate-limited or challenged. Configure providers with
+  `BRAVE_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, or `SEARXNG_ENDPOINT`
+  (`SEARXNG_TOKEN` is optional). `web_fetch` supports HTML, plain text,
+  and JSON with bounded redirects, response size, time, and output. It does not
+  execute page JavaScript, click or submit forms, parse PDFs, or access localhost
+  and private/reserved networks. Every redirect is revalidated against DNS to
+  prevent a public URL from redirecting into a private service.
 - Ask for a multi-step plan and the model can call the `todo` planning
   tool. The REPL renders the current flat todo list in a sticky
   panel above suggestions, approval, and the composer, with a
@@ -546,7 +559,7 @@ rendering helpers, alongside tests for
 (token-budgeted history summarization and truncation), `src/agent/projectContext.ts`
 (context-file discovery, git-root walk, injection scan, truncation,
 `SOUL.md` loading), `src/security/threatPatterns.ts` (injection-pattern
-matching), `src/tools/cron.ts` (cron job management) and each tool's own handler logic in `src/tools/` (including delegation depth/concurrency/abort propagation for `delegate_task`),
+matching), `src/tools/cron.ts` (cron job management) and each tool's own handler logic in `src/tools/` (including delegation depth/concurrency/abort propagation for `delegate_task`, plus web extraction and SSRF defenses),
 `src/commands.ts` (slash-command prefix matching and parsing), theme detection,
 physical-row viewport/navigation, mouse parsing and lifecycle cleanup, composer
 sizing/actions, chronological streaming/tool segmentation, terminal resizing,

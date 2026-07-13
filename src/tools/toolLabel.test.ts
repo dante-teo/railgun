@@ -20,6 +20,11 @@ describe("buildToolLabel", () => {
     expect(buildToolLabel("run_shell_command", { command: "echo hi" })).toBe("Running echo hi");
   });
 
+  it("formats web activity labels", () => {
+    expect(buildToolLabel("web_search", { query: "current news" })).toBe("Searching current news");
+    expect(buildToolLabel("web_fetch", { url: "https://example.com" })).toBe("Fetching https://example.com");
+  });
+
   it("falls back to name+JSON for an unregistered tool name", () => {
     expect(buildToolLabel("totally_unknown_tool", { foo: "bar" })).toBe('totally_unknown_tool {"foo":"bar"}');
   });

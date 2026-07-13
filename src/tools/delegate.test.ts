@@ -112,6 +112,8 @@ describe("delegate_task", () => {
     expect(childRequest).toBeDefined();
     const toolNames = (childRequest?.tools ?? []).map(t => t.name);
     expect(toolNames).not.toContain("delegate_task");
+    expect(toolNames).toContain("web_search");
+    expect(toolNames).toContain("web_fetch");
   });
 
   it("5. orchestrator child at depth 0 gets 'delegation' toolset", async () => {

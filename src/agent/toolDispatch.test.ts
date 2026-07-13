@@ -28,6 +28,13 @@ describe("shouldParallelizeToolBatch", () => {
     ).toBe(true);
   });
 
+  it("returns true for read-only web tool batches", () => {
+    expect(shouldParallelizeToolBatch([
+      { name: "web_search", arguments: { query: "one" } },
+      { name: "web_fetch", arguments: { url: "https://example.com" } },
+    ])).toBe(true);
+  });
+
   it("returns false for two read_file calls on the identical absolute path", () => {
     expect(
       shouldParallelizeToolBatch([

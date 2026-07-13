@@ -11,6 +11,12 @@ const defaultInput = {
 } as const;
 
 describe("buildSystemPrompt", () => {
+  it("guides the agent to search unknown/current facts and fetch sources", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+    expect(prompt).toContain("Use web_search for current facts");
+    expect(prompt).toContain("web_fetch promising sources");
+    expect(prompt).toContain("do not bypass its safeguards");
+  });
   it("returns multiple separate blocks instead of one joined string", () => {
     const prompt = buildSystemPrompt(defaultInput);
 

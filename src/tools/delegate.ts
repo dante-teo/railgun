@@ -4,6 +4,7 @@ import type { DevinProvider } from "widevin";
 import type { AgentEvent } from "../agent/events.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { runTurn } from "../agent/turn.js";
+import { DEFAULT_TOOLSETS } from "./toolsets.js";
 
 const CHILD_SYSTEM_PROMPT: readonly string[] = [
   "You are a focused subagent. Complete the task described below, then give a concise summary of what you did and found. Do not ask clarifying questions — work with what you have.",
@@ -13,7 +14,7 @@ const MAX_SPAWN_DEPTH = 2;
 const MAX_CONCURRENT_CHILDREN = 3;
 const CHILD_ITERATION_BUDGET = 50;
 
-const LEAF_TOOLSETS: readonly string[] = ["file", "terminal", "planning", "clarify", "extension", "memory", "skills", "cron"];
+const LEAF_TOOLSETS: readonly string[] = DEFAULT_TOOLSETS;
 const ORCHESTRATOR_TOOLSETS: readonly string[] = [...LEAF_TOOLSETS, "delegation"];
 
 interface TaskSpec {
