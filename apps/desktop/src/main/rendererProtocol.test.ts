@@ -1,5 +1,8 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveRendererAsset } from "./rendererProtocol";
+import { createRendererProtocolHandler, resolveRendererAsset } from "./rendererProtocol";
 
 describe("railgun renderer protocol routing", () => {
   const root = "/Applications/Railgun.app/Contents/Resources/app.asar/.vite/renderer/main_window";
@@ -28,5 +31,24 @@ describe("railgun renderer protocol routing", () => {
     ["not a url", "GET"],
   ])("rejects unsafe request %s %s", (url, method) => {
     expect(resolveRendererAsset(root, url, method)).toBeUndefined();
+  });
+
+  it.each([
+    ["barlow.woff2", "font/woff2"],
+    ["departure-mono.otf", "font/otf"],
+  ])("serves %s with its font MIME type", async (fileName, contentType) => {
+    const rendererRoot = await mkdtemp(join(tmpdir(), "railgun-renderer-"));
+    try {
+      await writeFile(join(rendererRoot, fileName), new Uint8Array([0, 1, 2]));
+      const response = await createRendererProtocolHandler(rendererRoot)(
+        new Request(`railgun://app/${fileName}`),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe(contentType);
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    } finally {
+      await rm(rendererRoot, { force: true, recursive: true });
+    }
   });
 });

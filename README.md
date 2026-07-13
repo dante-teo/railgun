@@ -39,16 +39,18 @@ an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the wo
 
 ## Supported surfaces
 
-Railgun is a single Node.js package with four supported entry points:
+Railgun is a Node.js package with four published entry points and one private
+desktop workspace:
 
 - the full-screen terminal REPL (`pnpm start`)
 - one-shot terminal output (`pnpm start --print "..."`)
 - JSONL RPC over stdio (`--mode rpc`)
 - Agent Client Protocol over stdio (`--mode acp`)
+- the macOS Electron desktop (`pnpm dev` or `pnpm dev:mock`)
 
-There is no graphical application, browser runtime, daemon, or socket service
-in this repository. Installation, scripts, dependency resolution, and lockfile
-management use pnpm.
+The Electron app is not part of the published CLI package. There is no daemon
+or socket service in this repository. Installation, scripts, dependency
+resolution, and lockfile management use pnpm.
 
 ## Install
 
@@ -650,6 +652,12 @@ backend launcher while disabling Node options, CLI inspection, and extra
 file-protocol privileges. Development uses Forge's exact origin and a CSP hash
 for Vite's injected React Refresh preamble rather than allowing arbitrary
 inline scripts.
+
+Desktop typography is fully offline: the renderer bundles Barlow Variable for
+interface text and Departure Mono Nerd Font for code, diagnostics, and
+transport logs. The [Barlow provenance record](apps/desktop/src/renderer/public/fonts/barlow/SOURCE.md)
+and [Departure Mono Nerd Font provenance record](apps/desktop/src/renderer/public/fonts/departure-mono-nerd-font/SOURCE.md)
+link their upstream releases and colocated SIL Open Font License notices.
 
 ```sh
 pnpm run typecheck   # tsc --noEmit

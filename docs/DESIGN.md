@@ -21,6 +21,32 @@ Tinted user, selection, status, approval, todo, tool, and code surfaces always
 set an explicit foreground. Text labels and glyphs (`YOU`, `RAILGUN`, `ERROR`,
 `APPROVAL`, `[x]`, `✔`, `✘`) preserve meaning independently of color.
 
+### Desktop appearance
+
+The macOS renderer follows the system light/dark appearance and uses semantic
+CSS tokens rather than component-local colors. Barlow Variable is the offline
+interface face; Departure Mono Nerd Font is reserved for code, diagnostics,
+and transport logs. Keyboard-shortcut labels remain in Barlow. Font assets,
+source records, and SIL Open Font License notices are bundled under
+`apps/desktop/src/renderer/public/fonts/` and load only through the packaged
+`railgun://app/` origin.
+
+Liquid Glass communicates hierarchy rather than covering every layer. The
+sidebar, controls, composer, cards/lists, popovers, and dialogs use shared
+neutral tint, backdrop saturation/blur, reflective inner rims, borders, and
+restrained elevation. Control, floating, popover, and dialog recipes have
+separate density tokens: notably, dropdowns remain visibly translucent while
+dialogs use a denser theme-aware tint, scrim, and shadow to separate them from
+the dimmed page. The content canvas and toolbar remain calm readability layers.
+No displacement map, remote imagery, or theme-switcher demo is part of the
+product material.
+
+System accessibility preferences take precedence over the visual effect.
+Reduce Transparency replaces shared glass with opaque canvas fills and removes
+backdrop filters; Increase Contrast strengthens borders and focus rings; Reduce
+Motion suppresses decorative transitions. These fallbacks must be preserved
+when adding a new shared surface or material variant.
+
 ## Interaction
 
 `/settings` provides keyboard-driven AI configuration for the primary model,

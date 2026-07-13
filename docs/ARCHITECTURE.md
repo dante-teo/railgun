@@ -309,7 +309,10 @@ This document records the intended system architecture for Railgun. Keep it curr
    subframes, and workers, webviews, insecure content, and production DevTools
    are explicitly disabled. Packaged assets load through the standard, secure
    `railgun://app/` origin instead of `file://`; its handler accepts only
-   `GET`/`HEAD` requests for files contained by the renderer bundle.
+   `GET`/`HEAD` requests for files contained by the renderer bundle. The
+   protocol supplies explicit web-font MIME types (`font/woff2` for WOFF2 and
+   `font/otf` for OpenType) while retaining the same decoded-path containment
+   checks, so bundled fonts load under the renderer CSP without network access.
 2. In development, Electron main starts either the root CLI through pnpm/tsx
    with `--mode rpc` or the stateful mock JSONL child. Forge packages a
    production-only deployment of the compiled root CLI and a bundled mock
@@ -392,8 +395,16 @@ This document records the intended system architecture for Railgun. Keep it curr
    protect the main content's readable minimum. The optional inspector is not
    rendered or exposed to accessibility APIs without real content. Shared
    controls use Radix primitives where focus and keyboard management require
-   them, with opaque, increased-contrast, and reduced-motion media-query
-   fallbacks. None of this presentation state crosses preload or IPC.
+   them. Control, floating, popover, and dialog materials share translucent
+   neutral-glass recipes but retain separate density, blur, and depth tokens;
+   dialog glass also has a theme-aware scrim and elevation recipe so it remains
+   distinct from the dimmed page. Reduce Transparency replaces every shared
+   material with an opaque canvas fill and disables backdrop filtering;
+   Increase Contrast strengthens boundaries, and Reduce Motion removes
+   transitions. Barlow Variable supplies the sans contract and Departure Mono
+   Nerd Font supplies code, diagnostics, and transport logs from renderer-local
+   assets with colocated provenance and OFL notices. None of this presentation
+   state crosses preload or IPC.
 9. The native macOS application menu provides New Chat, Command Palette, Chat,
    Settings, and Toggle Sidebar commands alongside standard application, Edit,
    View, and Window roles. Development-only View roles expose reload and
