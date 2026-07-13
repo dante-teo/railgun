@@ -20,6 +20,11 @@ export default {
           runtime: "automatic",
           importSource: "react",
         },
+        // Bun.build alias: mirrors the @railgun/core/* path alias in vite.config.ts
+        // and tsconfig.json so the renderer can import from core without ink contamination.
+        alias: {
+          "@railgun/core": "../../src",
+        },
       },
     },
     copy: {
