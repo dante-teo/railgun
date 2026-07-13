@@ -36,6 +36,7 @@ describe("preload desktop bridge", () => {
       "getBackendSnapshot",
       "listMockScenarios",
       "onAgentEvent",
+      "onAppCommand",
       "onBackendSnapshot",
       "restartBackend",
       "selectMockScenario",
@@ -92,7 +93,8 @@ describe("preload desktop bridge", () => {
     const api = createDesktopApi({ invoke, on, removeListener });
     const listener = vi.fn();
     const cleanup = api.onBackendSnapshot(listener);
-    const handler = on.mock.calls[0]?.[1] as (event: unknown, value: unknown) => void;
+    const handler = on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.backendSnapshot)?.[1] as
+      (event: unknown, value: unknown) => void;
     handler({}, { ...snapshot, mode: "foreign" });
     handler({}, snapshot);
     expect(listener).toHaveBeenCalledOnce();
@@ -100,5 +102,36 @@ describe("preload desktop bridge", () => {
 
     cleanup();
     expect(removeListener).toHaveBeenCalledWith(DESKTOP_IPC.backendSnapshot, handler);
+  });
+
+  it("accepts only closed app commands and removes the exact listener", () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const listener = vi.fn();
+    const cleanup = api.onAppCommand(listener);
+    const handler = on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.appCommand)?.[1] as
+      (event: unknown, value: unknown) => void;
+
+    handler({}, "open-terminal");
+    handler({}, { command: "new-chat" });
+    handler({}, "new-chat");
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith("new-chat");
+
+    cleanup();
+    expect(removeListener).toHaveBeenCalledWith(DESKTOP_IPC.appCommand, handler);
+  });
+
+  it("buffers a valid app command until the renderer subscribes", () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const handler = on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.appCommand)?.[1] as
+      (event: unknown, value: unknown) => void;
+    const listener = vi.fn();
+
+    handler({}, "new-chat");
+    expect(listener).not.toHaveBeenCalled();
+    api.onAppCommand(listener);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith("new-chat");
   });
 });

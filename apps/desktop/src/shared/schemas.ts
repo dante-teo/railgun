@@ -41,6 +41,16 @@ export const MockScenarioListSchema = z.array(MockScenarioSchema).readonly();
 export const PromptTextSchema = z.string().trim().min(1).max(100_000);
 export const EmptyResponseSchema = z.undefined();
 
+export const AppCommandSchema = z.enum([
+  "new-chat",
+  "command-palette",
+  "show-chat",
+  "show-settings",
+  "toggle-sidebar",
+  "retry-backend",
+  "stop-response",
+]);
+
 export const DesktopAgentEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("run-start") }),
   z.strictObject({ type: z.literal("run-end") }),

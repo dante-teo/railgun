@@ -350,6 +350,12 @@ This document records the intended system architecture for Railgun. Keep it curr
    operation retries the current real backend or mock scenario. New Chat
    replaces the backend child before clearing the renderer, guaranteeing a new
    in-memory RPC history rather than only hiding the existing transcript.
+   Native menu actions use a separate closed app-command enum on a one-way
+   main-to-preload-to-renderer channel. Preload validates and buffers commands
+   that arrive before React subscribes, while exact listener cleanup remains
+   available. A menu action reactivates a live Railgun window or creates one and
+   delivers the command after its renderer loads; it is never sent to unrelated
+   Electron contents.
 6. Mock scenarios live in one typed registry and include
    authentication-required, handshake success/failure, empty stores, store
    errors, approval, clarification, cancellation, delayed startup, malformed
@@ -379,10 +385,23 @@ This document records the intended system architecture for Railgun. Keep it curr
    and toolbar actions share that centerline. Sidebar collapse is renderer-local
    and session-only: the same labelled control moves from the expanded sidebar
    to the titlebar, while the hidden pane becomes inert and is removed from the
-   accessibility tree. Shared controls use Radix primitives where focus and
-   keyboard management require them, with opaque, increased-contrast, and
-   reduced-motion media-query fallbacks. This presentation state does not cross
-   preload or IPC and is not persisted.
+   accessibility tree. Its visibility remains session-only, while validated,
+   versioned sidebar and inspector widths persist in renderer-local storage.
+   The layout reserves the live sidebar width as a real flex item, keeping the
+   main pane and toolbar out from under the floating material; pane constraints
+   protect the main content's readable minimum. The optional inspector is not
+   rendered or exposed to accessibility APIs without real content. Shared
+   controls use Radix primitives where focus and keyboard management require
+   them, with opaque, increased-contrast, and reduced-motion media-query
+   fallbacks. None of this presentation state crosses preload or IPC.
+9. The native macOS application menu provides New Chat, Command Palette, Chat,
+   Settings, and Toggle Sidebar commands alongside standard application, Edit,
+   View, and Window roles. Development-only View roles expose reload and
+   DevTools. Renderer shortcut matching follows platform primary-modifier
+   semantics: Command on macOS and Control elsewhere; macOS Control-only text
+   editing chords are not intercepted. Native context menus are derived only
+   from Electron's editability, selection, and edit flags and expose standard
+   edit roles—never renderer-provided templates, arbitrary links, or navigation.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added

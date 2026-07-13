@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CirclePlus, MessageSquare, PanelLeft, Send, Settings, Square, TerminalSquare } from "lucide-react";
+import { Bot, CirclePlus, MessageSquare, Send, Settings, Square, TerminalSquare } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
-import type { BackendPhase, BackendSnapshot, MockScenario } from "../shared/types";
+import type { AppCommand, BackendPhase, BackendSnapshot, MockScenario } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader } from "./components/ui/card";
 import { Textarea } from "./components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { EmptyState, ErrorState, LoadingState } from "./components/ui/state";
+import { CommandPalette } from "./commands/CommandPalette";
+import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
+import { ShellLayout } from "./shell/ShellLayout";
 
 const PHASE_COPY: Record<BackendPhase, { readonly title: string; readonly description: string }> = {
   starting: { title: "Starting Railgun", description: "Checking the local backend connection…" },
@@ -105,8 +108,11 @@ export const App = (): React.JSX.Element => {
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string>();
   const nextMessageId = useRef(1);
+  const paletteRestoreFocus = useRef<HTMLElement | null>(null);
+  const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
 
   useEffect(() => {
     let active = true;
@@ -131,6 +137,20 @@ export const App = (): React.JSX.Element => {
       }
     });
     return () => { active = false; unsubscribeSnapshot(); unsubscribeAgent(); };
+  }, []);
+
+  useEffect(() => window.railgunDesktop.onAppCommand((command) => appCommandHandler.current(command)), []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const command = commandFromKeyboardEvent(event);
+      if (command !== undefined) {
+        event.preventDefault();
+        appCommandHandler.current(command);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   useEffect(() => {
@@ -198,6 +218,28 @@ export const App = (): React.JSX.Element => {
     }
   };
 
+  const openCommandPalette = (): void => {
+    paletteRestoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPaletteOpen(true);
+  };
+  const commands = createCommandRegistry({
+    newChat: () => { void startNewChat(); },
+    showChat: () => setArea("chat"),
+    showSettings: () => setArea("settings"),
+    toggleSidebar: () => setSidebarCollapsed((collapsed) => !collapsed),
+    retryBackend: () => { void restartBackend(); },
+    stopResponse: () => { void abort(); },
+    canRetryBackend: snapshot !== undefined && RETRYABLE_PHASES.has(snapshot.phase),
+    responseRunning: running,
+  });
+  appCommandHandler.current = (command) => {
+    if (command === "command-palette") {
+      openCommandPalette();
+      return;
+    }
+    commands.find((candidate) => candidate.id === command && candidate.enabled)?.execute();
+  };
+
   if (snapshot === undefined) return bootstrapError === undefined ? (
     <main className="loading-shell">
       <LoadingState title="Connecting to Railgun…" description="Starting the secure desktop connection." />
@@ -208,10 +250,7 @@ export const App = (): React.JSX.Element => {
     </main>
   );
 
-  return (
-    <main className={`desktop-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-      <div className="titlebar" aria-hidden="true" />
-      <aside id="app-sidebar" className="sidebar" aria-hidden={sidebarCollapsed} inert={sidebarCollapsed}>
+  const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
         <Button className="new-chat" variant="glass" onClick={() => void startNewChat()}><CirclePlus aria-hidden="true" />New chat</Button>
         <nav aria-label="Main navigation">
@@ -219,21 +258,8 @@ export const App = (): React.JSX.Element => {
           <Button variant="ghost" className={area === "settings" ? "active" : ""} aria-current={area === "settings" ? "page" : undefined} onClick={() => setArea("settings")}><Settings aria-hidden="true" />Settings</Button>
         </nav>
         <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
-      </aside>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="sidebar-toggle"
-        aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        aria-controls="app-sidebar"
-        aria-expanded={!sidebarCollapsed}
-        onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-      >
-        <PanelLeft aria-hidden="true" />
-      </Button>
-
-      {area === "chat" ? (
+      </>;
+  const content = area === "chat" ? (
         <section className="chat-surface">
           <header className="content-toolbar"><div className="content-toolbar-title"><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
           <div className={`transcript ${messages.length === 0 ? "empty" : ""}`}>
@@ -279,7 +305,22 @@ export const App = (): React.JSX.Element => {
             <Card className="boundary-note"><CardHeader><TerminalSquare /><div><h2>Secure desktop boundary</h2><p>Renderer access is limited to the validated Railgun API.</p></div></CardHeader></Card>
           </div>
         </section>
-      )}
-    </main>
+      );
+
+  return (
+    <>
+      <ShellLayout
+        sidebar={sidebar}
+        main={content}
+        sidebarVisible={!sidebarCollapsed}
+        onSidebarVisibilityChange={(visible) => setSidebarCollapsed(!visible)}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        commands={commands}
+        restoreFocusTo={paletteRestoreFocus.current}
+        onOpenChange={setPaletteOpen}
+      />
+    </>
   );
 };

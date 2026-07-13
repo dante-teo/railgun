@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type {
+  AppCommandSchema,
   BackendSnapshotSchema,
   DesktopAgentEventSchema,
   MockScenarioIdSchema,
@@ -14,6 +15,7 @@ export type TransportLogEntry = z.infer<typeof TransportLogEntrySchema>;
 export type BackendSnapshot = z.infer<typeof BackendSnapshotSchema>;
 export type MockScenario = z.infer<typeof MockScenarioSchema>;
 export type DesktopAgentEvent = z.infer<typeof DesktopAgentEventSchema>;
+export type AppCommand = z.infer<typeof AppCommandSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -25,6 +27,7 @@ export interface RailgunDesktopApi {
   abortPrompt: () => Promise<void>;
   startNewChat: () => Promise<BackendSnapshot>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
+  onAppCommand: (listener: (command: AppCommand) => void) => () => void;
 }
 
 export const DESKTOP_IPC = {
@@ -37,4 +40,5 @@ export const DESKTOP_IPC = {
   abortPrompt: "agent:abort",
   startNewChat: "agent:new-chat",
   agentEvent: "agent:event",
+  appCommand: "app:command",
 } as const;

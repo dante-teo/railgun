@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, protocol, session } from "electron";
 import { resolve } from "node:path";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
 import { toDesktopAgentEvent } from "./agentBoundary";
 import type { BackendRuntime } from "./backendSupervisor";
 import { createRendererProtocolHandler, RAILGUN_RENDERER_URL } from "./rendererProtocol";
+import { buildApplicationMenuTemplate, installContextMenu } from "./nativeMenus";
+import { dispatchAppCommand } from "./appCommandDispatcher";
 import {
   assertAuthorizedIpcSender,
   installSessionGuards,
@@ -14,13 +16,14 @@ import {
 } from "./security";
 import { getMockScenario, listMockScenarios } from "../mock/scenarios";
 import {
+  AppCommandSchema,
   BackendSnapshotSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
   PromptTextSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
-import type { BackendMode, BackendSnapshot, DesktopAgentEvent } from "../shared/types";
+import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent } from "../shared/types";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -122,7 +125,7 @@ const registerIpc = (): void => {
   });
 };
 
-const createWindow = (): BrowserWindow => {
+const createWindow = (initialCommand?: AppCommand): BrowserWindow => {
   expectingRailgunWindow = true;
   let window: BrowserWindow;
   try {
@@ -154,6 +157,12 @@ const createWindow = (): BrowserWindow => {
 
   railgunWindows.add(window);
   window.once("closed", () => railgunWindows.delete(window));
+  installContextMenu(window);
+  if (initialCommand !== undefined) {
+    window.webContents.once("did-finish-load", () => {
+      if (!window.isDestroyed()) window.webContents.send(DESKTOP_IPC.appCommand, initialCommand);
+    });
+  }
   if (developmentUrl !== undefined) {
     void window.loadURL(developmentUrl);
   } else {
@@ -177,6 +186,16 @@ void app.whenReady().then(() => {
     void protocol.handle("railgun", createRendererProtocolHandler(rendererRoot));
   }
   supervisor.start();
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildApplicationMenuTemplate(
+    !app.isPackaged,
+    (command) => {
+      dispatchAppCommand(AppCommandSchema.parse(command), {
+        getFocusedWindow: BrowserWindow.getFocusedWindow,
+        windows: railgunWindows,
+        createWindow,
+      });
+    },
+  )));
   createWindow();
   app.on("activate", () => {
     if (railgunWindows.size === 0) createWindow();

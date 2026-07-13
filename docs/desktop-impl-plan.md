@@ -80,7 +80,10 @@ the main pane read as one uninterrupted surface:
 
 The app should look native to macOS 26, using Liquid Glass deliberately rather than applying blur everywhere.
 
-- Use glass for the titlebar, sidebar, toolbar controls, floating composer controls, popovers, and sheets.
+- Use glass selectively where it communicates hierarchy: the floating sidebar,
+  toolbar and composer controls, popovers, and sheets. Keep the effect subtle;
+  transparency, tint, blur, borders, and depth should support the content rather
+  than become decoration of their own.
 - Keep transcripts, code, forms, and long lists on calm readable surfaces.
 - Use a transparent titlebar with correct traffic-light spacing and native window behavior.
 - Use restrained depth, edge highlights, adaptive tint, and short fluid transitions.
@@ -103,6 +106,11 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   button beside the traffic lights while collapsed. Collapse state is
   session-only; the hidden sidebar is inert and removed from the accessibility
   tree.
+- Sidebar width is clamped, pointer- and keyboard-resizable, and stored in a
+  versioned renderer-local record. The main pane and its toolbar participate in
+  the same flex layout, so both move with the live sidebar width. The optional
+  inspector uses the same infrastructure but is omitted from the DOM and
+  accessibility tree until a feature supplies real content.
 - Renderer components consume semantic CSS custom properties and shared
   material recipes instead of raw palette values. Reduced Transparency removes
   blur, Reduced Motion removes animated transitions, and Increase Contrast uses
@@ -213,11 +221,21 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Create shared buttons, inputs, menus, sheets, dialogs, lists, loading, empty, and error states.
   - Add accessibility fallbacks for reduced transparency/motion and increased contrast.
 
-- [ ] **DESK-006 — Build the native Mac shell**
+- [x] **DESK-006 — Build the native Mac shell**
   - The transparent titlebar, traffic-light alignment, and session-only
     collapsible floating sidebar foundation are implemented.
-  - Session sidebar, main content, optional inspector, resizing, and saved pane widths.
-  - Native application menu, context menus, `⌘K` command palette, and keyboard shortcuts.
+  - Reusable sidebar/main/optional-inspector layout, accessible separators,
+    clamped resizing, double-click reset, versioned renderer-local pane widths,
+    and flexible main/toolbar geometry are implemented. Inspector markup is not
+    rendered without content; persistent session navigation remains DESK-011.
+  - Native application, Edit, View, and Window menus dispatch only the closed
+    app-command enum. If no Railgun window is focused, commands reactivate an
+    existing window or create one; preload buffers schema-valid commands until
+    the new renderer subscribes.
+  - Native context menus expose only applicable standard edit roles. The shared
+    renderer registry powers the accessible `⌘K` palette and keyboard handling;
+    macOS application shortcuts require Command, preserving Control-only text
+    editing keys.
 
 ### Chat
 

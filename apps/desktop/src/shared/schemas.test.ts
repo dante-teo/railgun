@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AppCommandSchema,
   BackendSnapshotSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
@@ -17,6 +18,7 @@ const validSnapshot = {
 
 describe("desktop boundary schemas", () => {
   it("accepts valid snapshots, entries, scenarios, and ids", () => {
+    expect(AppCommandSchema.parse("command-palette")).toBe("command-palette");
     expect(BackendSnapshotSchema.parse(validSnapshot)).toEqual(validSnapshot);
     expect(TransportLogEntrySchema.parse(validSnapshot.transportLog[0])).toEqual(validSnapshot.transportLog[0]);
     expect(MockScenarioIdSchema.parse("ready-idle")).toBe("ready-idle");
@@ -33,6 +35,7 @@ describe("desktop boundary schemas", () => {
   });
 
   it("rejects wrong discriminants, malformed arrays, and invalid ids", () => {
+    expect(() => AppCommandSchema.parse("open-terminal")).toThrow();
     expect(() => BackendSnapshotSchema.parse({ ...validSnapshot, phase: "loading" })).toThrow();
     expect(() => BackendSnapshotSchema.parse({ ...validSnapshot, diagnostics: "none" })).toThrow();
     expect(() => BackendSnapshotSchema.parse({ ...validSnapshot, transportLog: [null] })).toThrow();

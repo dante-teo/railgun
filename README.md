@@ -617,6 +617,15 @@ Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that
 launches the app and relaunch Railgun; a cached login cannot override that
 environment credential.
 
+The native desktop shell supports `⌘N` for New Chat, `⌘K` for the command
+palette, `⌘1` for Chat, `⌘,` for Settings, and `⌃⌘S` to toggle the sidebar.
+The sidebar can be resized by dragging its separator or with the arrow, Home,
+and End keys while the separator is focused; double-click resets its width.
+Pane widths persist locally across launches, while sidebar visibility remains
+session-only. Standard macOS Control-only editing keys are left untouched.
+Native context menus expose only applicable Undo/Redo, Cut/Copy/Paste, and
+Select All actions.
+
 Run the desktop checks and create a local Electron package with:
 
 ```sh
