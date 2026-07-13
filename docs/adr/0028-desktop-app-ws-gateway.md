@@ -51,7 +51,25 @@ React 19 DOM, no Electron APIs, no Node.js builtins. CSS custom properties drive
 - **CSS** — three new utility classes added to `styles/layout.css`: `.todo-panel__header` (flex, baseline-aligned, mono 12px bold, `var(--color-strong)`), `.todo-panel__summary` (weight 400, `var(--color-muted)`), and `.status-bar__separator` (`var(--color-dim)`).
 - **Tests** — `renderer/components/TodoPanel.test.tsx` (8 cases) and `renderer/components/StatusBar.test.tsx` (9 cases) added; both call components as plain functions and inspect the returned React element tree without a DOM renderer. The Vite config's `test.include` is extended to `["gateway/**/*.test.ts", "renderer/**/*.test.tsx"]`.
 
-`DevShell` (guarded by `import.meta.env.DEV`) mounts all components with static mock data so the visual design is reviewable without a running gateway. The `StatusBar` mock now passes `cwd="~/Projects/railgun"`.
+`DevShell` (guarded by `import.meta.env.DEV`) mounts all components and simulates a full streaming cycle on each submit — a 600 ms thinking pause, word-by-word streaming at 150 ms/word, then finalization as a committed assistant line — so all three live states (thinking, streaming, settled) are exercisable without a running gateway. Re-entrant submits while busy are silently dropped. The `StatusBar` mock passes `cwd="~/Projects/railgun"`.
+
+### Streaming and thinking model
+
+`DisplayLine.partial: true` signals that an assistant line is still in flight. `MessageBubble` renders partial lines in one of two states:
+
+- **Streaming** (`partial && text !== ""`): renders `line.text` via `react-markdown` + `StreamingCursor`. Transcript passes `text: streaming` directly into the ephemeral `DisplayLine` — streaming content is not a separate prop.
+- **Thinking** (`partial && text === ""`): renders `"Thinking" + StreamingCursor` with `.thinking-text` styling (dimmed, italic). Transcript emits this line when `busy && !streaming` (agent is running but no text deltas have arrived yet).
+
+These two states are mutually exclusive: `Transcript` renders at most one ephemeral partial bubble at a time.
+
+### Component tests
+
+Vitest 4.x with `@testing-library/react` covers all renderer components — 41 tests total across `StreamingCursor`, `ToolCallLine`, `MessageBubble`, `Transcript`, `TodoPanel`, and `StatusBar`. Configuration notes:
+
+- `globals: true` in `vite.config.ts` injects `describe`/`it`/`expect`/`beforeAll` at runtime; `"vitest/globals"` must also be added to `tsconfig.json`'s `types` array for TypeScript to resolve them without explicit imports.
+- `environmentMatchGlobs` does not exist in vitest 4.x. Each renderer test file carries `// @vitest-environment jsdom` instead.
+- A shared `renderer/test-setup.ts` imported via `setupFiles` loads `@testing-library/jest-dom` once for all test suites.
+- All `@testing-library/*` and `jsdom` packages belong in `devDependencies`; `@testing-library/dom` is a peer of `@testing-library/react` and must be listed explicitly.
 
 ## Alternatives considered
 

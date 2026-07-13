@@ -3,10 +3,8 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DisplayLine } from "@railgun/core/repl/App.js";
 import type { AdviceSeverity } from "@railgun/core/advisor/advisoryContext.js";
-import { glyphs } from "../lib/theme.js";
 import { StreamingCursor } from "./StreamingCursor.js";
-import { ToolCallLine } from "./ToolCallLine.js";
-import type { ToolCallState } from "./ToolCallLine.js";
+import { ToolCallLine, type ToolCallState } from "./ToolCallLine.js";
 
 const TOOL_STATE = (line: DisplayLine): ToolCallState => {
   if (line.pending) return "running";
@@ -30,10 +28,9 @@ const LABEL: Record<DisplayLine["kind"], string> = {
 
 interface MessageBubbleProps {
   readonly line: DisplayLine;
-  readonly streaming?: string;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ line, streaming }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ line }) => {
   if (line.kind === "tool") {
     return <ToolCallLine label={line.text} state={TOOL_STATE(line)} />;
   }
@@ -42,7 +39,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ line, streaming })
   const containerClass = `message message--${line.kind}${advisoryClass}`;
 
   const label = LABEL[line.kind];
-  const isStreamingAssistant = line.kind === "assistant" && line.partial === true;
 
   return (
     <div className={containerClass} role="article">
@@ -51,18 +47,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ line, streaming })
       )}
       <div className="message__body">
         {line.kind === "assistant" ? (
-          <>
-            <Markdown remarkPlugins={[remarkGfm]}>
-              {line.text}
-            </Markdown>
-            {isStreamingAssistant && <StreamingCursor />}
-            {streaming !== undefined && streaming.length > 0 && line.partial !== true && (
-              <>
-                <Markdown remarkPlugins={[remarkGfm]}>{streaming}</Markdown>
-                <StreamingCursor />
-              </>
-            )}
-          </>
+          line.partial && !line.text ? (
+            <span className="thinking-text">Thinking<StreamingCursor /></span>
+          ) : (
+            <>
+              <Markdown remarkPlugins={[remarkGfm]}>{line.text}</Markdown>
+              {line.partial && <StreamingCursor />}
+            </>
+          )
         ) : (
           <span>{line.text}</span>
         )}

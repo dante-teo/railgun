@@ -252,6 +252,11 @@ body,
   50%       { opacity: 0; }
 }
 
+.thinking-text {
+  color: var(--color-dim);
+  font-style: italic;
+}
+
 /* ── Todo panel ── */
 .todo-panel {
   padding: var(--spacing-xs) var(--spacing-md);

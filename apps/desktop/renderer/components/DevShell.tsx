@@ -31,15 +31,37 @@ const MOCK_TODOS: TodoState = [
 
 export const DevShell: React.FC = () => {
   const [lines, setLines] = useState<DisplayLine[]>([...MOCK_LINES]);
-  const [streaming] = useState("");
+  const [streaming, setStreaming] = useState("");
+  const [busy, setBusy] = useState(false);
   const composer = useComposer();
 
   const handleSubmit = (text: string): void => {
-    setLines(prev => [
-      ...prev,
-      { kind: "user", text },
-      { kind: "assistant", text: `_[dev mode]_ Echo: ${text}` },
-    ]);
+    if (busy) return;
+    setLines(prev => [...prev, { kind: "user", text }]);
+    setBusy(true);
+    setStreaming("");
+
+    // Simulate thinking → streaming → finalized
+    const words = `_[dev mode]_ Echo: ${text}`.split(" ");
+    let accumulated = "";
+    let wordIndex = 0;
+
+    const tick = (): void => {
+      if (wordIndex < words.length) {
+        accumulated += (wordIndex > 0 ? " " : "") + words[wordIndex];
+        wordIndex++;
+        setStreaming(accumulated);
+        setTimeout(tick, 150);
+      } else {
+        // Finalize
+        setLines(prev => [...prev, { kind: "assistant", text: accumulated }]);
+        setStreaming("");
+        setBusy(false);
+      }
+    };
+
+    // Brief thinking pause before first word
+    setTimeout(tick, 600);
   };
 
   return (
@@ -50,7 +72,7 @@ export const DevShell: React.FC = () => {
       </header>
 
       {/* Zone 2: Transcript */}
-      <Transcript lines={lines} streaming={streaming} busy={false} />
+      <Transcript lines={lines} streaming={streaming} busy={busy} />
 
       {/* Zone 3: Bottom stack */}
       <div className="bottom-stack">

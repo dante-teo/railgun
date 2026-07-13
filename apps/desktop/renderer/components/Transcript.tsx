@@ -54,9 +54,13 @@ export const Transcript: React.FC<TranscriptProps> = ({ lines, streaming, busy }
       {/* Live streaming assistant line */}
       {busy && streaming.length > 0 && (
         <MessageBubble
-          line={{ kind: "assistant", text: "", partial: true }}
-          streaming={streaming}
+          line={{ kind: "assistant", text: streaming, partial: true }}
         />
+      )}
+
+      {/* Thinking indicator — busy but no text yet */}
+      {busy && !streaming && (
+        <MessageBubble line={{ kind: "assistant", text: "", partial: true }} />
       )}
 
       <div ref={bottomRef} />

@@ -13,9 +13,11 @@ export default defineConfig({
     },
   },
   test: {
+    globals: true,
     include: ["gateway/**/*.test.ts", "renderer/**/*.test.ts", "renderer/**/*.test.tsx"],
     environmentMatchGlobs: [
       ["renderer/**", "jsdom"],
     ],
+    setupFiles: ["./renderer/test-setup.ts"],
   },
 });

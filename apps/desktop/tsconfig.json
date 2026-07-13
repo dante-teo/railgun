@@ -9,7 +9,7 @@
     "paths": { "@railgun/core/*": ["../../src/*"] },
     "outDir": "dist",
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "vitest/globals"]
   },
   "include": ["renderer/**/*", "gateway/**/*"]
 }
