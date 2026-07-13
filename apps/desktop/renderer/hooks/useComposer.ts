@@ -11,6 +11,8 @@ export interface ComposerState {
   readonly handleEscape: () => void;
   readonly handleCtrlU: () => void;
   readonly handleSubmit: (onSubmit: (text: string) => void) => void;
+  readonly handleArrowUp: () => void;
+  readonly handleArrowDown: () => void;
 }
 
 export const useComposer = (): ComposerState => {
@@ -23,7 +25,7 @@ export const useComposer = (): ComposerState => {
 
   const setDraft = (value: string): void => {
     setDraftRaw(value);
-    // Clear frozen completion when draft changes externally
+    // Reset completion state; use setDraftRaw internally to bypass this.
     setCompletionIndex(null);
     setCompletionMatches([]);
   };
@@ -59,6 +61,28 @@ export const useComposer = (): ComposerState => {
     setCompletionMatches([]);
   };
 
+  const getActiveSuggestions = (): readonly string[] =>
+    completionMatches.length > 1 ? completionMatches
+      : liveMatches.length > 1 ? liveMatches : [];
+
+  // Freeze live matches into completionMatches (if not already frozen) and
+  // move the selection index by `delta`, wrapping around the list.
+  const navigateArrow = (delta: 1 | -1): void => {
+    const suggestions = getActiveSuggestions();
+    if (suggestions.length === 0) return;
+    if (completionMatches.length === 0 && liveMatches.length > 1) {
+      setCompletionMatches([...liveMatches]);
+    }
+    setCompletionIndex(prev => {
+      const n = suggestions.length;
+      if (prev === null) return delta === 1 ? 0 : n - 1;
+      return (prev + delta + n) % n;
+    });
+  };
+
+  const handleArrowUp = (): void => navigateArrow(-1);
+  const handleArrowDown = (): void => navigateArrow(1);
+
   return {
     draft,
     completionIndex,
@@ -69,5 +93,7 @@ export const useComposer = (): ComposerState => {
     handleEscape,
     handleCtrlU,
     handleSubmit,
+    handleArrowUp,
+    handleArrowDown,
   };
 };

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 
 interface SlashSuggestionsProps {
   readonly matches: readonly string[];
@@ -11,6 +11,12 @@ export const SlashSuggestions: React.FC<SlashSuggestionsProps> = ({
   selectedIndex,
   onSelect,
 }) => {
+  const selectedRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
   if (matches.length === 0) return null;
 
   return (
@@ -18,6 +24,7 @@ export const SlashSuggestions: React.FC<SlashSuggestionsProps> = ({
       {matches.map((cmd, i) => (
         <div
           key={cmd}
+          ref={i === selectedIndex ? selectedRef : undefined}
           className={`slash-suggestions__item${i === selectedIndex ? " slash-suggestions__item--selected" : ""}`}
           role="option"
           aria-selected={i === selectedIndex}

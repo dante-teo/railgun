@@ -13,7 +13,9 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "node",
-    include: ["gateway/**/*.test.ts"],
+    include: ["gateway/**/*.test.ts", "renderer/**/*.test.ts", "renderer/**/*.test.tsx"],
+    environmentMatchGlobs: [
+      ["renderer/**", "jsdom"],
+    ],
   },
 });

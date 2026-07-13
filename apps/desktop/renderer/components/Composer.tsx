@@ -22,7 +22,7 @@ const PLACEHOLDER: Record<ComposerMode, string> = {
 const MAX_ROWS = 6;
 
 export const Composer: React.FC<ComposerProps> = ({ state, mode, onSubmit, onAbort }) => {
-  const { draft, setDraft, liveMatches, completionIndex, completionMatches, handleTab, handleEscape, handleCtrlU, handleSubmit } = state;
+  const { draft, setDraft, liveMatches, completionIndex, completionMatches, composerRevision, handleTab, handleEscape, handleCtrlU, handleSubmit, handleArrowUp, handleArrowDown } = state;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-resize textarea
@@ -38,7 +38,23 @@ export const Composer: React.FC<ComposerProps> = ({ state, mode, onSubmit, onAbo
 
   const isDisabled = mode === "awaiting_approval";
 
+  // Restore focus after Ctrl+U remounts the textarea (key={composerRevision}).
+  // Guard on isDisabled so focus isn't forced when input is locked.
+  useEffect(() => {
+    if (!isDisabled) textareaRef.current?.focus();
+  }, [composerRevision, isDisabled]);
+
+  const activeSuggestions = completionMatches.length > 1
+    ? completionMatches
+    : liveMatches.length > 1 ? liveMatches : [];
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && activeSuggestions.length > 0) {
+      e.preventDefault();
+      if (e.key === "ArrowUp") handleArrowUp();
+      else handleArrowDown();
+      return;
+    }
     if (e.key === "Tab") {
       e.preventDefault();
       handleTab();
@@ -66,10 +82,6 @@ export const Composer: React.FC<ComposerProps> = ({ state, mode, onSubmit, onAbo
     }
   };
 
-  const activeSuggestions = completionMatches.length > 1
-    ? completionMatches
-    : liveMatches.length > 1 ? liveMatches : [];
-
   return (
     <div className="composer" role="search" aria-label="Message input">
       <SlashSuggestions
@@ -79,6 +91,7 @@ export const Composer: React.FC<ComposerProps> = ({ state, mode, onSubmit, onAbo
       />
       <span className="composer__prompt" aria-hidden="true">❯</span>
       <textarea
+        key={composerRevision}
         ref={textareaRef}
         className="composer__textarea"
         value={draft}
