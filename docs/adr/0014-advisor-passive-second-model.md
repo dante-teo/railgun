@@ -56,6 +56,12 @@ advisor's access to its shared history and cursor: the next primary turn cannot
 begin until the advisor has finished reading and writing. As a consequence,
 `agent.run()` does not return until the advisor finishes.
 
+`seedFrom` also resets a run-scoped intervention flag. The first successfully
+delivered `advise` call consumes the run's sole steer allowance; later primary
+steps still advance the message cursor but do not invoke the advisor model.
+Silent reviews before that intervention leave the allowance intact, and the
+next `Agent.run` starts with a fresh allowance.
+
 ### Severity routing
 
 The advisor emits notes through a dedicated `advise` tool
@@ -102,9 +108,10 @@ The `advise` tool applies three guards to keep the advisor quiet:
    `"nothing to add"`) is matched against the normalised note. If the note is
    just noise, the tool returns `{ content: "Recorded.", isError: false }`
    without delivering anything.
-2. **Per-runtime dedupe**: the note is normalised to lowercase, NFKC, with all
+2. **Per-run dedupe**: the note is normalised to lowercase, NFKC, with all
    non-alphanumeric runs collapsed to a single space. The resulting key is
-   stored in a `Set<string>` on `AdvisoryContext`; a matching key is dropped.
+   stored in a `Set<string>` on `AdvisoryContext`; a matching key is dropped
+   within the current user request, and `seedFrom` clears the set for the next.
 3. **One-note-per-update rate limit**: `AdvisoryContext.notesThisUpdate` starts
    at `0` for each primary turn and is incremented when a note is delivered.
    Any `advise` call after the first in the same update returns
@@ -123,7 +130,10 @@ The `ADVISOR_SYSTEM_PROMPT` reinforces this: the advisor is told it has
 read-only access, should verify claims with `read_file` and `list_directory`,
 may search saved memories and notes via `memory_search` and `note_search` to
 detect contradictions with known user facts or preferences, may call `advise`
-at most once if it spots an issue, and must otherwise do nothing.
+at most once if it spots an issue, and must otherwise do nothing. It also treats
+truthful capability or evidence limitations as terminal when no available tool
+or concrete correction can resolve them, and forbids paraphrasing the same
+unattainable demand.
 
 ### Mini tool-use loop
 
@@ -172,8 +182,9 @@ message so each REPL message starts a correctly configured session.
 ## Consequences
 
 - When `advisor.enabled` is `true` and `advisor.model` is set, a second model
-  reviews every completed primary turn. If it emits a note, the primary agent
-  sees it as a steer and can adjust.
+  reviews completed primary turns until it emits advice. The primary agent sees
+  that note as a steer and can adjust; no further advisor model calls occur in
+  the same `Agent.run`.
 - The operator must add `advisor` to `~/.railgun/config.json`, set `enabled` to
   `true`, and provide a valid model name. Disabling the advisor (`enabled: false`)
   requires no model and incurs no runtime cost.
@@ -184,8 +195,10 @@ message so each REPL message starts a correctly configured session.
   deciding whether to act on them.
 - Because `onPrimaryTurnEnd` is awaited, `agent.run()` does not return until the
   advisor finishes. A slow advisor model slows the session.
-- The one-note-per-update limit and dedupe keep the advisor from spamming the
-  primary conversation or repeating itself.
+- The run-scoped one-steer limit prevents recursive complaints. Per-update
+  limiting and per-run dedupe also suppress duplicate tool calls before the
+  allowance is consumed, while `seedFrom` restores both advice and dedupe for a
+  later user request.
 - The 3-iteration budget caps the advisor's work; it will not recurse
   indefinitely even if the model keeps emitting tool calls.
 - Errors inside the advisor are logged but never crash the primary turn. A

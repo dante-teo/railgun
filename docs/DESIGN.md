@@ -48,9 +48,11 @@ the same model; text entry is reserved for free-form answers and preset names.
 - Advisor notes are visually separate from user turns. The REPL parses their
   internal advisory envelope and renders an `ADVISOR` role with severity-specific
   foreground and background colors: green for `nit`, amber for `concern`, and
-  red for `blocker`. Internal advisory prompts are normalized out of returned
-  history before checkpointing; the assistant response produced after a steer
-  is merged with the preceding assistant message to preserve a valid transcript.
+  red for `blocker`. The advisor can steer at most once per user request; silent
+  reviews preserve that allowance, while any delivered severity consumes it.
+  Internal advisory prompts are normalized out of returned history before
+  checkpointing; the assistant response produced after a steer is merged with
+  the preceding assistant message to preserve a valid transcript.
   Clarify prompts with choices use Up/Down and Enter, while prompts without
   choices retain free-form text entry. Escape declines either form. During
   choice mode the composer unfocuses so selection input reaches only the

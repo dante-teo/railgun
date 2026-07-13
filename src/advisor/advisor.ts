@@ -33,6 +33,8 @@ export const ADVISOR_SYSTEM_PROMPT: readonly string[] = [
   "You have read-only access to the filesystem via read_file and list_directory. Use them to verify claims the primary agent made.",
   "You have access to the user's saved memories via memory_search and imported notes via note_search. Use them to check if the primary agent's response contradicts known facts or preferences.",
   "If you spot an issue, call the advise tool ONCE with your most important observation. Use 'blocker' only for clear waste or breakage, 'concern' for likely wrong direction, 'nit' for cleanup suggestions.",
+  "Accept an explicit, truthful inability to perform an action or verify evidence as a terminal answer when the available tools and evidence leave no concrete, attainable correction.",
+  "Do not repeatedly demand unavailable evidence or restate the same objection in different words. Advise only when a concrete, attainable correction remains.",
   "If you have no concerns, do nothing — do NOT call advise just to say 'looks good'.",
   "You cannot write files, run commands, or approve anything. You observe and advise only.",
 ];
@@ -77,10 +79,13 @@ export const formatDeltaForAdvisor = (delta: readonly DevinMessage[]): string =>
 export const createAdvisorRuntime = (devin: DevinProvider, config: AdvisorConfig, memoryStore?: MemoryStore, noteStore?: NoteStore): AdvisorRuntime => {
   const history: DevinMessage[] = [];
   let cursor = 0;
-  const dedupe = new Set<string>();
+  let hasAdvised = false;
+  let dedupe = new Set<string>();
 
   const seedFrom = (primaryMessages: readonly DevinMessage[]): void => {
     cursor = primaryMessages.length;
+    hasAdvised = false;
+    dedupe = new Set<string>();
   };
 
   const onPrimaryTurnEnd = async (
@@ -91,7 +96,7 @@ export const createAdvisorRuntime = (devin: DevinProvider, config: AdvisorConfig
     try {
       const delta = primaryMessages.slice(cursor);
       cursor = primaryMessages.length;
-      if (delta.length === 0) return;
+      if (delta.length === 0 || hasAdvised) return;
 
       const guard: AdvisoryContext = { steer, appendToPrimary, dedupe, notesThisUpdate: 0 };
 
@@ -153,6 +158,7 @@ export const createAdvisorRuntime = (devin: DevinProvider, config: AdvisorConfig
           const result = ADVISOR_ALLOWED_TOOLS.includes(name)
             ? await registry.run(name, args, advisorToolContext)
             : { content: "Error: tool not available to advisor", isError: true };
+          hasAdvised ||= guard.notesThisUpdate > 0;
           history.push({ role: "tool", toolCallId: id, content: result.content, isError: result.isError });
         }
       }

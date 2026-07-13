@@ -226,8 +226,11 @@ When enabled, the advisor reviews completed primary-model steps with read-only
 filesystem access (`read_file`, `list_directory`) and can query the user's saved
 memories (`memory_search`) and imported notes (`note_search`) to detect responses
 that contradict known facts or preferences.
-It stays silent when it finds no meaningful issue and emits at most one note per review cycle. Notes appear as dedicated `ADVISOR` transcript
-rows rather than user messages: green `NIT`, amber `CONCERN`, or red `BLOCKER`.
+It stays silent when it finds no meaningful issue and emits at most one steer per
+user request, even when the primary agent takes multiple internal steps. Silent
+reviews do not consume that allowance, and a later user request can receive
+fresh advice. Notes appear as dedicated `ADVISOR` transcript rows rather than
+user messages: green `NIT`, amber `CONCERN`, or red `BLOCKER`.
 The XML envelope used internally is decoded before display and removed from
 persisted history, so advisory steering cannot invalidate session checkpoints.
 

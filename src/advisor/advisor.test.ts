@@ -30,6 +30,18 @@ const toolcallEnd = (id: string, name: string): DevinStreamEvent =>
 const makeSteer = (): (text: string) => void => vi.fn() as unknown as (text: string) => void;
 /** Build a typed appendToPrimary spy. */
 const makeAppend = (): (msg: DevinMessage) => void => vi.fn() as unknown as (msg: DevinMessage) => void;
+const assistantMessage = (text: string): DevinMessage => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+});
+
+const adviseRound = (id: string, note: string, severity = "concern"): readonly DevinStreamEvent[] => {
+  const args = JSON.stringify({ note, severity });
+  return [
+    ...args.split("").map(delta => ({ type: "toolcall_delta" as const, id, delta })),
+    toolcallEnd(id, "advise"),
+  ];
+};
 
 // ---------------------------------------------------------------------------
 // formatDeltaForAdvisor
@@ -120,6 +132,51 @@ describe("AdvisorRuntime.seedFrom", () => {
 
     expect(devin.streamChat).not.toHaveBeenCalled();
   });
+
+  it("resets the intervention allowance for a new run", async () => {
+    const devin = makeProvider([
+      adviseRound("first", "fix the first request"),
+      [],
+      adviseRound("second", "fix the next request"),
+      [],
+    ]);
+    const runtime = createAdvisorRuntime(devin, { model: "test-model" });
+    const steer = vi.fn<(text: string) => void>();
+
+    runtime.seedFrom([]);
+    await runtime.onPrimaryTurnEnd([assistantMessage("first answer")], steer, makeAppend());
+
+    runtime.seedFrom([{ role: "user", content: "next request" }]);
+    await runtime.onPrimaryTurnEnd([
+      { role: "user", content: "next request" },
+      assistantMessage("second answer"),
+    ], steer, makeAppend());
+
+    expect(steer).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows the same relevant advice again on a later user request", async () => {
+    const repeatedAdvice = "add the missing test";
+    const devin = makeProvider([
+      adviseRound("first", repeatedAdvice),
+      [],
+      adviseRound("second", repeatedAdvice),
+      [],
+    ]);
+    const runtime = createAdvisorRuntime(devin, { model: "test-model" });
+    const steer = vi.fn<(text: string) => void>();
+
+    runtime.seedFrom([]);
+    await runtime.onPrimaryTurnEnd([assistantMessage("first untested change")], steer, makeAppend());
+
+    runtime.seedFrom([{ role: "user", content: "make another change" }]);
+    await runtime.onPrimaryTurnEnd([
+      { role: "user", content: "make another change" },
+      assistantMessage("second untested change"),
+    ], steer, makeAppend());
+
+    expect(steer).toHaveBeenCalledTimes(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -127,6 +184,64 @@ describe("AdvisorRuntime.seedFrom", () => {
 // ---------------------------------------------------------------------------
 
 describe("AdvisorRuntime.onPrimaryTurnEnd", () => {
+  it("does not invoke the advisor model after one steer in the current run", async () => {
+    const devin = makeProvider([adviseRound("first", "add the missing test"), []]);
+    const runtime = createAdvisorRuntime(devin, { model: "advisor-model" });
+    const firstStep: DevinMessage[] = [assistantMessage("implemented without a test")];
+
+    await runtime.onPrimaryTurnEnd(firstStep, makeSteer(), makeAppend());
+    await runtime.onPrimaryTurnEnd(
+      [...firstStep, assistantMessage("I cannot run that unavailable verifier")],
+      makeSteer(),
+      makeAppend(),
+    );
+
+    expect(devin.streamChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("caps paraphrased complaints after the first steer", async () => {
+    const devin = makeProvider([
+      adviseRound("first", "provide proof"),
+      [],
+      adviseRound("paraphrase", "show supporting evidence instead"),
+      [],
+    ]);
+    const runtime = createAdvisorRuntime(devin, { model: "advisor-model" });
+    const firstStep: DevinMessage[] = [assistantMessage("the evidence is unavailable")];
+    const steer = vi.fn<(text: string) => void>();
+
+    await runtime.onPrimaryTurnEnd(firstStep, steer, makeAppend());
+    await runtime.onPrimaryTurnEnd(
+      [...firstStep, assistantMessage("I still cannot access that evidence")],
+      steer,
+      makeAppend(),
+    );
+
+    expect(steer).toHaveBeenCalledOnce();
+    expect(devin.streamChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows silent reviews before the first intervention", async () => {
+    const devin = makeProvider([
+      [],
+      adviseRound("later", "correct the concrete error"),
+      [],
+    ]);
+    const runtime = createAdvisorRuntime(devin, { model: "advisor-model" });
+    const firstStep: DevinMessage[] = [assistantMessage("first step is sound")];
+    const steer = vi.fn<(text: string) => void>();
+
+    await runtime.onPrimaryTurnEnd(firstStep, steer, makeAppend());
+    await runtime.onPrimaryTurnEnd(
+      [...firstStep, assistantMessage("later step has an error")],
+      steer,
+      makeAppend(),
+    );
+
+    expect(steer).toHaveBeenCalledOnce();
+    expect(devin.streamChat).toHaveBeenCalledTimes(3);
+  });
+
   it("calls streamChat with correct model, tools, and system prompt", async () => {
     const devin = makeProvider([[{ type: "text_delta", delta: "ok" }]]);
     const runtime = createAdvisorRuntime(devin, { model: "advisor-model" });
@@ -258,6 +373,18 @@ describe("ADVISOR_ALLOWED_TOOLS", () => {
 
   it("does not include memory_write", () => {
     expect(ADVISOR_ALLOWED_TOOLS).not.toContain("memory_write");
+  });
+});
+
+describe("ADVISOR_SYSTEM_PROMPT", () => {
+  it("treats honest capability and evidence limitations as terminal when no correction remains", () => {
+    const prompt = ADVISOR_SYSTEM_PROMPT.join(" ");
+
+    expect(prompt).toMatch(/capability|perform/i);
+    expect(prompt).toMatch(/evidence|verify/i);
+    expect(prompt).toMatch(/terminal|accept/i);
+    expect(prompt).toMatch(/concrete, attainable correction/i);
+    expect(prompt).toMatch(/do not repeatedly demand|do not repeat/i);
   });
 });
 
