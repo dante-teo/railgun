@@ -20,6 +20,8 @@ describe("desktop boundary schemas", () => {
     expect(BackendSnapshotSchema.parse(validSnapshot)).toEqual(validSnapshot);
     expect(TransportLogEntrySchema.parse(validSnapshot.transportLog[0])).toEqual(validSnapshot.transportLog[0]);
     expect(MockScenarioIdSchema.parse("ready-idle")).toBe("ready-idle");
+    expect(BackendSnapshotSchema.parse({ ...validSnapshot, phase: "authentication-required" }).phase)
+      .toBe("authentication-required");
     expect(MockScenarioSchema.parse({ id: "ready-idle", label: "Ready", description: "Ready now" })).toBeTruthy();
     expect(MockScenarioListSchema.parse([{ id: "ready-idle", label: "Ready", description: "Ready now" }])).toHaveLength(1);
   });

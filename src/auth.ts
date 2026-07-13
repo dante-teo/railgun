@@ -10,6 +10,16 @@ import { TOKEN_PATH } from "./sessionPath.js";
 
 export type CredentialSource = "environment" | "file";
 
+export const DESKTOP_RPC_ENV = "RAILGUN_DESKTOP_RPC";
+
+export class AuthenticationRequiredError extends Error {
+  readonly name = "AuthenticationRequiredError";
+
+  constructor() {
+    super("Devin authentication is required.");
+  }
+}
+
 export class CredentialRejectedError extends Error {
   readonly name = "CredentialRejectedError";
 
@@ -37,6 +47,7 @@ export interface AuthenticationOptions {
   readonly fileStore?: TokenStore;
   readonly createMemoryStore?: (token: string) => TokenStore;
   readonly createProvider?: ProviderFactory;
+  readonly desktopRpc?: boolean;
 }
 
 export interface AuthenticatedProvider {
@@ -96,6 +107,7 @@ export const createAuthenticatedProvider = async (
   const fileStore = options.fileStore ?? createFileTokenStore(TOKEN_PATH);
   const createProvider = options.createProvider ?? defaultProviderFactory;
   const environmentToken = usableEnvironmentToken(options.environmentToken ?? process.env.DEVIN_TOKEN);
+  const desktopRpc = options.desktopRpc ?? process.env[DESKTOP_RPC_ENV] === "1";
 
   if (environmentToken !== undefined) {
     const memoryStore = (options.createMemoryStore ?? createMemoryTokenStore)(environmentToken);
@@ -106,7 +118,10 @@ export const createAuthenticatedProvider = async (
   }
 
   const devin = createProvider(fileStore);
-  if (!(await fileStore.get())) await devin.login();
+  if (!(await fileStore.get())) {
+    if (desktopRpc) throw new AuthenticationRequiredError();
+    await devin.login();
+  }
   return { source: "file", devin: credentialAwareProvider(devin, "file", fileStore) };
 };
 

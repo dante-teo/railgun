@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DevinApiError, DevinProtocolError, type DevinProvider, type TokenStore } from "widevin";
 import {
+  AuthenticationRequiredError,
   CredentialRejectedError,
   LoginVerificationError,
   createAuthenticatedProvider,
@@ -62,6 +63,23 @@ describe("createAuthenticatedProvider", () => {
     const createProvider = factory();
     const result = await createAuthenticatedProvider({ fileStore: file, createProvider });
     expect(result.devin.login).toHaveBeenCalledOnce();
+  });
+
+  it("requires explicit terminal login without opening a browser in desktop RPC mode", async () => {
+    const file = tokenStore();
+    const createProvider = factory();
+    await expect(createAuthenticatedProvider({ desktopRpc: true, fileStore: file, createProvider }))
+      .rejects.toBeInstanceOf(AuthenticationRequiredError);
+    expect(createProvider.mock.results[0]?.value.login).not.toHaveBeenCalled();
+  });
+
+  it("accepts cached and environment credentials in desktop RPC mode", async () => {
+    await expect(createAuthenticatedProvider({
+      desktopRpc: true, fileStore: tokenStore("cached-token"), createProvider: factory(),
+    })).resolves.toMatchObject({ source: "file" });
+    await expect(createAuthenticatedProvider({
+      desktopRpc: true, environmentToken: "environment-token", fileStore: tokenStore(), createProvider: factory(),
+    })).resolves.toMatchObject({ source: "environment" });
   });
 
   it("clears a cached credential rejected by model discovery", async () => {

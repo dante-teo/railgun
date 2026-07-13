@@ -7,14 +7,33 @@ import { join } from "node:path";
 import type { DevinSession } from "./session.js";
 import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
-import { dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
+import { desktopAuthenticationRequiredFrame, dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
 import type { ProjectTrustStore, TrustChoice, TrustDecision } from "./trust.js";
-import type { DevinProvider, DevinModel } from "widevin";
+import { DevinApiError, type DevinProvider, type DevinModel } from "widevin";
 import { embedText } from "./persistence/embedder.js";
+import { AuthenticationRequiredError, CredentialRejectedError } from "./auth.js";
 
 vi.mock("./persistence/embedder.js", () => ({
   embedText: vi.fn(async () => new Float32Array(384).fill(0.5)),
 }));
+
+describe("desktop authentication startup status", () => {
+  it("emits the internal frame only for desktop authentication failures", () => {
+    expect(desktopAuthenticationRequiredFrame(new AuthenticationRequiredError(), true)).toBe(
+      '{"type":"startup_status","status":"authentication_required","credential_source":"file"}',
+    );
+    expect(desktopAuthenticationRequiredFrame(
+      new CredentialRejectedError("environment", new DevinApiError("no", 401)),
+      true,
+    )).toBe('{"type":"startup_status","status":"authentication_required","credential_source":"environment"}');
+    expect(desktopAuthenticationRequiredFrame(
+      new CredentialRejectedError("file", new DevinApiError("no", 401)),
+      true,
+    )).toBe('{"type":"startup_status","status":"authentication_required","credential_source":"file"}');
+    expect(desktopAuthenticationRequiredFrame(new AuthenticationRequiredError(), false)).toBeUndefined();
+    expect(desktopAuthenticationRequiredFrame(new Error("network"), true)).toBeUndefined();
+  });
+});
 
 
 const summary = (id: string): SessionSummary => ({

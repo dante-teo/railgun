@@ -61,6 +61,20 @@ describe("BackendSupervisor", () => {
     supervisor.shutdown();
   });
 
+  it("drains coalesced complete frames before enforcing the residual buffer limit", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({
+      mode: "real",
+      spawnChild: () => child,
+      maxBufferLength: 32,
+    });
+    supervisor.start();
+    child.stdin.read();
+    child.stdout.write(`${initializationResponse(1)}\n${readinessResponse(1)}\n`);
+    expect(supervisor.getSnapshot().phase).toBe("ready");
+    supervisor.shutdown();
+  });
+
   it("reports rejected probes and malformed output", () => {
     const rejectedChild = new FakeChild();
     const rejected = new BackendSupervisor({ mode: "mock", spawnChild: () => rejectedChild });
@@ -115,6 +129,101 @@ describe("BackendSupervisor", () => {
     supervisor.shutdown();
   });
 
+  it("redacts and truncates diagnostics and records only safe frame summaries", async () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({
+      mode: "real",
+      spawnChild: () => child,
+      maxLogTextLength: 120,
+    });
+    supervisor.start();
+    makeReady(child, 1);
+    const call = supervisor.call({ type: "prompt", message: "private user prompt" });
+    child.stdin.read();
+    child.stderr.write(`DEVIN_TOKEN=super-secret Bearer another-secret ${"x".repeat(100)}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "approval_request", command: "curl secret.example" })}\n`);
+    child.stdout.write(`${JSON.stringify({
+      id: "desktop-rpc-1", type: "response", command: "prompt", success: false,
+      error: "password=hunter2",
+    })}\n`);
+
+    await expect(call).rejects.toThrow("password=[REDACTED]");
+    const mismatched = supervisor.call({ type: "prompt", message: "another private prompt" });
+    child.stdin.read();
+    child.stdout.write(`${JSON.stringify({
+      id: "desktop-rpc-2", type: "response", command: "DEVIN_TOKEN=leaked", success: true,
+    })}\n`);
+    await expect(mismatched).rejects.toThrow("DEVIN_TOKEN=[REDACTED]");
+    const serialized = JSON.stringify(supervisor.getSnapshot());
+    expect(serialized).not.toContain("private user prompt");
+    expect(serialized).not.toContain("super-secret");
+    expect(serialized).not.toContain("another-secret");
+    expect(serialized).not.toContain("curl secret.example");
+    expect(serialized).not.toContain("leaked");
+    expect(supervisor.getSnapshot().diagnostics.every(text => text.length <= 120)).toBe(true);
+    supervisor.shutdown();
+  });
+
+  it("recognizes authentication-required before the handshake and preserves it on exit", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    child.stdout.write('{"type":"startup_status","status":"authentication_required"}\n');
+    expect(supervisor.getSnapshot()).toMatchObject({
+      phase: "authentication-required",
+      error: expect.stringContaining("railgun login"),
+    });
+    child.exit(1);
+    expect(supervisor.getSnapshot().phase).toBe("authentication-required");
+  });
+
+  it("provides effective recovery guidance for a rejected environment credential", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    child.stdout.write(`${JSON.stringify({
+      type: "startup_status",
+      status: "authentication_required",
+      credential_source: "environment",
+    })}\n`);
+
+    expect(supervisor.getSnapshot()).toMatchObject({
+      phase: "authentication-required",
+      error: expect.stringMatching(/DEVIN_TOKEN.*remove or replace.*relaunch Railgun/i),
+    });
+  });
+
+  it("keeps authentication-required terminal until an explicit restart", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    child.stdout.write([
+      '{"type":"startup_status","status":"authentication_required"}',
+      initializationResponse(1),
+      readinessResponse(1),
+      "",
+    ].join("\n"));
+
+    expect(supervisor.getSnapshot().phase).toBe("authentication-required");
+    expect(child.stdin.read()?.toString()).not.toContain('"type":"get_state"');
+  });
+
+  it("rejects oversized frames and buffers", () => {
+    const frameChild = new FakeChild();
+    const frameSupervisor = new BackendSupervisor({ mode: "real", spawnChild: () => frameChild, maxFrameLength: 40 });
+    frameSupervisor.start();
+    frameChild.stdout.write(`${JSON.stringify({ type: "event", content: "x".repeat(100) })}\n`);
+    expect(frameSupervisor.getSnapshot().error).toContain("frame exceeded");
+
+    const bufferChild = new FakeChild();
+    const bufferSupervisor = new BackendSupervisor({
+      mode: "real", spawnChild: () => bufferChild, maxFrameLength: 200, maxBufferLength: 50,
+    });
+    bufferSupervisor.start();
+    bufferChild.stdout.write("x".repeat(51));
+    expect(bufferSupervisor.getSnapshot().error).toContain("buffer exceeded");
+  });
+
   it("terminates children and ignores stale events after a restart", () => {
     const first = new FakeChild();
     const second = new FakeChild();
@@ -132,6 +241,28 @@ describe("BackendSupervisor", () => {
 
     supervisor.shutdown();
     expect(second.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("rejects pending calls when restarting and escalates termination after the grace period", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = new FakeChild();
+      const second = new FakeChild();
+      const supervisor = new BackendSupervisor({
+        mode: "real", spawnChild: vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second), terminationGraceMs: 25,
+      });
+      supervisor.start();
+      makeReady(first, 1);
+      const pending = supervisor.call({ type: "prompt", message: "wait" });
+      supervisor.restartBackend();
+      await expect(pending).rejects.toThrow("Backend stopped");
+      expect(first.kill).toHaveBeenCalledWith("SIGTERM");
+      vi.advanceTimersByTime(25);
+      expect(first.kill).toHaveBeenCalledWith("SIGKILL");
+      second.exit(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("distinguishes failure before ready from disconnection after ready", () => {
@@ -213,7 +344,7 @@ describe("BackendSupervisor", () => {
       "Unable to write to backend: pipe closed",
     );
     expect(supervisor.getSnapshot()).toMatchObject({
-      phase: "failed",
+      phase: "disconnected",
       error: "Unable to write to backend: pipe closed",
     });
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
@@ -242,12 +373,12 @@ describe("BackendSupervisor", () => {
     makeReady(child, 1);
 
     const call = supervisor.call({ type: "prompt", message: "hello" });
-    child.stdin.emit("error", new Error("write EPIPE"));
+    child.stdin.emit("error", new Error("write EPIPE DEVIN_TOKEN=do-not-surface"));
 
-    await expect(call).rejects.toThrow("Backend stdin error: write EPIPE");
+    await expect(call).rejects.toThrow("Backend stdin error: write EPIPE DEVIN_TOKEN=[REDACTED]");
     expect(supervisor.getSnapshot()).toMatchObject({
-      phase: "failed",
-      error: "Backend stdin error: write EPIPE",
+      phase: "disconnected",
+      error: "Backend stdin error: write EPIPE DEVIN_TOKEN=[REDACTED]",
     });
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
@@ -262,6 +393,7 @@ describe("createBackendSpawnSpec", () => {
       command: "pnpm",
       args: ["exec", "tsx", "/repo/src/cli.ts", "--mode", "rpc"],
       cwd: "/repo",
+      env: { RAILGUN_DESKTOP_RPC: "1" },
     });
 
     expect(createBackendSpawnSpec(

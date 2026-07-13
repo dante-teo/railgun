@@ -3,6 +3,7 @@ import type { MockScenario, MockScenarioId } from "../shared/types";
 
 export type MockScenarioBehavior =
   | "ready"
+  | "authentication-required"
   | "delayed-startup"
   | "reject-commands"
   | "malformed-output"
@@ -40,6 +41,12 @@ export const MOCK_SCENARIOS = defineMockScenarios([
     label: "Ready / idle",
     description: "Starts immediately and reports an idle session.",
     behavior: "ready",
+  },
+  {
+    id: "authentication-required",
+    label: "Authentication required",
+    description: "Requires terminal login before the backend can start.",
+    behavior: "authentication-required",
   },
   {
     id: "delayed-startup",

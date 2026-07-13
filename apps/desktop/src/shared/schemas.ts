@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const MockScenarioIdSchema = z.enum([
   "ready-idle",
+  "authentication-required",
   "delayed-startup",
   "command-rejection",
   "malformed-output",
@@ -22,7 +23,7 @@ export const TransportLogEntrySchema = z.strictObject({
 
 export const BackendSnapshotSchema = z.strictObject({
   mode: z.enum(["real", "mock"]),
-  phase: z.enum(["starting", "ready", "failed", "disconnected"]),
+  phase: z.enum(["starting", "ready", "authentication-required", "failed", "disconnected"]),
   scenarioId: MockScenarioIdSchema.optional(),
   error: z.string().optional(),
   diagnostics: z.array(z.string()).readonly(),

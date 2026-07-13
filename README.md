@@ -611,6 +611,12 @@ transcript, so the next prompt has empty RPC history in both modes. Aborting a
 mock prompt cancels all remaining scheduled output and settles its pending RPC
 response before another prompt can start.
 
+The real desktop backend never opens browser OAuth implicitly. If its cached
+credential is missing or rejected, run `pnpm start login` in Terminal and use
+Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that
+launches the app and relaunch Railgun; a cached login cannot override that
+environment credential.
+
 Run the desktop checks and create a local Electron package with:
 
 ```sh

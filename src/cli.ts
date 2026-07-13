@@ -12,7 +12,13 @@ import { loadConfig, updateConfig } from "./config.js";
 import type { AppConfig } from "./config.js";
 import { createMcpExtension, parseMcpServers } from "./extensions/mcp/index.js";
 import { describeDevinError } from "./errors.js";
-import { runLoginCommand, runLogoutCommand } from "./auth.js";
+import {
+  AuthenticationRequiredError,
+  CredentialRejectedError,
+  DESKTOP_RPC_ENV,
+  runLoginCommand,
+  runLogoutCommand,
+} from "./auth.js";
 import { runOneShot } from "./oneShot.js";
 import { createSessionStore } from "./persistence/sessionStore.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
@@ -507,6 +513,21 @@ export const main = async (args = process.argv.slice(2)): Promise<void> => {
   await dispatchCli(mode);
 };
 
+export const desktopAuthenticationRequiredFrame = (
+  error: unknown,
+  desktopRpc = process.env[DESKTOP_RPC_ENV] === "1",
+): string | undefined => {
+  if (!desktopRpc) return undefined;
+  const credentialSource = error instanceof CredentialRejectedError
+    ? error.source
+    : error instanceof AuthenticationRequiredError ? "file" : undefined;
+  return credentialSource === undefined ? undefined : JSON.stringify({
+    type: "startup_status",
+    status: "authentication_required",
+    credential_source: credentialSource,
+  });
+};
+
 const isEntryPoint = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isEntryPoint) {
@@ -518,6 +539,12 @@ if (isEntryPoint) {
   });
 
   main().catch((error: unknown) => {
+    const startupFrame = desktopAuthenticationRequiredFrame(error);
+    if (startupFrame !== undefined) {
+      console.log(startupFrame);
+      process.exitCode = 1;
+      return;
+    }
     const message = describeDevinError(error) ?? (error instanceof Error ? error.message : String(error));
     console.error(message);
     process.exitCode = 1;

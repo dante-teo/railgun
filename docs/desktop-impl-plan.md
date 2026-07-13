@@ -169,10 +169,18 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Add persistent sessions, approval, clarification, and supported store commands.
   - Preserve the existing RPC protocol behavior for current clients.
 
-- [ ] **DESK-004 — Supervise the Railgun process**
+- [x] **DESK-004 — Supervise the Railgun process**
   - Start, stop, and restart the local Railgun child.
-  - Parse JSONL events and keep bounded, redacted logs.
-  - Show ready, authentication-required, failed, and disconnected states.
+  - Parse size-limited JSONL events and keep bounded, redacted summaries.
+  - Terminate with a bounded SIGTERM/SIGKILL sequence, reject calls from stopped
+    generations, and ignore stale child events without automatic crash loops.
+  - Keep desktop RPC authentication non-interactive: missing or rejected Devin
+    credentials surface authentication-required with source-aware recovery
+    guidance. File credentials recover through terminal login and Retry;
+    rejected environment credentials require updating `DEVIN_TOKEN` and
+    relaunching Railgun.
+  - Show starting, ready, authentication-required, failed, and disconnected
+    states, with retry recovery for terminal states.
 
 ### Shell and design
 

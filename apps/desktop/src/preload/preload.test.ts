@@ -37,6 +37,7 @@ describe("preload desktop bridge", () => {
       "listMockScenarios",
       "onAgentEvent",
       "onBackendSnapshot",
+      "restartBackend",
       "selectMockScenario",
       "sendPrompt",
       "startNewChat",
@@ -50,6 +51,10 @@ describe("preload desktop bridge", () => {
     invoke.mockResolvedValueOnce(snapshot);
     await expect(api.getBackendSnapshot()).resolves.toEqual(snapshot);
     expect(invoke).toHaveBeenCalledWith(DESKTOP_IPC.getBackendSnapshot);
+
+    invoke.mockResolvedValueOnce(snapshot);
+    await expect(api.restartBackend()).resolves.toEqual(snapshot);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.restartBackend);
 
     invoke.mockResolvedValueOnce([{ id: "ready-idle", label: "Ready", description: "Ready now" }]);
     await expect(api.listMockScenarios()).resolves.toHaveLength(1);

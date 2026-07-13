@@ -22,12 +22,20 @@ describe("BackendStatus", () => {
   it.each([
     ["starting", "Starting Railgun"],
     ["ready", "Railgun is ready"],
+    ["authentication-required", "Sign in to Devin"],
     ["failed", "Railgun could not start"],
     ["disconnected", "Railgun disconnected"],
   ] as const)("renders the %s screen", (phase, title) => {
     render(<BackendStatus snapshot={snapshot(phase)} />);
     expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     if (phase === "failed") expect(screen.getByText("diagnostic detail")).toBeTruthy();
+  });
+
+  it.each(["authentication-required", "failed", "disconnected"] as const)("offers retry for %s", async phase => {
+    const onRetry = vi.fn(async () => undefined);
+    render(<BackendStatus snapshot={snapshot(phase)} onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(onRetry).toHaveBeenCalledOnce());
   });
 });
 
@@ -64,6 +72,7 @@ describe("desktop shell", () => {
     const startNewChat = vi.fn(async () => snapshot("starting"));
     const api: RailgunDesktopApi = {
       getBackendSnapshot: async () => snapshot("ready"),
+      restartBackend: async () => snapshot("starting"),
       onBackendSnapshot: () => () => undefined,
       listMockScenarios: async () => [],
       selectMockScenario: async () => snapshot("ready"),
@@ -87,12 +96,13 @@ describe("desktop shell", () => {
     act(() => agentListener?.({ type: "run-end" }));
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     await waitFor(() => expect(startNewChat).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("heading", { name: "What are we building?" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Starting Railgun" })).toBeTruthy();
   });
 
   it("shows a boundary error when the initial backend snapshot rejects", async () => {
     const api: RailgunDesktopApi = {
       getBackendSnapshot: async () => { throw new Error("Snapshot validation failed"); },
+      restartBackend: async () => snapshot("starting"),
       onBackendSnapshot: () => () => undefined,
       listMockScenarios: async () => [],
       selectMockScenario: async () => snapshot("ready"),

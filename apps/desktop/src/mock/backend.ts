@@ -65,7 +65,14 @@ const respond = (
   );
 };
 
-if (scenario.behavior === "crash-before-ready") {
+if (scenario.behavior === "authentication-required") {
+  writeFragmented({
+    type: "startup_status",
+    status: "authentication_required",
+    credential_source: "file",
+  });
+  setTimeout(() => process.exit(1), 30);
+} else if (scenario.behavior === "crash-before-ready") {
   process.stderr.write("mock backend crashed before readiness\n");
   setTimeout(() => process.exit(17), 20);
 } else {

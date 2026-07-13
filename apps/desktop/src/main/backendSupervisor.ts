@@ -42,23 +42,52 @@ export interface BackendSupervisorOptions {
   readonly readinessTimeoutMs?: number;
   readonly maxDiagnostics?: number;
   readonly maxTransportEntries?: number;
+  readonly maxFrameLength?: number;
+  readonly maxBufferLength?: number;
+  readonly maxLogTextLength?: number;
+  readonly terminationGraceMs?: number;
 }
 
 export type BackendRpcCommand = Readonly<{ type: string; [key: string]: unknown }>;
 
 const DESKTOP_RPC_VERSION = 1;
 const REQUIRED_CAPABILITIES = ["sessions", "interaction.approval", "interaction.clarification"] as const;
+const DESKTOP_RPC_ENV = "RAILGUN_DESKTOP_RPC";
 
 const appendBounded = <T>(values: readonly T[], value: T, limit: number): readonly T[] =>
   [...values, value].slice(-limit);
 
-const errorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const SECRET_KEY = /(?:token|password|passwd|secret|authorization|api[_-]?key|credential)/i;
+const truncate = (text: string, limit: number): string =>
+  text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 1))}…`;
+
+export const redactSensitiveText = (text: string): string => text
+  .replace(/\b(Bearer\s+)[^\s,;]+/gi, "$1[REDACTED]")
+  .replace(/\b((?:DEVIN_TOKEN|[A-Z0-9_]*(?:TOKEN|PASSWORD|SECRET|API_KEY|CREDENTIAL)[A-Z0-9_]*)\s*=\s*)[^\s,;]+/gi, "$1[REDACTED]")
+  .replace(/(["']?(?:token|password|passwd|secret|authorization|api[_-]?key|credential)["']?\s*[:=]\s*["']?)[^"'\s,;}]+/gi, "$1[REDACTED]");
+
+const errorMessage = (error: unknown): string => redactSensitiveText(error instanceof Error ? error.message : String(error));
+
+const frameSummary = (value: Record<string, unknown>): string => {
+  const fields = [
+    typeof value.type === "string" ? `type=${value.type}` : "type=unknown",
+    value.type === "response" && typeof value.command === "string" ? `command=${value.command}` : undefined,
+    typeof value.id === "string" ? `id=${value.id}` : undefined,
+    typeof value.status === "string" ? `status=${value.status}` : undefined,
+    typeof value.success === "boolean" ? `success=${String(value.success)}` : undefined,
+  ];
+  return fields.filter((field): field is string => field !== undefined && !SECRET_KEY.test(field)).join(" ");
+};
 
 export class BackendSupervisor {
   readonly #spawnChild: BackendChildFactory;
   readonly #readinessTimeoutMs: number;
   readonly #maxDiagnostics: number;
   readonly #maxTransportEntries: number;
+  readonly #maxFrameLength: number;
+  readonly #maxBufferLength: number;
+  readonly #maxLogTextLength: number;
+  readonly #terminationGraceMs: number;
   readonly #listeners = new Set<(snapshot: BackendSnapshot) => void>();
   readonly #backendEventListeners = new Set<(event: unknown) => void>();
   readonly #pendingCalls = new Map<string, {
@@ -71,6 +100,7 @@ export class BackendSupervisor {
   #nextCallId = 1;
   #child: BackendChild | undefined;
   #readinessTimer: ReturnType<typeof setTimeout> | undefined;
+  readonly #terminationTimers = new Map<BackendChild, ReturnType<typeof setTimeout>>();
   #snapshot: BackendSnapshot;
 
   constructor(options: BackendSupervisorOptions) {
@@ -78,6 +108,10 @@ export class BackendSupervisor {
     this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 15_000;
     this.#maxDiagnostics = options.maxDiagnostics ?? 20;
     this.#maxTransportEntries = options.maxTransportEntries ?? 80;
+    this.#maxFrameLength = options.maxFrameLength ?? 64 * 1024;
+    this.#maxBufferLength = options.maxBufferLength ?? 128 * 1024;
+    this.#maxLogTextLength = options.maxLogTextLength ?? 2_000;
+    this.#terminationGraceMs = options.terminationGraceMs ?? 1_000;
     this.#snapshot = {
       mode: options.mode,
       phase: "starting",
@@ -159,18 +193,34 @@ export class BackendSupervisor {
     let stdoutBuffer = "";
     child.stdout.on("data", (chunk: Buffer | string) => {
       if (!this.#isCurrent(generation, child)) return;
+      if (this.#authenticationRequired()) return;
       stdoutBuffer += chunk.toString();
       let newlineIndex = stdoutBuffer.indexOf("\n");
       while (newlineIndex >= 0) {
         const line = stdoutBuffer.slice(0, newlineIndex);
         stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        if (line.length > this.#maxFrameLength) {
+          this.#fail(generation, "Backend JSONL frame exceeded the maximum size");
+          return;
+        }
         if (line.length > 0) this.#handleStdoutLine(generation, child, line);
+        if (this.#authenticationRequired()) return;
+        if (!this.#isCurrent(generation, child)) return;
         newlineIndex = stdoutBuffer.indexOf("\n");
+      }
+      if (stdoutBuffer.length > this.#maxBufferLength) {
+        this.#fail(generation, "Backend JSONL buffer exceeded the maximum size");
+        stdoutBuffer = "";
+        return;
+      }
+      if (stdoutBuffer.length > this.#maxFrameLength) {
+        this.#fail(generation, "Backend JSONL frame exceeded the maximum size");
+        stdoutBuffer = "";
       }
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       if (!this.#isCurrent(generation, child)) return;
-      const text = chunk.toString().trim();
+      const text = this.#safeText(chunk.toString().trim());
       if (text.length === 0) return;
       this.#snapshot = {
         ...this.#snapshot,
@@ -188,6 +238,7 @@ export class BackendSupervisor {
       this.#fail(generation, `Backend process error: ${error.message}`);
     });
     child.once("exit", (code, signal) => {
+      this.#clearTerminationTimer(child);
       if (!this.#isCurrent(generation, child)) return;
       this.#child = undefined;
       this.#rejectPendingCalls(new Error("Backend exited"));
@@ -195,8 +246,10 @@ export class BackendSupervisor {
       const detail = signal === null ? `exit code ${String(code)}` : `signal ${signal}`;
       this.#snapshot = {
         ...this.#snapshot,
-        phase: this.#snapshot.phase === "ready" ? "disconnected" : "failed",
-        error: `Backend exited with ${detail}`,
+        phase: this.#snapshot.phase === "authentication-required"
+          ? "authentication-required"
+          : this.#snapshot.phase === "ready" ? "disconnected" : "failed",
+        ...(this.#snapshot.phase === "authentication-required" ? {} : { error: `Backend exited with ${detail}` }),
         transportLog: appendBounded(
           this.#snapshot.transportLog,
           { direction: "system", text: `Backend exited with ${detail}` },
@@ -224,6 +277,24 @@ export class BackendSupervisor {
     return this.start(scenarioId);
   }
 
+  restartBackend(): BackendSnapshot {
+    return this.start();
+  }
+
+  stop(): BackendSnapshot {
+    ++this.#generation;
+    this.#clearReadinessTimer();
+    this.#stopActiveChild();
+    this.#snapshot = {
+      ...this.#snapshot,
+      phase: "disconnected",
+      error: "Backend stopped",
+      transportLog: appendBounded(this.#snapshot.transportLog, { direction: "system", text: "Backend stopped" }, this.#maxTransportEntries),
+    };
+    this.#emit();
+    return this.#snapshot;
+  }
+
   shutdown(): void {
     ++this.#generation;
     this.#clearReadinessTimer();
@@ -233,18 +304,12 @@ export class BackendSupervisor {
   }
 
   #handleStdoutLine(generation: number, child: BackendChild, line: string): void {
-    this.#snapshot = {
-      ...this.#snapshot,
-      transportLog: appendBounded(
-        this.#snapshot.transportLog,
-        { direction: "stdout", text: line },
-        this.#maxTransportEntries,
-      ),
-    };
+    if (this.#snapshot.phase === "authentication-required") return;
     let message: unknown;
     try {
       message = JSON.parse(line);
     } catch {
+      this.#appendTransport("stdout", "malformed JSONL frame");
       this.#fail(generation, "Backend emitted malformed JSONL output");
       return;
     }
@@ -253,11 +318,28 @@ export class BackendSupervisor {
       return;
     }
     const record = message as Record<string, unknown>;
+    this.#appendTransport("stdout", frameSummary(record));
+    if (
+      this.#snapshot.phase === "starting"
+      && record.type === "startup_status"
+      && record.status === "authentication_required"
+    ) {
+      this.#clearReadinessTimer();
+      this.#snapshot = {
+        ...this.#snapshot,
+        phase: "authentication-required",
+        error: record.credential_source === "environment"
+          ? "DEVIN_TOKEN was rejected. Remove or replace it in the launch environment, then relaunch Railgun."
+          : "Run `railgun login` in Terminal, then retry.",
+      };
+      this.#emit();
+      return;
+    }
     const initId = `desktop-init-${generation}`;
     const readyId = `desktop-ready-${generation}`;
     if (record.id === initId) {
       if (record.type !== "response" || record.command !== "initialize" || record.success !== true) {
-        this.#fail(generation, typeof record.error === "string" ? `Backend protocol initialization failed: ${record.error}` : "Backend rejected protocol initialization");
+        this.#fail(generation, typeof record.error === "string" ? `Backend protocol initialization failed: ${this.#safeText(record.error)}` : "Backend rejected protocol initialization");
         return;
       }
       const data = typeof record.data === "object" && record.data !== null ? record.data as Record<string, unknown> : undefined;
@@ -284,13 +366,15 @@ export class BackendSupervisor {
       if (id !== undefined) this.#pendingCalls.delete(id);
       if (pending !== undefined) {
         if (record.command !== pending.command) {
-          pending.reject(new Error(`Invalid backend RPC response: expected command ${pending.command}, received ${String(record.command)}`));
+          pending.reject(new Error(this.#safeText(
+            `Invalid backend RPC response: expected command ${pending.command}, received ${String(record.command)}`,
+          )));
           return;
         }
         if (record.success === true) {
           try { pending.resolve(pending.validate(record.data)); }
-          catch (error) { pending.reject(new Error(`Invalid backend RPC response: ${errorMessage(error)}`)); }
-        } else pending.reject(new Error(typeof record.error === "string" ? record.error : "Backend RPC failed"));
+          catch (error) { pending.reject(new Error(this.#safeText(`Invalid backend RPC response: ${errorMessage(error)}`))); }
+        } else pending.reject(new Error(typeof record.error === "string" ? this.#safeText(record.error) : "Backend RPC failed"));
       }
       return;
     }
@@ -302,7 +386,7 @@ export class BackendSupervisor {
     if (record.type !== "response" || record.command !== "get_state" || record.success !== true) {
       this.#fail(
         generation,
-        typeof record.error === "string" ? record.error : "Backend rejected the readiness probe",
+        typeof record.error === "string" ? this.#safeText(record.error) : "Backend rejected the readiness probe",
       );
       return;
     }
@@ -324,7 +408,7 @@ export class BackendSupervisor {
       ...this.#snapshot,
       transportLog: appendBounded(
         this.#snapshot.transportLog,
-        { direction: "stdin", text: line },
+        { direction: "stdin", text: this.#summarizeJsonLine(line) },
         this.#maxTransportEntries,
       ),
     };
@@ -336,15 +420,16 @@ export class BackendSupervisor {
     this.#clearReadinessTimer();
     const child = this.#child;
     this.#child = undefined;
-    this.#rejectPendingCalls(new Error(message));
-    child?.kill("SIGTERM");
+    const safeMessage = this.#safeText(message);
+    this.#rejectPendingCalls(new Error(safeMessage));
+    if (child !== undefined) this.#terminateChild(child);
     this.#snapshot = {
       ...this.#snapshot,
-      phase: "failed",
-      error: message,
+      phase: this.#snapshot.phase === "ready" ? "disconnected" : "failed",
+      error: safeMessage,
       transportLog: appendBounded(
         this.#snapshot.transportLog,
-        { direction: "system", text: message },
+        { direction: "system", text: safeMessage },
         this.#maxTransportEntries,
       ),
     };
@@ -355,12 +440,16 @@ export class BackendSupervisor {
     return generation === this.#generation && child === this.#child;
   }
 
+  #authenticationRequired(): boolean {
+    return this.#snapshot.phase === "authentication-required";
+  }
+
   #stopActiveChild(): void {
     this.#clearReadinessTimer();
     const child = this.#child;
     this.#child = undefined;
     this.#rejectPendingCalls(new Error("Backend stopped"));
-    child?.kill("SIGTERM");
+    if (child !== undefined) this.#terminateChild(child);
   }
 
   #rejectPendingCalls(error: Error): void {
@@ -371,6 +460,48 @@ export class BackendSupervisor {
   #clearReadinessTimer(): void {
     if (this.#readinessTimer !== undefined) clearTimeout(this.#readinessTimer);
     this.#readinessTimer = undefined;
+  }
+
+  #terminateChild(child: BackendChild): void {
+    if (this.#terminationTimers.has(child)) return;
+    child.kill("SIGTERM");
+    const timer = setTimeout(() => {
+      this.#terminationTimers.delete(child);
+      child.kill("SIGKILL");
+    }, this.#terminationGraceMs);
+    this.#terminationTimers.set(child, timer);
+  }
+
+  #clearTerminationTimer(child: BackendChild): void {
+    const timer = this.#terminationTimers.get(child);
+    if (timer !== undefined) clearTimeout(timer);
+    this.#terminationTimers.delete(child);
+  }
+
+  #safeText(text: string): string {
+    return truncate(redactSensitiveText(text), this.#maxLogTextLength);
+  }
+
+  #summarizeJsonLine(line: string): string {
+    try {
+      const value: unknown = JSON.parse(line);
+      return typeof value === "object" && value !== null
+        ? this.#safeText(frameSummary(value as Record<string, unknown>))
+        : "non-object JSONL frame";
+    } catch {
+      return "malformed JSONL frame";
+    }
+  }
+
+  #appendTransport(direction: TransportLogEntry["direction"], text: string): void {
+    this.#snapshot = {
+      ...this.#snapshot,
+      transportLog: appendBounded(
+        this.#snapshot.transportLog,
+        { direction, text: this.#safeText(text) },
+        this.#maxTransportEntries,
+      ),
+    };
   }
 
   #emit(): void {
@@ -393,7 +524,7 @@ export const createBackendSpawnSpec = (
         ? ["exec", "tsx", entry, "--mode", "rpc"]
         : ["exec", "tsx", entry, scenarioId ?? "ready-idle"],
       cwd: runtime.repositoryRoot,
-      env: process.env,
+      env: mode === "real" ? { ...process.env, [DESKTOP_RPC_ENV]: "1" } : process.env,
     };
   }
 
@@ -404,7 +535,11 @@ export const createBackendSpawnSpec = (
     command: runtime.executablePath,
     args: mode === "real" ? [entry, "--mode", "rpc"] : [entry, scenarioId ?? "ready-idle"],
     cwd: runtime.workingDirectory,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+      ...(mode === "real" ? { [DESKTOP_RPC_ENV]: "1" } : {}),
+    },
   };
 };
 

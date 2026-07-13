@@ -9,13 +9,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 const PHASE_COPY: Record<BackendPhase, { readonly title: string; readonly description: string }> = {
   starting: { title: "Starting Railgun", description: "Checking the local backend connection…" },
   ready: { title: "Railgun is ready", description: "The desktop process boundary is connected." },
+  "authentication-required": {
+    title: "Sign in to Devin",
+    description: "Resolve the Devin credential issue below, then retry the backend connection.",
+  },
   failed: { title: "Railgun could not start", description: "Review the diagnostic details below." },
   disconnected: { title: "Railgun disconnected", description: "The backend process exited after connecting." },
 };
+const RETRYABLE_PHASES: ReadonlySet<BackendPhase> = new Set([
+  "authentication-required",
+  "failed",
+  "disconnected",
+]);
 
-export interface BackendStatusProps { readonly snapshot: BackendSnapshot }
+export interface BackendStatusProps {
+  readonly snapshot: BackendSnapshot;
+  readonly onRetry?: () => Promise<void>;
+}
 
-export const BackendStatus = ({ snapshot }: BackendStatusProps): React.JSX.Element => {
+export const BackendStatus = ({ snapshot, onRetry }: BackendStatusProps): React.JSX.Element => {
   const copy = PHASE_COPY[snapshot.phase];
   return (
     <Card className={`status status-${snapshot.phase}`} aria-live="polite">
@@ -28,6 +40,9 @@ export const BackendStatus = ({ snapshot }: BackendStatusProps): React.JSX.Eleme
       <CardContent>
         {snapshot.error === undefined ? null : <p className="error-detail">{snapshot.error}</p>}
         {snapshot.diagnostics.length === 0 ? null : <details><summary>Diagnostics</summary><pre>{snapshot.diagnostics.join("\n")}</pre></details>}
+        {onRetry !== undefined && RETRYABLE_PHASES.has(snapshot.phase)
+          ? <Button type="button" onClick={() => void onRetry()}>Retry</Button>
+          : null}
       </CardContent>
     </Card>
   );
@@ -163,6 +178,18 @@ export const App = (): React.JSX.Element => {
     }
   };
 
+  const restartBackend = async (): Promise<void> => {
+    try {
+      setSnapshot(await window.railgunDesktop.restartBackend());
+    } catch (error) {
+      setMessages((current) => [...current, {
+        id: nextMessageId.current++,
+        role: "error",
+        text: errorText(error, "Unable to restart the backend"),
+      }]);
+    }
+  };
+
   if (snapshot === undefined) return (
     <main className={`loading-shell${bootstrapError === undefined ? "" : " failed"}`}>
       <Bot aria-hidden="true" />
@@ -187,7 +214,9 @@ export const App = (): React.JSX.Element => {
         <section className="chat-surface">
           <header className="content-toolbar"><div><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
           <div className={`transcript ${messages.length === 0 ? "empty" : ""}`}>
-            {messages.length === 0 ? <div className="welcome"><span><Bot /></span><h2>What are we building?</h2><p>Ask Railgun to inspect, explain, or change your project.</p></div> : messages.map((message) => (
+            {messages.length === 0 && snapshot.phase === "ready" ? <div className="welcome"><span><Bot /></span><h2>What are we building?</h2><p>Ask Railgun to inspect, explain, or change your project.</p></div> : null}
+            {messages.length === 0 && snapshot.phase !== "ready" ? <BackendStatus snapshot={snapshot} onRetry={restartBackend} /> : null}
+            {messages.map((message) => (
               <article className={`message ${message.role}`} key={message.id}>
                 <div className="message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Railgun" : "Error"}</div>
                 <p>{message.text}</p>
@@ -220,7 +249,7 @@ export const App = (): React.JSX.Element => {
         <section className="settings-surface">
           <header className="content-toolbar"><div><h1>Settings</h1><p>Runtime and diagnostics</p></div></header>
           <div className="settings-content">
-            <BackendStatus snapshot={snapshot} />
+            <BackendStatus snapshot={snapshot} onRetry={restartBackend} />
             {snapshot.mode === "mock" ? <MockPanel snapshot={snapshot} scenarios={scenarios} onSelect={async (value) => {
               setSnapshot(await window.railgunDesktop.selectMockScenario(MockScenarioIdSchema.parse(value)));
             }} /> : null}

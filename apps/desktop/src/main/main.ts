@@ -93,6 +93,10 @@ const registerIpc = (): void => {
     assertAuthorizedIpcSender(event, senderContext);
     return BackendSnapshotSchema.parse(supervisor.getSnapshot());
   });
+  ipcMain.handle(DESKTOP_IPC.restartBackend, (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return BackendSnapshotSchema.parse(supervisor.restartBackend());
+  });
   ipcMain.handle(DESKTOP_IPC.listMockScenarios, (event) => {
     assertAuthorizedIpcSender(event, senderContext);
     return MockScenarioListSchema.parse(backendMode === "mock" ? listMockScenarios() : []);

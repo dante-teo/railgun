@@ -181,6 +181,14 @@ calls are never replayed automatically. After file-backed login succeeds in
 another terminal, the user manually resubmits the message in the still-open
 REPL.
 
+Electron real-backend children use a desktop-only non-interactive startup mode.
+Missing or rejected file credentials show authentication-required and recover
+after `railgun login` followed by Retry. A rejected `DEVIN_TOKEN` instead shows
+source-specific guidance to update or unset the variable and relaunch Railgun;
+Retry alone cannot change the environment inherited by the running desktop
+process. Ordinary terminal and non-desktop RPC authentication retain the
+behavior above.
+
 ## Context compaction
 
 Two triggers summarize and shrink conversation history into a single

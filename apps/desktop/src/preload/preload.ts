@@ -20,6 +20,9 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
   getBackendSnapshot: async () => BackendSnapshotSchema.parse(
     await transport.invoke(DESKTOP_IPC.getBackendSnapshot),
   ),
+  restartBackend: async () => BackendSnapshotSchema.parse(
+    await transport.invoke(DESKTOP_IPC.restartBackend),
+  ),
   onBackendSnapshot: (listener) => {
     const handler = (_event: unknown, payload: unknown): void => {
       const result = BackendSnapshotSchema.safeParse(payload);

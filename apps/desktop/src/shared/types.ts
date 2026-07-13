@@ -17,6 +17,7 @@ export type DesktopAgentEvent = z.infer<typeof DesktopAgentEventSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
+  restartBackend: () => Promise<BackendSnapshot>;
   onBackendSnapshot: (listener: (snapshot: BackendSnapshot) => void) => () => void;
   listMockScenarios: () => Promise<readonly MockScenario[]>;
   selectMockScenario: (id: MockScenarioId) => Promise<BackendSnapshot>;
@@ -28,6 +29,7 @@ export interface RailgunDesktopApi {
 
 export const DESKTOP_IPC = {
   getBackendSnapshot: "backend:get-snapshot",
+  restartBackend: "backend:restart",
   backendSnapshot: "backend:snapshot",
   listMockScenarios: "mock:list-scenarios",
   selectMockScenario: "mock:select-scenario",

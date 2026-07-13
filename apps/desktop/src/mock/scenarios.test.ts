@@ -5,6 +5,7 @@ describe("mock scenario registry", () => {
   it("lists every initial scenario without exposing behavior controls", () => {
     expect(listMockScenarios().map((scenario) => scenario.id)).toEqual([
       "ready-idle",
+      "authentication-required",
       "delayed-startup",
       "command-rejection",
       "malformed-output",

@@ -53,6 +53,16 @@ const expectNoOutput = (child: ChildProcessWithoutNullStreams, durationMs = 70):
   });
 
 describe("mock backend process", () => {
+  it("emits authentication-required and exits", async () => {
+    const child = startMock("authentication-required");
+    expect(JSON.parse((await nextLine(child)).line)).toEqual({
+      type: "startup_status",
+      status: "authentication_required",
+      credential_source: "file",
+    });
+    expect(await waitForExit(child)).toBe(1);
+  });
+
   it("preserves ids, fragments frames, and maintains state", async () => {
     const child = startMock("ready-idle");
     try {
