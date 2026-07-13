@@ -13,6 +13,7 @@ export type GatewayCommand =
   | { id: string; type: "compact" }
   | { id: string; type: "approve"; approved: boolean }
   | { id: string; type: "clarify_response"; answer: string }
+  | { id: string; type: "update_config"; patch: Record<string, unknown> }
   | { id: string; type: "trust_response"; choice: string };
 
 // Server → Client (events + responses)

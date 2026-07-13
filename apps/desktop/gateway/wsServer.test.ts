@@ -217,4 +217,15 @@ describe("wsServer", () => {
     const stateUpdate = await next(e => e.type === "state_update");
     expect(stateUpdate).toMatchObject({ type: "state_update", state: { running: false } });
   });
+
+  it("update_config responds success", async () => {
+    const { ws, next } = await startServer(fakeProvider());
+
+    send(ws, { id: "uc1", type: "update_config", patch: { approvalMode: "off" } });
+    const resp = await next(e => e.type === "response" && e.id === "uc1");
+
+    expect(resp).toMatchObject({
+      type: "response", id: "uc1", command: "update_config", success: true,
+    });
+  });
 });

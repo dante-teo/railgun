@@ -5,6 +5,7 @@ import { createAgentSession } from "@railgun/core/agent/agentSession.js";
 import { createTodoStore } from "@railgun/core/tools/todo.js";
 import { runCompaction } from "@railgun/core/agent/compaction.js";
 import type { AppConfig } from "@railgun/core/config.js";
+import { updateConfig } from "@railgun/core/config.js";
 import type { GatewayEvent, GatewaySessionState } from "./protocol.js";
 
 export interface SessionManagerOptions {
@@ -22,6 +23,7 @@ export interface SessionManager {
   readonly getAvailableModels: (cmdId: string) => void;
   readonly setModel: (cmdId: string, modelId: string) => void;
   readonly compact: (cmdId: string) => void;
+  readonly updateConfig: (cmdId: string, patch: Record<string, unknown>) => void;
   readonly resolveApproval: (approved: boolean) => void;
   readonly resolveClarify: (answer: string) => void;
 }
@@ -174,6 +176,17 @@ export const createSessionManager = (options: SessionManagerOptions): SessionMan
           respond(cmdId, "compact");
         })
         .catch((err: unknown) => { respond(cmdId, "compact", undefined, errMsg(err)); });
+    },
+
+    updateConfig: (cmdId, patch) => {
+      updateConfig(current => ({ ...current, ...patch } as typeof current))
+        .then(() => {
+          if (typeof patch["model"] === "string") {
+            currentModel = patch["model"];
+          }
+          respond(cmdId, "update_config");
+        })
+        .catch((err: unknown) => { respond(cmdId, "update_config", undefined, errMsg(err)); });
     },
 
     resolveApproval: (approved) => {

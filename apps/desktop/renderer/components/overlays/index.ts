@@ -10,3 +10,5 @@ export { ActionPicker } from "./ActionPicker.js";
 export type { ActionPickerItem, ActionPickerProps } from "./ActionPicker.js";
 export { SessionChooser } from "./SessionChooser.js";
 export type { SessionEntry, SessionChooserProps } from "./SessionChooser.js";
+export { SettingsPanel } from "./SettingsPanel.js";
+export type { SettingsPanelProps } from "./SettingsPanel.js";

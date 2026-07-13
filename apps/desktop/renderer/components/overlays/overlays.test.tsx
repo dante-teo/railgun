@@ -10,6 +10,7 @@ import { ClarifyPrompt } from "./ClarifyPrompt.js";
 import { ShellApproval } from "./ShellApproval.js";
 import { ActionPicker } from "./ActionPicker.js";
 import { SessionChooser } from "./SessionChooser.js";
+import { SettingsPanel } from "./SettingsPanel.js";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 beforeEach(() => {
@@ -585,5 +586,183 @@ describe("SessionChooser", () => {
     );
     fireEvent.keyDown(document, { key: "Enter" });
     expect(onConfirm).toHaveBeenCalledWith(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SettingsPanel
+// ---------------------------------------------------------------------------
+
+const SETTINGS_DEFAULTS = {
+  approvalMode: "smart" as const,
+  reviewerModel: null,
+  activeMoaPreset: null,
+  moaPresetNames: [] as string[],
+  advisorEnabled: false,
+  advisorModel: null,
+  availableModels: ["claude-opus-4", "gpt-4o"],
+  theme: "dark" as const,
+  selectedIndex: 0,
+};
+
+describe("SettingsPanel", () => {
+  it("renders top-level menu with all 5 items and detail text", () => {
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        onNavigate={vi.fn()}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Approval mode")).toBeInTheDocument();
+    expect(screen.getByText("Reviewer model")).toBeInTheDocument();
+    expect(screen.getByText("MoA preset")).toBeInTheDocument();
+    expect(screen.getByText("Advisor")).toBeInTheDocument();
+    expect(screen.getByText("Theme")).toBeInTheDocument();
+    // detail text
+    expect(screen.getByText("smart")).toBeInTheDocument();
+    expect(screen.getAllByText("Off").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("dark")).toBeInTheDocument();
+  });
+
+  it("ArrowDown calls onNavigate with next index", () => {
+    const onNavigate = vi.fn();
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={0}
+        onNavigate={onNavigate}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(onNavigate).toHaveBeenCalledWith(1);
+  });
+
+  it("Escape on top level calls onCancel", () => {
+    const onCancel = vi.fn();
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        onNavigate={vi.fn()}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("Enter on Approval mode opens sub-view", () => {
+    const onNavigate = vi.fn();
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={0}
+        onNavigate={onNavigate}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(screen.getByText("Settings · Approval mode")).toBeInTheDocument();
+    expect(screen.getByText("manual")).toBeInTheDocument();
+    expect(screen.getByText("smart")).toBeInTheDocument();
+    expect(screen.getByText("off")).toBeInTheDocument();
+  });
+
+  it("Escape in sub-view returns to top menu", () => {
+    const onNavigate = vi.fn();
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={0}
+        onNavigate={onNavigate}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    // Enter sub-view
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(screen.getByText("Settings · Approval mode")).toBeInTheDocument();
+    // Escape back
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Approval mode")).toBeInTheDocument();
+    expect(onNavigate).toHaveBeenCalledWith(0);
+  });
+
+  it("Enter in approval sub-view calls onUpdateConfig", () => {
+    const onUpdateConfig = vi.fn();
+    const onNavigate = vi.fn();
+    // Render with selectedIndex=0 pointing at Approval mode
+    const { rerender } = render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={0}
+        onNavigate={onNavigate}
+        onUpdateConfig={onUpdateConfig}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    // Open approval sub-view
+    fireEvent.keyDown(document, { key: "Enter" });
+    // Now selectedIndex=0 → "manual"; navigate to "off" (index 2)
+    rerender(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={2}
+        onNavigate={onNavigate}
+        onUpdateConfig={onUpdateConfig}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onUpdateConfig).toHaveBeenCalledWith({ approvalMode: "off" });
+  });
+
+  it("Enter on Theme calls onToggleTheme without entering a sub-view", () => {
+    const onToggleTheme = vi.fn();
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={4}
+        onNavigate={vi.fn()}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={onToggleTheme}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onToggleTheme).toHaveBeenCalled();
+    // Still on top-level menu
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Settings · Theme")).not.toBeInTheDocument();
+  });
+
+  it("clicking a top-level item navigates to its sub-view", () => {
+    render(
+      <SettingsPanel
+        {...SETTINGS_DEFAULTS}
+        selectedIndex={0}
+        onNavigate={vi.fn()}
+        onUpdateConfig={vi.fn()}
+        onToggleTheme={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    // Click "Reviewer model" row
+    fireEvent.click(screen.getByText("Reviewer model"));
+    expect(screen.getByText("Settings · Reviewer model")).toBeInTheDocument();
   });
 });

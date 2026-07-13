@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (Sprint 0 + Sprint 1 complete; Sprint 2 Composer + slash commands complete; T5 component parity complete; T7 gateway client + production App shell complete)
+Accepted (Sprint 0 + Sprint 1 complete; Sprint 2 Composer + slash commands complete; T5 component parity complete; T7 gateway client + production App shell complete; T8 SettingsPanel + `update_config` gateway command complete)
 
 ## Context
 
@@ -194,7 +194,7 @@ The gateway's `clarify_request` frame already carries `question` and optional `c
 
 ### DevShell keyboard guard
 
-`DevShell` activates overlays via digit keys 1–7 bound on `window`. The handler checks `e.target.tagName` and `isContentEditable` before acting, so typing digits in the Composer textarea does not spuriously open an overlay.
+`DevShell` activates overlays via digit keys 1–8 bound on `window`. The handler checks `e.target.tagName` and `isContentEditable` before acting, so typing digits in the Composer textarea does not spuriously open an overlay.
 
 ---
 
@@ -321,3 +321,37 @@ The renderer is built with `jsx: react-jsx` (automatic JSX transform), so `impor
 ### `lib/theme.ts` cleanup
 
 `ThemeMode` was imported and re-exported on separate lines, producing a duplicate import. Consolidated to a single `import type` + `export type`. The `"(prefers-color-scheme: dark)"` media query string appeared in both `getInitialTheme` and `subscribeThemeChanges`; extracted to a module-level `DARK_MODE_QUERY` constant.
+
+---
+
+## T8 — SettingsPanel overlay and `update_config` gateway command
+
+### `update_config` gateway command
+
+A new `{ id: string; type: "update_config"; patch: Record<string, unknown> }` command was added to `GatewayCommand`. The renderer sends a partial config object; the gateway calls core's `updateConfig(current => ({ ...current, ...patch }))` to shallow-merge and atomically persist it. If the patch contains a `model` key, `currentModel` in the session manager is updated — but only after successful persistence, so a validation failure never leaves the in-memory model in an inconsistent state. The command responds with the standard `{ type: "response", success: true }` frame or a `success: false` + `error` frame on failure.
+
+This is the first gateway command that writes to disk (all prior commands were either query-only or in-memory mutations). The `approve` and `clarify_response` commands remain correlation-free (they resolve a parked promise, not a queued command), so `update_config` follows the standard `id`-bearing pattern instead.
+
+### SettingsPanel component
+
+`renderer/components/overlays/SettingsPanel.tsx` is a two-level overlay that replicates the TUI's nested `ActionPicker` flow for `/settings`. It manages its own `subView` state (`"top" | "approval" | "reviewer" | "moa" | "advisor"`) while the parent still owns `selectedIndex` and `onNavigate`.
+
+**Top-level menu** (five items):
+
+| Item | Detail shown | On Enter |
+|---|---|---|
+| Approval mode | current value (`manual`/`smart`/`off`) | opens `approval` sub-view |
+| Reviewer model | model id or `"Off"` | opens `reviewer` sub-view |
+| MoA preset | preset name or `"Off"` | opens `moa` sub-view |
+| Advisor | model id or `"Off"` | opens `advisor` sub-view |
+| Theme | `"dark"` or `"light"` | calls `onToggleTheme()` immediately — no sub-view |
+
+**Sub-views** — each renders the same `.overlay` markup. Confirm calls `onUpdateConfig(patch)` and returns to the top level. Escape in a sub-view returns to the top level (resetting `selectedIndex` to 0 via `onNavigate(0)`); Escape at the top level calls `onCancel()` to dismiss the overlay entirely.
+
+The component uses the existing `useListKeyboard` hook (the same one `ActionPicker` uses) and produces identical `.overlay` / `.overlay__item` / `.overlay__item--selected` / `.overlay__item--current` / `.overlay__item__detail` markup — no new CSS was added.
+
+**Props:** `approvalMode`, `reviewerModel`, `activeMoaPreset`, `moaPresetNames`, `advisorEnabled`, `advisorModel`, `availableModels`, `theme`, `selectedIndex`, `onNavigate`, `onUpdateConfig`, `onToggleTheme`, `onCancel`. The `onUpdateConfig` callback is the renderer's half of the `update_config` gateway command; wiring to the gateway client is deferred to the production `App.tsx` shell.
+
+### DevShell integration
+
+`DevShell` adds `"settings"` to `OverlayKind`, maps key `"8"` to it, and renders `SettingsPanel` with mock props for dev-mode exploration. Theme toggle is wired to real DOM state: `setTheme` updates React state and `applyTheme` writes the `data-theme` attribute. Config updates log to the console and dismiss the overlay (real gateway wiring belongs in `App.tsx`).

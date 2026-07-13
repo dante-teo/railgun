@@ -107,6 +107,9 @@ export const startWsServer = (options: WsServerOptions): Promise<WsServerHandle>
       case "clarify_response":
         manager.resolveClarify(cmd.answer);
         break;
+      case "update_config":
+        manager.updateConfig(cmd.id, cmd.patch);
+        break;
       case "trust_response":
         // trust decisions are handled by the renderer; gateway just acknowledges
         break;

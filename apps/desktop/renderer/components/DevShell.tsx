@@ -15,8 +15,10 @@ import {
   ShellApproval,
   ActionPicker,
   SessionChooser,
+  SettingsPanel,
 } from "./overlays/index.js";
 import type { TrustPickerItem } from "./overlays/index.js";
+import { getInitialTheme, applyTheme } from "../lib/theme.js";
 
 const MOCK_LINES: readonly DisplayLine[] = [
   { kind: "user", text: "Hello, what can you do?" },
@@ -62,6 +64,7 @@ type OverlayKind =
   | "approval"
   | "action"
   | "session"
+  | "settings"
   | null;
 
 const OVERLAY_KEYS: Record<string, Exclude<OverlayKind, null>> = {
@@ -72,6 +75,7 @@ const OVERLAY_KEYS: Record<string, Exclude<OverlayKind, null>> = {
   "5": "approval",
   "6": "action",
   "7": "session",
+  "8": "settings",
 };
 
 export const DevShell: React.FC = () => {
@@ -82,6 +86,7 @@ export const DevShell: React.FC = () => {
 
   const [activeOverlay, setActiveOverlay] = useState<OverlayKind>(null);
   const [overlayIndex, setOverlayIndex] = useState(0);
+  const [theme, setTheme] = useState<"dark" | "light">(getInitialTheme());
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -215,6 +220,30 @@ export const DevShell: React.FC = () => {
             onCancel={dismiss}
           />
         );
+      case "settings":
+        return (
+          <SettingsPanel
+            approvalMode="smart"
+            reviewerModel={null}
+            activeMoaPreset={null}
+            moaPresetNames={[]}
+            advisorEnabled={false}
+            advisorModel={null}
+            availableModels={MOCK_MODELS.map(m => m.id)}
+            theme={theme}
+            selectedIndex={overlayIndex}
+            onNavigate={setOverlayIndex}
+            onUpdateConfig={(patch) => { console.log("[DevShell] config update:", patch); dismiss(); }}
+            onToggleTheme={() => {
+              setTheme(prev => {
+                const next = prev === "dark" ? "light" : "dark";
+                applyTheme(next);
+                return next;
+              });
+            }}
+            onCancel={dismiss}
+          />
+        );
       default:
         return null;
     }
@@ -226,7 +255,7 @@ export const DevShell: React.FC = () => {
       <header className="header">
         <span className="header__wordmark">RAILGUN</span>
         <span style={{ fontSize: 11, color: "var(--color-dim)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
-          Press 1-7 to show overlays
+          Press 1-8 to show overlays
         </span>
       </header>
 
