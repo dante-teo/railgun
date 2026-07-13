@@ -18,6 +18,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "dev": "pnpm --filter @dantea/railgun-desktop start",
+    "dev:mock": "pnpm --filter @dantea/railgun-desktop start:mock",
     "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",

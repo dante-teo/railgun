@@ -136,10 +136,17 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 ### Foundation
 
-- [ ] **DESK-001 — Scaffold Electron Forge app**
+- [x] **DESK-001 — Scaffold Electron Forge app**
   - Add `apps/desktop` to the pnpm workspace.
   - Configure Forge, Vite, React, TypeScript, dev, build, and package scripts.
   - Keep the existing CLI build and package unchanged.
+  - Package a production-only root CLI deployment and bundled mock backend as
+    Forge resources, launched through Electron's embedded Node runtime.
+  - Run the real CLI boundary with `pnpm dev`, or the deterministic mock child
+    with `pnpm dev:mock`.
+  - Add new mock behavior to the typed scenario registry with success, empty,
+    loading, error, cancellation, and disconnection coverage as each desktop
+    feature is implemented.
 
 - [ ] **DESK-002 — Secure the Electron boundary**
   - Harden `BrowserWindow` and production Electron fuses.

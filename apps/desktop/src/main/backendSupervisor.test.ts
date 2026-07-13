@@ -1,0 +1,174 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
+import { BackendSupervisor, createBackendSpawnSpec } from "./backendSupervisor";
+import type { BackendChild } from "./backendSupervisor";
+
+class FakeChild extends EventEmitter implements BackendChild {
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly kill = vi.fn(() => true);
+
+  exit(code: number | null): void {
+    this.emit("exit", code, null);
+  }
+}
+
+const readinessResponse = (generation: number): string => JSON.stringify({
+  id: `desktop-ready-${generation}`,
+  type: "response",
+  command: "get_state",
+  success: true,
+  data: { running: false },
+});
+
+describe("BackendSupervisor", () => {
+  it("correlates a fragmented readiness response and transitions to ready", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+
+    expect(child.stdin.read()?.toString()).toContain('"type":"get_state"');
+    const response = readinessResponse(1);
+    child.stdout.write(response.slice(0, 20));
+    expect(supervisor.getSnapshot().phase).toBe("starting");
+    child.stdout.write(`${response.slice(20)}\n`);
+
+    expect(supervisor.getSnapshot().phase).toBe("ready");
+    expect(supervisor.getSnapshot().transportLog.at(-1)).toMatchObject({ direction: "stdout" });
+    supervisor.shutdown();
+  });
+
+  it("reports rejected probes and malformed output", () => {
+    const rejectedChild = new FakeChild();
+    const rejected = new BackendSupervisor({ mode: "mock", spawnChild: () => rejectedChild });
+    rejected.start("command-rejection");
+    rejectedChild.stdout.write(`${JSON.stringify({
+      id: "desktop-ready-1",
+      type: "response",
+      command: "get_state",
+      success: false,
+      error: "mock rejected get_state",
+    })}\n`);
+    expect(rejected.getSnapshot()).toMatchObject({ phase: "failed", error: "mock rejected get_state" });
+
+    const malformedChild = new FakeChild();
+    const malformed = new BackendSupervisor({ mode: "mock", spawnChild: () => malformedChild });
+    malformed.start("malformed-output");
+    malformedChild.stdout.write("{not-json\n");
+    expect(malformed.getSnapshot()).toMatchObject({ phase: "failed", error: "Backend emitted malformed JSONL output" });
+  });
+
+  it("bounds diagnostics and transport entries", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({
+      mode: "real",
+      spawnChild: () => child,
+      maxDiagnostics: 2,
+      maxTransportEntries: 3,
+    });
+    supervisor.start();
+    child.stderr.write("one\n");
+    child.stderr.write("two\n");
+    child.stderr.write("three\n");
+
+    expect(supervisor.getSnapshot().diagnostics).toEqual(["two", "three"]);
+    expect(supervisor.getSnapshot().transportLog).toHaveLength(3);
+    supervisor.shutdown();
+  });
+
+  it("terminates children and ignores stale events after a restart", () => {
+    const first = new FakeChild();
+    const second = new FakeChild();
+    const queue = [first, second];
+    const supervisor = new BackendSupervisor({ mode: "mock", spawnChild: () => queue.shift()! });
+
+    supervisor.start("ready-idle");
+    supervisor.restartWithScenario("delayed-startup");
+    expect(first.kill).toHaveBeenCalledWith("SIGTERM");
+
+    first.stdout.write(`${readinessResponse(1)}\n`);
+    expect(supervisor.getSnapshot().phase).toBe("starting");
+    second.stdout.write(`${readinessResponse(2)}\n`);
+    expect(supervisor.getSnapshot().phase).toBe("ready");
+
+    supervisor.shutdown();
+    expect(second.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("distinguishes failure before ready from disconnection after ready", () => {
+    const first = new FakeChild();
+    const second = new FakeChild();
+    const queue = [first, second];
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => queue.shift()! });
+
+    supervisor.start();
+    first.exit(17);
+    expect(supervisor.getSnapshot()).toMatchObject({ phase: "failed", error: "Backend exited with exit code 17" });
+
+    supervisor.start();
+    second.stdout.write(`${readinessResponse(2)}\n`);
+    second.exit(23);
+    expect(supervisor.getSnapshot()).toMatchObject({ phase: "disconnected", error: "Backend exited with exit code 23" });
+  });
+
+  it("fails a readiness timeout", () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child, readinessTimeoutMs: 50 });
+    supervisor.start();
+    vi.advanceTimersByTime(50);
+    expect(supervisor.getSnapshot()).toMatchObject({ phase: "failed", error: "Backend readiness probe timed out" });
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    vi.useRealTimers();
+  });
+});
+
+describe("createBackendSpawnSpec", () => {
+  it("uses pnpm and source entries during development", () => {
+    expect(createBackendSpawnSpec(
+      { kind: "development", repositoryRoot: "/repo" },
+      "real",
+    )).toMatchObject({
+      command: "pnpm",
+      args: ["exec", "tsx", "/repo/src/cli.ts", "--mode", "rpc"],
+      cwd: "/repo",
+    });
+
+    expect(createBackendSpawnSpec(
+      { kind: "development", repositoryRoot: "/repo" },
+      "mock",
+      "delayed-startup",
+    ).args).toEqual([
+      "exec",
+      "tsx",
+      "/repo/apps/desktop/src/mock/backend.ts",
+      "delayed-startup",
+    ]);
+  });
+
+  it("uses packaged resources and Electron's embedded Node runtime", () => {
+    const runtime = {
+      kind: "packaged" as const,
+      resourcesPath: "/Railgun.app/Contents/Resources",
+      executablePath: "/Railgun.app/Contents/MacOS/Railgun",
+      workingDirectory: "/Users/example",
+    };
+
+    expect(createBackendSpawnSpec(runtime, "real")).toMatchObject({
+      command: "/Railgun.app/Contents/MacOS/Railgun",
+      args: [
+        "/Railgun.app/Contents/Resources/backend/railgun/dist/cli.js",
+        "--mode",
+        "rpc",
+      ],
+      cwd: "/Users/example",
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    });
+    expect(createBackendSpawnSpec(runtime, "mock", "ready-idle").args).toEqual([
+      "/Railgun.app/Contents/Resources/backend/mock-backend.cjs",
+      "ready-idle",
+    ]);
+  });
+});

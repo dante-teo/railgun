@@ -566,6 +566,35 @@ and response lines to stdout.
 
 ## Development
 
+Launch the Electron desktop against the real Railgun RPC process or its
+deterministic mock process:
+
+```sh
+pnpm dev
+pnpm dev:mock
+```
+
+Mock behavior belongs in `apps/desktop/src/mock/scenarios.ts`, not renderer
+fixtures. As desktop features are added, extend that registry with their
+success, empty, loading, error, cancellation, and disconnection cases.
+
+Run the desktop checks and create a local Electron package with:
+
+```sh
+pnpm --filter @dantea/railgun-desktop typecheck
+pnpm --filter @dantea/railgun-desktop test
+pnpm --filter @dantea/railgun-desktop build
+```
+
+Desktop `build` intentionally runs the complete Forge packaging pipeline; the
+desktop-local `package` command is an equivalent explicit name. The package is
+written beneath `apps/desktop/out/`. Before Forge runs, the build compiles the
+root CLI and stages a production-only deployment plus the bundled mock backend
+in the ignored `apps/desktop/backend/` directory. Forge copies those files to
+`Resources/backend`, and the packaged app launches them with Electron's
+embedded Node runtime. It therefore does not require a repository checkout or
+a separately installed Node.js or pnpm at runtime.
+
 ```sh
 pnpm run typecheck   # tsc --noEmit
 pnpm test            # vitest run — includes real temporary-SQLite persistence tests and CLI/REPL/session coverage

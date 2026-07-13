@@ -1,10 +1,10 @@
-# 0031. Node and pnpm single-package boundary
+# 0031. Node and pnpm package boundary
 
 Date: 2026-07-13
 
 ## Status
 
-Accepted
+Accepted (amended for DESK-001)
 
 ## Context
 
@@ -16,19 +16,39 @@ improving those workflows.
 
 ## Decision
 
-Maintain Railgun as one Node.js package described by the root `package.json`.
-Use the pinned pnpm version for installation, script execution, dependency
-resolution, and the sole lockfile. Keep supported user-facing processes local
-and terminal- or stdio-based.
+Maintain the publishable Railgun CLI as the root Node.js package and add one
+private Electron package at `apps/desktop`. Use the pinned pnpm version for
+installation, script execution, dependency resolution, and the sole lockfile.
+The desktop main process communicates with the unchanged root CLI RPC surface
+over JSONL stdio; it does not import CLI internals into the renderer.
 
-`pnpm-workspace.yaml` remains only for repository-wide pnpm policy: approved
-native dependency builds and the explicit supply-chain age exception. It does
-not declare additional packages.
+Development launches the root CLI through the workspace toolchain. Forge
+packages a production-only deployment of the compiled root CLI and a bundled
+mock backend as application resources, then launches them with Electron's
+embedded Node runtime. A packaged desktop app therefore does not require the
+repository checkout or a separately installed pnpm/Node.js runtime.
+
+`pnpm-workspace.yaml` declares private applications and retains repository-wide
+pnpm policy. Forge's Electron rebuild dependency is overridden to the
+registry-hosted rebuild 4 line so the default exotic-transitive-dependency
+guard remains enabled. The workspace uses the hoisted node linker for Forge's
+packaging preflight and injects workspace packages so `pnpm deploy --prod` can
+assemble a self-contained CLI deployment.
 
 ## Consequences
 
-- Source code and tests live under `src/` and share one TypeScript toolchain.
-- `pnpm-lock.yaml` contains one importer.
+- CLI source and tests remain under `src/`; desktop source and tests live under
+  `apps/desktop/src/` with a desktop-local TypeScript/Vite toolchain.
+- `pnpm-lock.yaml` contains the root CLI and private desktop importers.
 - The supported runtime is Node.js 22.19.0 or newer.
-- New runtime or package boundaries require a new explicit architecture
+- The root package's published files, CLI scripts, binary, and package metadata
+  remain independent of the private workspace.
+- Desktop builds go through Forge so its Vite runtime constants and production
+  renderer paths are generated consistently; the deployed backend is a Forge
+  resource rather than part of the root package's published files.
+- Forge packaging keeps dependency pruning disabled. Pruning a hoisted
+  workspace can remove desktop development dependencies from the shared
+  installation, and it is unnecessary because the Vite plugin already includes
+  only bundled application output in the ASAR.
+- Additional runtime or package boundaries require an explicit architecture
   decision and an actively maintained user workflow.

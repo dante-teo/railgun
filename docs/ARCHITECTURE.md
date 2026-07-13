@@ -13,11 +13,14 @@ This document records the intended system architecture for Railgun. Keep it curr
 
 ## System Context
 
-- Users: the project's own author, via a local terminal
+- Users: the project's own author, via a local terminal or macOS desktop app
 - External systems: Devin/Cascade (via `widevin`'s OAuth + HTTP/streaming API)
 - Runtime environment: local developer machine (macOS/Linux/Windows), Node.js >= 22.19.0 (see `docs/adr/0003-node-floor-raised-to-22-for-promise-withResolvers.md` and `docs/adr/0030-built-in-web-search-and-fetch.md`)
-- Supported surfaces: terminal REPL, one-shot CLI output, JSONL RPC over stdio, and ACP over stdio
-- Package boundary: one Node.js package managed by pnpm; no browser runtime, daemon, or socket service
+- Supported surfaces: terminal REPL, one-shot CLI output, JSONL RPC over stdio,
+  ACP over stdio, and the private Electron desktop scaffold
+- Package boundary: one publishable Node.js CLI package plus one private
+  Electron workspace, managed by pnpm with one lockfile; no daemon or socket
+  service
 
 ## Components
 
@@ -39,6 +42,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | System prompt builder (`src/agent/systemPrompt.ts`) | Pure prompt assembly: Railgun identity, tool rules (including `memory_write`, `note_search`, and `note_search_semantic` guidance since Phases 25/26/27, and — new in Phase 28 — explicit instructions that the agent can create or update `~/.railgun/SOUL.md` and `.railgun.md` via `write_file`), cached session environment, and up to three optional context blocks — `soulIdentity` (`~/.railgun/SOUL.md`), `projectContext` (project context file), and `memories` (formatted memory list). The `# Persistent Identity` block is always emitted: when `soulIdentity` is present it includes the loaded content; when absent it includes a "file does not exist yet" hint pointing the agent to `write_file`. Environment values are JSON-serialized as data. Remains synchronous and pure — all I/O happens before this function is called | Solo project |
 | One-shot path (`src/oneShot.ts`) | Single-question turn loop used by `--print`/`-p`, plus `readline`-based shell-approval and clarify prompts on stderr; when `activeMoaPreset` is set in config, the named preset is loaded and passed to `createAgentSession`, and MoA reference events are printed to stderr | Solo project |
 | RPC subsystem (`src/rpc/{jsonl,types,rpcMode,rpcClient}.ts`) | `serializeJsonLine`/`makeLineReader` framing that splits on `0x0a` only (not `U+2028`/`U+2029`); `RpcCommand`/`RpcResponse`/`RpcSessionState` types; `runRpcMode` headless loop that consumes stdin commands, dispatches one in-flight `prompt` at a time, handles synchronous `steer`/`abort`/`follow_up`, fans raw `AgentSessionEvent` objects to stdout, and shuts down on stdin EOF; `RpcClient` for spawning child processes, correlating responses by id, and forwarding events | Solo project |
+| Desktop scaffold (`apps/desktop`) | Private Electron 43 / Forge 7 / Vite 8 / React workspace. Main owns a bounded backend supervisor and mock scenario restarts; preload exposes four typed backend operations; the sandboxed renderer uses shadcn/ui primitives to display startup, ready, failed, and disconnected states plus a mock-only transport panel. Real and mock backends use the same JSONL stdio path. | Solo project |
 | ACP subsystem (`src/acp/{acpMode,toolKind}.ts`) | `createAcpApp(options)` builds an `AgentApp` (from `@agentclientprotocol/sdk`) with handlers for `initialize`, `authenticate`, `session/set_mode`, `session/new`, `session/prompt`, and `session/cancel`; `runAcpMode` connects it to stdio via `ndJsonStream`; `mapToolKind` maps internal tool names to ACP tool-kind strings (`"read"`, `"edit"`, `"execute"`, `"think"`, `"other"`); each `session/prompt` creates a fresh `AgentSession`, streams `agent_message_chunk`/`tool_call`/`tool_call_update` `session/update` notifications to the client, and accumulates per-session conversation history; `session/cancel` calls `agentSession.abort()` on any in-flight run | Solo project |
 | Error presentation (`src/errors.ts`) | Maps widevin and source-aware credential errors to one-line messages while preserving API/protocol formatting and reporting cache-removal failures alongside the original 401 | Solo project |
 | Iteration budget (`src/agent/iterationBudget.ts`) | Provides the default 90-step `IterationBudget` and the friendly exhaustion message shared by the REPL and one-shot paths | Solo project |
@@ -300,6 +304,27 @@ This document records the intended system architecture for Railgun. Keep it curr
 7. `get_state`, `get_messages`, and `set_model` are handled synchronously (`get_state` returns `running`, `model`, `messageCount`, and `todos`; `get_messages` returns the accumulated `history`; `set_model` updates `currentModel`). `get_available_models` and `compact` are fire-and-forget async promises that respond when `session.devin.listModels()` or `runCompaction()` resolve; `set_auto_compaction` acknowledges the command and no-ops.
 8. The function returns a `Promise` that resolves once stdin emits `"end"` or `"close"`. `Promise.withResolvers` waits for either event; on receipt `cleanupLineReader()` detaches the data handler, any in-flight run is aborted and awaited, and `dispatchCli` emits `session_shutdown`.
 
+**Desktop bootstrap (`pnpm dev` / `pnpm dev:mock`):**
+
+1. Forge builds separate main, preload, and renderer targets. The window starts
+   with context isolation and sandboxing enabled and Node integration disabled.
+2. In development, Electron main starts either the root CLI through pnpm/tsx
+   with `--mode rpc` or the stateful mock JSONL child. Forge packages a
+   production-only deployment of the compiled root CLI and a bundled mock
+   process under `Resources/backend`; the packaged app runs either asset with
+   Electron's embedded Node runtime, so it does not depend on a source checkout,
+   a system Node.js installation, or a system pnpm. Both paths use the same
+   JSONL stdio boundary. A correlated `get_state` probe moves the snapshot from
+   `starting` to `ready`; parse errors, rejected probes, timeouts, and exits
+   become `failed` or `disconnected` snapshots.
+3. Preload exposes only snapshot read/subscription and mock scenario
+   list/selection. Renderer code has no generic IPC, filesystem, process, or
+   Node access. Diagnostics and transport logs are bounded in main.
+4. Mock scenarios live in one typed registry and include ready/idle, delayed
+   startup, rejection, malformed output, crash-before-ready, and
+   disconnect-after-ready. Selecting a scenario terminates and replaces the
+   child, and generation checks discard late events from the old process.
+
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added
 `toolcall_delta` buffering; before that it was ignored). `usage` events are
@@ -474,16 +499,26 @@ One-shot mode does not create or use checkpoints.
 ## Deployment
 
 - Railgun is a single-user local Node.js CLI, run from source with pnpm or from
-  the compiled `dist/` output. It has no daemon, server, container, or remote
-  persistence service.
+  the compiled `dist/` output, plus a private macOS Electron desktop workspace.
+  It has no daemon, server, container, or remote persistence service.
 - Node.js 22.19.0 or newer is required. Installation must provide a compatible
   `better-sqlite3` native binary (downloaded or built by pnpm) for the host
   platform.
 - Runtime state lives under `~/.railgun/`; project context is rebuilt from the
   directory where each process is launched.
-- `package.json` is the only package manifest. `pnpm-lock.yaml` is the sole
-  dependency lockfile, and `pnpm-workspace.yaml` carries repository-wide pnpm
-  policy for approved native builds and supply-chain age exceptions.
+- The root `package.json` remains the publishable CLI manifest;
+  `apps/desktop/package.json` is private. `pnpm-lock.yaml` is the sole dependency
+  lockfile, and `pnpm-workspace.yaml` declares private apps and repository-wide
+  dependency policy.
+- Desktop `build` and `package` both use Forge's Vite pipeline. Before packaging,
+  the desktop build compiles and deploys the root package's production runtime
+  plus the mock backend into Forge resources; these runtime assets are separate
+  from the root package's published-file contract.
+- The workspace uses pnpm's hoisted linker because Forge's packaging preflight
+  requires it, and workspace-package injection makes `pnpm deploy --prod`
+  self-contained. Forge dependency pruning is disabled: with one hoisted
+  workspace it can remove desktop development dependencies from the shared
+  install, while the Vite plugin already limits the ASAR to bundled output.
 
 ## Architectural Decision Records
 

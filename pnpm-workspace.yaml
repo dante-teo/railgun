@@ -1,3 +1,15 @@
+packages:
+  - apps/*
+
+# Electron Forge's pnpm packaging preflight requires a hoisted modules layout.
+nodeLinker: hoisted
+injectWorkspacePackages: true
+
+overrides:
+  # Forge 7 resolves rebuild 3, whose transitive Git source is blocked by pnpm.
+  # Rebuild 4.2 supports Electron 43 and uses registry-hosted node-gyp instead.
+  "@electron/rebuild": 4.2.0
+
 allowBuilds:
   better-sqlite3: true
   esbuild: true

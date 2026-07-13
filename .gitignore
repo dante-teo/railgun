@@ -2,3 +2,6 @@ node_modules/
 dist/
 .pnpm-store/
 ..worktrees
+apps/desktop/.vite/
+apps/desktop/backend/
+apps/desktop/out/
