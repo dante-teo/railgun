@@ -50,7 +50,8 @@ jobs:
         if: steps.package.outputs.should_publish == 'true'
         run: pnpm install --frozen-lockfile
 
-      # prepublishOnly type-checks, tests, and builds before npm uploads anything.
+      # prepublishOnly type-checks, tests, builds, and smoke-tests the packaged
+      # CLI launch path before npm uploads anything.
       - name: Build, test, and publish
         if: steps.package.outputs.should_publish == 'true'
         run: npm publish --access public

@@ -54,6 +54,19 @@ resolution, and lockfile management use pnpm.
 
 ## Install
 
+Install the published CLI globally with pnpm:
+
+```sh
+pnpm add --global @dantea/railgun
+railgun config
+```
+
+`railgun config` is a non-interactive installation check that prints the
+effective configuration as JSON without authenticating. Run `railgun` to open
+the interactive REPL.
+
+To work from a repository checkout instead:
+
 ```sh
 pnpm install
 ```
@@ -663,7 +676,15 @@ link their upstream releases and colocated SIL Open Font License notices.
 pnpm run typecheck   # tsc --noEmit
 pnpm test            # vitest run — includes real temporary-SQLite persistence tests and CLI/REPL/session coverage
 pnpm run build       # compile src/ to dist/
+pnpm run smoke:package # build, launch the packaged CLI, and validate `railgun config` JSON output
 ```
+
+`smoke:package` runs the built executable through a temporary symlink on
+POSIX, matching pnpm's global-bin launch behavior. On Windows it invokes the
+built script with Node because creating symlinks may require Developer Mode or
+elevated privileges. The smoke check uses an isolated temporary home directory,
+cleans it in all outcomes, and runs automatically during `prepublishOnly` after
+typechecking and tests.
 
 The Ink REPL UI is supported by automated tests for its pure state and
 rendering helpers, alongside tests for

@@ -1,6 +1,6 @@
 {
   "name": "@dantea/railgun",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,8 @@
     "build": "tsc -p tsconfig.build.json",
     "postbuild": "node -e \"const fs=require('fs');const f='dist/cli.js';const s=fs.readFileSync(f,'utf8');if(!s.startsWith('#!'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+s);fs.chmodSync(f,0o755)\"",
     "test": "vitest run src",
-    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run smoke:package"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.2.1",

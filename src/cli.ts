@@ -8,6 +8,7 @@ import { registry } from "./tools/index.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCliEntryPoint } from "./cliEntryPoint.js";
 import { loadConfig, updateConfig } from "./config.js";
 import type { AppConfig } from "./config.js";
 import { createMcpExtension, parseMcpServers } from "./extensions/mcp/index.js";
@@ -528,7 +529,7 @@ export const desktopAuthenticationRequiredFrame = (
   });
 };
 
-const isEntryPoint = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isEntryPoint = isCliEntryPoint(process.argv[1], fileURLToPath(import.meta.url));
 
 if (isEntryPoint) {
   // Piping stdout into a command that closes early (e.g. `| head`) makes
