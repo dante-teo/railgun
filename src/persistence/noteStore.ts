@@ -33,7 +33,9 @@ interface SemanticRow { rowid: number; distance: number; source_path: string | n
 interface UnembeddedRow { id: number; content: string }
 
 const sanitizeFts5Query = (raw: string): string =>
-  raw.replace(/["():*]/g, " ").trim();
+  (raw.match(/[\p{L}\p{M}\p{N}_]+/gu) ?? [])
+    .map(token => `"${token}"`)
+    .join(" ");
 
 /** Yield every .md/.txt file in `folderPath` as word-chunks of `chunkWords`. */
 function* readChunks(

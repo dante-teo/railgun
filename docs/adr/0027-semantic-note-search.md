@@ -94,7 +94,11 @@ semantic search tool alongside `note_search`:
   toolset. The system prompt is updated to guide the model to try `note_search`
   first (faster, exact keyword match) and fall back to `note_search_semantic`
   when the question is about a broad topic or feeling and keyword search finds
-  nothing.
+  nothing. If embedding or vector retrieval throws, the tool catches that
+  failure and runs `NoteStore.search` with the same query. The fallback is
+  reported in the tool content and remains a successful tool result, including
+  when keyword search finds no matches, so the agent can continue instead of
+  stalling on an optional native dependency.
 
 ## Consequences
 
@@ -118,4 +122,5 @@ semantic search tool alongside `note_search`:
 - **Complementary search path**: keyword search remains the first choice for
   speed and exact matches. Semantic search is a fallback for conceptual or
   feeling-based queries, widening recall at the cost of a slower, model-backed
-  call.
+  call. When that model-backed path is unavailable, the semantic tool degrades
+  to safe keyword search rather than returning an embedding dependency error.

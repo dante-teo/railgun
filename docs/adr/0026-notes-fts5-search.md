@@ -38,9 +38,11 @@ Two design choices needed recording:
    not FTS5 queries — they are plain keywords that should match anywhere in the
    content. Passing raw user input to `MATCH` risks a syntax error that would
    propagate to the tool handler as a crash. The solution is `sanitizeFts5Query`:
-   strip the five special characters (`"`, `(`, `)`, `:`, `*`) and return an
-   empty string if nothing meaningful remains; the `search` function returns `[]`
-   on an empty sanitized query without hitting SQLite at all.
+   extract Unicode letter, combining-mark, number, and underscore tokens, quote
+   each token as an FTS5 literal, and join them with implicit `AND` semantics.
+   This safely handles punctuation such as apostrophes, hyphens, and email
+   addresses while neutralizing operators such as `AND`, `OR`, and `NOT`. If no
+   tokens remain, `search` returns `[]` without hitting SQLite at all.
 
 4. **Chunking strategy**: files are split into fixed-size word chunks (default
    500 words) before insertion. This is the simplest approach that avoids

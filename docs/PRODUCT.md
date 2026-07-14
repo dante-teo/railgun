@@ -72,8 +72,9 @@ the tool rules block instructs the agent to call it before saying it doesn't kno
 something. A new CLI command, `import-notes <folder>`, bulk-imports `.md` and `.txt`
 files from a directory: each file is split into 500-word chunks and inserted in a
 single transaction; the command prints the total chunk count. FTS5 query sanitization
-strips syntax characters (`"`, `(`, `)`, `:`, `*`) from raw user input before passing
-to SQLite `MATCH`. `NoteStore` shares the existing `SessionStore.db` connection handle.
+extracts Unicode word tokens from raw user input and quotes every token before passing
+it to SQLite `MATCH`, so punctuation and FTS5 operators cannot produce syntax errors.
+`NoteStore` shares the existing `SessionStore.db` connection handle.
 See `docs/adr/0026-notes-fts5-search.md`.
 
 **Phase 27 (semantic note search via embeddings):**
@@ -83,7 +84,9 @@ find relevant notes even when the query shares no keywords with the stored text.
 The `import-notes` command now embeds chunks during import and automatically backfills
 any pre-existing notes that lack vectors. A new `note_search_semantic` tool complements
 `note_search` under the `"memory"` toolset; the agent tries keyword search first and
-falls back to semantic search for broad or feeling-based queries.
+falls back to semantic search for broad or feeling-based queries. If the local embedding
+stack cannot load or semantic retrieval fails, `note_search_semantic` automatically uses
+the safe keyword search path and returns a normal fallback result instead of a tool error.
 See `docs/adr/0027-semantic-note-search.md`.
 
 **Phase 32 (Mixture of Agents):**

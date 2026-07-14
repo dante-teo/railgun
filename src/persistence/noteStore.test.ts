@@ -102,6 +102,21 @@ describe("createNoteStore", () => {
     }
   });
 
+  it.each(["what's", "foo-bar", "me@example.com"])(
+    "search safely handles natural-language punctuation in %s",
+    async query => {
+      await writeFile(join(notesDir, "note.md"), "what's new with foo-bar? Contact me@example.com");
+      const { sessionStore, noteStore } = openStore();
+      try {
+        noteStore.importFolder(notesDir);
+
+        expect(noteStore.search(query)).toHaveLength(1);
+      } finally {
+        sessionStore.close();
+      }
+    },
+  );
+
   it("search with only FTS5-hostile chars returns empty array", async () => {
     await writeFile(join(notesDir, "note.md"), "test note");
     const { sessionStore, noteStore } = openStore();

@@ -7,6 +7,7 @@ import { createSessionStore } from "../persistence/sessionStore.js";
 import type { SessionStore } from "../persistence/sessionStore.js";
 import { createNoteStore } from "../persistence/noteStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
+import { embedText } from "../persistence/embedder.js";
 import type { ToolContext } from "./registry.js";
 
 // The real embedText loads a 120 MB ONNX model — mock the module.
@@ -44,7 +45,10 @@ describe("note_search_semantic tool registry integration", () => {
 
   it("exposes note_search_semantic schema in the memory toolset", () => {
     const schemas = registry.getSchemas(["memory"]);
-    expect(schemas.some(s => s.name === "note_search_semantic")).toBe(true);
+    const schema = schemas.find(s => s.name === "note_search_semantic");
+
+    expect(schema).toBeDefined();
+    expect(schema?.description).toContain("automatically falls back to keyword search");
   });
 
   it("returns isError: true when noteStore is not in context", async () => {
@@ -81,5 +85,46 @@ describe("note_search_semantic tool registry integration", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("hiking.md");
     expect(result.content).toContain("hiking");
+  });
+
+  it("falls back to keyword search when the semantic embedder is unavailable", async () => {
+    sessionStore.db
+      .prepare("INSERT INTO notes (source_path, content, created_at) VALUES (?, ?, ?)")
+      .run("/notes/hiking.md", "went hiking this weekend", Date.now() / 1000);
+    vi.mocked(embedText).mockRejectedValueOnce(new Error("missing native dependency"));
+
+    const result = await registry.run("note_search_semantic", { query: "hiking" }, makeContext(noteStore));
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Semantic search is unavailable; used keyword search instead.");
+    expect(result.content).toContain("hiking.md");
+    expect(result.content).toContain("hiking");
+  });
+
+  it("reports no matches when the semantic embedder and keyword fallback find nothing", async () => {
+    vi.mocked(embedText).mockRejectedValueOnce(new Error("missing native dependency"));
+
+    const result = await registry.run("note_search_semantic", { query: "hiking" }, makeContext(noteStore));
+
+    expect(result).toEqual({
+      content: "Semantic search is unavailable; used keyword search instead.\n\nNo matching notes found.",
+      isError: false,
+    });
+  });
+
+  it("falls back successfully when a natural-language query contains punctuation", async () => {
+    sessionStore.db
+      .prepare("INSERT INTO notes (source_path, content, created_at) VALUES (?, ?, ?)")
+      .run("/notes/update.md", "what's new with foo-bar", Date.now() / 1000);
+    vi.mocked(embedText).mockRejectedValueOnce(new Error("missing native dependency"));
+
+    const result = await registry.run(
+      "note_search_semantic",
+      { query: "what's new with foo-bar?" },
+      makeContext(noteStore),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("update.md");
   });
 });
