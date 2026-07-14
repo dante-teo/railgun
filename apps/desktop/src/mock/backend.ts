@@ -34,6 +34,8 @@ const writeFragmented = (value: unknown, delayMs = 8, prompt?: ActivePrompt): vo
 interface ActivePrompt {
   readonly id: unknown;
   readonly timers: Set<ReturnType<typeof setTimeout>>;
+  steering: string[];
+  followUp: string[];
 }
 
 let activePrompt: ActivePrompt | undefined;
@@ -147,7 +149,7 @@ if (scenario.behavior === "authentication-required") {
       }
       const text = typeof command.message === "string" ? command.message : "";
       messageCount += 2;
-      const prompt: ActivePrompt = { id: command.id, timers: new Set() };
+      const prompt: ActivePrompt = { id: command.id, timers: new Set(), steering: [], followUp: [] };
       activePrompt = prompt;
       if (scenario.behavior === "approval" || scenario.behavior === "clarification") {
         const kind = scenario.behavior;
@@ -161,16 +163,51 @@ if (scenario.behavior === "authentication-required") {
       writeFragmented({ type: "agent_start" }, 8, prompt);
       schedulePromptOutput(prompt, {
         type: "message_update",
-        streamEvent: { type: "text_delta", delta: `Mock Railgun received: ${text}` },
+        streamEvent: { type: "text_delta", delta: `## Mock response\n\nReceived **${text}**.\n\n` },
       }, 10);
-      schedulePromptOutput(prompt, { type: "agent_end", messages: [] }, 20);
+      schedulePromptOutput(prompt, {
+        type: "message_update",
+        streamEvent: { type: "text_delta", delta: "| Mode | Status |\n| --- | --- |\n| desktop | ready |\n\n" },
+      }, 12);
+      schedulePromptOutput(prompt, {
+        type: "message_update",
+        streamEvent: { type: "text_delta", delta: "```ts\nconst streamed = true;\n```" },
+      }, 14);
+      if (scenario.behavior !== "cancellation") {
+        schedulePromptOutput(prompt, {
+          type: "message_end",
+          message: { role: "assistant", content: "mock markdown response" },
+        }, 70);
+        schedulePromptOutput(prompt, { type: "agent_end", messages: [] }, 120);
+      }
       const responseTimer = setTimeout(() => {
         prompt.timers.delete(responseTimer);
         if (activePrompt !== prompt) return;
         activePrompt = undefined;
         respond(type, command.id);
-      }, scenario.behavior === "cancellation" ? 5_000 : 30);
+      }, scenario.behavior === "cancellation" ? 5_000 : 140);
       prompt.timers.add(responseTimer);
+      return;
+    }
+    if (type === "steer" || type === "follow_up") {
+      const prompt = activePrompt;
+      const text = typeof command.message === "string" ? command.message.trim() : "";
+      if (prompt === undefined || text === "") {
+        respond(type, command.id, { error: prompt === undefined ? "Agent is not running" : "message is required" });
+        return;
+      }
+      const queue = type === "steer" ? prompt.steering : prompt.followUp;
+      queue.push(text);
+      writeFragmented({ type: "queue_update", steering: prompt.steering, followUp: prompt.followUp }, 8, prompt);
+      respond(type, command.id);
+      schedulePromptOutput(prompt, { type: "message_start", message: { role: "user", content: text } }, 24);
+      const dequeueTimer = setTimeout(() => {
+        prompt.timers.delete(dequeueTimer);
+        if (activePrompt !== prompt) return;
+        queue.shift();
+        writeFragmented({ type: "queue_update", steering: prompt.steering, followUp: prompt.followUp }, 8, prompt);
+      }, 26);
+      prompt.timers.add(dequeueTimer);
       return;
     }
     if (type === "approval_response" || type === "clarification_response") {
@@ -197,6 +234,7 @@ if (scenario.behavior === "authentication-required") {
         for (let index = frameQueue.length - 1; index >= 0; index -= 1) {
           if (frameQueue[index]?.prompt === prompt) frameQueue.splice(index, 1);
         }
+        writeFragmented({ type: "queue_update", steering: [], followUp: [] });
         writeFragmented({ type: "agent_end", messages: [] });
         respond("prompt", prompt.id);
       }

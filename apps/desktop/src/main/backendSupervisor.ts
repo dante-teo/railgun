@@ -135,7 +135,10 @@ export class BackendSupervisor {
     return () => this.#backendEventListeners.delete(listener);
   }
 
-  call(command: { readonly type: "prompt"; readonly message: string } | { readonly type: "abort" }): Promise<void>;
+  call(command:
+    | { readonly type: "prompt" | "steer" | "follow_up"; readonly message: string }
+    | { readonly type: "abort" }
+  ): Promise<void>;
   call<T>(command: BackendRpcCommand, validate: (data: unknown) => T): Promise<T>;
   call<T = void>(command: BackendRpcCommand, validate?: (data: unknown) => T): Promise<T> {
     const child = this.#child;

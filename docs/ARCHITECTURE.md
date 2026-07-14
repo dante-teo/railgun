@@ -413,6 +413,25 @@ This document records the intended system architecture for Railgun. Keep it curr
    editing chords are not intercepted. Native context menus are derived only
    from Electron's editability, selection, and edit flags and expose standard
    edit roles—never renderer-provided templates, arbitrary links, or navigation.
+10. Desktop chat state is isolated from the shell in a pure renderer reducer.
+    Assistant text deltas are coalesced once per animation frame and displayed
+    as plain text until a reduced assistant `message_end` boundary marks the
+    message complete. Completed text renders through sanitized GFM with raw
+    HTML disabled; links are inert unless they are absolute HTTP(S), and valid
+    links cross fixed preload IPC for a second main-process validation before
+    Electron opens the system browser. Idle Enter sends, Shift+Enter inserts a
+    newline, and during a run Enter queues steering while nonempty Tab queues a
+    follow-up. Renderer-local queue identities reconcile FIFO backend
+    `queue_update` mirrors, including duplicate text; dequeue boundaries append
+    the corresponding user message to the transcript. Abort acknowledgement is
+    not run settlement: it clears cancelled queue presentation while leaving
+    the reducer `running` and `stopping`, preserving the active assistant stream
+    and keeping submission disabled. Only `run-end` finalizes that stream,
+    unlocks the composer, and clears all remaining run-scoped queue state,
+    including entries that never reached an injection boundary. In-flight queue
+    acknowledgements during stopping are ignored without clearing the draft.
+    Initial prompt failures retain one retryable user message, while backend
+    failure finalizes partial output and stale failures after reset are ignored.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added

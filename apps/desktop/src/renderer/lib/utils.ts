@@ -3,3 +3,6 @@ import type { ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export const cn = (...inputs: ClassValue[]): string => twMerge(clsx(inputs));
+
+export const errorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;

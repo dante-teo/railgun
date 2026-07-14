@@ -24,7 +24,10 @@ export interface RailgunDesktopApi {
   listMockScenarios: () => Promise<readonly MockScenario[]>;
   selectMockScenario: (id: MockScenarioId) => Promise<BackendSnapshot>;
   sendPrompt: (message: string) => Promise<void>;
+  steerPrompt: (message: string) => Promise<void>;
+  followUpPrompt: (message: string) => Promise<void>;
   abortPrompt: () => Promise<void>;
+  openExternal: (url: string) => Promise<void>;
   startNewChat: () => Promise<BackendSnapshot>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
   onAppCommand: (listener: (command: AppCommand) => void) => () => void;
@@ -37,7 +40,10 @@ export const DESKTOP_IPC = {
   listMockScenarios: "mock:list-scenarios",
   selectMockScenario: "mock:select-scenario",
   sendPrompt: "agent:prompt",
+  steerPrompt: "agent:steer",
+  followUpPrompt: "agent:follow-up",
   abortPrompt: "agent:abort",
+  openExternal: "shell:open-external",
   startNewChat: "agent:new-chat",
   agentEvent: "agent:event",
   appCommand: "app:command",

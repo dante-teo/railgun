@@ -4,6 +4,7 @@ import {
   BackendSnapshotSchema,
   DesktopAgentEventSchema,
   EmptyResponseSchema,
+  ExternalUrlSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
   PromptTextSchema,
@@ -61,8 +62,23 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
         await transport.invoke(DESKTOP_IPC.sendPrompt, PromptTextSchema.parse(message)),
       );
     },
+    steerPrompt: async (message) => {
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.steerPrompt, PromptTextSchema.parse(message)),
+      );
+    },
+    followUpPrompt: async (message) => {
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.followUpPrompt, PromptTextSchema.parse(message)),
+      );
+    },
     abortPrompt: async () => {
       EmptyResponseSchema.parse(await transport.invoke(DESKTOP_IPC.abortPrompt));
+    },
+    openExternal: async (url) => {
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.openExternal, ExternalUrlSchema.parse(url)),
+      );
     },
     startNewChat: async () => BackendSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.startNewChat),

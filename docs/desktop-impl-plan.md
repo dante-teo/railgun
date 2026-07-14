@@ -239,10 +239,32 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 ### Chat
 
-- [ ] **DESK-007 — Build transcript and composer**
+- [x] **DESK-007 — Build transcript and composer**
   - Stream assistant text efficiently.
   - Render completed sanitized Markdown and code blocks.
   - Support multiline input, send, queued steering/follow-up, stop, and error recovery.
+  - Assistant deltas are frame-coalesced and displayed as plain text until the
+    backend's assistant message boundary. Completed messages render sanitized
+    GFM (headings, lists, tables, inline code, and labelled fenced code); raw
+    HTML and non-HTTP(S) links are inert. Valid absolute HTTP(S) links pass
+    through validated preload/main IPC and open in the system browser while
+    renderer navigation remains blocked.
+  - In an idle composer, Enter sends and Shift+Enter inserts a newline. During
+    an active run, Enter queues steering and nonempty Tab queues a follow-up;
+    empty Tab retains normal focus navigation. Accepted items remain in a
+    labelled queue until a backend queue update reports their injection, at
+    which point they enter the transcript in FIFO order (including duplicates).
+  - Stop is single-flight. An abort RPC acknowledgement confirms signal
+    delivery only: it clears cancelled queue presentation, but the composer
+    remains in its active/stopping state and late deltas stay in the current
+    assistant boundary until `run-end`. That terminal event alone unlocks the
+    composer, marks partial output stopped (or normally completed), and clears
+    every remaining run-scoped queue entry. Queue acknowledgements that race
+    with stopping are ignored without clearing the draft.
+  - Initial-command, queued-command, abort, and disconnect failures retain
+    recoverable user state: Retry never duplicates the initial user message,
+    rejected queue drafts remain editable, stale failures after New Chat are
+    ignored, and partial assistant output is finalized.
 
 - [ ] **DESK-008 — Render agent activity**
   - Tool running/success/error rows with safe expandable detail.

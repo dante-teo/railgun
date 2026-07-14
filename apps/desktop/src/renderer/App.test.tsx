@@ -87,7 +87,10 @@ describe("desktop shell", () => {
       listMockScenarios: async () => [],
       selectMockScenario: async () => snapshot("ready"),
       sendPrompt,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
       abortPrompt,
+      openExternal: async () => undefined,
       startNewChat,
       onAgentEvent: (listener) => { agentListener = listener; return () => undefined; },
       onAppCommand: () => () => undefined,
@@ -116,8 +119,8 @@ describe("desktop shell", () => {
     await waitFor(() => expect(abortPrompt).toHaveBeenCalledOnce());
 
     act(() => agentListener?.({ type: "assistant-delta", text: "Mock response" }));
-    expect(screen.getByText("Mock response")).toBeTruthy();
     act(() => agentListener?.({ type: "run-end" }));
+    expect(screen.getByText("Mock response")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Secure desktop boundary")).toBeTruthy();
@@ -136,7 +139,10 @@ describe("desktop shell", () => {
       listMockScenarios: async () => [],
       selectMockScenario: async () => snapshot("ready"),
       sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
       onAgentEvent: () => () => undefined,
       onAppCommand: () => () => undefined,
@@ -163,7 +169,10 @@ describe("desktop shell", () => {
       listMockScenarios: async () => [],
       selectMockScenario: async () => snapshot("ready"),
       sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
       onAgentEvent: () => () => undefined,
       onAppCommand: (listener) => { appCommandListener = listener; return () => undefined; },
@@ -210,7 +219,10 @@ describe("desktop shell", () => {
       listMockScenarios: async () => [],
       selectMockScenario: async () => snapshot("ready"),
       sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
       onAgentEvent: () => () => undefined,
       onAppCommand: () => () => undefined,

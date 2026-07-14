@@ -39,6 +39,19 @@ export const MockScenarioSchema = z.strictObject({
 export const MockScenarioListSchema = z.array(MockScenarioSchema).readonly();
 
 export const PromptTextSchema = z.string().trim().min(1).max(100_000);
+export const ExternalUrlSchema = z.string().max(2_048).transform((value, context) => {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username !== "" || url.password !== "") {
+      throw new Error("unsupported URL");
+    }
+    return url.href;
+  } catch {
+    context.addIssue({ code: "custom", message: "Expected an absolute HTTP(S) URL" });
+    return z.NEVER;
+  }
+});
 export const EmptyResponseSchema = z.undefined();
 
 export const AppCommandSchema = z.enum([
@@ -55,6 +68,12 @@ export const DesktopAgentEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("run-start") }),
   z.strictObject({ type: z.literal("run-end") }),
   z.strictObject({ type: z.literal("assistant-delta"), text: z.string() }),
+  z.strictObject({ type: z.literal("assistant-complete") }),
+  z.strictObject({
+    type: z.literal("queue-update"),
+    steering: z.array(z.string()).readonly(),
+    followUp: z.array(z.string()).readonly(),
+  }),
   z.strictObject({ type: z.literal("tool-start"), id: z.string(), name: z.string() }),
   z.strictObject({ type: z.literal("tool-end"), id: z.string(), name: z.string(), failed: z.boolean() }),
 ]);

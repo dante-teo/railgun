@@ -33,15 +33,18 @@ describe("preload desktop bridge", () => {
     const exposed = exposeInMainWorld.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(Object.keys(exposed).sort()).toEqual([
       "abortPrompt",
+      "followUpPrompt",
       "getBackendSnapshot",
       "listMockScenarios",
       "onAgentEvent",
       "onAppCommand",
       "onBackendSnapshot",
+      "openExternal",
       "restartBackend",
       "selectMockScenario",
       "sendPrompt",
       "startNewChat",
+      "steerPrompt",
     ]);
     expect(exposed).not.toHaveProperty("invoke");
     expect(exposed).not.toHaveProperty("ipcRenderer");
@@ -76,6 +79,20 @@ describe("preload desktop bridge", () => {
 
     invoke.mockResolvedValueOnce({ success: true });
     await expect(api.sendPrompt("hello")).rejects.toThrow();
+
+    await expect(api.openExternal("javascript:alert(1)")).rejects.toThrow();
+    await expect(api.openExternal("/relative")).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledTimes(2);
+
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.steerPrompt("adjust this")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.steerPrompt, "adjust this");
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.followUpPrompt("then this")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.followUpPrompt, "then this");
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.openExternal("https://example.com/docs")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.openExternal, "https://example.com/docs");
   });
 
   it("starts a new backend chat and validates the reset snapshot", async () => {

@@ -6,6 +6,7 @@ import {
   MockScenarioListSchema,
   MockScenarioSchema,
   TransportLogEntrySchema,
+  ExternalUrlSchema,
 } from "./schemas";
 
 const validSnapshot = {
@@ -26,6 +27,7 @@ describe("desktop boundary schemas", () => {
       .toBe("authentication-required");
     expect(MockScenarioSchema.parse({ id: "ready-idle", label: "Ready", description: "Ready now" })).toBeTruthy();
     expect(MockScenarioListSchema.parse([{ id: "ready-idle", label: "Ready", description: "Ready now" }])).toHaveLength(1);
+    expect(ExternalUrlSchema.parse("https://example.com/docs")).toBe("https://example.com/docs");
   });
 
   it("rejects unknown fields at every object boundary", () => {
@@ -41,6 +43,8 @@ describe("desktop boundary schemas", () => {
     expect(() => BackendSnapshotSchema.parse({ ...validSnapshot, transportLog: [null] })).toThrow();
     expect(() => TransportLogEntrySchema.parse({ direction: "network", text: "bad" })).toThrow();
     expect(() => MockScenarioIdSchema.parse("../../escape")).toThrow();
+    expect(() => ExternalUrlSchema.parse("javascript:alert(1)")).toThrow();
+    expect(() => ExternalUrlSchema.parse("https://user:pass@example.com")).toThrow();
     expect(() => MockScenarioListSchema.parse({ id: "ready-idle" })).toThrow();
   });
 });

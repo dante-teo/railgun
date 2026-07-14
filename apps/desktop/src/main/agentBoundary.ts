@@ -22,6 +22,20 @@ export const toDesktopAgentEvent = (value: unknown): DesktopAgentEvent | undefin
       }
       break;
     }
+    case "message_end": {
+      const message = record.message;
+      if (typeof message === "object" && message !== null &&
+        (message as Record<string, unknown>).role === "assistant") {
+        event = { type: "assistant-complete" };
+      }
+      break;
+    }
+    case "queue_update":
+      if (Array.isArray(record.steering) && record.steering.every(value => typeof value === "string") &&
+        Array.isArray(record.followUp) && record.followUp.every(value => typeof value === "string")) {
+        event = { type: "queue-update", steering: record.steering, followUp: record.followUp };
+      }
+      break;
     case "tool_execution_start":
       if (typeof record.toolCallId === "string" && typeof record.toolName === "string") {
         event = { type: "tool-start", id: record.toolCallId, name: record.toolName };

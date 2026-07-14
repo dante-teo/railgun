@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, session } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from "electron";
 import { resolve } from "node:path";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
 import { toDesktopAgentEvent } from "./agentBoundary";
@@ -24,6 +24,7 @@ import {
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent } from "../shared/types";
+import { openExternalFromRenderer } from "./externalLinks";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -115,9 +116,20 @@ const registerIpc = (): void => {
     assertAuthorizedIpcSender(event, senderContext);
     await supervisor.call({ type: "prompt", message: PromptTextSchema.parse(value) });
   });
+  ipcMain.handle(DESKTOP_IPC.steerPrompt, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    await supervisor.call({ type: "steer", message: PromptTextSchema.parse(value) });
+  });
+  ipcMain.handle(DESKTOP_IPC.followUpPrompt, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    await supervisor.call({ type: "follow_up", message: PromptTextSchema.parse(value) });
+  });
   ipcMain.handle(DESKTOP_IPC.abortPrompt, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
     await supervisor.call({ type: "abort" });
+  });
+  ipcMain.handle(DESKTOP_IPC.openExternal, async (event, value: unknown) => {
+    await openExternalFromRenderer(event, value, senderContext, url => shell.openExternal(url));
   });
   ipcMain.handle(DESKTOP_IPC.startNewChat, (event) => {
     assertAuthorizedIpcSender(event, senderContext);
