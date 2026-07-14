@@ -72,6 +72,30 @@ pnpm install
 
 ## Run
 
+### Interactive diagnostics
+
+Fresh and resumed TUI sessions always write privacy-safe JSONL diagnostics locally.
+To follow the current run:
+
+```sh
+tail -f ~/.railgun/logs/interactive-latest.jsonl
+```
+
+Records contain lifecycle metadata, phases, elapsed durations, outcomes, aggregate
+message sizes/counts, model and tool names, error classifications, process metadata,
+and terminal dimensions. They never contain prompts, assistant text, tool arguments
+or results, shell commands, environment variables, credentials, or extension
+payloads. Error summaries are redacted and truncated.
+
+The worker reports an event-loop stall after 10 seconds without a main-thread
+heartbeat and an operation stall after 30 seconds without progress. Approval,
+clarification, and idle waits are exempt; unresolved warnings repeat every 30
+seconds and recovery is recorded once. Detection never cancels the operation.
+Logs use private directory/file permissions, expire after seven days, and are pruned
+oldest-first to a 100 MiB total cap. Non-interactive modes create no interactive log.
+See [Interactive diagnostics](docs/INTERACTIVE_DIAGNOSTICS.md) for the exact JSONL
+schema, privacy boundary, phase rules, and watchdog lifecycle.
+
 ```sh
 pnpm start
 ```

@@ -13,6 +13,7 @@ import { DevinApiError, type DevinProvider, type DevinModel } from "widevin";
 import { embedText } from "./persistence/embedder.js";
 import { AuthenticationRequiredError, CredentialRejectedError } from "./auth.js";
 import type { DaemonStatus } from "./cron/daemon.js";
+import { createNoopInteractiveDiagnostics } from "./diagnostics/interactiveDiagnostics.js";
 
 vi.mock("./persistence/embedder.js", () => ({
   embedText: vi.fn(async () => new Float32Array(384).fill(0.5)),
@@ -192,6 +193,56 @@ describe("parseCliArgs — dream mode", () => {
 
 
 describe("dispatchCli", () => {
+  it.each(["fresh", "resume"] as const)("starts and closes diagnostics for %s even when startup fails", async kind => {
+    const deps = dependencies();
+    const noopDiagnostics = createNoopInteractiveDiagnostics();
+    const close = vi.fn(async () => {});
+    const diagnostics = { ...noopDiagnostics, close };
+    deps.createInteractiveDiagnostics = vi.fn(() => diagnostics);
+    vi.mocked(deps.loadConfig).mockRejectedValue(new Error("startup failed"));
+
+    await expect(dispatchCli(kind === "fresh" ? { kind } : { kind, id: "saved" }, deps)).rejects.toThrow("startup failed");
+
+    expect(deps.createInteractiveDiagnostics).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("settles the active startup phase as failed when trust configuration throws", async () => {
+    const deps = dependencies();
+    const noopDiagnostics = createNoopInteractiveDiagnostics();
+    const end = vi.fn();
+    const start = vi.fn(() => ({ progress: vi.fn(), end }));
+    deps.createInteractiveDiagnostics = vi.fn(() => ({
+      ...noopDiagnostics,
+      observer: { ...noopDiagnostics.observer, start },
+    }));
+    const failure = new Error("config unavailable");
+    vi.mocked(deps.loadConfig).mockRejectedValue(failure);
+
+    await expect(dispatchCli({ kind: "fresh" }, deps)).rejects.toBe(failure);
+
+    expect(start).toHaveBeenCalledWith({ phase: "trust_configuration" });
+    expect(end).toHaveBeenCalledWith("failure", failure);
+  });
+
+  it("continues an interactive session with unavailable status when diagnostics construction throws", async () => {
+    const deps = dependencies();
+    deps.createInteractiveDiagnostics = vi.fn(() => { throw new Error("worker unavailable"); });
+
+    await dispatchCli({ kind: "fresh" }, deps);
+
+    expect(deps.runRepl).toHaveBeenCalledOnce();
+    expect(vi.mocked(deps.runRepl).mock.calls[0]?.[7]?.status.kind).toBe("unavailable");
+  });
+
+  it.each(["print", "rpc", "acp", "cron", "config", "login", "logout", "list"] as const)("does not create interactive logs in %s mode", async kind => {
+    const deps = dependencies();
+    deps.createInteractiveDiagnostics = vi.fn(createNoopInteractiveDiagnostics);
+    if (kind === "print") await dispatchCli({ kind, question: "hi" }, deps);
+    else await dispatchCli({ kind } as Parameters<typeof dispatchCli>[0], deps);
+    expect(deps.createInteractiveDiagnostics).not.toHaveBeenCalled();
+  });
+
   it("prints effective pretty configuration without authentication, SQLite, file writes, or TUI startup", async () => {
     const deps = dependencies();
     vi.mocked(deps.loadConfig).mockResolvedValue({ model: null, future: { kept: true }, defaultProjectTrust: "ask" });

@@ -39,6 +39,14 @@ otherwise leak into the user's shell.
 - Alternate-screen, SGR mouse, theme listener, and native appearance resources
   are released through guaranteed cleanup boundaries. The resume chooser shares
   the theme, lifecycle, resize behavior, and compact full-screen layout.
+- The status bar shows `ready` while idle and the active phase plus elapsed time
+  while working, including parallel tool counts. A responsive operation stall is
+  shown prominently with the stable local diagnostics path; diagnostics failure is
+  degraded to `logs unavailable` without taking down or cancelling the session.
+  Elapsed time resets when the first operation starts after idle, and child provider,
+  tool, compaction, MoA, or advisor phases take precedence over their parent turn.
+  Slash-command phases are fixed categories rather than user-provided command or
+  skill tokens. See `docs/INTERACTIVE_DIAGNOSTICS.md`.
 
 ## Consequences
 

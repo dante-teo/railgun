@@ -35,6 +35,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 9: Architecture decisions are tracked in `docs/adr/`. Use short, dated records for decisions that meaningfully affect structure, dependencies, operations, or long-term maintenance. See `docs/adr/0013-command-risk-gate-and-smart-approval.md` for the Phase 21 risk-gate design, `docs/adr/0014-mcp-client-support.md` for the Phase 24 MCP client, `docs/adr/0014-persistent-memory.md` for the Phase 25 memory design, `docs/adr/0014-advisor-passive-second-model.md` for the Phase 34 advisor design, `docs/adr/0015-skills-system.md` for the Phase 28 skills system design, `docs/adr/0016-ansi-first-ui-design-system.md` for the Phase 35 shared ANSI design system, `docs/adr/0016-delegate-task-subagent-spawning.md` for the Phase 31 delegation design, `docs/adr/0026-notes-fts5-search.md` for the Phase 26 FTS5 notes search design, `docs/adr/0027-semantic-note-search.md` for the Phase 27 semantic note search design, `docs/adr/0031-node-pnpm-single-package.md` for the runtime and package boundary, and `docs/adr/0032-versioned-desktop-rpc.md` for the opt-in persistent desktop RPC protocol.
 | Paths/configuration (`src/paths.ts`, `src/config.ts`) | Derives config, token, state, SOUL, trust, extension, cron, and skills paths from one fixed Railgun home (`~/.railgun`); recursively merges defaults with user JSON, validates recognized fields (`model`, `defaultProjectTrust`, `approvalMode`, `reviewerModel`, `operationTimeoutMs`, `moaPresets`, `activeMoaPreset`, `advisor`), preserves unknown fields (including `mcpServers`), and exposes validated atomic functional updates used by model and settings persistence. `operationTimeoutMs` is a positive integer with a `600000` default | Solo project |
 | Async operation guard (`src/asyncOperation.ts`) | `runBoundedOperation` creates a per-operation controller linked to the run signal, races cooperative or non-cooperative promises against cancellation and an optional deadline, clears timers/listeners on settlement, aborts the scoped signal before rejecting a timeout, and absorbs late fulfillment or rejection. `OperationTimeoutError` retains the operation label and deadline for descriptive failures. Provider consumption may flush one already-produced event during immediate cancellation, but stops processing once the scoped deadline signal is aborted | Solo project |
+| Interactive diagnostics (`src/diagnostics/`) | Immutable observer/status interfaces and functional reducers around a dedicated JSONL worker. A strict schema whitelist and defensive redaction exclude conversational and execution payloads; agent events reduce to bounded lifecycle metadata and aggregate sizes. The worker privately manages per-run files, the stable latest symlink, retention, ordered flush, monotonic heartbeats, event-loop/operation stall warnings, and one-shot recoveries. The main-thread status reducer preserves parallel operations and active child phases, while worker failure degrades the TUI to `logs unavailable`. See `docs/INTERACTIVE_DIAGNOSTICS.md`. | Solo project |
 | Authentication boundary (`src/auth.ts`) | Selects trimmed process-local `DEVIN_TOKEN` or the file cache, wraps model discovery and async streaming with source-aware 401 invalidation, and implements fresh-login verification plus idempotent cached logout without exposing token contents | Solo project |
 | Session bootstrap (`src/session.ts`) | Acquires the authenticated provider, keeps resumes on an exact saved model, applies configuration to fresh sessions, coordinates interactive missing-model recovery before session construction, loads context/identity, and builds the system prompt once; accepts an optional `memoriesText` string that is injected as a `# Memories` prompt block when provided; exports `buildSessionCore` for silent mid-REPL session rebuilds during `/model` switches | Solo project |
 | Session store (`src/persistence/sessionStore.ts`) | Functional factory around synchronous SQLite: schema v5 with a parent_id tree structure for messages, a `memories` table for cross-session memory, a `notes` table + `notes_fts` FTS5 virtual table (with three sync triggers) + `notes_vec` sqlite-vec virtual table for imported document search (Phases 26–27), strict message/todo codecs, fail-closed transcript validation, newest-first summaries, recursive-CTE branch walks, atomic full-snapshot checkpoints, branch/fork/branchWithSummary operations, and a `readonly db` handle exposed for `MemoryStore` and `NoteStore` to share the connection. Migrations live in a `MIGRATIONS: ReadonlyArray<fn>` array (index N = delta from schema N to N+1); `initializeSchema` runs each outstanding step in a transaction that atomically bumps `user_version` atomically — no separate `SCHEMA_VERSION` constant. Branch-summarizer logic lives in `src/persistence/branchSummarizer.ts`. | Solo project |
@@ -598,10 +599,30 @@ One-shot mode does not create or use checkpoints.
 - The REPL exposes checkpoint health directly: an `unsaved` status marker and
   warning appear after a failed save, and a recovery line appears after the
   next successful full-snapshot retry.
-- There are no structured logs, metrics, traces, telemetry exports, or remote
-  crash reports. `--list-sessions` is the supported local inspection surface;
-  corrupt state is reported as an actionable error rather than partially
-  displayed.
+- Fresh and resumed interactive sessions produce local structured JSONL diagnostics
+  in `~/.railgun/logs/interactive-<timestamp>-<pid>-<run-id>.jsonl`; the atomically
+  replaced `interactive-latest.jsonl` symlink is the stable inspection path. A
+  dedicated worker owns writes, retention, and independent hang detection. These
+  records are local only: there are no metrics, traces, telemetry exports, or remote
+  crash reports. One-shot, RPC, ACP, cron, authentication, configuration, import,
+  dream, and session-listing modes do not create interactive logs.
+- Diagnostic records contain only a timestamp, severity, event name, correlation
+  IDs, phase, monotonic duration, outcome, model/tool names, defensive error
+  classification, aggregate counts/sizes, process metadata, and terminal dimensions.
+  Prompts, assistant text, tool arguments/results, commands, environment variables,
+  credentials, and extension payloads are excluded at the schema boundary. Errors
+  are redacted and truncated.
+- Main-thread heartbeats are sent every two seconds. The worker reports an event-loop
+  stall after ten seconds without one, or an operation stall after thirty seconds
+  without progress while heartbeats remain healthy. Idle, approval, and clarification
+  waits are exempt. Unresolved warnings repeat every thirty seconds and recoveries are
+  recorded once. Detection is observational and does not alter cancellation or the
+  existing ten-minute operation deadline.
+- The log directory is mode `0700`, logs are mode `0600`, and completed files are
+  pruned oldest-first after seven days or above a 100 MiB aggregate cap.
+- The exact record schema, fixed slash-command phase mapping, privacy exclusions,
+  watchdog phase precedence, and TUI elapsed-time semantics are documented in
+  `docs/INTERACTIVE_DIAGNOSTICS.md`.
 
 ## Deployment
 

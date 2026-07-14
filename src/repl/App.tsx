@@ -46,12 +46,19 @@ import type { AdviceSeverity } from "../advisor/advisoryContext.js";
 import { parseAdvisoryMessage } from "../advisor/advisoryMessage.js";
 import { Selector, createSelectorState, reduceSelector } from "./selector.js";
 import type { SelectorItem, SelectorState } from "./selector.js";
+import { createAgentDiagnosticsBridge } from "../diagnostics/agentBridge.js";
+import { createNoopInteractiveDiagnostics } from "../diagnostics/interactiveDiagnostics.js";
+import type { InteractiveDiagnostics } from "../diagnostics/interactiveDiagnostics.js";
+import { statusText } from "../diagnostics/status.js";
+import type { DiagnosticStatus } from "../diagnostics/status.js";
+import { diagnosticSlashPhase } from "../diagnostics/slashCommand.js";
 
 const TRUST_CHOICES: readonly { readonly label: string; readonly value: TrustChoice }[] = [
   { label: "Trust", value: "trust" },
   { label: "Trust (this session only)", value: "trust-session" },
   { label: "Do not trust", value: "deny" },
 ];
+const NOOP_DIAGNOSTICS = createNoopInteractiveDiagnostics();
 
 export interface DisplayLine {
   kind: "user" | "assistant" | "advisory" | "error" | "tool";
@@ -249,7 +256,7 @@ export const transcriptJustification = (
   visibleRows + (hasUnseenCue ? 1 : 0) < viewportRows ? "flex-end" : "flex-start";
 
 const StatusBar = ({
-  theme, session, gitStatus, metadata, unsaved, viewportOffset, viewportRows, totalRows, activeMoaPreset,
+  theme, session, gitStatus, metadata, unsaved, viewportOffset, viewportRows, totalRows, activeMoaPreset, diagnosticStatus, now,
 }: {
   readonly theme: Theme;
   readonly session: DevinSession;
@@ -260,6 +267,8 @@ const StatusBar = ({
   readonly viewportRows: number;
   readonly totalRows: number;
   readonly activeMoaPreset?: MoAPreset | null;
+  readonly diagnosticStatus: DiagnosticStatus;
+  readonly now: number;
 }): React.ReactElement => {
   const position = totalRows === 0 ? "0/0" : `${Math.min(totalRows, viewportOffset + 1)}–${Math.min(totalRows, viewportOffset + viewportRows)}/${totalRows}`;
   return (
@@ -270,6 +279,7 @@ const StatusBar = ({
       {gitStatus.branch !== null && <Text color={gitStatus.dirty ? theme.warning : theme.success}> · {gitStatus.branch}{gitStatus.dirty ? "*" : ""}</Text>}
       {metadata && <Text color={theme.muted}> · {metadata.id.slice(0, 8)}</Text>}
       <Text color={unsaved ? theme.error : theme.success}> · {unsaved ? "unsaved" : "saved"}</Text>
+      <Text color={diagnosticStatus.kind === "stalled" || diagnosticStatus.kind === "unavailable" ? theme.error : diagnosticStatus.kind === "working" ? theme.warning : theme.success}> · {statusText(diagnosticStatus, now)}</Text>
       <Text color={theme.dim}> · {position}</Text>
     </Box>
   );
@@ -289,7 +299,7 @@ interface ActionPickerState {
 
 
 const ChatApp = ({
-  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore, noteStore,
+  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore, noteStore, diagnostics = NOOP_DIAGNOSTICS,
 }: {
   readonly session: DevinSession;
   readonly initialMode: ThemeMode;
@@ -301,6 +311,7 @@ const ChatApp = ({
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
   readonly noteStore?: NoteStore;
+  readonly diagnostics?: InteractiveDiagnostics;
 }): React.ReactElement => {
   const { exit } = useApp();
   const { stdin } = useStdin();
@@ -347,6 +358,16 @@ const ChatApp = ({
   const [activeMoaPreset, setActiveMoaPreset] = useState<MoAPreset | null>(null);
   const [advisorModel, setAdvisorModel] = useState<string | undefined>(undefined);
   const sessionApprovalsRef = useRef(new Set<string>());
+  const [diagnosticStatus, setDiagnosticStatus] = useState(diagnostics.status);
+  const [diagnosticNow, setDiagnosticNow] = useState(performance.now());
+  useEffect(() => diagnostics.subscribe(setDiagnosticStatus), [diagnostics]);
+  useEffect(() => {
+    const timer = setInterval(() => setDiagnosticNow(performance.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    diagnostics.observer.event({ event: "terminal_resize", terminalColumns: columns, terminalRows: rows });
+  }, [columns, diagnostics, rows]);
   useEffect(() => { void getGitStatus(process.cwd()).then(setGitStatus); }, []);
   useEffect(() => {
     void loadConfig().then(c => {
@@ -399,6 +420,7 @@ const ChatApp = ({
     if (!(key.ctrl && input.toLowerCase() === "c")) return;
     if (ctrlCAction(hasCtrlCAbortTarget(activeAgentRef.current, pendingApprovalRef.current ?? pendingClarifyRef.current)) === "exit") { exit(); return; }
     activeAgentRef.current?.abort();
+    diagnostics.observer.event({ event: "cancellation", outcome: "abort" });
     pendingApprovalRef.current?.resolve(false);
     pendingApprovalRef.current = null;
     setPendingCommand(null);
@@ -409,18 +431,20 @@ const ChatApp = ({
 
   const confirmShellCommand = useCallback((command: string): Promise<boolean> => {
     const { promise, resolve } = Promise.withResolvers<boolean>();
-    pendingApprovalRef.current = { resolve };
+    const operation = diagnostics.observer.start({ phase: "approval", exempt: true });
+    pendingApprovalRef.current = { resolve: approved => { operation.end(approved ? "success" : "abort"); resolve(approved); } };
     setPendingCommand(command);
     return promise;
-  }, []);
+  }, [diagnostics]);
 
   const clarifyCallback = useCallback((question: string, choices?: string[]): Promise<string> => {
     const { promise, resolve } = Promise.withResolvers<string>();
-    pendingClarifyRef.current = { resolve };
+    const operation = diagnostics.observer.start({ phase: "clarification", exempt: true });
+    pendingClarifyRef.current = { resolve: answer => { operation.end(answer === "[user declined to answer]" ? "abort" : "success"); resolve(answer); } };
     setPendingClarify({ question, ...(choices !== undefined ? { choices: choices.slice(0, 4) } : {}) });
     setClarifySelector(createSelectorState(choices?.slice(0, 4).length ?? 0, 4));
     return promise;
-  }, []);
+  }, [diagnostics]);
 
   useInput((_input, key) => {
     const pending = pendingClarifyRef.current;
@@ -482,7 +506,7 @@ const ChatApp = ({
       setModelPicker(null);
       setBusy(true);
       void (async () => {
-        try {
+      try {
           const rebuilt = await buildSessionCore(activeSession.devin, chosen);
           if (persist) await setConfiguredModel(chosen.id);
           setActiveSession(rebuilt);
@@ -574,315 +598,325 @@ const ChatApp = ({
     setCompletionMatches([]);
     if (busy && pendingCommand === null && activeAgentRef.current !== null) {
       activeAgentRef.current.steer(text);
+      diagnostics.observer.event({ event: "steering_queued", outcome: "progress" });
       setQueuedSteer(true);
       return;
     }
     if (text.startsWith("/")) {
       const { command, arg } = parseSlashCommand(text);
-      if (command === "/exit") { exit(); return; }
-      if (command === "/help") {
-        setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /cron [add|remove], /skill:<name>" }]);
-        return;
-      }
-      if (command === "/clear") {
-        stdoutWrite("\u001b[2J\u001b[H");
-        return;
-      }
-      if (command === "/model") {
+      const slashOperation = diagnostics.observer.start({ phase: diagnosticSlashPhase(command) });
         try {
-          const models = await activeSession.devin.listModels();
-          const result = resolveModelCommand(arg, models, activeSession.model.id);
-          if (result.kind === "show") {
-            const activeIndex = models.findIndex(m => m.id === activeSession.model.id);
-            setModelPicker({ models, selectedIndex: Math.max(0, activeIndex), sessionOnly: result.sessionOnly });
-          } else if (result.kind === "error") {
-            setLines(previous => [...previous, { kind: "error", text: result.message }]);
-          } else {
-            try {
-              const rebuilt = await buildSessionCore(activeSession.devin, result.model);
-              if (result.persist) await setConfiguredModel(result.model.id);
-              setActiveSession(rebuilt);
-              setLines(previous => [...previous, { kind: "assistant", text: result.persist
-                ? `Switched to ${result.model.id} and saved as your default.`
-                : `Using ${result.model.id} for this session only (not saved).` }]);
-            } catch (error) {
-              setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
-            }
-          }
-        } catch (error) {
-          setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
-        }
-        return;
-      }
-      if (command === "/settings") {
-        try {
-          const config = await loadConfig();
-          const models = await activeSession.devin.listModels();
-          const openModelSetting = (): void => setActionPicker({
-            title: "Settings · Primary model",
-            items: models.map(model => ({ id: model.id, label: model.id, current: model.id === activeSession.model.id })),
-            selector: createSelectorState(models.length, Math.min(8, models.length), Math.max(0, models.findIndex(model => model.id === activeSession.model.id))),
-            onSelect: async index => {
-              const model = models[index];
-              if (!model) return;
-              const rebuilt = await buildSessionCore(activeSession.devin, model);
-              await setConfiguredModel(model.id);
-              setActiveSession(rebuilt);
-              setLines(previous => [...previous, { kind: "assistant", text: `Primary model changed to ${model.id}.` }]);
-            },
-          });
-          const openMoaSetting = (): void => {
-            const names = Object.keys(config.moaPresets ?? {});
-            const values = ["Off", ...names];
-            setActionPicker({ title: "Settings · Default MoA preset", items: values.map(name => ({ id: name, label: name, current: name === (config.activeMoaPreset ?? "Off") })), selector: createSelectorState(values.length, Math.min(8, values.length), Math.max(0, values.indexOf(config.activeMoaPreset ?? "Off"))), onSelect: async index => {
-              const name = values[index]!;
-              const updated = await updateConfig(current => {
-                if (name !== "Off") return { ...current, activeMoaPreset: name };
-                const { activeMoaPreset: _removed, ...rest } = current;
-                return rest as typeof current;
-              });
-              setActiveMoaPreset(name === "Off" ? null : parseMoAPreset(name, updated.moaPresets![name]));
-              setLines(previous => [...previous, { kind: "assistant", text: name === "Off" ? "Default MoA disabled." : `Default MoA preset changed to ${name}.` }]);
-            } });
-          };
-          const openAdvisorSetting = (): void => {
-            const values = ["Off", ...models.map(model => model.id)];
-            const current = isAdvisorActive(config) ? config.advisor!.model! : "Off";
-            setActionPicker({ title: "Settings · Advisor", items: values.map(name => ({ id: name, label: name, current: name === current })), selector: createSelectorState(values.length, Math.min(8, values.length), Math.max(0, values.indexOf(current))), onSelect: async index => {
-              const name = values[index]!;
-              await updateConfig(value => ({ ...value, advisor: name === "Off" ? { ...value.advisor, enabled: false } : { ...value.advisor, enabled: true, model: name } }));
-              setAdvisorModel(name === "Off" ? undefined : name);
-              setLines(previous => [...previous, { kind: "assistant", text: name === "Off" ? "Advisor disabled." : `Advisor enabled with ${name}.` }]);
-            } });
-          };
-          const sections = [openModelSetting, openMoaSetting, openAdvisorSetting];
-          setActionPicker({ title: "AI Settings", items: [
-            { id: "model", label: "Primary model", detail: activeSession.model.id },
-            { id: "moa", label: "MOA", detail: config.activeMoaPreset ?? "Off" },
-            { id: "advisor", label: "Advisor", detail: isAdvisorActive(config) ? config.advisor!.model! : "Off" },
-          ], selector: createSelectorState(3, 3), onSelect: index => sections[index]?.() });
-        } catch (error) {
-          setLines(previous => [...previous, { kind: "error", text: `Settings error: ${error instanceof Error ? error.message : String(error)}` }]);
-        }
-        return;
-      }
-      if (command === "/compact") {
-        setBusy(true);
-        try {
-          const result = await runCompaction(activeSession.devin, activeSession.model.id, activeSession.systemPrompt, history);
-          const finalMessages: DevinMessage[] = [
-            ...result.messages,
-            { role: "assistant", content: [{ type: "text", text: COMPACTION_ACK_MESSAGE }] },
-          ];
-          setHistory(finalMessages);
-          setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
-          if (persistence.checkpoint) {
-            const checkpoint = attemptCheckpoint(persistence.checkpoint, finalMessages, todoStoreRef.current.read(), checkpointUnsaved);
-            setCheckpointUnsaved(checkpoint.unsaved);
-            if (checkpoint.error) {
-              setLines(previous => [...previous, { kind: "error", text: `Session checkpoint was not saved (${checkpoint.error}). The compacted history is retained and will be retried.` }]);
-            } else if (checkpoint.recovered) {
-              setLines(previous => [...previous, { kind: "assistant", text: "Session checkpoint recovered." }]);
-            }
-          }
-        } catch (error) {
-          setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? String(error) }]);
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
-      if (command === "/rollback") {
-        try {
-          rollback(shadowGitDir(process.cwd()), process.cwd());
-          setLines(previous => [...previous, { kind: "assistant", text: "Rolled back to the last checkpoint." }]);
-        } catch (error) {
-          setLines(previous => [...previous, { kind: "error", text: `Rollback failed: ${error instanceof Error ? error.message : String(error)}` }]);
-        }
-        return;
-      }
-      if (command === "/trust") {
-        if (trustStore === undefined) {
-          const statusText = trustDecision.status === "unknown" ? "unknown" : `${trustDecision.status} (${trustDecision.scope})`;
-          setLines(previous => [...previous, { kind: "assistant", text: `Current trust status: ${statusText}. (Trust store not available in this session.)` }]);
-        } else {
-          setTrustSelector(createSelectorState(TRUST_CHOICES.length, TRUST_CHOICES.length));
-          setPendingTrust(true);
-        }
-        return;
-      }
-      if (command === "/moa") {
-        try {
-          const moaConfig = await loadConfig();
-          if (!arg || arg === "") {
-            const presetNames = Object.keys(moaConfig.moaPresets ?? {});
-            const items = ["Off", ...presetNames];
-            setActionPicker({ title: "MoA for this session", items: items.map(name => ({ id: name, label: name, current: name === (activeMoaPreset?.name ?? "Off") })), selector: createSelectorState(items.length, Math.min(8, items.length), Math.max(0, items.indexOf(activeMoaPreset?.name ?? "Off"))), onSelect: index => {
-              const name = items[index]!;
-              if (name === "Off") { setActiveMoaPreset(null); setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated for this session." }]); }
-              else { const preset = parseMoAPreset(name, moaConfig.moaPresets![name]); setActiveMoaPreset(preset); setLines(previous => [...previous, { kind: "assistant", text: `MoA activated: ${name}` }]); }
-            } });
-          } else if (arg === "off") {
-            setActiveMoaPreset(null);
-            setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated." }]);
-          } else {
-            const presets = moaConfig.moaPresets;
-            if (!presets || !(arg in presets)) {
-              setLines(previous => [...previous, { kind: "error", text: `Unknown MoA preset: "${arg}". Available: ${Object.keys(presets ?? {}).join(", ") || "none"}` }]);
-            } else {
-              const preset = parseMoAPreset(arg, presets[arg]);
-              setActiveMoaPreset(preset);
-              setLines(previous => [...previous, { kind: "assistant", text: `MoA activated: ${arg} (${preset.referenceModels.length} references → ${preset.aggregator.model})` }]);
-            }
-          }
-        } catch (error) {
-          setLines(previous => [...previous, { kind: "error", text: `MoA error: ${error instanceof Error ? error.message : String(error)}` }]);
-        }
-        return;
-      }
-      if (command === "/branch") {
-        if (!persistence.branch || !persistence.getRecentMessages) {
-          setLines(prev => [...prev, { kind: "error", text: "Branching not available (no persistence)." }]);
+        if (command === "/exit") { exit(); return; }
+        if (command === "/help") {
+          setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /cron [add|remove], /skill:<name>" }]);
           return;
         }
-        const withSummary = arg?.includes("--summary") ?? false;
-        const idStr = arg?.replace("--summary", "").trim();
-        if (!idStr || !/^\d+$/.test(idStr)) {
-          const recent = persistence.getRecentMessages();
-          setActionPicker({ title: "Branch from recent message", items: recent.map(msg => ({ id: String(msg.id), label: `[${msg.role}] ${msg.preview}` })), selector: createSelectorState(recent.length, Math.min(8, recent.length)), onSelect: async index => {
-            const selected = recent[index];
-            if (!selected) return;
-            if (withSummary && persistence.branchWithSummary) await persistence.branchWithSummary(selected.id);
-            else persistence.branch!(selected.id);
+        if (command === "/clear") {
+          stdoutWrite("\u001b[2J\u001b[H");
+          return;
+        }
+        if (command === "/model") {
+          try {
+            const models = await activeSession.devin.listModels();
+            const result = resolveModelCommand(arg, models, activeSession.model.id);
+            if (result.kind === "show") {
+              const activeIndex = models.findIndex(m => m.id === activeSession.model.id);
+              setModelPicker({ models, selectedIndex: Math.max(0, activeIndex), sessionOnly: result.sessionOnly });
+            } else if (result.kind === "error") {
+              setLines(previous => [...previous, { kind: "error", text: result.message }]);
+            } else {
+              try {
+                const rebuilt = await buildSessionCore(activeSession.devin, result.model);
+                if (result.persist) await setConfiguredModel(result.model.id);
+                setActiveSession(rebuilt);
+                setLines(previous => [...previous, { kind: "assistant", text: result.persist
+                  ? `Switched to ${result.model.id} and saved as your default.`
+                  : `Using ${result.model.id} for this session only (not saved).` }]);
+              } catch (error) {
+                setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+              }
+            }
+          } catch (error) {
+            setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? (error instanceof Error ? error.message : String(error)) }]);
+          }
+          return;
+        }
+        if (command === "/settings") {
+          try {
+            const config = await loadConfig();
+            const models = await activeSession.devin.listModels();
+            const openModelSetting = (): void => setActionPicker({
+              title: "Settings · Primary model",
+              items: models.map(model => ({ id: model.id, label: model.id, current: model.id === activeSession.model.id })),
+              selector: createSelectorState(models.length, Math.min(8, models.length), Math.max(0, models.findIndex(model => model.id === activeSession.model.id))),
+              onSelect: async index => {
+                const model = models[index];
+                if (!model) return;
+                const rebuilt = await buildSessionCore(activeSession.devin, model);
+                await setConfiguredModel(model.id);
+                setActiveSession(rebuilt);
+                setLines(previous => [...previous, { kind: "assistant", text: `Primary model changed to ${model.id}.` }]);
+              },
+            });
+            const openMoaSetting = (): void => {
+              const names = Object.keys(config.moaPresets ?? {});
+              const values = ["Off", ...names];
+              setActionPicker({ title: "Settings · Default MoA preset", items: values.map(name => ({ id: name, label: name, current: name === (config.activeMoaPreset ?? "Off") })), selector: createSelectorState(values.length, Math.min(8, values.length), Math.max(0, values.indexOf(config.activeMoaPreset ?? "Off"))), onSelect: async index => {
+                const name = values[index]!;
+                const updated = await updateConfig(current => {
+                  if (name !== "Off") return { ...current, activeMoaPreset: name };
+                  const { activeMoaPreset: _removed, ...rest } = current;
+                  return rest as typeof current;
+                });
+                setActiveMoaPreset(name === "Off" ? null : parseMoAPreset(name, updated.moaPresets![name]));
+                setLines(previous => [...previous, { kind: "assistant", text: name === "Off" ? "Default MoA disabled." : `Default MoA preset changed to ${name}.` }]);
+              } });
+            };
+            const openAdvisorSetting = (): void => {
+              const values = ["Off", ...models.map(model => model.id)];
+              const current = isAdvisorActive(config) ? config.advisor!.model! : "Off";
+              setActionPicker({ title: "Settings · Advisor", items: values.map(name => ({ id: name, label: name, current: name === current })), selector: createSelectorState(values.length, Math.min(8, values.length), Math.max(0, values.indexOf(current))), onSelect: async index => {
+                const name = values[index]!;
+                await updateConfig(value => ({ ...value, advisor: name === "Off" ? { ...value.advisor, enabled: false } : { ...value.advisor, enabled: true, model: name } }));
+                setAdvisorModel(name === "Off" ? undefined : name);
+                setLines(previous => [...previous, { kind: "assistant", text: name === "Off" ? "Advisor disabled." : `Advisor enabled with ${name}.` }]);
+              } });
+            };
+            const sections = [openModelSetting, openMoaSetting, openAdvisorSetting];
+            setActionPicker({ title: "AI Settings", items: [
+              { id: "model", label: "Primary model", detail: activeSession.model.id },
+              { id: "moa", label: "MOA", detail: config.activeMoaPreset ?? "Off" },
+              { id: "advisor", label: "Advisor", detail: isAdvisorActive(config) ? config.advisor!.model! : "Off" },
+            ], selector: createSelectorState(3, 3), onSelect: index => sections[index]?.() });
+          } catch (error) {
+            setLines(previous => [...previous, { kind: "error", text: `Settings error: ${error instanceof Error ? error.message : String(error)}` }]);
+          }
+          return;
+        }
+        if (command === "/compact") {
+          setBusy(true);
+          try {
+            const result = await runCompaction(activeSession.devin, activeSession.model.id, activeSession.systemPrompt, history);
+            const finalMessages: DevinMessage[] = [
+              ...result.messages,
+              { role: "assistant", content: [{ type: "text", text: COMPACTION_ACK_MESSAGE }] },
+            ];
+            setHistory(finalMessages);
+            setLines(previous => [...previous, { kind: "assistant", text: COMPACTION_ACK_MESSAGE }]);
+            if (persistence.checkpoint) {
+              const checkpoint = attemptCheckpoint(persistence.checkpoint, finalMessages, todoStoreRef.current.read(), checkpointUnsaved);
+              setCheckpointUnsaved(checkpoint.unsaved);
+              if (checkpoint.error) {
+                setLines(previous => [...previous, { kind: "error", text: `Session checkpoint was not saved (${checkpoint.error}). The compacted history is retained and will be retried.` }]);
+              } else if (checkpoint.recovered) {
+                setLines(previous => [...previous, { kind: "assistant", text: "Session checkpoint recovered." }]);
+              }
+            }
+          } catch (error) {
+            setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? String(error) }]);
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+        if (command === "/rollback") {
+          try {
+            rollback(shadowGitDir(process.cwd()), process.cwd());
+            setLines(previous => [...previous, { kind: "assistant", text: "Rolled back to the last checkpoint." }]);
+          } catch (error) {
+            setLines(previous => [...previous, { kind: "error", text: `Rollback failed: ${error instanceof Error ? error.message : String(error)}` }]);
+          }
+          return;
+        }
+        if (command === "/trust") {
+          if (trustStore === undefined) {
+            const statusText = trustDecision.status === "unknown" ? "unknown" : `${trustDecision.status} (${trustDecision.scope})`;
+            setLines(previous => [...previous, { kind: "assistant", text: `Current trust status: ${statusText}. (Trust store not available in this session.)` }]);
+          } else {
+            setTrustSelector(createSelectorState(TRUST_CHOICES.length, TRUST_CHOICES.length));
+            setPendingTrust(true);
+          }
+          return;
+        }
+        if (command === "/moa") {
+          try {
+            const moaConfig = await loadConfig();
+            if (!arg || arg === "") {
+              const presetNames = Object.keys(moaConfig.moaPresets ?? {});
+              const items = ["Off", ...presetNames];
+              setActionPicker({ title: "MoA for this session", items: items.map(name => ({ id: name, label: name, current: name === (activeMoaPreset?.name ?? "Off") })), selector: createSelectorState(items.length, Math.min(8, items.length), Math.max(0, items.indexOf(activeMoaPreset?.name ?? "Off"))), onSelect: index => {
+                const name = items[index]!;
+                if (name === "Off") { setActiveMoaPreset(null); setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated for this session." }]); }
+                else { const preset = parseMoAPreset(name, moaConfig.moaPresets![name]); setActiveMoaPreset(preset); setLines(previous => [...previous, { kind: "assistant", text: `MoA activated: ${name}` }]); }
+              } });
+            } else if (arg === "off") {
+              setActiveMoaPreset(null);
+              setLines(previous => [...previous, { kind: "assistant", text: "MoA deactivated." }]);
+            } else {
+              const presets = moaConfig.moaPresets;
+              if (!presets || !(arg in presets)) {
+                setLines(previous => [...previous, { kind: "error", text: `Unknown MoA preset: "${arg}". Available: ${Object.keys(presets ?? {}).join(", ") || "none"}` }]);
+              } else {
+                const preset = parseMoAPreset(arg, presets[arg]);
+                setActiveMoaPreset(preset);
+                setLines(previous => [...previous, { kind: "assistant", text: `MoA activated: ${arg} (${preset.referenceModels.length} references → ${preset.aggregator.model})` }]);
+              }
+            }
+          } catch (error) {
+            setLines(previous => [...previous, { kind: "error", text: `MoA error: ${error instanceof Error ? error.message : String(error)}` }]);
+          }
+          return;
+        }
+        if (command === "/branch") {
+          if (!persistence.branch || !persistence.getRecentMessages) {
+            setLines(prev => [...prev, { kind: "error", text: "Branching not available (no persistence)." }]);
+            return;
+          }
+          const withSummary = arg?.includes("--summary") ?? false;
+          const idStr = arg?.replace("--summary", "").trim();
+          if (!idStr || !/^\d+$/.test(idStr)) {
+            const recent = persistence.getRecentMessages();
+            setActionPicker({ title: "Branch from recent message", items: recent.map(msg => ({ id: String(msg.id), label: `[${msg.role}] ${msg.preview}` })), selector: createSelectorState(recent.length, Math.min(8, recent.length)), onSelect: async index => {
+              const selected = recent[index];
+              if (!selected) return;
+              if (withSummary && persistence.branchWithSummary) await persistence.branchWithSummary(selected.id);
+              else persistence.branch!(selected.id);
+              if (persistence.loadBranch) {
+                const newHistory = persistence.loadBranch();
+                setHistory(newHistory);
+                setLines(historyToDisplayLines(newHistory));
+              }
+              setLines(previous => [...previous, { kind: "assistant", text: `Branched to message ${selected.id}${withSummary ? " with summary" : ""}.` }]);
+            } });
+            return;
+          }
+          const messageId = parseInt(idStr, 10);
+          try {
+            if (withSummary && persistence.branchWithSummary) {
+              setBusy(true);
+              await persistence.branchWithSummary(messageId);
+            } else {
+              persistence.branch(messageId);
+            }
             if (persistence.loadBranch) {
               const newHistory = persistence.loadBranch();
               setHistory(newHistory);
               setLines(historyToDisplayLines(newHistory));
             }
-            setLines(previous => [...previous, { kind: "assistant", text: `Branched to message ${selected.id}${withSummary ? " with summary" : ""}.` }]);
-          } });
-          return;
-        }
-        const messageId = parseInt(idStr, 10);
-        try {
-          if (withSummary && persistence.branchWithSummary) {
-            setBusy(true);
-            await persistence.branchWithSummary(messageId);
-          } else {
-            persistence.branch(messageId);
+            setLines(prev => [...prev, { kind: "assistant", text: `Branched to message ${messageId}${withSummary ? " with summary" : ""}.` }]);
+          } catch (error) {
+            setLines(prev => [...prev, { kind: "error", text: `Branch failed: ${error instanceof Error ? error.message : String(error)}` }]);
+          } finally {
+            setBusy(false);
           }
-          if (persistence.loadBranch) {
-            const newHistory = persistence.loadBranch();
-            setHistory(newHistory);
-            setLines(historyToDisplayLines(newHistory));
+          return;
+        }
+        if (command === "/fork") {
+          if (!persistence.fork) {
+            setLines(prev => [...prev, { kind: "error", text: "Forking not available (no persistence)." }]);
+            return;
           }
-          setLines(prev => [...prev, { kind: "assistant", text: `Branched to message ${messageId}${withSummary ? " with summary" : ""}.` }]);
-        } catch (error) {
-          setLines(prev => [...prev, { kind: "error", text: `Branch failed: ${error instanceof Error ? error.message : String(error)}` }]);
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
-      if (command === "/fork") {
-        if (!persistence.fork) {
-          setLines(prev => [...prev, { kind: "error", text: "Forking not available (no persistence)." }]);
+          try {
+            const result = persistence.fork();
+            setHistory(result.messages);
+            setLines(prev => [...prev, { kind: "assistant", text: `Forked to new session: ${result.sessionId}` }]);
+          } catch (error) {
+            setLines(prev => [...prev, { kind: "error", text: `Fork failed: ${error instanceof Error ? error.message : String(error)}` }]);
+          }
           return;
         }
-        try {
-          const result = persistence.fork();
-          setHistory(result.messages);
-          setLines(prev => [...prev, { kind: "assistant", text: `Forked to new session: ${result.sessionId}` }]);
-        } catch (error) {
-          setLines(prev => [...prev, { kind: "error", text: `Fork failed: ${error instanceof Error ? error.message : String(error)}` }]);
-        }
-        return;
-      }
-      if (command === "/dream") {
-        if (!memoryStore) {
-          setLines(prev => [...prev, { kind: "error", text: "Dream not available (no memory store in this session)." }]);
+        if (command === "/dream") {
+          if (!memoryStore) {
+            setLines(prev => [...prev, { kind: "error", text: "Dream not available (no memory store in this session)." }]);
+            return;
+          }
+          setBusy(true);
+          try {
+            setLines(prev => [...prev, { kind: "assistant", text: "Dreaming… reviewing and consolidating memories." }]);
+            await runDreamSession(memoryStore, activeSession.devin, activeSession.model, msg => {
+              slashOperation.progress({ progressCount: 1 });
+              setLines(prev => [...prev, { kind: "assistant", text: msg }]);
+            });
+            setLines(prev => [...prev, { kind: "assistant", text: "Dream complete. Memories consolidated." }]);
+          } catch (error) {
+            setLines(prev => [...prev, { kind: "error", text: `Dream failed: ${error instanceof Error ? error.message : String(error)}` }]);
+          } finally {
+            setBusy(false);
+          }
           return;
         }
-        setBusy(true);
-        try {
-          setLines(prev => [...prev, { kind: "assistant", text: "Dreaming… reviewing and consolidating memories." }]);
-          await runDreamSession(memoryStore, activeSession.devin, activeSession.model, msg => {
-            setLines(prev => [...prev, { kind: "assistant", text: msg }]);
-          });
-          setLines(prev => [...prev, { kind: "assistant", text: "Dream complete. Memories consolidated." }]);
-        } catch (error) {
-          setLines(prev => [...prev, { kind: "error", text: `Dream failed: ${error instanceof Error ? error.message : String(error)}` }]);
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
-      if (command === "/cron") {
-        setBusy(true);
-        try {
-          if (!arg) {
-            // List all jobs
-            const jobs = await loadJobs();
-            if (jobs.length === 0) {
-              setLines(prev => [...prev, { kind: "assistant", text: "No cron jobs configured. Use /cron add <id> <schedule> <prompt> to create one." }]);
-            } else {
-              const lines = jobs.map(j => `[${j.id}] ${j.schedule} — ${j.prompt}`).join("\n");
-              setLines(prev => [...prev, { kind: "assistant", text: lines }]);
-            }
-          } else {
-            const parts = arg.split(/\s+/);
-            const subcommand = parts[0];
-            if (subcommand === "add") {
-              // /cron add <id> <field1> <field2> <field3> <field4> <field5> <...prompt>
-              const id = parts[1];
-              const scheduleFields = parts.slice(2, 7);
-              const prompt = parts.slice(7).join(" ");
-              if (!id || scheduleFields.length < 5 || !prompt) {
-                setLines(prev => [...prev, { kind: "error", text: "Usage: /cron add <id> <cron-schedule> <prompt>  (schedule is 5 fields, e.g. 0 9 * * *)" }]);
-                return;
-              }
-              const schedule = scheduleFields.join(" ");
+        if (command === "/cron") {
+          setBusy(true);
+          try {
+            if (!arg) {
+              // List all jobs
               const jobs = await loadJobs();
-              if (jobs.some(j => j.id === id)) {
-                setLines(prev => [...prev, { kind: "error", text: `A cron job with id "${id}" already exists.` }]);
-                return;
+              if (jobs.length === 0) {
+                setLines(prev => [...prev, { kind: "assistant", text: "No cron jobs configured. Use /cron add <id> <schedule> <prompt> to create one." }]);
+              } else {
+                const lines = jobs.map(j => `[${j.id}] ${j.schedule} — ${j.prompt}`).join("\n");
+                setLines(prev => [...prev, { kind: "assistant", text: lines }]);
               }
-              const newJob = validateJob({ id, schedule, prompt, lastRun: null }, CRON_PATH);
-              await saveJobs([...jobs, newJob]);
-              setLines(prev => [...prev, { kind: "assistant", text: `Added cron job "${id}": ${schedule} — ${prompt}` }]);
-            } else if (subcommand === "remove") {
-              const id = parts[1];
-              if (!id) {
-                setLines(prev => [...prev, { kind: "error", text: "Usage: /cron remove <id>" }]);
-                return;
-              }
-              const jobs = await loadJobs();
-              if (!jobs.some(j => j.id === id)) {
-                setLines(prev => [...prev, { kind: "error", text: `No cron job found with id "${id}".` }]);
-                return;
-              }
-              await saveJobs(jobs.filter(j => j.id !== id));
-              setLines(prev => [...prev, { kind: "assistant", text: `Removed cron job "${id}".` }]);
             } else {
-              setLines(prev => [...prev, { kind: "error", text: `Unknown /cron subcommand "${subcommand}". Use: /cron, /cron add, /cron remove` }]);
+              const parts = arg.split(/\s+/);
+              const subcommand = parts[0];
+              if (subcommand === "add") {
+                // /cron add <id> <field1> <field2> <field3> <field4> <field5> <...prompt>
+                const id = parts[1];
+                const scheduleFields = parts.slice(2, 7);
+                const prompt = parts.slice(7).join(" ");
+                if (!id || scheduleFields.length < 5 || !prompt) {
+                  setLines(prev => [...prev, { kind: "error", text: "Usage: /cron add <id> <cron-schedule> <prompt>  (schedule is 5 fields, e.g. 0 9 * * *)" }]);
+                  return;
+                }
+                const schedule = scheduleFields.join(" ");
+                const jobs = await loadJobs();
+                if (jobs.some(j => j.id === id)) {
+                  setLines(prev => [...prev, { kind: "error", text: `A cron job with id "${id}" already exists.` }]);
+                  return;
+                }
+                const newJob = validateJob({ id, schedule, prompt, lastRun: null }, CRON_PATH);
+                await saveJobs([...jobs, newJob]);
+                setLines(prev => [...prev, { kind: "assistant", text: `Added cron job "${id}": ${schedule} — ${prompt}` }]);
+              } else if (subcommand === "remove") {
+                const id = parts[1];
+                if (!id) {
+                  setLines(prev => [...prev, { kind: "error", text: "Usage: /cron remove <id>" }]);
+                  return;
+                }
+                const jobs = await loadJobs();
+                if (!jobs.some(j => j.id === id)) {
+                  setLines(prev => [...prev, { kind: "error", text: `No cron job found with id "${id}".` }]);
+                  return;
+                }
+                await saveJobs(jobs.filter(j => j.id !== id));
+                setLines(prev => [...prev, { kind: "assistant", text: `Removed cron job "${id}".` }]);
+              } else {
+                setLines(prev => [...prev, { kind: "error", text: `Unknown /cron subcommand "${subcommand}". Use: /cron, /cron add, /cron remove` }]);
+              }
             }
+          } catch (error) {
+            setLines(prev => [...prev, { kind: "error", text: `Cron error: ${error instanceof CronJobsError ? error.message : error instanceof Error ? error.message : String(error)}` }]);
+          } finally {
+            setBusy(false);
           }
-        } catch (error) {
-          setLines(prev => [...prev, { kind: "error", text: `Cron error: ${error instanceof CronJobsError ? error.message : error instanceof Error ? error.message : String(error)}` }]);
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
-      if (command.startsWith("/skill:")) {
-        const skillExpansion = expandSkillCommand(text, activeSession.skillIndex ?? new Map());
-        if (skillExpansion === null) { return; }
-        if (skillExpansion.kind === "error") {
-          setLines(prev => [...prev, { kind: "error", text: skillExpansion.message }]);
           return;
         }
-        text = skillExpansion.content;
-        // Fall through to the agent turn below
+        if (command.startsWith("/skill:")) {
+          const skillExpansion = expandSkillCommand(text, activeSession.skillIndex ?? new Map());
+          if (skillExpansion === null) { return; }
+          if (skillExpansion.kind === "error") {
+            setLines(prev => [...prev, { kind: "error", text: skillExpansion.message }]);
+            return;
+          }
+          text = skillExpansion.content;
+          // Fall through to the agent turn below
+        }
+      } catch (error) {
+        slashOperation.end("failure", error);
+        throw error;
+      } finally {
+        slashOperation.end("success");
       }
     }
 
@@ -918,8 +952,13 @@ const ChatApp = ({
       ...(activeMoaPreset !== null ? { moaPreset: activeMoaPreset } : {}),
       ...(advisorModel ? { advisor: { model: advisorModel } } : {}),
     });
+    const diagnosticBridge = createAgentDiagnosticsBridge(diagnostics.observer, {
+      model: activeSession.model.id,
+      ...(persistence.sessionMetadata ? { sessionId: persistence.sessionMetadata.id } : {}),
+    });
     let sawInitialUserMessage = false;
     const unsubscribe = agentSession.subscribe(event => {
+      diagnosticBridge.handle(event);
       if (event.type === "message_update" && event.streamEvent.type === "text_delta") {
         const next = appendStreamDelta(streamSegmentsRef.current, event.streamEvent.delta);
         streamSegmentsRef.current = next;
@@ -965,6 +1004,7 @@ const ChatApp = ({
     unsubscribe();
 
     if (outcome.ok) {
+      diagnosticBridge.complete();
       const completedTodos = todoStoreRef.current.read();
       setHistory(outcome.messages);
       setTodos(completedTodos);
@@ -974,18 +1014,22 @@ const ChatApp = ({
         const checkpoint = attemptCheckpoint(persistence.checkpoint, outcome.messages, completedTodos, checkpointUnsaved);
         setCheckpointUnsaved(checkpoint.unsaved);
         if (checkpoint.error) {
+          diagnostics.observer.event({ event: "checkpoint_failure", severity: "error", outcome: "failure", errorClass: "CheckpointError", errorMessage: checkpoint.error });
           setLines(previous => [...previous, { kind: "error", text: `Session checkpoint was not saved (${checkpoint.error}). The completed turn is retained and will be retried.` }]);
         } else if (checkpoint.recovered) {
+          diagnostics.observer.event({ event: "checkpoint_recovery", outcome: "recovery" });
           setLines(previous => [...previous, { kind: "assistant", text: "Session checkpoint recovered." }]);
         }
       }
     } else if ("aborted" in outcome) {
+      diagnosticBridge.abort();
       setHistory(outcome.messages);
       setTodos(todoStoreRef.current.read());
       const interruptedSegment = finishStreamSegments(outcome.assistantText, streamSegmentsRef.current);
       if (interruptedSegment !== "") setLines(previous => [...previous, { kind: "assistant", text: interruptedSegment }]);
       setLines(previous => [...previous, { kind: "assistant", text: `Stopped by user${outcome.cancelledQueued > 0 ? ` · cancelled ${outcome.cancelledQueued} queued message${outcome.cancelledQueued === 1 ? "" : "s"}` : ""}.` }]);
     } else {
+      diagnosticBridge.fail(outcome.error);
       todoStoreRef.current = createHydratedTodoStore(preTurnTodos);
       setTodos(preTurnTodos);
       setLines(previous => [...previous, { kind: "error", text: describeDevinError(outcome.error) ?? String(outcome.error) }]);
@@ -994,7 +1038,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeMoaPreset, activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
+  }, [activeMoaPreset, activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, diagnostics, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {
@@ -1078,7 +1122,7 @@ const ChatApp = ({
           useCustomInput={useComposerInput}
         />
       </Box>
-      <StatusBar theme={theme} session={activeSession} gitStatus={gitStatus} {...(persistence.sessionMetadata ? { metadata: persistence.sessionMetadata } : {})} unsaved={checkpointUnsaved} viewportOffset={viewport.offset} viewportRows={viewport.viewportRows} totalRows={viewport.totalRows} activeMoaPreset={activeMoaPreset} />
+      <StatusBar theme={theme} session={activeSession} gitStatus={gitStatus} {...(persistence.sessionMetadata ? { metadata: persistence.sessionMetadata } : {})} unsaved={checkpointUnsaved} viewportOffset={viewport.offset} viewportRows={viewport.viewportRows} totalRows={viewport.totalRows} activeMoaPreset={activeMoaPreset} diagnosticStatus={diagnosticStatus} now={diagnosticNow} />
     </Box>
   );
 };
@@ -1091,12 +1135,14 @@ export const runRepl = async (
   trustStore?: ProjectTrustStore,
   memoryStore?: MemoryStore,
   noteStore?: NoteStore,
+  diagnostics?: InteractiveDiagnostics,
 ): Promise<void> => {
   const themeController = new ThemeController();
   const initialMode = await themeController.start();
   const screenReaderEnabled = process.env["INK_SCREEN_READER"] === "true";
   const useAlternateScreen = shouldUseAlternateScreen(process.stdout.isTTY === true, screenReaderEnabled);
   try {
+    diagnostics?.observer.event({ event: "terminal_setup", terminalColumns: process.stdout.columns, terminalRows: process.stdout.rows, outcome: "start" });
     await runInAlternateScreen(sequence => process.stdout.write(sequence), useAlternateScreen, () =>
       runWithMouseTracking(sequence => process.stdout.write(sequence), useAlternateScreen, async () => {
         const cwd = process.cwd();
@@ -1111,6 +1157,7 @@ export const runRepl = async (
             {...(trustStore !== undefined ? { trustStore, cwd } : {})}
             {...(memoryStore !== undefined ? { memoryStore } : {})}
             {...(noteStore !== undefined ? { noteStore } : {})}
+            {...(diagnostics !== undefined ? { diagnostics } : {})}
           />,
           {
             exitOnCtrlC: false,
@@ -1122,6 +1169,7 @@ export const runRepl = async (
       }),
     );
   } finally {
+    diagnostics?.observer.event({ event: "terminal_shutdown", outcome: "success" });
     await themeController.dispose();
   }
 };

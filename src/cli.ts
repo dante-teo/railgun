@@ -46,6 +46,9 @@ import { loadJobs, saveJobs } from "./cron/jobs.js";
 import { loadSkills } from "./skills.js";
 import { installDaemon, uninstallDaemon, statusDaemon, formatStatus } from "./cron/daemon.js";
 import type { DaemonStatus } from "./cron/daemon.js";
+import { createInteractiveDiagnostics, createUnavailableInteractiveDiagnostics } from "./diagnostics/interactiveDiagnostics.js";
+import type { InteractiveDiagnostics } from "./diagnostics/interactiveDiagnostics.js";
+import type { OperationStart } from "./diagnostics/types.js";
 
 export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron [install|uninstall|status] | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
 
@@ -80,7 +83,7 @@ export interface CliDependencies {
   initSession: (requiredModelId?: string, memoriesText?: string | null) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
-  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore, memoryStore?: MemoryStore, noteStore?: NoteStore) => Promise<void>;
+  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore, memoryStore?: MemoryStore, noteStore?: NoteStore, diagnostics?: InteractiveDiagnostics) => Promise<void>;
   runOneShot: (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore, noteStore?: NoteStore) => Promise<void>;
   runRpc: (options: RpcModeOptions) => Promise<void>;
   runAcp: (options: AcpModeOptions) => Promise<void>;
@@ -95,6 +98,7 @@ export interface CliDependencies {
   runCronInstall: () => void;
   runCronUninstall: () => void;
   runCronStatus: () => DaemonStatus;
+  createInteractiveDiagnostics?: () => InteractiveDiagnostics;
 }
 
 export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: string } => {
@@ -208,6 +212,7 @@ const defaultDependencies: CliDependencies = {
   runCronInstall: () => installDaemon(),
   runCronUninstall: () => uninstallDaemon(),
   runCronStatus: () => statusDaemon(),
+  createInteractiveDiagnostics,
 };
 
 const resolveSessionTrust = async (
@@ -223,6 +228,25 @@ const resolveSessionTrust = async (
     promptTrustChoice: dependencies.promptTrustChoice,
   });
   return { decision, store, config };
+};
+
+type PhaseOutcome = "success" | "failure" | "timeout" | "abort";
+
+const observePhase = async <T>(
+  diagnostics: InteractiveDiagnostics | undefined,
+  input: OperationStart,
+  run: () => Promise<T>,
+  outcome: (value: T) => PhaseOutcome = () => "success",
+): Promise<T> => {
+  const operation = diagnostics?.observer.start(input);
+  try {
+    const value = await run();
+    operation?.end(outcome(value));
+    return value;
+  } catch (error) {
+    operation?.end("failure", error);
+    throw error;
+  }
 };
 
 const persistenceOptions = (
@@ -270,15 +294,22 @@ const runPersistedRepl = async (
   extensionRunner?: ExtensionRunner,
   trustDecision?: TrustDecision,
   trustStore?: ProjectTrustStore,
+  diagnostics?: InteractiveDiagnostics,
   onFirstSave?: () => void,
 ): Promise<void> => {
-  const session = await dependencies.initSession(persisted.model, formatMemoriesForPrompt(memoryStore.recent(20)));
+  const session = await observePhase(
+    diagnostics,
+    { phase: "session_initialization", sessionId: persisted.id },
+    () => dependencies.initSession(persisted.model, formatMemoriesForPrompt(memoryStore.recent(20))),
+  );
   const opts = persistenceOptions(persisted, store, onFirstSave);
   // Patch branchWithSummary now that we have a live devin provider.
   opts.branchWithSummary = async (messageId) => {
     await store.branchWithSummary(persisted.id, messageId, session.devin, session.model.id);
   };
-  await dependencies.runRepl(session, opts, extensionRunner, trustDecision, trustStore, memoryStore, noteStore);
+  diagnostics?.observer.ready();
+  if (diagnostics) await dependencies.runRepl(session, opts, extensionRunner, trustDecision, trustStore, memoryStore, noteStore, diagnostics);
+  else await dependencies.runRepl(session, opts, extensionRunner, trustDecision, trustStore, memoryStore, noteStore);
 };
 
 const withStore = async <T>(
@@ -313,9 +344,19 @@ const withStores = async <T>(
 const bootstrapExtensions = async (
   sessionId: string,
   config: AppConfig,
+  diagnostics?: InteractiveDiagnostics,
 ): Promise<{ runner: ExtensionRunner; cleanup: () => void }> => {
   const runner = createExtensionRunner();
-  runner.onExtensionError(err => console.error("[extension error]", err.extension, err.event, err.error));
+  runner.onExtensionError(err => {
+    console.error("[extension error]", err.extension, err.event, err.error);
+    diagnostics?.observer.event({
+      event: "extension_failure",
+      severity: "error",
+      phase: err.event,
+      outcome: "failure",
+      errorClass: err.error instanceof Error ? err.error.name : "ExtensionError",
+    });
+  });
   // TODO: gate on project trust
   await loadExtensions(runner, { cwd: process.cwd(), homeDir: homedir(), trusted: true });
 
@@ -333,7 +374,7 @@ const bootstrapExtensions = async (
   return { runner, cleanup: mcpCleanup ?? (() => {}) };
 };
 
-export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies = defaultDependencies): Promise<void> => {
+const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, diagnostics?: InteractiveDiagnostics): Promise<void> => {
   if (mode.kind === "login") {
     await dependencies.runLogin();
     return;
@@ -362,14 +403,27 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
   }
 
   if (mode.kind === "fresh") {
-    const { decision, store: trustStore, config } = await resolveSessionTrust(mode, dependencies);
+    const { decision, store: trustStore, config } = await observePhase(
+      diagnostics,
+      { phase: "trust_configuration" },
+      () => resolveSessionTrust(mode, dependencies),
+    );
     const sessionId = dependencies.randomId();
-    const { runner, cleanup } = await bootstrapExtensions(sessionId, config);
+    const { runner, cleanup } = await observePhase(
+      diagnostics,
+      { phase: "extensions_mcp", sessionId },
+      () => bootstrapExtensions(sessionId, config, diagnostics),
+    );
     try {
       await runner.emitSessionStart({ type: "session_start", reason: "new" });
       await withStores(dependencies, async (store, memoryStore, noteStore) => {
         const memoriesText = formatMemoriesForPrompt(memoryStore.recent(20));
-        const session = await dependencies.initFreshSession(memoriesText);
+        const session = await observePhase(
+          diagnostics,
+          { phase: "session_initialization", sessionId },
+          () => dependencies.initFreshSession(memoriesText),
+          value => value === undefined ? "abort" : "success",
+        );
         if (session === undefined) return;
         const persisted: PersistedSession = {
           id: sessionId,
@@ -382,7 +436,9 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
         opts.branchWithSummary = async (messageId) => {
           await store.branchWithSummary(persisted.id, messageId, session.devin, session.model.id);
         };
-        await dependencies.runRepl(session, opts, runner, decision, trustStore, memoryStore, noteStore);
+        diagnostics?.observer.ready();
+        if (diagnostics) await dependencies.runRepl(session, opts, runner, decision, trustStore, memoryStore, noteStore, diagnostics);
+        else await dependencies.runRepl(session, opts, runner, decision, trustStore, memoryStore, noteStore);
       });
       await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     } finally {
@@ -399,7 +455,11 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
     return;
   }
   if (mode.kind === "resume") {
-    const { decision, store: trustStore, config } = await resolveSessionTrust(mode, dependencies);
+    const { decision, store: trustStore, config } = await observePhase(
+      diagnostics,
+      { phase: "trust_configuration" },
+      () => resolveSessionTrust(mode, dependencies),
+    );
     await withStores(dependencies, async (store, memoryStore, noteStore) => {
       let id = mode.id;
       if (id === undefined) {
@@ -413,10 +473,14 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
       }
       const persisted = store.loadSession(id);
       if (!persisted) throw new Error(`No saved session found with ID "${id}". Run railgun --list-sessions to see available sessions.`);
-      const { runner, cleanup } = await bootstrapExtensions(persisted.id, config);
+      const { runner, cleanup } = await observePhase(
+        diagnostics,
+        { phase: "extensions_mcp", sessionId: persisted.id },
+        () => bootstrapExtensions(persisted.id, config, diagnostics),
+      );
       try {
         await runner.emitSessionStart({ type: "session_start", reason: "resume" });
-        await runPersistedRepl(persisted, store, dependencies, memoryStore, noteStore, runner, decision, trustStore);
+        await runPersistedRepl(persisted, store, dependencies, memoryStore, noteStore, runner, decision, trustStore, diagnostics);
         await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
       } finally {
         cleanup();
@@ -532,6 +596,35 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
       cleanup();
     }
     return;
+  }
+};
+
+const tryCreateInteractiveDiagnostics = (dependencies: CliDependencies): InteractiveDiagnostics | undefined => {
+  if (!dependencies.createInteractiveDiagnostics) return undefined;
+  try {
+    return dependencies.createInteractiveDiagnostics();
+  } catch {
+    return createUnavailableInteractiveDiagnostics();
+  }
+};
+
+export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies = defaultDependencies): Promise<void> => {
+  const interactive = mode.kind === "fresh" || mode.kind === "resume";
+  const diagnostics = interactive ? tryCreateInteractiveDiagnostics(dependencies) : undefined;
+  if (!diagnostics) return dispatchCliCore(mode, dependencies);
+  try {
+    await dispatchCliCore(mode, dependencies, diagnostics);
+  } catch (error) {
+    diagnostics.observer.event({
+      event: "interactive_failure",
+      severity: "error",
+      outcome: "failure",
+      errorClass: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    await diagnostics.close();
   }
 };
 
