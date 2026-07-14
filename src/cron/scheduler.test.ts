@@ -4,7 +4,6 @@ import type { CronJob } from "./jobs.js";
 import type { CronJobResult } from "./scheduler.js";
 import { tick, runCronJob, startScheduler } from "./scheduler.js";
 import type { AppConfig } from "../config.js";
-
 // ---------------------------------------------------------------------------
 // Shared fakes
 // ---------------------------------------------------------------------------
@@ -192,7 +191,7 @@ describe("startScheduler", () => {
     await promise;
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("started"));
-    expect(log).toHaveBeenCalledWith("Cron scheduler stopped.");
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/Cron scheduler stopped \[run-\d+-\d+\]\./));
   });
 
   it("persists lastRun after a job runs and aborts before the next sleep", async () => {
@@ -241,6 +240,109 @@ describe("startScheduler", () => {
     await vi.runAllTimersAsync();
     await promise;
 
-    expect(log).toHaveBeenCalledWith("Cron scheduler started. Checking every 60s...");
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/Cron scheduler started \[run-\d+-\d+\]\. Checking every 60s\.\.\./));
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// tick — failure semantics (new)
+// ---------------------------------------------------------------------------
+
+describe("tick — failure semantics", () => {
+  it("does not update lastRun when runJob returns ok:false", async () => {
+    const job = makeJob({ lastRun: null });
+    const now = Date.now();
+    const runJob = vi.fn(async (j: CronJob): Promise<CronJobResult> => ({
+      jobId: j.id, ok: false, text: "", error: new Error("boom"),
+    }));
+    const updated = await tick([job], now, runJob);
+    expect(runJob).toHaveBeenCalledOnce();
+    expect(updated[0]?.lastRun).toBeNull();
+  });
+
+  it("updates lastRun only for successful jobs in a mixed batch", async () => {
+    const now = Date.now();
+    const failJob = makeJob({ id: "fail", lastRun: null });
+    const okJob   = makeJob({ id: "ok",   lastRun: null });
+    const runJob = vi.fn(async (j: CronJob): Promise<CronJobResult> => ({
+      jobId: j.id,
+      ok: j.id === "ok",
+      text: "",
+      ...(j.id !== "ok" ? { error: new Error("fail") } : {}),
+    }));
+    const updated = await tick([failJob, okJob], now, runJob);
+    expect(updated.find(j => j.id === "fail")?.lastRun).toBeNull();
+    expect(updated.find(j => j.id === "ok")?.lastRun).toBe(now);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runCronJob — completion summaries (new)
+// ---------------------------------------------------------------------------
+
+describe("runCronJob — completion summaries", () => {
+  it("logs a completion summary containing 'completed in' on success", async () => {
+    const devin = fakeProvider([
+      [{ type: "text_delta", delta: "4" }, { type: "done", reason: "stop" }],
+    ]);
+    const log = vi.fn();
+    await runCronJob(makeJob(), devin, fakeModel, [], baseConfig, log);
+    const messages = log.mock.calls.map(([msg]) => msg as string);
+    expect(messages.some(m => m.includes("completed in"))).toBe(true);
+  });
+
+  it("logs a failure summary containing 'failed after' and the error message when agent throws", async () => {
+    const boom = new Error("network failure");
+    const devin = fakeProvider([{ throws: boom }]);
+    const log = vi.fn();
+    await runCronJob(makeJob(), devin, fakeModel, [], baseConfig, log);
+    const messages = log.mock.calls.map(([msg]) => msg as string);
+    expect(messages.some(m => m.includes("failed after"))).toBe(true);
+    expect(messages.some(m => m.includes("network failure"))).toBe(true);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// startScheduler — run-id and lifecycle logging (new)
+// ---------------------------------------------------------------------------
+
+describe("startScheduler — run-id", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("includes a [run-PID-EPOCH] identifier in both started and stopped log lines", async () => {
+    const controller = new AbortController();
+    const log = vi.fn();
+    controller.abort();
+    const promise = startScheduler(fakeProvider([]), fakeModel, [], baseConfig, {
+      signal: controller.signal, interval: 1_000, log,
+    });
+    await vi.runAllTimersAsync();
+    await promise;
+    const messages = log.mock.calls.map(([msg]) => msg as string);
+    const startedLine = messages.find(m => m.includes("started"));
+    const stoppedLine = messages.find(m => m.includes("stopped"));
+    expect(startedLine).toMatch(/\[run-\d+-\d+\]/);
+    expect(stoppedLine).toMatch(/\[run-\d+-\d+\]/);
+  });
+
+  it("logs a job count or no-jobs message after loading", async () => {
+    const controller = new AbortController();
+    const log = vi.fn();
+    // Don't abort immediately — let one tick run, then abort
+    const promise = startScheduler(fakeProvider([]), fakeModel, [], baseConfig, {
+      signal: controller.signal, interval: 100, log,
+    });
+    // Let the first tick run
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    await vi.runAllTimersAsync();
+    await promise;
+    const messages = log.mock.calls.map(([msg]) => msg as string);
+    expect(
+      messages.some(m => m.includes("cron job") || m.includes("No cron jobs")),
+    ).toBe(true);
   });
 });

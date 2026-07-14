@@ -105,7 +105,7 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
   runCronScheduler: vi.fn(async () => {}),
   runCronInstall: vi.fn(() => {}),
   runCronUninstall: vi.fn(() => {}),
-  runCronStatus: vi.fn((): DaemonStatus => ({ installed: false, running: false, platform: "darwin", serviceFile: "/tmp/fake.plist", detail: "" })),
+  runCronStatus: vi.fn((): DaemonStatus => ({ installed: false, running: false, platform: "darwin", serviceFile: "/tmp/fake.plist", logDir: "/tmp/.railgun/cron/logs", detail: "" })),
 });
 
 describe("parseCliArgs", () => {
@@ -437,12 +437,13 @@ describe("dispatchCli — cron daemon subcommands", () => {
 
   it("status: calls runCronStatus, prints formatStatus output, no Devin session or store opened", async () => {
     const deps = dependencies();
-    const fakeStatus: DaemonStatus = { installed: true, running: true, platform: "darwin", serviceFile: "/fake.plist", detail: "PID=42" };
+    const fakeStatus: DaemonStatus = { installed: true, running: true, platform: "darwin", serviceFile: "/fake.plist", logDir: "/fake/.railgun/cron/logs", detail: "PID=42" };
     vi.mocked(deps.runCronStatus).mockReturnValue(fakeStatus);
     await dispatchCli({ kind: "cron-status" }, deps);
     expect(deps.runCronStatus).toHaveBeenCalledOnce();
     expect(deps.stdout).toHaveBeenCalledWith(expect.stringContaining("macOS (launchd)"));
     expect(deps.stdout).toHaveBeenCalledWith(expect.stringContaining("PID=42"));
+    expect(deps.stdout).toHaveBeenCalledWith(expect.stringContaining("Logs"));
     expect(deps.initSession).not.toHaveBeenCalled();
     expect(deps.initFreshSession).not.toHaveBeenCalled();
     expect(deps.createStore).not.toHaveBeenCalled();

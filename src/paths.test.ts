@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CONFIG_PATH,
+  CRON_LOGS_PATH,
   CRON_PATH,
   EXTENSIONS_PATH,
   SKILLS_PATH,
@@ -22,9 +23,10 @@ describe("application paths", () => {
       trust: "/home/test/.railgun/trust.json",
       extensions: "/home/test/.railgun/extensions",
       cron: "/home/test/.railgun/cron/jobs.json",
+      cronLogs: "/home/test/.railgun/cron/logs",
       skills: "/home/test/.railgun/skills",
     });
-    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, trust: TRUST_PATH, extensions: EXTENSIONS_PATH, cron: CRON_PATH, skills: SKILLS_PATH })
+    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, trust: TRUST_PATH, extensions: EXTENSIONS_PATH, cron: CRON_PATH, cronLogs: CRON_LOGS_PATH, skills: SKILLS_PATH })
       .toEqual(pathsForHome(getHomeDir()));
   });
 });

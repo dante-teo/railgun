@@ -464,7 +464,9 @@ Behavior in cron mode:
 - Each job gets a **fresh 30-step iteration budget** and a **fresh session** — no conversation history, no session database entry.
 - Shell commands are **denied by default** unless `approvalMode: "off"` is set in `config.json` (hardline-blocked commands always apply).
 - Extensions are **not loaded** — unattended safety.
-- Output (text deltas, tool start/end) is logged to **stderr** only.
+- Output (timestamps, turn events, tool calls, completion summaries) is written to **`~/.railgun/cron/logs/cron-YYYY-MM-DD.log`** (rotated daily at UTC midnight; `cron-latest.log` symlinks to today's file). The daemon's own stdout/stderr go to `/dev/null` — the scheduler logger captures everything.
+- **Failed jobs retry** every scheduler tick (60s) rather than waiting for the next cron window. Once a job succeeds, `lastRun` is updated and normal scheduling resumes.
+- Each log line is prefixed with an ISO-8601 timestamp. Scheduler startup emits a **run ID** (`[run-PID-EPOCH]`) that appears in both the `started` and `stopped` lines, making it easy to correlate entries when the daemon restarts on the same calendar day.
 - Press **Ctrl+C** or send **SIGTERM** to stop the scheduler cleanly after the current job finishes.
 
 A missing `~/.railgun/cron/jobs.json` is treated as an empty list — the scheduler runs but never fires. The `schedule` field uses standard cron syntax (`* * * * *` — minute, hour, day-of-month, month, day-of-week); five-field expressions are supported via `cron-parser`.
@@ -480,8 +482,8 @@ For users who want the cron scheduler to run automatically in the background wit
 > - **Supported Platforms**: The daemon commands are only supported on **macOS** and **Linux**. Windows is not supported (the commands will throw an error on unsupported platforms).
 To manage the background service, use the following subcommands:
 
-- **`railgun cron install`**: Registers and enables a persistent OS daemon (`launchd` on macOS, or a `systemd` user service on Linux). This service is configured to run `railgun cron` in the foreground at user login, automatically keeping the scheduler alive in the background without needing an active REPL session. Log output from the daemon is written to `~/.railgun/cron.log`.
-- **`railgun cron status`**: Queries the OS service manager and prints the current status of the daemon, including the host platform, the path to the generated service definition file, and whether the service is currently installed and active (running).
+- **`railgun cron install`**: Registers and enables a persistent OS daemon (`launchd` on macOS, or a `systemd` user service on Linux). This service is configured to run `railgun cron` in the foreground at user login, automatically keeping the scheduler alive in the background without needing an active REPL session. Cron job logs are written to `~/.railgun/cron/logs/cron-YYYY-MM-DD.log` (rotated daily at UTC midnight, 7-day retention). A `cron-latest.log` symlink in that directory points to today's UTC date file.
+- **`railgun cron status`**: Queries the OS service manager and prints the current status of the daemon, including the platform, service file path, log directory, and whether the daemon is installed and running.
 - **`railgun cron uninstall`**: Stops, disables, and completely removes the generated `launchd` plist or `systemd` unit file from your system.
 
 #### Running in the foreground
@@ -495,6 +497,8 @@ railgun cron
 # From a repository checkout:
 pnpm start cron
 ```
+
+In both cases, output goes to `~/.railgun/cron/logs/cron-YYYY-MM-DD.log` (same as the daemon). `cron-latest.log` in that directory symlinks to today's UTC date file.
 
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
 the supported `login`, `logout`, `--print`, `--resume`/`-r`, and

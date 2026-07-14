@@ -28,6 +28,8 @@ export interface DaemonStatus {
   readonly running: boolean;
   readonly platform: DaemonPlatform;
   readonly serviceFile: string;
+  /** Path to the cron logs directory (~/.railgun/cron/logs). */
+  readonly logDir: string;
   /** Raw status text from launchctl / systemctl, or empty string. */
   readonly detail: string;
 }
@@ -64,9 +66,7 @@ export const resolveRailgunBin = (argv: readonly string[] = process.argv): strin
 const xmlEsc = (s: string): string =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-const makePlist = (nodeBin: string, railgunBin: string): string => {
-  const log = join(homedir(), ".railgun", "cron.log");
-  return `<?xml version="1.0" encoding="UTF-8"?>
+const makePlist = (nodeBin: string, railgunBin: string): string => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -83,9 +83,9 @@ const makePlist = (nodeBin: string, railgunBin: string): string => {
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>${xmlEsc(log)}</string>
+  <string>/dev/null</string>
   <key>StandardErrorPath</key>
-  <string>${xmlEsc(log)}</string>
+  <string>/dev/null</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
@@ -96,14 +96,11 @@ const makePlist = (nodeBin: string, railgunBin: string): string => {
 </dict>
 </plist>
 `;
-};
 
 /** Escape a string for use as a systemd unit file value (double-quoted). */
 const sdq = (s: string): string => `"${s.replaceAll('"', '\\"')}"`;
 
-const makeSystemdService = (nodeBin: string, railgunBin: string): string => {
-  const log = join(homedir(), ".railgun", "cron.log");
-  return `[Unit]
+const makeSystemdService = (nodeBin: string, railgunBin: string): string => `[Unit]
 Description=Railgun cron scheduler
 After=network.target
 
@@ -112,15 +109,14 @@ Type=simple
 ExecStart=${sdq(nodeBin)} ${sdq(railgunBin)} cron
 Restart=always
 RestartSec=10
-StandardOutput=append:${log}
-StandardError=append:${log}
+StandardOutput=null
+StandardError=null
 Environment=${sdq(`HOME=${homedir()}`)}
 Environment=${sdq(`PATH=${process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin"}`)}
 
 [Install]
 WantedBy=default.target
 `;
-};
 
 // ─── platform operations ──────────────────────────────────────────────────────
 
@@ -162,7 +158,7 @@ const darwinStatus = (): DaemonStatus => {
     // launchctl list exits 0 and prints a PID line when the job is running
     running = result.status === 0 && detail.length > 0 && !detail.includes('"PID" = 0');
   }
-  return { installed, running, platform: "darwin", serviceFile: path, detail };
+  return { installed, running, platform: "darwin", serviceFile: path, logDir: join(homedir(), ".railgun", "cron", "logs"), detail };
 };
 
 // Linux -----------------------------------------------------------------------
@@ -201,7 +197,7 @@ const linuxStatus = (): DaemonStatus => {
     detail = (result.stdout ?? "").trim();
     running = result.status === 0;
   }
-  return { installed, running, platform: "linux", serviceFile: path, detail };
+  return { installed, running, platform: "linux", serviceFile: path, logDir: join(homedir(), ".railgun", "cron", "logs"), detail };
 };
 
 // ─── public API ──────────────────────────────────────────────────────────────
@@ -229,6 +225,7 @@ export const formatStatus = (s: DaemonStatus): string => {
   lines.push(`Service  : ${s.serviceFile}`);
   lines.push(`Installed: ${s.installed ? "yes" : "no"}`);
   lines.push(`Running  : ${s.running ? "yes" : "no"}`);
+  lines.push(`Logs     : ${s.logDir.replace(homedir(), "~")}`);
   if (s.detail) {
     lines.push("---");
     lines.push(s.detail);

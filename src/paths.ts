@@ -11,6 +11,7 @@ export const pathsForHome = (home: string) => ({
   trust: join(home, "trust.json"),
   extensions: join(home, "extensions"),
   cron: join(home, "cron", "jobs.json"),
+  cronLogs: join(home, "cron", "logs"),
   skills: join(home, "skills"),
 } as const);
 
@@ -24,3 +25,4 @@ export const TRUST_PATH = paths.trust;
 export const EXTENSIONS_PATH = paths.extensions;
 export const CRON_PATH = paths.cron;
 export const SKILLS_PATH = paths.skills;
+export const CRON_LOGS_PATH = paths.cronLogs;

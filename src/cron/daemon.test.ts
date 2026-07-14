@@ -52,6 +52,7 @@ describe("formatStatus", () => {
     const s: DaemonStatus = {
       platform: "darwin",
       serviceFile: "/tmp/test.plist",
+      logDir: "/tmp/.railgun/cron/logs",
       installed: true,
       running: true,
       detail: "PID = 42",
@@ -68,6 +69,7 @@ describe("formatStatus", () => {
     const s: DaemonStatus = {
       platform: "linux",
       serviceFile: "/home/user/.config/systemd/user/railgun-cron.service",
+      logDir: "/home/user/.railgun/cron/logs",
       installed: false,
       running: false,
       detail: "",
@@ -80,8 +82,15 @@ describe("formatStatus", () => {
   });
 
   it("omits the detail section when detail is empty", () => {
-    const s: DaemonStatus = { platform: "darwin", serviceFile: "/x.plist", installed: true, running: false, detail: "" };
+    const s: DaemonStatus = { platform: "darwin", serviceFile: "/x.plist", logDir: "/tmp/.railgun/cron/logs", installed: true, running: false, detail: "" };
     expect(formatStatus(s)).not.toContain("---");
+  });
+
+  it("includes a Logs line showing the cron logs directory", () => {
+    const s: DaemonStatus = { platform: "darwin", serviceFile: "/x.plist", logDir: "/home/.railgun/cron/logs", installed: true, running: true, detail: "" };
+    const out = formatStatus(s);
+    expect(out).toContain("Logs");
+    expect(out).toContain("cron/logs");
   });
 });
 
@@ -164,6 +173,14 @@ describe("installDaemon — darwin", () => {
     expect(content).toContain("<string>/tmp/A&lt;B/railgun</string>");
     expect(content).not.toContain("&B");
     expect(content).not.toContain("<B");
+  });
+  it("StandardOutPath and StandardErrorPath are both /dev/null", () => {
+    installDaemon("darwin", nodeBin, railgunBin);
+    const content = readFileSync(serviceFilePath("darwin"), "utf8");
+    // Both keys must be /dev/null — toContain alone only checks one occurrence
+    expect(content).toContain("<key>StandardOutPath</key>\n  <string>/dev/null</string>");
+    expect(content).toContain("<key>StandardErrorPath</key>\n  <string>/dev/null</string>");
+    expect(content).not.toContain("cron.log");
   });
 });
 
@@ -303,12 +320,14 @@ describe("installDaemon — linux", () => {
     expect(content).toMatch(/Environment="PATH=/);
   });
 
-  it("StandardOutput/StandardError use bare append: path without quotes", () => {
+  it("StandardOutput and StandardError use the systemd 'null' keyword", () => {
     installDaemon("linux", nodeBin, railgunBin);
     const content = readFileSync(serviceFilePath("linux"), "utf8");
-    // append:"..." would try to open a file named '"...'; must be bare path
-    expect(content).toMatch(/StandardOutput=append:[^"]/);
-    expect(content).toMatch(/StandardError=append:[^"]/);
+    expect(content).toContain("StandardOutput=null");
+    expect(content).toContain("StandardError=null");
+    expect(content).not.toContain("cron.log");
+    // Must not use bare /dev/null path — systemd expects the 'null' keyword
+    expect(content).not.toContain("StandardOutput=/dev/null");
   });
 });
 
