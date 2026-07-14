@@ -94,6 +94,20 @@ the same model; text entry is reserved for free-form answers and preset names.
   Short transcript slices bottom-align against the composer; full pages remain
   top-aligned for stable scrolling.
 
+- The desktop transcript uses the same chronological contract for assistant
+  messages, tools, MoA references/aggregation, and advisor notes. Tool rows use
+  native `details`/`summary` disclosures and pair every semantic color with a
+  textual Running, Completed, Error, or Interrupted label. Advisor `nit`,
+  `concern`, and `blocker` rows use success, warning, and danger tokens. Todos
+  and current-run subagents appear only in the existing resizable inspector;
+  its section header stays sticky, todo progress is textual, and status glyphs
+  are supplemental. These surfaces retain Reduce Transparency, Increase
+  Contrast, and Reduce Motion behavior through the existing semantic tokens.
+  Tool-call IDs identify only active invocations; a later turn that reuses an
+  ID still receives a distinct chronological row. Failed prompt submission or
+  backend interruption remains a danger-styled inline row with its Retry or
+  Restart action rather than degrading to unstyled text.
+
 ## UI states
 
 Seven observable states drive the visual treatment of the transcript and composer area.

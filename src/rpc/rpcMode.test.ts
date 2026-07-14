@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import type { DevinProvider, DevinStreamEvent } from "widevin";
 import type { DevinSession } from "../session.js";
 import type { AppConfig } from "../config.js";
-import { runRpcMode } from "./rpcMode.js";
+import { configuredAgentActivity, runRpcMode } from "./rpcMode.js";
 import type { SessionStore } from "../persistence/sessionStore.js";
 
 type FakeRound = readonly DevinStreamEvent[];
@@ -53,6 +53,24 @@ const fakeSession = (devin: DevinProvider): DevinSession => ({
 });
 
 const fakeConfig = (): AppConfig => ({ model: null, defaultProjectTrust: "ask", approvalMode: "off" });
+
+describe("RPC configured agent activity", () => {
+  it("forwards the active MoA preset and enabled advisor", () => {
+    expect(configuredAgentActivity({
+      ...fakeConfig(), activeMoaPreset: "desktop", moaPresets: {
+        desktop: { referenceModels: [{ model: "ref-a" }, { model: "ref-b" }], aggregator: { model: "agg" } },
+      }, advisor: { enabled: true, model: "reviewer" },
+    })).toEqual({
+      moaPreset: { name: "desktop", referenceModels: [{ model: "ref-a" }, { model: "ref-b" }], aggregator: { model: "agg" } },
+      advisor: { model: "reviewer" },
+    });
+  });
+
+  it("preserves existing behavior when activity configuration is absent or disabled", () => {
+    expect(configuredAgentActivity(fakeConfig())).toEqual({});
+    expect(configuredAgentActivity({ ...fakeConfig(), advisor: { enabled: false, model: "reviewer" } })).toEqual({});
+  });
+});
 
 /** Collects all JSONL output from a PassThrough and parses them on demand. */
 const collectOutput = (stream: PassThrough): (() => OutputLine[]) => {

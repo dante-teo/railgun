@@ -14,7 +14,8 @@ export type MockScenarioBehavior =
   | "store-error"
   | "approval"
   | "clarification"
-  | "cancellation";
+  | "cancellation"
+  | "agent-activity";
 
 export interface MockScenarioDefinition extends Omit<MockScenario, "id"> {
   readonly id: string;
@@ -113,6 +114,12 @@ export const MOCK_SCENARIOS = defineMockScenarios([
     label: "Cancellation",
     description: "Keeps a prompt active until it is aborted.",
     behavior: "cancellation",
+  },
+  {
+    id: "agent-activity",
+    label: "Agent activity",
+    description: "Emits tools, todos, MoA, advisor, and subagent activity.",
+    behavior: "agent-activity",
   },
 ] as const);
 

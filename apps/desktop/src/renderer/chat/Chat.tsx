@@ -7,6 +7,7 @@ import { EmptyState } from "../components/ui/state";
 import { BackendStatus } from "../backendStatus";
 import { chatReducer, initialChatState } from "./chatState";
 import type { QueueKind } from "./chatState";
+import type { ActivityEntry, ActivityState, ActivityStatus } from "./activityState";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { createDeltaFrameBuffer } from "./streaming";
 import { errorMessage } from "../lib/utils";
@@ -48,6 +49,7 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
         case "assistant-delta": deltaBuffer.current?.push(event.text); break;
         case "assistant-complete": deltaBuffer.current?.flush(); dispatch({ type: "assistant-complete" }); break;
         case "queue-update": dispatch({ type: "queue-update", steering: event.steering, followUp: event.followUp }); break;
+        default: dispatch({ type: "activity", event }); break;
       }
     };
     const unsubscribe = window.railgunDesktop.onAgentEvent(handleEvent);
@@ -127,6 +129,73 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
 
 export type ChatController = ReturnType<typeof useChatController>;
 
+const STATUS_LABEL: Record<ActivityStatus, string> = {
+  running: "Running", success: "Completed", error: "Error", interrupted: "Interrupted",
+};
+const TODO_STATUS_LABEL: Record<ActivityState["todos"][number]["status"], string> = {
+  pending: "Pending", in_progress: "In progress", completed: "Completed", cancelled: "Cancelled",
+};
+const TODO_STATUS_ICON: Record<ActivityState["todos"][number]["status"], string> = {
+  pending: "○", in_progress: "→", completed: "✓", cancelled: "×",
+};
+const SUBAGENT_STATUS_LABEL: Record<ActivityState["subagents"][number]["status"], string> = {
+  running: "Running", completed: "Completed", interrupted: "Interrupted",
+};
+
+const ActivityRow = ({ entry }: { readonly entry: ActivityEntry }): React.JSX.Element => {
+  if (entry.kind === "advisor") return (
+    <article className={`activity-row advisor-row ${entry.severity}`}>
+      <div className="activity-label">Advisor {entry.severity}</div><p>{entry.text}</p>
+    </article>
+  );
+  if (entry.kind === "moa-aggregation") return (
+    <article className={`activity-row moa-row ${entry.status}`}>
+      <div><span className="activity-label">Aggregating {entry.refCount} {entry.refCount === 1 ? "reference" : "references"}</span><span className="activity-status">{STATUS_LABEL[entry.status]}</span></div>
+      <p>{entry.model}</p>
+    </article>
+  );
+  if (entry.kind === "moa-reference") return (
+    <article className={`activity-row moa-row ${entry.status}`}>
+      <div><span className="activity-label">Reference {entry.index + 1} of {entry.count}</span><span className="activity-status">{STATUS_LABEL[entry.status]}</span></div>
+      <p>{entry.model}</p>{entry.preview === undefined ? null : <p className="activity-preview">{entry.preview}</p>}
+    </article>
+  );
+  const status = STATUS_LABEL[entry.status];
+  return (
+    <details className={`activity-row tool-row ${entry.status}`} aria-label={`${entry.name} — ${status}`}>
+      <summary><span className="activity-label">{entry.name}</span><span className="activity-status">{status}</span></summary>
+      {entry.input === undefined ? null : <div><h3>Input</h3><pre>{entry.input}</pre></div>}
+      {entry.output === undefined ? null : <div><h3>Output</h3><pre>{entry.output}</pre></div>}
+    </details>
+  );
+};
+
+export const ActivityInspector = ({ activity }: { readonly activity: ActivityState }): React.JSX.Element => {
+  if (activity.todos.length === 0 && activity.subagents.length === 0 && !activity.todoLoading) return <></>;
+  const completed = activity.todos.filter(todo => todo.status === "completed").length;
+  return (
+    <div className="activity-inspector" role="region" aria-label="Agent activity inspector">
+      {activity.todoLoading || activity.todos.length > 0 ? <section aria-labelledby="todo-heading">
+        <header><h2 id="todo-heading">Todos</h2>{activity.todoLoading
+          ? <span className="inspector-loading" role="status">Updating todos…</span>
+          : <span>{completed} of {activity.todos.length} complete</span>}</header>
+        <ol>{activity.todos.map(todo => <li key={todo.id} className={todo.status}>
+          <span className="todo-indicator" aria-hidden="true">{TODO_STATUS_ICON[todo.status]}</span>
+          <span className="todo-content">{todo.content}</span><span className="todo-status">{TODO_STATUS_LABEL[todo.status]}</span>
+        </li>)}</ol>
+      </section> : null}
+      {activity.subagents.length > 0 ? <section aria-labelledby="subagent-heading">
+        <header><h2 id="subagent-heading">Subagents</h2></header>
+        <ol>{activity.subagents.map(subagent => <li key={subagent.index}>
+          <span className="todo-content">{subagent.goal}</span>
+          <span className="subagent-status">{SUBAGENT_STATUS_LABEL[subagent.status]}</span>
+          {subagent.result === undefined ? null : <p>{subagent.result}</p>}
+        </li>)}</ol>
+      </section> : null}
+    </div>
+  );
+};
+
 interface TranscriptProps {
   readonly controller: ChatController;
   readonly snapshot: BackendSnapshot;
@@ -135,21 +204,26 @@ interface TranscriptProps {
 
 export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps): React.JSX.Element => {
   const { state } = controller;
+  const entries = [
+    ...state.messages.map(message => ({ kind: "message" as const, order: message.order, message })),
+    ...state.activity.entries.map(activity => ({ kind: "activity" as const, order: activity.order, activity })),
+  ].sort((left, right) => left.order - right.order);
+  const empty = entries.length === 0;
   return (
-    <div className={`transcript ${state.messages.length === 0 ? "empty" : ""}`} aria-live="polite">
-      {state.messages.length === 0 && snapshot.phase === "ready"
+    <div className={`transcript ${empty ? "empty" : ""}`} aria-live="polite">
+      {empty && snapshot.phase === "ready"
         ? <EmptyState className="welcome" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." />
         : null}
-      {state.messages.length === 0 && snapshot.phase !== "ready"
+      {empty && snapshot.phase !== "ready"
         ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
         : null}
-      {state.messages.map(message => (
-        <article className={`message ${message.role} ${message.status}`} key={message.id} data-status={message.status}>
-          <div className="message-role">{message.role === "user" ? "You" : "Railgun"}</div>
-          {message.role === "assistant" && message.status !== "streaming"
-            ? <MarkdownMessage>{message.text}</MarkdownMessage>
-            : <p>{message.text}</p>}
-          {message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
+      {entries.map(entry => entry.kind === "activity" ? <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} /> : (
+        <article className={`message ${entry.message.role} ${entry.message.status}`} key={entry.message.id} data-status={entry.message.status}>
+          <div className="message-role">{entry.message.role === "user" ? "You" : "Railgun"}</div>
+          {entry.message.role === "assistant" && entry.message.status !== "streaming"
+            ? <MarkdownMessage>{entry.message.text}</MarkdownMessage>
+            : <p>{entry.message.text}</p>}
+          {entry.message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
         </article>
       ))}
       {state.failedRun === undefined ? null : (

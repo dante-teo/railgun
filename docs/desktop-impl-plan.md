@@ -265,10 +265,13 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     rejected queue drafts remain editable, stale failures after New Chat are
     ignored, and partial assistant output is finalized.
 
-- [ ] **DESK-008 — Render agent activity**
-  - Tool running/success/error rows with safe expandable detail.
-  - Sticky todo panel.
-  - MoA progress, advisor notes, and simple subagent activity.
+- [x] **DESK-008 — Render agent activity**
+  - Tool running/success/error rows use native accessible disclosures with recursively redacted, pretty-formatted input/output capped at 8,000 characters per field. Redaction covers secret-bearing object keys, Bearer/token-shaped credentials, and unstructured assignments such as `PASSWORD=`, `DEVIN_TOKEN=`, and `api_key:`.
+  - Successful todo completions replace the sticky inspector snapshot without duplicating transcript rows; todo loading, textual status, completion count, and current-run subagents share the optional resizable inspector.
+  - MoA references/aggregation, severity-labelled advisor notes, and tool activity share one chronological transcript; stop, disconnect, run end, and New Chat settle or clear run-scoped work.
+  - The main-process event boundary bounds all renderer-facing strings, parses advisory XML without forwarding it, validates normalized todos, and rejects malformed activity. RPC-created sessions activate the configured MoA preset and enabled advisor.
+  - Tool-call IDs correlate only an in-flight invocation: settled IDs may be reused by later turns without suppressing their rows. Failed initial/backend runs retain the danger-styled Retry/Restart presentation.
+  - The `agent-activity` mock covers parallel success/error tools, todo loading/update, MoA, advisor, and subagent events while cancellation and disconnection scenarios remain available. Mock integration tests use a persistent buffered line reader so fragmented or coalesced stdout frames are never discarded between assertions.
 
 - [ ] **DESK-009 — Implement approval and clarification prompts**
   - Correlated shell allow/deny UI that preserves Railgun's hardline blocks.

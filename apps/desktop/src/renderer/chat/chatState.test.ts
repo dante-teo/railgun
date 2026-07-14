@@ -86,4 +86,15 @@ describe("chat event reduction", () => {
     });
     expect(state).toBe(initialChatState);
   });
+
+  it("completes MoA aggregation even when the assistant response is empty", () => {
+    let state = chatReducer(initialChatState, {
+      type: "activity",
+      event: { type: "moa-aggregating", model: "aggregator", refCount: 2 },
+    });
+    state = chatReducer(state, { type: "assistant-complete" });
+    expect(state.activity.entries).toEqual([
+      expect.objectContaining({ kind: "moa-aggregation", status: "success" }),
+    ]);
+  });
 });

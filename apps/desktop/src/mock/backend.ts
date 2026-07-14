@@ -161,6 +161,34 @@ if (scenario.behavior === "authentication-required") {
         return;
       }
       writeFragmented({ type: "agent_start" }, 8, prompt);
+      if (scenario.behavior === "agent-activity") {
+        const events: readonly unknown[] = [
+          { type: "tool_execution_start", toolCallId: "todo-1", toolName: "todo", args: { todos: [] } },
+          { type: "subagent_start", goal: "Inspect the desktop activity path", index: 0, count: 1 },
+          { type: "tool_execution_start", toolCallId: "read-1", toolName: "read_file", args: { path: "README.md" } },
+          { type: "tool_execution_start", toolCallId: "shell-1", toolName: "run_shell", args: { command: "exit 1" } },
+          { type: "moa_reference_start", index: 0, count: 1, model: "mock-reference" },
+          { type: "tool_execution_end", toolCallId: "read-1", toolName: "read_file", result: { toolCallId: "read-1", content: "Read README", isError: false } },
+          { type: "tool_execution_end", toolCallId: "shell-1", toolName: "run_shell", result: { toolCallId: "shell-1", content: "exit code 1", isError: true } },
+          { type: "tool_execution_end", toolCallId: "todo-1", toolName: "todo", result: { toolCallId: "todo-1", content: JSON.stringify({ todos: [{ id: "inspect", content: "Inspect activity", status: "completed" }, { id: "verify", content: "Verify UI", status: "in_progress" }] }), isError: false } },
+          { type: "moa_reference_end", index: 0, model: "mock-reference", text: "Use accessible disclosure controls." },
+          { type: "moa_aggregating", aggregator: "mock-aggregator", refCount: 1 },
+          { type: "message_start", message: { role: "user", content: '<advisory severity="concern">Keep status text visible.</advisory>' } },
+          { type: "subagent_end", goal: "Inspect the desktop activity path", index: 0, result: "Activity path inspected." },
+          { type: "message_update", streamEvent: { type: "text_delta", delta: "Activity sequence complete." } },
+          { type: "message_end", message: { role: "assistant", content: "Activity sequence complete." } },
+          { type: "agent_end", messages: [] },
+        ];
+        events.forEach((event, index) => schedulePromptOutput(prompt, event, 10 + index * 10));
+        const responseTimer = setTimeout(() => {
+          prompt.timers.delete(responseTimer);
+          if (activePrompt !== prompt) return;
+          activePrompt = undefined;
+          respond(type, command.id);
+        }, 180);
+        prompt.timers.add(responseTimer);
+        return;
+      }
       schedulePromptOutput(prompt, {
         type: "message_update",
         streamEvent: { type: "text_delta", delta: `## Mock response\n\nReceived **${text}**.\n\n` },

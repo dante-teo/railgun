@@ -9,7 +9,7 @@ import { ErrorState, LoadingState } from "./components/ui/state";
 import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
 import { ShellLayout } from "./shell/ShellLayout";
-import { Composer, Transcript, useChatController } from "./chat/Chat";
+import { ActivityInspector, Composer, Transcript, useChatController } from "./chat/Chat";
 import { BackendStatus, PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
 import { errorMessage } from "./lib/utils";
 export { BackendStatus } from "./backendStatus";
@@ -188,6 +188,9 @@ export const App = (): React.JSX.Element => {
       <ShellLayout
         sidebar={sidebar}
         main={content}
+        inspector={chat.state.activity.todos.length > 0 || chat.state.activity.subagents.length > 0 || chat.state.activity.todoLoading
+          ? <ActivityInspector activity={chat.state.activity} />
+          : undefined}
         sidebarVisible={!sidebarCollapsed}
         onSidebarVisibilityChange={(visible) => setSidebarCollapsed(!visible)}
       />

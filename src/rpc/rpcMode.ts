@@ -4,6 +4,8 @@ import type { DevinMessage } from "widevin";
 import type { DevinSession } from "../session.js";
 import { buildSessionCore } from "../session.js";
 import type { AppConfig } from "../config.js";
+import { isAdvisorActive, parseMoAPreset } from "../config.js";
+import type { AgentDependencies } from "../agent/agent.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { AgentSession } from "../agent/agentSession.js";
 import { createAgentSession } from "../agent/agentSession.js";
@@ -57,6 +59,18 @@ const V1_ONLY_COMMANDS = new Set<string>([
 ]);
 
 const errorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
+
+export const configuredAgentActivity = (
+  config: AppConfig,
+): Pick<AgentDependencies, "moaPreset" | "advisor"> => {
+  const presetName = config.activeMoaPreset;
+  const rawPreset = presetName === undefined ? undefined : config.moaPresets?.[presetName];
+  const advisorModel = isAdvisorActive(config) ? config.advisor?.model : undefined;
+  return {
+    ...(presetName === undefined || rawPreset === undefined ? {} : { moaPreset: parseMoAPreset(presetName, rawPreset) }),
+    ...(advisorModel === undefined ? {} : { advisor: { model: advisorModel } }),
+  };
+};
 
 export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
   const { session, stdin, stdout, extensionRunner } = options;
@@ -178,6 +192,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
       ...(config.operationTimeoutMs === undefined ? {} : { operationTimeoutMs: config.operationTimeoutMs }),
       sessionApprovals: approvals,
       ...(config.reviewerModel === undefined ? {} : { reviewerModel: config.reviewerModel }),
+      ...configuredAgentActivity(config),
       ...(extensionRunner === undefined ? {} : { extensionRunner }),
       ...(options.memoryStore === undefined ? {} : { memoryStore: options.memoryStore }),
       ...(options.noteStore === undefined ? {} : { noteStore: options.noteStore }),

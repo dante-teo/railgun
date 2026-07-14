@@ -7,6 +7,8 @@ import {
   MockScenarioSchema,
   TransportLogEntrySchema,
   ExternalUrlSchema,
+  DesktopAgentEventSchema,
+  DESKTOP_ACTIVITY_LIMITS,
 } from "./schemas";
 
 const validSnapshot = {
@@ -46,5 +48,23 @@ describe("desktop boundary schemas", () => {
     expect(() => ExternalUrlSchema.parse("javascript:alert(1)")).toThrow();
     expect(() => ExternalUrlSchema.parse("https://user:pass@example.com")).toThrow();
     expect(() => MockScenarioListSchema.parse({ id: "ready-idle" })).toThrow();
+  });
+
+  it("validates every agent activity variant strictly", () => {
+    const events = [
+      { type: "tool-start", id: "call-1", name: "read_file", input: "{}" },
+      { type: "tool-end", id: "call-1", name: "read_file", failed: false, output: "ok", todos: [{ id: "a", content: "Ship", status: "completed" }] },
+      { type: "moa-reference-start", index: 0, count: 2, model: "ref" },
+      { type: "moa-reference-end", index: 0, model: "ref", preview: "idea" },
+      { type: "moa-aggregating", model: "agg", refCount: 2 },
+      { type: "advisor-note", severity: "concern", text: "Check this" },
+      { type: "subagent-start", index: 0, count: 1, goal: "Inspect" },
+      { type: "subagent-end", index: 0, goal: "Inspect", result: "Done" },
+    ] as const;
+    expect(events.map(event => DesktopAgentEventSchema.parse(event))).toEqual(events);
+    expect(() => DesktopAgentEventSchema.parse({ ...events[5], severity: "critical" })).toThrow();
+    expect(() => DesktopAgentEventSchema.parse({ ...events[0], args: { secret: true } })).toThrow();
+    expect(() => DesktopAgentEventSchema.parse({ ...events[0], input: "x".repeat(DESKTOP_ACTIVITY_LIMITS.detail + 1) })).toThrow();
+    expect(() => DesktopAgentEventSchema.parse({ ...events[5], text: "x".repeat(DESKTOP_ACTIVITY_LIMITS.content + 1) })).toThrow();
   });
 });

@@ -2,35 +2,23 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { DesktopAgentEventSchema } from "../shared/schemas";
+import { toDesktopAgentEvent } from "../main/agentBoundary";
+import { createLineReader } from "./testLineReader";
 
 const entry = resolve(import.meta.dirname, "backend.ts");
 
 const startMock = (scenario: string): ChildProcessWithoutNullStreams =>
   spawn(process.execPath, ["--import", "tsx", entry, scenario], { stdio: ["pipe", "pipe", "pipe"] });
 
-const nextLine = (child: ChildProcessWithoutNullStreams): Promise<{ readonly line: string; readonly chunks: number }> =>
-  new Promise((resolveLine, reject) => {
-    let buffer = "";
-    let chunks = 0;
-    const onData = (chunk: Buffer): void => {
-      chunks += 1;
-      buffer += chunk.toString();
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) return;
-      cleanup();
-      resolveLine({ line: buffer.slice(0, newline), chunks });
-    };
-    const onExit = (code: number | null): void => {
-      cleanup();
-      reject(new Error(`mock exited before a frame with code ${String(code)}`));
-    };
-    const cleanup = (): void => {
-      child.stdout.off("data", onData);
-      child.off("exit", onExit);
-    };
-    child.stdout.on("data", onData);
-    child.once("exit", onExit);
-  });
+const lineReaders = new WeakMap<ChildProcessWithoutNullStreams, ReturnType<typeof createLineReader>>();
+const nextLine = (child: ChildProcessWithoutNullStreams): Promise<{ readonly line: string; readonly chunks: number }> => {
+  const existing = lineReaders.get(child);
+  if (existing !== undefined) return existing();
+  const reader = createLineReader(child.stdout);
+  lineReaders.set(child, reader);
+  return reader();
+};
 
 const send = (child: ChildProcessWithoutNullStreams, value: unknown): void => {
   child.stdin.write(`${JSON.stringify(value)}\n`);
@@ -179,6 +167,27 @@ describe("mock backend process", () => {
       expect(frames).toContainEqual(expect.objectContaining({ type: "queue_update", followUp: ["same"] }));
       expect(frames).toContainEqual(expect.objectContaining({ id: "steer", success: true }));
       expect(frames).toContainEqual(expect.objectContaining({ id: "follow", success: true }));
+    } finally {
+      child.kill();
+    }
+  });
+
+  it("emits a deterministic schema-valid agent activity sequence including an error", async () => {
+    const child = startMock("agent-activity");
+    try {
+      send(child, { id: "prompt", type: "prompt", message: "show activity" });
+      const frames: Record<string, unknown>[] = [];
+      while (!frames.some(frame => frame.id === "prompt" && frame.type === "response")) {
+        frames.push(JSON.parse((await nextLine(child)).line) as Record<string, unknown>);
+      }
+      const events = frames.filter(frame => frame.type !== "response").map(toDesktopAgentEvent);
+      expect(events.every(event => event !== undefined && DesktopAgentEventSchema.safeParse(event).success)).toBe(true);
+      expect(events.map(event => event?.type)).toEqual([
+        "run-start", "tool-start", "subagent-start", "tool-start", "tool-start", "moa-reference-start",
+        "tool-end", "tool-end", "tool-end", "moa-reference-end", "moa-aggregating", "advisor-note",
+        "subagent-end", "assistant-delta", "assistant-complete", "run-end",
+      ]);
+      expect(events).toContainEqual(expect.objectContaining({ type: "tool-end", id: "shell-1", failed: true }));
     } finally {
       child.kill();
     }

@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
-import { Composer, Transcript, useChatController } from "./Chat";
+import { ActivityInspector, Composer, Transcript, useChatController } from "./Chat";
 
 afterEach(cleanup);
 
@@ -49,7 +49,7 @@ const makeApi = (overrides: Partial<RailgunDesktopApi> = {}) => {
 
 const Harness = (): React.JSX.Element => {
   const controller = useChatController(ready);
-  return <><Transcript controller={controller} snapshot={ready} onRestart={async () => undefined} /><Composer controller={controller} available /><button>After composer</button></>;
+  return <><Transcript controller={controller} snapshot={ready} onRestart={async () => undefined} /><ActivityInspector activity={controller.state.activity} /><Composer controller={controller} available /><button>After composer</button></>;
 };
 
 describe("chat composer", () => {
@@ -148,5 +148,46 @@ describe("chat composer", () => {
     fireEvent.click(retry);
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledTimes(2));
     expect(screen.getAllByText("request")).toHaveLength(1);
+  });
+
+  it("renders chronological accessible activity details, advisor severity, and MoA progress", () => {
+    const bridge = makeApi();
+    render(<Harness />);
+    act(() => bridge.emit({ type: "tool-start", id: "a", name: "read_file", input: '{"path":"README.md"}' }));
+    act(() => bridge.emit({ type: "tool-start", id: "b", name: "run_shell", input: "false" }));
+    act(() => bridge.emit({ type: "tool-end", id: "b", name: "run_shell", failed: true, output: "exit 1" }));
+    act(() => bridge.emit({ type: "moa-reference-start", index: 0, count: 1, model: "ref-model" }));
+    act(() => bridge.emit({ type: "moa-reference-end", index: 0, model: "ref-model", preview: "reference idea" }));
+    act(() => bridge.emit({ type: "moa-aggregating", model: "agg-model", refCount: 1 }));
+    act(() => bridge.emit({ type: "assistant-delta", text: "answer" }));
+    act(() => bridge.emit({ type: "assistant-complete" }));
+    act(() => bridge.emit({ type: "advisor-note", severity: "blocker", text: "Tests are missing" }));
+
+    expect(screen.queryByRole("heading", { name: "What are we building?" })).toBeNull();
+    const disclosure = screen.getByRole("group", { name: "read_file — Running" });
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(screen.getByText("read_file"));
+    expect(screen.getByText(/README\.md/u)).toBeTruthy();
+    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.getByText("Reference 1 of 1")).toBeTruthy();
+    expect(screen.getByText("Aggregating 1 reference")).toBeTruthy();
+    expect(screen.getByText("Aggregating 1 reference").parentElement?.textContent).toContain("Completed");
+    expect(screen.getByText("Advisor blocker").closest(".advisor-row")?.className).toContain("blocker");
+  });
+
+  it("shows todo loading and replacement plus current-run subagent statuses, then clears on reset", () => {
+    const bridge = makeApi();
+    render(<Harness />);
+    act(() => bridge.emit({ type: "run-start" }));
+    act(() => bridge.emit({ type: "tool-start", id: "todo-1", name: "todo" }));
+    act(() => bridge.emit({ type: "subagent-start", index: 0, count: 1, goal: "Inspect tests" }));
+    expect(screen.getByRole("region", { name: "Agent activity inspector" })).toBeTruthy();
+    expect(screen.getByText("Updating todos…")).toBeTruthy();
+    expect(screen.getByText("Running", { selector: ".subagent-status" })).toBeTruthy();
+    act(() => bridge.emit({ type: "tool-end", id: "todo-1", name: "todo", failed: false, todos: [{ id: "a", content: "Implement", status: "completed" }, { id: "b", content: "Verify", status: "in_progress" }] }));
+    expect(screen.getByText("1 of 2 complete")).toBeTruthy();
+    expect(screen.getByText("In progress")).toBeTruthy();
+    act(() => bridge.emit({ type: "subagent-end", index: 0, goal: "Inspect tests", result: "Found coverage" }));
+    expect(screen.getByText("Completed", { selector: ".subagent-status" })).toBeTruthy();
   });
 });

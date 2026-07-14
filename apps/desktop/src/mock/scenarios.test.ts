@@ -17,6 +17,7 @@ describe("mock scenario registry", () => {
       "approval",
       "clarification",
       "cancellation",
+      "agent-activity",
     ]);
     expect(listMockScenarios()[0]).not.toHaveProperty("behavior");
   });

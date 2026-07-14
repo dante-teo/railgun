@@ -121,6 +121,10 @@ describe("desktop shell", () => {
     act(() => agentListener?.({ type: "assistant-delta", text: "Mock response" }));
     act(() => agentListener?.({ type: "run-end" }));
     expect(screen.getByText("Mock response")).toBeTruthy();
+    act(() => agentListener?.({ type: "tool-start", id: "todo", name: "todo" }));
+    act(() => agentListener?.({ type: "tool-end", id: "todo", name: "todo", failed: false, todos: [{ id: "done", content: "Desktop activity", status: "completed" }] }));
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
+    expect(screen.getByRole("separator", { name: "Resize inspector" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Secure desktop boundary")).toBeTruthy();
@@ -128,6 +132,7 @@ describe("desktop shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     await waitFor(() => expect(startNewChat).toHaveBeenCalledOnce());
     expect(await screen.findByRole("heading", { name: "Starting Railgun" })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
   });
 
   it("retries a failed backend from the shell", async () => {

@@ -1,3 +1,7 @@
+import type { DesktopAgentEvent } from "../../shared/types";
+import { activityReducer, initialActivityState } from "./activityState";
+import type { ActivityState } from "./activityState";
+
 export type MessageStatus = "streaming" | "complete" | "queued" | "failed" | "stopped";
 export type QueueKind = "steering" | "follow-up";
 
@@ -6,6 +10,7 @@ export interface TranscriptMessage {
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly status: Exclude<MessageStatus, "queued">;
+  readonly order: number;
 }
 
 export interface QueuedMessage {
@@ -33,6 +38,8 @@ export interface ChatState {
   readonly submissionError: string | undefined;
   readonly failedRun: FailedRun | undefined;
   readonly activeRun: RunRequest | undefined;
+  readonly activity: ActivityState;
+  readonly nextOrder: number;
 }
 
 export const initialChatState: ChatState = {
@@ -43,6 +50,8 @@ export const initialChatState: ChatState = {
   submissionError: undefined,
   failedRun: undefined,
   activeRun: undefined,
+  activity: initialActivityState,
+  nextOrder: 1,
 };
 
 export type ChatAction =
@@ -60,6 +69,7 @@ export type ChatAction =
   | { readonly type: "stop-acknowledged" }
   | { readonly type: "run-end" }
   | { readonly type: "backend-failed"; readonly error: string }
+  | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" }> }
   | { readonly type: "reset" };
 
 const finishLastAssistant = (
@@ -146,13 +156,14 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
     case "initial-submit":
       return {
         ...state,
-        messages: [...state.messages, { id: action.id, role: "user", text: action.text, status: "complete" }],
+        messages: [...state.messages, { id: action.id, role: "user", text: action.text, status: "complete", order: state.nextOrder }],
         queue: [],
         running: true,
         stopping: false,
         submissionError: undefined,
         failedRun: undefined,
         activeRun: { userId: action.id, text: action.text },
+        nextOrder: state.nextOrder + 1,
       };
     case "retry-start":
       if (state.failedRun === undefined) return state;
@@ -171,16 +182,23 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
     case "request-failed":
       return failRun(state, action.userId, action.text, action.error);
     case "run-start":
-      return { ...state, running: true };
+      return { ...state, running: true, activity: activityReducer(state.activity, { type: "run-start" }) };
     case "assistant-delta": {
       const last = state.messages.at(-1);
       const messages = last?.role === "assistant" && last.status === "streaming"
         ? [...state.messages.slice(0, -1), { ...last, text: last.text + action.text }]
-        : [...state.messages, { id: action.id, role: "assistant" as const, text: action.text, status: "streaming" as const }];
-      return { ...state, messages };
+        : [...state.messages, { id: action.id, role: "assistant" as const, text: action.text, status: "streaming" as const, order: state.nextOrder }];
+      return {
+        ...state, messages, nextOrder: messages.length === state.messages.length ? state.nextOrder : state.nextOrder + 1,
+        activity: activityReducer(state.activity, { type: "aggregation-complete" }),
+      };
     }
     case "assistant-complete":
-      return { ...state, messages: finishLastAssistant(state.messages, "complete") };
+      return {
+        ...state,
+        messages: finishLastAssistant(state.messages, "complete"),
+        activity: activityReducer(state.activity, { type: "aggregation-complete" }),
+      };
     case "queue-accepted":
       if (!state.running || state.stopping) return state;
       return {
@@ -195,8 +213,9 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         queue: result.queue,
         messages: [
           ...state.messages,
-          ...result.injected.map(item => ({ id: `injected-${item.id}`, role: "user" as const, text: item.text, status: "complete" as const })),
+          ...result.injected.map((item, index) => ({ id: `injected-${item.id}`, role: "user" as const, text: item.text, status: "complete" as const, order: state.nextOrder + index })),
         ],
+        nextOrder: state.nextOrder + result.injected.length,
       };
     }
     case "queue-rejected":
@@ -218,10 +237,21 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         running: false,
         stopping: false,
         activeRun: undefined,
+        activity: activityReducer(state.activity, { type: "settle", reason: "interrupted" }),
       };
     case "backend-failed": {
-      if (!state.running || state.activeRun === undefined) return state;
-      return failRun(state, state.activeRun.userId, state.activeRun.text, action.error);
+      const settled = { ...state, activity: activityReducer(state.activity, { type: "settle", reason: "interrupted" }) };
+      if (!state.running || state.activeRun === undefined) return settled;
+      return failRun(settled, state.activeRun.userId, state.activeRun.text, action.error);
+    }
+    case "activity": {
+      const ordered = action.event.type === "tool-start" || action.event.type === "moa-reference-start" ||
+        action.event.type === "moa-aggregating" || action.event.type === "advisor-note" || action.event.type === "subagent-start";
+      return {
+        ...state,
+        activity: activityReducer(state.activity, ordered ? { ...action.event, order: state.nextOrder } : action.event),
+        nextOrder: ordered ? state.nextOrder + 1 : state.nextOrder,
+      };
     }
     case "reset":
       return initialChatState;
