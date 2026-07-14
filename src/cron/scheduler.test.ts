@@ -4,6 +4,9 @@ import type { CronJob } from "./jobs.js";
 import type { CronJobResult } from "./scheduler.js";
 import { tick, runCronJob, startScheduler } from "./scheduler.js";
 import type { AppConfig } from "../config.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 // ---------------------------------------------------------------------------
 // Shared fakes
 // ---------------------------------------------------------------------------
@@ -37,6 +40,10 @@ const makeJob = (overrides: Partial<CronJob> = {}): CronJob => ({
   lastRun: null,
   ...overrides,
 });
+
+const runTestCron = (
+  job: CronJob, devin: DevinProvider, model: DevinModel, systemPrompt: readonly string[], config: AppConfig, log: (message: string) => void,
+) => runCronJob(job, devin, model, systemPrompt, config, log, { reportRoot: join(tmpdir(), `railgun-cron-test-${process.pid}`) });
 
 // ---------------------------------------------------------------------------
 // tick
@@ -108,6 +115,36 @@ describe("tick", () => {
 // ---------------------------------------------------------------------------
 
 describe("runCronJob", () => {
+  it("completes only when a required output is newly written and saves a report", async () => {
+    const root = await mkdtemp(join(tmpdir(), "railgun-cron-contract-"));
+    const output = join(root, "result.md");
+    try {
+      const devin = fakeProvider([
+        [
+          { type: "toolcall_delta", id: "write", delta: JSON.stringify({ path: output, content: "done" }) },
+          { type: "toolcall_end", id: "write", name: "write_file", arguments: { path: output, content: "done" } },
+        ],
+        [{ type: "text_delta", delta: "Wrote and verified the report." }],
+      ]);
+      const result = await runCronJob(makeJob({ requiredOutputs: [output] }), devin, fakeModel, [], baseConfig, vi.fn(), { reportRoot: join(root, "reports") });
+      expect(result).toMatchObject({ ok: true, status: "completed" });
+      const jobDirectories = await readdir(join(root, "reports"));
+      const reports = await readdir(join(root, "reports", jobDirectories[0]!));
+      expect(await readFile(join(root, "reports", jobDirectories[0]!, reports[0]!), "utf8")).toContain(`PASS \`${output}\``);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("marks a missing required output incomplete", async () => {
+    const root = await mkdtemp(join(tmpdir(), "railgun-cron-missing-"));
+    try {
+      const missing = join(root, "missing.md");
+      const result = await runCronJob(
+        makeJob({ requiredOutputs: [missing] }), fakeProvider([[{ type: "text_delta", delta: "done" }]]), fakeModel, [], baseConfig, vi.fn(), { reportRoot: join(root, "reports") },
+      );
+      expect(result).toMatchObject({ ok: false, status: "incomplete" });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("creates a session, runs the prompt, and returns the collected text", async () => {
     const devin = fakeProvider([
       [{ type: "text_delta", delta: "The answer is " }, { type: "text_delta", delta: "4." }, { type: "done", reason: "stop" }],
@@ -115,7 +152,7 @@ describe("runCronJob", () => {
     const job = makeJob();
     const log = vi.fn();
 
-    const result = await runCronJob(job, devin, fakeModel, ["System"], baseConfig, log);
+    const result = await runTestCron(job, devin, fakeModel, ["System"], baseConfig, log);
 
     expect(result.ok).toBe(true);
     expect(result.jobId).toBe(job.id);
@@ -129,7 +166,7 @@ describe("runCronJob", () => {
     const job = makeJob();
     const log = vi.fn();
 
-    const result = await runCronJob(job, devin, fakeModel, [], baseConfig, log);
+    const result = await runTestCron(job, devin, fakeModel, [], baseConfig, log);
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe(boom);
@@ -145,7 +182,7 @@ describe("runCronJob", () => {
 
     // We can't easily intercept the confirmShellCommand, but we can verify the
     // session runs without error under approvalMode:"off"
-    const result = await runCronJob(job, devin, fakeModel, [], offConfig, log);
+    const result = await runTestCron(job, devin, fakeModel, [], offConfig, log);
     expect(result.ok).toBe(true);
   });
 
@@ -156,7 +193,7 @@ describe("runCronJob", () => {
       [{ type: "text_delta", delta: "done" }, { type: "done", reason: "stop" }],
     ]);
     const log = vi.fn();
-    await runCronJob(makeJob(), devin, fakeModel, [], baseConfig, log);
+    await runTestCron(makeJob(), devin, fakeModel, [], baseConfig, log);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Running cron job:"));
   });
 });
@@ -250,7 +287,7 @@ describe("startScheduler", () => {
 // ---------------------------------------------------------------------------
 
 describe("tick — failure semantics", () => {
-  it("does not update lastRun when runJob returns ok:false", async () => {
+  it("advances lastRun but not lastSuccess when runJob fails", async () => {
     const job = makeJob({ lastRun: null });
     const now = Date.now();
     const runJob = vi.fn(async (j: CronJob): Promise<CronJobResult> => ({
@@ -258,10 +295,12 @@ describe("tick — failure semantics", () => {
     }));
     const updated = await tick([job], now, runJob);
     expect(runJob).toHaveBeenCalledOnce();
-    expect(updated[0]?.lastRun).toBeNull();
+    expect(updated[0]?.lastRun).toBe(now);
+    expect(updated[0]?.lastSuccess).toBeUndefined();
+    expect(updated[0]?.lastStatus).toBe("failed");
   });
 
-  it("updates lastRun only for successful jobs in a mixed batch", async () => {
+  it("updates lastRun for every attempt and lastSuccess only for successful jobs", async () => {
     const now = Date.now();
     const failJob = makeJob({ id: "fail", lastRun: null });
     const okJob   = makeJob({ id: "ok",   lastRun: null });
@@ -272,8 +311,10 @@ describe("tick — failure semantics", () => {
       ...(j.id !== "ok" ? { error: new Error("fail") } : {}),
     }));
     const updated = await tick([failJob, okJob], now, runJob);
-    expect(updated.find(j => j.id === "fail")?.lastRun).toBeNull();
+    expect(updated.find(j => j.id === "fail")?.lastRun).toBe(now);
+    expect(updated.find(j => j.id === "fail")?.lastSuccess).toBeUndefined();
     expect(updated.find(j => j.id === "ok")?.lastRun).toBe(now);
+    expect(updated.find(j => j.id === "ok")?.lastSuccess).toBe(now);
   });
 });
 
@@ -287,7 +328,7 @@ describe("runCronJob — completion summaries", () => {
       [{ type: "text_delta", delta: "4" }, { type: "done", reason: "stop" }],
     ]);
     const log = vi.fn();
-    await runCronJob(makeJob(), devin, fakeModel, [], baseConfig, log);
+    await runTestCron(makeJob(), devin, fakeModel, [], baseConfig, log);
     const messages = log.mock.calls.map(([msg]) => msg as string);
     expect(messages.some(m => m.includes("completed in"))).toBe(true);
   });
@@ -296,7 +337,7 @@ describe("runCronJob — completion summaries", () => {
     const boom = new Error("network failure");
     const devin = fakeProvider([{ throws: boom }]);
     const log = vi.fn();
-    await runCronJob(makeJob(), devin, fakeModel, [], baseConfig, log);
+    await runTestCron(makeJob(), devin, fakeModel, [], baseConfig, log);
     const messages = log.mock.calls.map(([msg]) => msg as string);
     expect(messages.some(m => m.includes("failed after"))).toBe(true);
     expect(messages.some(m => m.includes("network failure"))).toBe(true);

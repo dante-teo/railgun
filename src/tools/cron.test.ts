@@ -35,7 +35,11 @@ vi.mock("../cron/jobs.js", () => {
     if (lastRun !== null && lastRun !== undefined && typeof lastRun !== "number") {
       throw new CronJobsError(path, `job "${id}": \`lastRun\` must be a number or null`);
     }
-    return { id, schedule, prompt, lastRun: (lastRun as number | null) ?? null };
+    const requiredOutputs = v.requiredOutputs ?? [];
+    if (!Array.isArray(requiredOutputs) || requiredOutputs.some(item => typeof item !== "string" || !item.startsWith("/"))) {
+      throw new CronJobsError(path, `job "${id}": invalid required outputs`);
+    }
+    return { id, schedule, prompt, lastRun: (lastRun as number | null) ?? null, requiredOutputs: requiredOutputs as string[] };
   };
 
   return { CronJobsError, validateJob, loadJobs: vi.fn(), saveJobs: vi.fn() };
@@ -101,6 +105,14 @@ describe("cron tool", () => {
     const saved = mockSaveJobs.mock.calls[0]![0] as CronJob[];
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({ id: "daily", schedule: "0 9 * * *", prompt: "Summarize", lastRun: null });
+  });
+
+  it("add accepts and validates required_outputs", async () => {
+    mockLoadJobs.mockResolvedValue([]);
+    const result = await run({ action: "add", id: "daily", schedule: "0 9 * * *", prompt: "Summarize", required_outputs: ["/tmp/report.md"] });
+    expect(result.isError).toBe(false);
+    expect((mockSaveJobs.mock.calls[0]![0] as CronJob[])[0]?.requiredOutputs).toEqual(["/tmp/report.md"]);
+    expect((await run({ action: "add", id: "bad", schedule: "0 9 * * *", prompt: "x", required_outputs: ["relative.md"] })).isError).toBe(true);
   });
 
   it("add with duplicate id returns isError: true", async () => {
@@ -195,6 +207,15 @@ describe("cron tool", () => {
     expect(mockSaveJobs).toHaveBeenCalledOnce();
     const saved = mockSaveJobs.mock.calls[0]![0] as CronJob[];
     expect(saved[0]).toMatchObject({ id: "daily", schedule: "0 9 * * *", prompt: "New prompt" });
+  });
+
+  it("update can clear required_outputs", async () => {
+    mockLoadJobs.mockResolvedValue([
+      { id: "daily", schedule: "0 9 * * *", prompt: "Old prompt", lastRun: null, requiredOutputs: ["/tmp/old.md"] },
+    ]);
+    const result = await run({ action: "update", id: "daily", required_outputs: [] });
+    expect(result.isError).toBe(false);
+    expect((mockSaveJobs.mock.calls[0]![0] as CronJob[])[0]?.requiredOutputs).toEqual([]);
   });
 
   it("update with unknown id returns isError: true", async () => {

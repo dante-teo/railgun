@@ -14,6 +14,8 @@ describe("buildSystemPrompt", () => {
   it("guides the agent to search unknown/current facts and fetch sources", () => {
     const prompt = buildSystemPrompt(defaultInput).join("\n");
     expect(prompt).toContain("Use web_search for current facts");
+    expect(prompt).toContain("requested artifact defines completion");
+    expect(prompt).toContain("Search results are metadata");
     expect(prompt).toContain("web_fetch promising sources");
     expect(prompt).toContain("do not bypass its safeguards");
   });
@@ -38,6 +40,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain('Conversation start date: "2026-07-09"');
     expect(prompt).toContain('Selected model: "claude-sonnet-4"');
     expect(prompt).toContain('Provider: "Devin"');
+  });
+
+  it("adds concise absolute-path completion guidance for Gemini models", () => {
+    const prompt = buildSystemPrompt({ ...defaultInput, modelId: "gemini-2.5-pro" }).join("\n");
+
+    expect(prompt).toContain("Gemini: use absolute paths");
+    expect(prompt).toContain("finish the requested action");
   });
 
   it("serializes environment values so control characters cannot create extra prompt lines", () => {

@@ -314,6 +314,7 @@ describe("runTurn", () => {
         { type: "toolcall_delta", id: `call-${i}`, delta: "{}" },
         { type: "toolcall_end", id: `call-${i}`, name: "loop_forever", arguments: {} }
       ]);
+      rounds.push([{ type: "text_delta", delta: "I could not finish; the loop produced no useful result." }]);
       const devin = fakeProvider(rounds);
       const streamChatSpy = vi.spyOn(devin, "streamChat");
 
@@ -321,12 +322,58 @@ describe("runTurn", () => {
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
-      expect(outcome.assistantText).toBe(ITERATION_LIMIT_MESSAGE);
-      expect(streamChatSpy).toHaveBeenCalledTimes(3);
+      expect(outcome.assistantText).toContain("could not finish");
+      expect(outcome.stopReason).toBe("iteration_limit");
+      expect(streamChatSpy).toHaveBeenCalledTimes(4);
+      expect(devin.streamChatRequests[3]?.tools).toEqual([]);
       expect(outcome.messages.at(-1)).toEqual({
         role: "assistant",
-        content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }]
+        content: [{ type: "text", text: "I could not finish; the loop produced no useful result." }]
       });
+    });
+
+    it("preserves cancellation while synthesizing the iteration-limit response", async () => {
+      const controller = new AbortController();
+      const synthesisStarted = Promise.withResolvers<void>();
+      const neverCompletes = Promise.withResolvers<void>();
+      let callIndex = 0;
+      const devin: DevinProvider = {
+        ...fakeProvider([]),
+        streamChat: async function* () {
+          if (callIndex++ === 0) {
+            yield { type: "toolcall_delta", id: "loop", delta: "{}" } as DevinStreamEvent;
+            yield { type: "toolcall_end", id: "loop", name: "loop_forever", arguments: {} } as DevinStreamEvent;
+            return;
+          }
+          synthesisStarted.resolve();
+          await neverCompletes.promise;
+        },
+      };
+      const clearQueues = vi.fn(() => 2);
+
+      const turn = runTurn(
+        devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Loop forever",
+        IterationBudget.create(1), approveAll, undefined, { signal: controller.signal, clearQueues },
+      );
+      await synthesisStarted.promise;
+      controller.abort(new DOMException("Stopped by user", "AbortError"));
+
+      await expect(turn).resolves.toMatchObject({ ok: false, aborted: true, cancelledQueued: 2 });
+      expect(clearQueues).toHaveBeenCalledOnce();
+    });
+
+    it("enters cron finalization mode with five iterations remaining", async () => {
+      const researchRounds: FakeRound[] = Array.from({ length: 25 }, (_, i) => [
+        { type: "toolcall_delta", id: `call-${i}`, delta: "{}" },
+        { type: "toolcall_end", id: `call-${i}`, name: "loop_forever", arguments: {} },
+      ]);
+      const devin = fakeProvider([...researchRounds, [{ type: "text_delta", delta: "final" }]]);
+      const outcome = await runTurn(
+        devin, "model-1", 1_000_000, defaultSystemPrompt, [], "work", IterationBudget.create(30), approveAll, undefined, { cron: true },
+      );
+      expect(outcome.ok).toBe(true);
+      expect(devin.streamChatRequests[25]?.tools?.some(tool => tool.name === "web_search")).toBe(false);
+      expect(JSON.stringify(devin.streamChatRequests[25]?.messages)).toContain("Finalization mode");
     });
 
     it("discards the whole turn and leaves caller history untouched when a later round throws", async () => {

@@ -35,6 +35,12 @@ registry.register({
           type: "string",
           description: "The agent prompt to run on schedule. Required for add; optional for update.",
         },
+        required_outputs: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 10,
+          description: "Absolute output paths that must be changed by each run. An empty array clears the contract.",
+        },
       },
       required: ["action"],
     },
@@ -46,6 +52,16 @@ registry.register({
     }
 
     try {
+      const requiredOutputsValue = typeof args === "object" && args !== null && "required_outputs" in args
+        ? (args as Record<string, unknown>).required_outputs
+        : undefined;
+      const parseRequiredOutputs = (): readonly string[] | undefined => {
+        if (requiredOutputsValue === undefined) return undefined;
+        if (!Array.isArray(requiredOutputsValue) || requiredOutputsValue.some(item => typeof item !== "string")) {
+          throw new CronJobsError(CRON_PATH, "`required_outputs` must be an array of absolute path strings");
+        }
+        return requiredOutputsValue;
+      };
       if (action === "list") {
         const jobs = await loadJobs();
         if (jobs.length === 0) return { content: "No cron jobs configured.", isError: false };
@@ -63,7 +79,7 @@ registry.register({
         if (jobs.some(j => j.id === id)) {
           return { content: `Error: a cron job with id "${id}" already exists`, isError: true };
         }
-        const newJob = validateJob({ id, schedule, prompt, lastRun: null }, CRON_PATH);
+        const newJob = validateJob({ id, schedule, prompt, lastRun: null, requiredOutputs: parseRequiredOutputs() ?? [] }, CRON_PATH);
         await saveJobs([...jobs, newJob]);
         return { content: `Added cron job "${id}": ${schedule} → ${prompt}`, isError: false };
       }
@@ -88,8 +104,9 @@ registry.register({
         }
         const schedule = extractString(args, "schedule");
         const prompt = extractString(args, "prompt");
-        if (!schedule && !prompt) {
-          return { content: 'Error: update requires at least one of "schedule" or "prompt"', isError: true };
+        const requiredOutputs = parseRequiredOutputs();
+        if (!schedule && !prompt && requiredOutputs === undefined) {
+          return { content: 'Error: update requires at least one of "schedule", "prompt", or "required_outputs"', isError: true };
         }
         const jobs = await loadJobs();
         const existing = jobs.find(j => j.id === id);
@@ -97,7 +114,7 @@ registry.register({
           return { content: `Error: no cron job found with id "${id}"`, isError: true };
         }
         const updated = validateJob(
-          { ...existing, ...(schedule ? { schedule } : {}), ...(prompt ? { prompt } : {}) },
+          { ...existing, ...(schedule ? { schedule } : {}), ...(prompt ? { prompt } : {}), ...(requiredOutputs !== undefined ? { requiredOutputs } : {}) },
           CRON_PATH,
         );
         await saveJobs(jobs.map(j => (j.id === id ? updated : j)));

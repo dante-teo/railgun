@@ -2,18 +2,21 @@ import { appendFileSync, mkdirSync, readdirSync, symlinkSync, unlinkSync } from 
 import { join } from "node:path";
 import type { DevinProvider, DevinModel } from "widevin";
 import type { AppConfig } from "../config.js";
-import { CRON_LOGS_PATH } from "../paths.js";
+import { CRON_LOGS_PATH, CRON_OUTPUT_PATH } from "../paths.js";
 import { createAgentSession } from "../agent/agentSession.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { createTodoStore } from "../tools/todo.js";
 import { loadJobs, saveJobs, isDue } from "./jobs.js";
 import type { CronJob } from "./jobs.js";
+import { snapshotOutputs, verifyOutputs, writeRunReport } from "./artifacts.js";
+import type { OutputVerification } from "./artifacts.js";
 
 export interface CronJobResult {
   readonly jobId: string;
   readonly ok: boolean;
   readonly text: string;
   readonly error?: unknown;
+  readonly status?: "completed" | "incomplete" | "failed";
 }
 
 
@@ -103,8 +106,10 @@ export const runCronJob = async (
   systemPrompt: readonly string[],
   config: AppConfig,
   log: (msg: string) => void,
+  options: { readonly reportRoot?: string; readonly now?: () => Date } = {},
 ): Promise<CronJobResult> => {
   const startTime = Date.now();
+  const timestamp = (options.now ?? (() => new Date()))();
   const pfx = `[cron:${job.id}]`;
   log(`Running cron job: ${job.id}`);
 
@@ -121,6 +126,7 @@ export const runCronJob = async (
     commandApprovalMode: approvalMode,
     ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
     iterationBudget: () => IterationBudget.create(30),
+    cron: true,
   });
 
   let text = "";
@@ -162,22 +168,67 @@ export const runCronJob = async (
 
   const durationSec = (): string => `${((Date.now() - startTime) / 1000).toFixed(1)}s`;
 
+  const requiredOutputs = job.requiredOutputs ?? [];
+  const runPrompt = requiredOutputs.length === 0
+    ? job.prompt
+    : `${job.prompt}\n\nRequired output contract: write and verify each of these absolute paths during this run:\n${requiredOutputs.map(path => `- ${path}`).join("\n")}`;
+  let verification: readonly OutputVerification[] = [];
+  let status: "completed" | "incomplete" | "failed" = "failed";
+  let finalText = "";
+  let failureReason: string | null = null;
+  let resultError: unknown;
+
   try {
-    const outcome = await agentSession.run({ history: [], text: job.prompt });
+    const before = await snapshotOutputs(requiredOutputs);
+    const outcome = await agentSession.run({ history: [], text: runPrompt });
+    verification = await verifyOutputs(requiredOutputs, before);
     if (outcome.ok) {
-      log(`${pfx} completed in ${durationSec()} (${turnCount} turns, ${toolCallCount} tool calls)`);
-      return { jobId: job.id, ok: true, text };
+      finalText = outcome.assistantText.trim();
+      const outputFailure = verification.find(item => !item.satisfied);
+      failureReason = outcome.stopReason === "iteration_limit"
+        ? "iteration limit reached"
+        : finalText === ""
+          ? "empty final response"
+          : outputFailure
+            ? `required output ${outputFailure.path}: ${outputFailure.reason}`
+            : null;
+      status = failureReason === null ? "completed" : "incomplete";
+      if (failureReason !== null) resultError = new Error(failureReason);
+    } else if ("aborted" in outcome) {
+      finalText = outcome.assistantText.trim();
+      failureReason = "aborted";
+      resultError = new Error("aborted");
+      status = "failed";
+    } else {
+      failureReason = errMsg(outcome.error);
+      resultError = outcome.error;
+      status = "failed";
     }
-    if ("aborted" in outcome) {
-      log(`${pfx} aborted after ${durationSec()}`);
-      return { jobId: job.id, ok: false, text, error: new Error("aborted") };
-    }
-    log(`${pfx} failed after ${durationSec()}: ${errMsg(outcome.error)}`);
-    return { jobId: job.id, ok: false, text, error: outcome.error };
   } catch (error) {
-    log(`${pfx} failed after ${durationSec()}: ${errMsg(error)}`);
-    return { jobId: job.id, ok: false, text, error };
+    failureReason = errMsg(error);
+    resultError = error;
+    status = "failed";
   }
+
+  try {
+    await writeRunReport(options.reportRoot ?? CRON_OUTPUT_PATH, {
+      jobId: job.id, schedule: job.schedule, prompt: job.prompt, status,
+      durationMs: Date.now() - startTime, turnCount, toolCallCount, verification,
+      finalResponse: finalText || (status === "failed" ? text.trim() : ""), failureReason, timestamp,
+    });
+  } catch (error) {
+    status = "failed";
+    failureReason = `failed to write run report: ${errMsg(error)}`;
+    resultError = error;
+    log(`${pfx} ${failureReason}`);
+  }
+
+  const summary = status === "completed" ? "completed in" : status === "incomplete" ? "incomplete after" : "failed after";
+  log(`${pfx} ${summary} ${durationSec()} (${turnCount} turns, ${toolCallCount} tool calls)${failureReason ? `: ${failureReason}` : ""}`);
+  return {
+    jobId: job.id, ok: status === "completed", status, text: finalText || text.trim(),
+    ...(resultError !== undefined ? { error: resultError } : {}),
+  };
 };
 
 // ─── tick ─────────────────────────────────────────────────────────────────────
@@ -186,15 +237,19 @@ export const tick = async (
   jobs: readonly CronJob[],
   now: number,
   runJob: (job: CronJob) => Promise<CronJobResult>,
-): Promise<readonly CronJob[]> => {
-  const updated = [...jobs];
-  for (const [i, job] of updated.entries()) {
-    if (!isDue(job, now)) continue;
-    const result = await runJob(job);
-    if (result.ok) updated[i] = { ...job, lastRun: now };
-  }
-  return updated;
-};
+): Promise<readonly CronJob[]> => jobs.reduce<Promise<readonly CronJob[]>>(async (updatedJobs, job) => {
+  const updated = await updatedJobs;
+  if (!isDue(job, now)) return [...updated, job];
+  const result = await runJob(job);
+  const status = result.status ?? (result.ok ? "completed" : "failed");
+  return [...updated, {
+    ...job,
+    lastRun: now,
+    lastStatus: status,
+    lastError: status === "completed" ? null : errMsg(result.error ?? `${status} cron run`),
+    ...(status === "completed" ? { lastSuccess: now } : {}),
+  }];
+}, Promise.resolve([]));
 
 // ─── sleep ────────────────────────────────────────────────────────────────────
 
@@ -212,14 +267,14 @@ export const startScheduler = async (
   model: DevinModel,
   systemPrompt: readonly string[],
   config: AppConfig,
-  options: { interval?: number; signal?: AbortSignal; log?: (msg: string) => void } = {},
+  options: { interval?: number; signal?: AbortSignal; log?: (msg: string) => void; reportRoot?: string } = {},
 ): Promise<void> => {
   const interval = options.interval ?? 60_000;
   const signal = options.signal ?? new AbortController().signal;
   const log = options.log ?? createCronLogger();
   const runId = `run-${process.pid}-${Date.now()}`;
   const runJob = (job: CronJob): Promise<CronJobResult> =>
-    runCronJob(job, devin, model, systemPrompt, config, log);
+    runCronJob(job, devin, model, systemPrompt, config, log, { ...(options.reportRoot ? { reportRoot: options.reportRoot } : {}) });
 
   log(`Cron scheduler started [${runId}]. Checking every ${interval / 1000}s...`);
   log(`Cron logs directory: ~/.railgun/cron/logs/`);
@@ -250,7 +305,7 @@ export const startScheduler = async (
     const now = Date.now();
     const anyDue = jobs.some(j => isDue(j, now));
     const updated = await tick(jobs, now, runJob);
-    const anySucceeded = updated.some((job, i) => job.lastRun !== jobs[i]?.lastRun);
+    const anyAttempted = updated.some((job, i) => job.lastRun !== jobs[i]?.lastRun);
 
     if (!anyDue) {
       idleCount += 1;
@@ -259,7 +314,7 @@ export const startScheduler = async (
       }
     } else {
       idleCount = 0;
-      if (anySucceeded) {
+      if (anyAttempted) {
         try {
           await saveJobs(updated);
         } catch (error) {

@@ -17,9 +17,11 @@ import type { MoAPreset, ReferenceCallbacks } from "./moa.js";
 import { runReferences, buildAggregatorGuidance } from "./moa.js";
 import { PRIMARY_TOOLSETS } from "../tools/toolsets.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
+import { initialProgressState, planToolCalls, recordToolResults } from "./progress.js";
+import type { ProgressState } from "./progress.js";
 
 export type TurnOutcome =
-  | { ok: true; messages: readonly DevinMessage[]; assistantText: string }
+  | { ok: true; messages: readonly DevinMessage[]; assistantText: string; stopReason?: "iteration_limit" }
   | { ok: false; aborted: true; messages: readonly DevinMessage[]; assistantText: string; cancelledQueued: number }
   | { ok: false; error: unknown };
 
@@ -29,7 +31,7 @@ const ENABLED_TOOLSETS = PRIMARY_TOOLSETS;
 
 type StepResult =
   | { done: true; assistantText: string; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] }
-  | { done: false; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[] };
+  | { done: false; usage: UsageTotals | undefined; message: DevinMessage; toolResults: readonly ToolResult[]; progressState: ProgressState; guidance?: string };
 
 export interface RunTurnOptions {
   todoStore?: TodoStore;
@@ -54,6 +56,7 @@ export interface RunTurnOptions {
   delegationDepth?: number;
   enabledToolsets?: readonly string[];
   operationTimeoutMs?: number;
+  cron?: boolean;
 }
 
 const pushMessage = async (
@@ -75,7 +78,10 @@ const runStep = async (
   allTextParts: string[],
   doEmit: (event: AgentEvent) => Promise<void>,
   extensionRunner?: ExtensionRunner,
-  enabledToolsets: readonly string[] = ENABLED_TOOLSETS
+  enabledToolsets: readonly string[] = ENABLED_TOOLSETS,
+  progressState: ProgressState = initialProgressState(),
+  cron = false,
+  finalizing = false,
 ): Promise<StepResult> => {
   const textParts: string[] = [];
   const rawArgsById = new Map<string, string>();
@@ -92,7 +98,7 @@ const runStep = async (
       for await (const event of devin.streamChat({
         model,
         messages,
-        tools: registry.getSchemas(enabledToolsets),
+        tools: registry.getSchemas(enabledToolsets).filter(tool => !(finalizing && tool.name === "web_search")),
         systemPrompt: prompt,
         signal: scopedSignal,
       })) {
@@ -164,9 +170,24 @@ const runStep = async (
     }
   }
 
-  const validCalls = resolved.filter(
+  const parsedCalls = resolved.filter(
     (c): c is { id: string; name: string; arguments: unknown; corrupted: false } => !c.corrupted
   );
+  const planned = planToolCalls(
+    finalizing ? { ...progressState, consecutiveSearches: Math.max(10, progressState.consecutiveSearches) } : progressState,
+    parsedCalls,
+    cron,
+  );
+  const blocked = planned.decisions.filter(decision => !decision.allowed);
+  for (const decision of blocked) {
+    const content = decision.guidance ?? "Blocked non-progressing tool call.";
+    await doEmit({ type: "tool_execution_start", toolCallId: decision.call.id, toolName: decision.call.name, args: decision.call.arguments });
+    const result: ToolResult = { toolCallId: decision.call.id, content, isError: true };
+    await doEmit({ type: "tool_execution_end", toolCallId: decision.call.id, toolName: decision.call.name, result });
+    await pushMessage(messages, doEmit, { role: "tool", toolCallId: decision.call.id, content, isError: true });
+    toolResults.push(result);
+  }
+  const validCalls = planned.decisions.filter(decision => decision.allowed).map(decision => decision.call);
 
   if (shouldParallelizeToolBatch(validCalls)) {
     for (const call of validCalls) {
@@ -281,7 +302,46 @@ const runStep = async (
     }
   }
 
-  return { done: false, usage: lastUsage, message: assistantMessage, toolResults };
+  const resultById = new Map(toolResults.map(result => [result.toolCallId, result]));
+  const order = new Map(resolved.map((call, index) => [call.id, index]));
+  toolResults.sort((a, b) => (order.get(a.toolCallId) ?? 0) - (order.get(b.toolCallId) ?? 0));
+  const toolMessages = messages.splice(messages.indexOf(assistantMessage) + 1)
+    .sort((a, b) => a.role === "tool" && b.role === "tool"
+      ? (order.get(a.toolCallId) ?? 0) - (order.get(b.toolCallId) ?? 0)
+      : 0);
+  messages.push(...toolMessages);
+  const executedResults = planned.decisions
+    .filter(decision => decision.allowed)
+    .map(decision => resultById.get(decision.call.id))
+    .filter((result): result is ToolResult => result !== undefined);
+  const progress = recordToolResults(planned.state, planned.decisions, executedResults);
+  const guidance = progress.guidance ?? planned.decisions.find(decision => decision.guidance)?.guidance;
+  return {
+    done: false, usage: lastUsage, message: assistantMessage, toolResults,
+    progressState: progress.state,
+    ...(guidance ? { guidance } : {}),
+  };
+};
+
+const synthesizeAfterIterationLimit = async (
+  devin: DevinProvider,
+  model: string,
+  systemPrompt: readonly string[],
+  messages: readonly DevinMessage[],
+  signal: AbortSignal,
+  operationTimeoutMs: number,
+): Promise<string> => {
+  const text: string[] = [];
+  const finalPrompt = [
+    ...systemPrompt,
+    "Iteration budget exhausted. Make one tool-free final response now. Summarize useful findings, completed work, and blockers honestly. Do not claim completion for missing artifacts.",
+  ];
+  await runBoundedOperation(signal, operationTimeoutMs, "Iteration-limit synthesis", async scopedSignal => {
+    for await (const event of devin.streamChat({ model, messages, tools: [], systemPrompt: finalPrompt, signal: scopedSignal })) {
+      if (event.type === "text_delta") text.push(event.delta);
+    }
+  });
+  return text.join("").trim() || ITERATION_LIMIT_MESSAGE;
 };
 
 export const runTurn = async (
@@ -325,6 +385,8 @@ export const runTurn = async (
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;
+  let progressState = initialProgressState();
+  let finalizationGuidanceInjected = false;
   let legacyFollowUps: readonly string[] = [];
   const takeNextFollowUp = (): string | undefined => {
     if (options?.takeFollowUp !== undefined) return options.takeFollowUp();
@@ -348,7 +410,7 @@ export const runTurn = async (
   await doEmit({ type: "message_start", message: initialUserMessage });
   await doEmit({ type: "message_end", message: initialUserMessage });
 
-  let guidanceMessage: DevinMessage | undefined;
+  const privateGuidanceMessages = new Set<DevinMessage>();
   if (options?.moaPreset) {
     const preset = options.moaPreset;
     const callbacks: ReferenceCallbacks = {
@@ -361,7 +423,8 @@ export const runTurn = async (
     await doEmit({ type: "moa_aggregating", aggregator: preset.aggregator.model, refCount: refs.length });
     // Guidance is private context for the aggregator — not a real user message.
     // Skip pushMessage (which emits message_start/end) to keep the event stream clean.
-    guidanceMessage = { role: "user", content: guidance };
+    const guidanceMessage: DevinMessage = { role: "user", content: guidance };
+    privateGuidanceMessages.add(guidanceMessage);
     messages.push(guidanceMessage);
   }
 
@@ -369,15 +432,39 @@ export const runTurn = async (
   // Compaction rebuilds the messages array entirely, so after compaction the guidance is already gone —
   // the filter is a no-op in that case and safe to call unconditionally.
   const stripGuidance = (msgs: DevinMessage[]): DevinMessage[] =>
-    guidanceMessage !== undefined ? msgs.filter(m => m !== guidanceMessage) : msgs;
+    privateGuidanceMessages.size > 0 ? msgs.filter(message => !privateGuidanceMessages.has(message)) : msgs;
+
+  const finishAborted = async (): Promise<Extract<TurnOutcome, { aborted: true }>> => {
+    const cancelledQueued = options?.clearQueues?.() ?? 0;
+    const partialText = allTextParts.join("");
+    if (!turnEndedThisAttempt) {
+      if (messages.at(-1)?.role === "user") {
+        const closer: DevinMessage = { role: "assistant", content: [] };
+        await pushMessage(messages, doEmit, closer);
+      }
+      await doEmit({ type: "turn_end", message: messages.at(-1)!, toolResults: [] });
+    }
+    await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
+    return { ok: false, aborted: true, messages: stripGuidance(messages), assistantText: partialText, cancelledQueued };
+  };
 
   try {
     while (iterationBudget.consume()) {
       compactedThisRound = false;
       turnEndedThisAttempt = false;
+      const finalizing = options?.cron === true && iterationBudget.remaining() < 5;
+      if (finalizing && !finalizationGuidanceInjected) {
+        const finalizationGuidance: DevinMessage = {
+          role: "user",
+          content: "Finalization mode: research is closed. Use existing evidence, write every required output using absolute paths, verify the files, and return an honest partial report if data remains unavailable.",
+        };
+        privateGuidanceMessages.add(finalizationGuidance);
+        messages.push(finalizationGuidance);
+        finalizationGuidanceInjected = true;
+      }
       await doEmit({ type: "turn_start" });
       const outcome = await callDevinWithRecovery(
-        () => runStep(devin, effectiveModel, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner, effectiveToolsets),
+        () => runStep(devin, effectiveModel, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner, effectiveToolsets, progressState, options?.cron === true, finalizing),
         () => compress("overflow")
       );
       await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });
@@ -403,27 +490,30 @@ export const runTurn = async (
         await pushMessage(messages, doEmit, followUpMessage);
         continue;
       }
+      progressState = outcome.progressState;
+      if (outcome.guidance) {
+        const progressGuidance: DevinMessage = { role: "user", content: outcome.guidance };
+        privateGuidanceMessages.add(progressGuidance);
+        messages.push(progressGuidance);
+      }
       if (!compactedThisRound && shouldCompact(outcome.usage, contextWindow)) await compress("threshold");
     }
   } catch (error) {
-    if (signal.aborted) {
-      const cancelledQueued = options?.clearQueues?.() ?? 0;
-      const partialText = allTextParts.join("");
-      if (!turnEndedThisAttempt) {
-        if (messages.at(-1)?.role === "user") {
-          const closer: DevinMessage = { role: "assistant", content: [] };
-          await pushMessage(messages, doEmit, closer);
-        }
-        await doEmit({ type: "turn_end", message: messages.at(-1)!, toolResults: [] });
-      }
-      await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
-      return { ok: false, aborted: true, messages: stripGuidance(messages), assistantText: partialText, cancelledQueued };
-    }
+    if (signal.aborted) return finishAborted();
     return { ok: false, error };
   }
 
-  const limitMessage: DevinMessage = { role: "assistant", content: [{ type: "text", text: ITERATION_LIMIT_MESSAGE }] };
+  let summary: string;
+  try {
+    summary = await synthesizeAfterIterationLimit(
+      devin, effectiveModel, systemPrompt, messages, signal, context.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
+    );
+  } catch {
+    if (signal.aborted) return finishAborted();
+    summary = ITERATION_LIMIT_MESSAGE;
+  }
+  const limitMessage: DevinMessage = { role: "assistant", content: [{ type: "text", text: summary }] };
   await pushMessage(messages, doEmit, limitMessage);
   await doEmit({ type: "agent_end", messages: stripGuidance(messages) });
-  return { ok: true, messages: stripGuidance(messages), assistantText: ITERATION_LIMIT_MESSAGE };
+  return { ok: true, messages: stripGuidance(messages), assistantText: summary, stopReason: "iteration_limit" };
 };

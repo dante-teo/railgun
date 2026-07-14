@@ -35,6 +35,7 @@ export interface AgentDependencies {
   readonly enabledToolsets?: readonly string[];
   readonly advisor?: { readonly model: string };
   readonly operationTimeoutMs?: number;
+  readonly cron?: boolean;
 }
 
 export interface AgentRunInput {
@@ -122,6 +123,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           contextWindow: dependencies.contextWindow,
           delegationDepth: 0,
           operationTimeoutMs: dependencies.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
+          ...(dependencies.cron !== undefined ? { cron: dependencies.cron } : {}),
         },
       );
       if (!advisor || !("messages" in outcome)) return outcome;

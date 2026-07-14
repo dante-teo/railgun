@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevinProvider, DevinStreamEvent, DevinModel } from "widevin";
 import type { AppConfig } from "../config.js";
 import type { CronJob } from "./jobs.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const baseConfig: AppConfig = { model: null, defaultProjectTrust: "ask", approvalMode: "manual" };
 const fakeModel: DevinModel = { id: "model-x", contextWindow: 100_000 } as DevinModel;
@@ -52,7 +54,7 @@ describe("startScheduler — idle log suppression", () => {
     const dueJob = makeJob({ id: "fail-job", lastRun: null });
     vi.resetModules();
 
-    const saveJobsMock = vi.fn(async () => {});
+    const saveJobsMock = vi.fn(async (_jobs: readonly CronJob[]) => {});
     vi.doMock("./jobs.js", () => ({
       loadJobs: vi.fn(async () => [dueJob]),
       saveJobs: saveJobsMock,
@@ -70,7 +72,7 @@ describe("startScheduler — idle log suppression", () => {
       fakeModel,
       [],
       baseConfig,
-      { signal: controller.signal, interval: 100, log },
+      { signal: controller.signal, interval: 100, log, reportRoot: join(tmpdir(), `railgun-idle-test-${process.pid}`) },
     );
 
     // Let one tick run then abort.
@@ -84,7 +86,8 @@ describe("startScheduler — idle log suppression", () => {
     expect(messages.some(m => m.includes("No jobs due"))).toBe(false);
     // runCronJob logged the failure
     expect(messages.some(m => m.includes("failed after"))).toBe(true);
-    // anySucceeded=false → saveJobs must not be called
-    expect(saveJobsMock).not.toHaveBeenCalled();
+    // Every attempt advances lastRun, including failures, so the next minute does not retry it.
+    expect(saveJobsMock).toHaveBeenCalledOnce();
+    expect(saveJobsMock.mock.calls[0]?.[0]?.[0]).toMatchObject({ lastStatus: "failed" });
   });
 });

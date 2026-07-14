@@ -191,9 +191,12 @@ session becomes durable after its first successful turn:
   changes remain, while queued steering is discarded.
 - A REPL session has one shared 90-step iteration budget across all turns.
   Each Devin/tool-call round consumes one step. If the budget is exhausted,
-  the assistant prints
+  Railgun makes one final tool-free model call to summarize completed work,
+  useful findings, and blockers. If that synthesis call fails, the assistant
+  falls back to
   `I've reached the iteration limit for this session, so I'm stopping here gracefully.`
-  and the REPL stays open.
+  The REPL stays open. Cancelling during synthesis remains a normal cancelled
+  turn rather than being reported as successful completion.
 - Completed assistant replies render as GFM Markdown, including wrapping,
   links, tables, lists, inline code, and fenced code boxes with language labels.
   Partial streaming text remains plain until the reply completes.
@@ -319,8 +322,8 @@ while `--session` limits the switch to the current REPL run. `/model <name>`
 switches directly without the picker.
 
 All application files derive from the fixed `~/.railgun` home: `config.json`,
-`devin-token`, `state.db`, `SOUL.md`, `extensions/`, and `cron/jobs.json`. There are no profiles or home-path
-overrides.
+`devin-token`, `state.db`, `SOUL.md`, `extensions/`, `cron/jobs.json`,
+`cron/logs/`, and `cron/output/`. There are no profiles or home-path overrides.
 
 ### Extensions
 
@@ -477,25 +480,51 @@ pnpm start cron
     "id": "daily-summary",
     "schedule": "0 9 * * *",
     "prompt": "Summarize what files changed in the current directory today.",
-    "lastRun": null
+    "requiredOutputs": ["/Users/alex/reports/daily-summary.md"],
+    "lastRun": null,
+    "lastSuccess": null,
+    "lastStatus": null,
+    "lastError": null
   }
 ]
 ```
 
-Each job has a cron expression (`schedule`, interpreted in local time), a `prompt` sent to a fresh agent session, and a `lastRun` epoch timestamp (or `null` for never run). The scheduler wakes every 60 seconds, checks which jobs are due, and runs them sequentially. After each cycle it writes the updated `lastRun` values back to `jobs.json` atomically. The file is re-read every cycle so edits take effect without restarting.
+Each job has a cron expression (`schedule`, interpreted in local time), a
+`prompt` sent to a fresh agent session, and optional `requiredOutputs`.
+Required outputs must be unique absolute paths (maximum 10). A run completes
+only when every declared path is a newly created or changed, non-empty regular
+file. Omitting the field or setting it to `[]` disables the output contract.
+
+`lastRun` is the epoch timestamp of the latest attempted scheduled run and is
+used for due-time calculation. `lastSuccess` advances only after a completed
+run. `lastStatus` is `"completed"`, `"incomplete"`, `"failed"`, or `null`, and
+`lastError` records the latest non-completion reason. Legacy jobs are normalized
+on load: a non-null legacy `lastRun` becomes `lastSuccess` and implies a
+`"completed"` status. The scheduler wakes every 60 seconds, runs due jobs
+sequentially, and writes attempt state back to `jobs.json` atomically. The file
+is re-read every cycle so edits take effect without restarting.
 
 Behavior in cron mode:
 - Each job gets a **fresh 30-step iteration budget** and a **fresh session** — no conversation history, no session database entry.
+- The final **5 steps are finalization mode**: new searches are disabled while source fetching, file writing, and verification remain available. The model is instructed to use existing evidence, produce every required output, and report partial results honestly.
+- Agent sessions warn after 6 consecutive `web_search` calls, stop cron research after 10 consecutive searches, warn when an identical idempotent call returns the same result twice, and block that call after 5 non-progressing attempts. Independent allowed calls may still execute concurrently; their results retain declared call order.
 - Shell commands are **denied by default** unless `approvalMode: "off"` is set in `config.json` (hardline-blocked commands always apply).
 - Extensions are **not loaded** — unattended safety.
 - Output (timestamps, turn events, tool calls, completion summaries) is written to **`~/.railgun/cron/logs/cron-YYYY-MM-DD.log`** (rotated daily at UTC midnight; `cron-latest.log` symlinks to today's file). The daemon's own stdout/stderr go to `/dev/null` — the scheduler logger captures everything.
-- **Failed jobs retry** every scheduler tick (60s) rather than waiting for the next cron window. Once a job succeeds, `lastRun` is updated and normal scheduling resumes.
+- Every attempted run advances `lastRun`, including incomplete and failed runs, so it waits for the next cron window instead of retrying every scheduler tick. Only completed runs advance `lastSuccess`.
+- Every attempt writes an atomic Markdown report below **`~/.railgun/cron/output/<safe-job-id>/`** with the prompt, status, duration, turn/tool counts, output verification, final response, and failure reason. Railgun retains the newest 50 reports per job. A report-write failure changes the run status to `failed` and is logged.
+- A normal final response with all required outputs satisfied is `completed`. Iteration exhaustion, an empty final response, or a missing, empty, stale, or non-file output is `incomplete`. Uncaught provider/runtime exceptions and report-write failures are `failed`; ordinary tool error results remain available to the model to recover from or report.
 - Each log line is prefixed with an ISO-8601 timestamp. Scheduler startup emits a **run ID** (`[run-PID-EPOCH]`) that appears in both the `started` and `stopped` lines, making it easy to correlate entries when the daemon restarts on the same calendar day.
 - Press **Ctrl+C** or send **SIGTERM** to stop the scheduler cleanly after the current job finishes.
 
 A missing `~/.railgun/cron/jobs.json` is treated as an empty list — the scheduler runs but never fires. The `schedule` field uses standard cron syntax (`* * * * *` — minute, hour, day-of-month, month, day-of-week); five-field expressions are supported via `cron-parser`.
 
-Jobs can now be managed without editing the file directly: the `/cron` REPL slash command (`/cron`, `/cron add`, `/cron remove`) provides quick in-session access, and the agent `cron` tool (`action: list|add|remove|update`) lets the LLM manage jobs on behalf of the user via natural language.
+Jobs can be managed without editing the file directly: the `/cron` REPL slash
+command (`/cron`, `/cron add`, `/cron remove`) provides quick in-session access,
+and the agent `cron` tool (`action: list|add|remove|update`) lets the LLM manage
+jobs on behalf of the user via natural language. The tool's `required_outputs`
+argument maps to the persisted `requiredOutputs` field for `add` and `update`;
+passing an empty array clears the contract.
 
 ### Background service daemon
 

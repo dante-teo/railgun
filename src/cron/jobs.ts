@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import writeFileAtomic from "write-file-atomic";
 import { CronExpressionParser } from "cron-parser";
 import { CRON_PATH } from "../paths.js";
@@ -9,6 +9,10 @@ export interface CronJob {
   readonly schedule: string;
   readonly prompt: string;
   readonly lastRun: number | null;
+  readonly requiredOutputs?: readonly string[];
+  readonly lastSuccess?: number | null;
+  readonly lastStatus?: "completed" | "incomplete" | "failed" | null;
+  readonly lastError?: string | null;
 }
 
 export class CronJobsError extends Error {
@@ -52,7 +56,34 @@ export const validateJob = (value: unknown, path: string): CronJob => {
     throw new CronJobsError(path, `job "${id}": \`lastRun\` must be a number or null`);
   }
 
-  return { id, schedule, prompt, lastRun: lastRun ?? null };
+  const requiredOutputs = "requiredOutputs" in value ? value.requiredOutputs : [];
+  if (!Array.isArray(requiredOutputs) || requiredOutputs.length > 10 ||
+      requiredOutputs.some(output => typeof output !== "string" || !isAbsolute(output)) ||
+      new Set(requiredOutputs).size !== requiredOutputs.length) {
+    throw new CronJobsError(path, `job "${id}": \`requiredOutputs\` must contain at most 10 unique absolute paths`);
+  }
+
+  const hasLastSuccess = "lastSuccess" in value;
+  const lastSuccess = hasLastSuccess ? value.lastSuccess : (lastRun ?? null);
+  if (lastSuccess !== null && typeof lastSuccess !== "number") {
+    throw new CronJobsError(path, `job "${id}": \`lastSuccess\` must be a number or null`);
+  }
+  const lastStatus = "lastStatus" in value ? value.lastStatus : (lastRun == null ? null : "completed");
+  if (lastStatus !== null && lastStatus !== "completed" && lastStatus !== "incomplete" && lastStatus !== "failed") {
+    throw new CronJobsError(path, `job "${id}": \`lastStatus\` is invalid`);
+  }
+  const lastError = "lastError" in value ? value.lastError : null;
+  if (lastError !== null && typeof lastError !== "string") {
+    throw new CronJobsError(path, `job "${id}": \`lastError\` must be a string or null`);
+  }
+
+  return {
+    id, schedule, prompt, lastRun: lastRun ?? null,
+    requiredOutputs: requiredOutputs as string[],
+    lastSuccess: lastSuccess as number | null,
+    lastStatus: lastStatus as "completed" | "incomplete" | "failed" | null,
+    lastError: lastError as string | null,
+  };
 };
 
 interface LoadJobsOptions {

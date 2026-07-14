@@ -25,6 +25,15 @@ const validJob: CronJob = {
 };
 
 describe("loadJobs", () => {
+  it("normalizes legacy successful jobs", async () => {
+    const jobs = await loadJobs("/cron.json", {
+      readFile: async () => JSON.stringify([{ id: "legacy", schedule: "0 9 * * *", prompt: "go", lastRun: 123 }]),
+    });
+    expect(jobs[0]).toMatchObject({
+      requiredOutputs: [], lastRun: 123, lastSuccess: 123, lastStatus: "completed", lastError: null,
+    });
+  });
+
   it("returns [] when the file does not exist", async () => {
     await expect(loadJobs(path)).resolves.toEqual([]);
   });
@@ -32,7 +41,8 @@ describe("loadJobs", () => {
   it("parses a valid jobs array", async () => {
     await writeFile(join(directory, "jobs.json"), JSON.stringify([validJob]), { encoding: "utf8" });
     const jobs = await loadJobs(join(directory, "jobs.json"));
-    expect(jobs).toEqual([validJob]);
+    expect(jobs[0]).toMatchObject(validJob);
+    expect(jobs[0]?.requiredOutputs).toEqual([]);
   });
 
   it("returns multiple jobs", async () => {
@@ -40,7 +50,8 @@ describe("loadJobs", () => {
     await writeFile(join(directory, "jobs.json"), JSON.stringify([validJob, second]), { encoding: "utf8" });
     const jobs = await loadJobs(join(directory, "jobs.json"));
     expect(jobs).toHaveLength(2);
-    expect(jobs[1]).toEqual(second);
+    expect(jobs[1]).toMatchObject(second);
+    expect(jobs[1]?.lastSuccess).toBe(1000);
   });
 
   it("throws CronJobsError on malformed JSON", async () => {
@@ -109,8 +120,16 @@ describe("saveJobs", () => {
 });
 
 describe("validateJob", () => {
+  it("accepts unique absolute required outputs", () => {
+    expect(validateJob({ ...validJob, requiredOutputs: ["/tmp/result.md"] }, "/path").requiredOutputs)
+      .toEqual(["/tmp/result.md"]);
+  });
+
+  it.each<string[]>([["relative.md"], ["/tmp/a", "/tmp/a"]])("rejects invalid required outputs: %j", requiredOutputs => {
+    expect(() => validateJob({ ...validJob, requiredOutputs }, "/path")).toThrow(CronJobsError);
+  });
   it("accepts a valid job", () => {
-    expect(validateJob(validJob, "/path")).toEqual(validJob);
+    expect(validateJob(validJob, "/path")).toMatchObject(validJob);
   });
 
   it("accepts lastRun as a number", () => {

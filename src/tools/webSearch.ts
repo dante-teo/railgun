@@ -54,7 +54,7 @@ registry.register({
   name: "web_search", toolset: "web", verb: "Searching", previewArgKey: "query",
   schema: {
     name: "web_search",
-    description: "Search the public web through an automatic provider chain with keyless fallback. Returns normalized titles, URLs, and snippets.",
+    description: "Search the public web through an automatic provider chain with keyless fallback. Results are metadata; use web_fetch on promising URLs before concluding.",
     inputSchema: { type: "object", properties: {
       query: { type: "string", description: "Search query." },
       max_results: { type: "integer", minimum: 1, maximum: 10, default: 5 },
