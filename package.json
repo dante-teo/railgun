@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dante-teo/railgun.git"
+  },
   "bin": {
     "railgun": "dist/cli.js"
   },
