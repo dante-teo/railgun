@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import { Bot, CalendarClock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
@@ -19,6 +19,7 @@ import { TaskPalette } from "./tasks/TaskPalette";
 import { FileBrowser } from "./files/FileBrowser";
 import type { InspectorLayoutMode } from "./shell/inspectorLayout";
 import { SettingsPage } from "./settings/SettingsPage";
+import { AutomationPage } from "./automation/AutomationPage";
 
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
@@ -135,7 +136,8 @@ export const App = (): React.JSX.Element => {
   };
 
   const resumeSession = async (sessionId: string): Promise<void> => {
-    if (sessionOperation || sessionId === activeSession?.id) return;
+    if (sessionOperation) return;
+    if (sessionId === activeSession?.id) { selectArea("chat"); return; }
     setSessionOperation(true);
     if (running && !await chat.stopAndWait()) { setSessionOperation(false); return; }
     try {
@@ -265,6 +267,7 @@ export const App = (): React.JSX.Element => {
           </div>
         </section>
         <div className="sidebar-divider" aria-hidden="true" />
+        <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><CalendarClock aria-hidden="true" />Automation</Button>
         <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
         <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
       </>;
@@ -293,7 +296,7 @@ export const App = (): React.JSX.Element => {
     <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
     {filesPaneVisible ? todoPaneToggle : <div className="right-pane-controls">{todoPaneToggle}{filesPaneToggle}</div>}
   </div>;
-  const content = <section className="chat-surface">
+  const chatContent = <section className="chat-surface">
           <header className="content-toolbar">
             <div className="content-toolbar-title"><h1>{activeSession?.transcript.find(message => message.role === "user")?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
           </header>
@@ -311,6 +314,9 @@ export const App = (): React.JSX.Element => {
             controls={<ChatToolbarControls running={running} available={snapshot.phase === "ready"} resetKey={controlsResetKey} />}
           />
         </section>;
+  const content = area === "automation"
+    ? <AutomationPage backendPhase={snapshot.phase} />
+    : chatContent;
 
   return (
     <>
@@ -319,11 +325,11 @@ export const App = (): React.JSX.Element => {
         sidebarAction={<Button type="button" variant="sidebarIcon" size="compactIcon" className="task-search-button" aria-label="Search tasks" disabled={sessionOperation} onClick={openTaskPalette}><Search aria-hidden="true" /></Button>}
         collapsedSidebarAction={<Button type="button" variant="sidebarIcon" size="icon" aria-label="New Task" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" /></Button>}
         main={content}
-        mainAction={toolbarActions}
-        inspector={hasActivity ? <ActivityInspector activity={chat.state.activity} /> : undefined}
-        inspectorVisible={activityPaneVisible}
-        workspace={<FileBrowser onCollapse={() => setFilesPaneVisible(false)} />}
-        workspaceVisible={filesPaneVisible}
+        mainAction={area === "chat" ? toolbarActions : undefined}
+        inspector={area === "chat" && hasActivity ? <ActivityInspector activity={chat.state.activity} /> : undefined}
+        inspectorVisible={area === "chat" && activityPaneVisible}
+        workspace={area === "chat" ? <FileBrowser onCollapse={() => setFilesPaneVisible(false)} /> : undefined}
+        workspaceVisible={area === "chat" && filesPaneVisible}
         sidebarVisible={!sidebarCollapsed}
         onSidebarVisibilityChange={(visible) => setSidebarCollapsed(!visible)}
         onInspectorLayoutModeChange={handleInspectorLayoutModeChange}

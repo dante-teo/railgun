@@ -20,6 +20,9 @@ import {
   DirectoryListingSchema,
   FilePathSegmentsSchema,
   FilePreviewSchema,
+  CronJobInputSchema,
+  CronJobListSchema,
+  DESKTOP_CRON_LIMITS,
 } from "./schemas";
 
 const validSnapshot = {
@@ -130,5 +133,18 @@ describe("desktop boundary schemas", () => {
     expect(FilePreviewSchema.parse({ kind: "image", dataUrl: "data:image/png;base64,iVBORw0KGgo=", width: 2, height: 3 })).toBeTruthy();
     expect(() => FilePreviewSchema.parse({ kind: "image", dataUrl: "file:///secret", width: 2, height: 3 })).toThrow();
     expect(() => FilePreviewSchema.parse({ kind: "image", dataUrl: "data:image/png;base64,x", width: 10_000, height: 10_000 })).toThrow();
+  });
+
+  it("accepts only bounded strict cron jobs and mutation inputs", () => {
+    const job = { id: "job-1", schedule: "0 9 * * 1-5", summary: "At 09:00, Monday through Friday", prompt: "Plan the day" };
+    expect(CronJobListSchema.parse([job])).toEqual([job]);
+    expect(CronJobInputSchema.parse({ schedule: " 0  9 * * 1-5 ", prompt: " Plan the day " })).toEqual({ schedule: "0 9 * * 1-5", prompt: "Plan the day" });
+    expect(() => CronJobListSchema.parse([{ ...job, lastRun: 123 }])).toThrow();
+    expect(() => CronJobInputSchema.parse({ schedule: "0 9 * * 1-5", prompt: "Run", id: "managed" })).toThrow();
+    expect(() => CronJobInputSchema.parse({ schedule: "0 0 9 * * *", prompt: "Run" })).toThrow();
+    expect(() => CronJobInputSchema.parse({ schedule: "0 9 * * *", prompt: "x".repeat(DESKTOP_CRON_LIMITS.prompt + 1) })).toThrow();
+    expect(() => CronJobListSchema.parse([{ ...job, summary: "x".repeat(DESKTOP_CRON_LIMITS.summary + 1) }])).toThrow();
+    const worstCasePage = JSON.stringify({ type: "response", command: "cron_list", success: true, data: { jobs: [{ ...job, prompt: "\0".repeat(DESKTOP_CRON_LIMITS.prompt) }] } });
+    expect(worstCasePage.length).toBeLessThan(64 * 1_024);
   });
 });

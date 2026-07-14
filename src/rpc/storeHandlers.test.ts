@@ -17,6 +17,26 @@ const configHarness = (initial: AppConfig) => {
 };
 
 describe("RPC store handlers", () => {
+  it("keeps legacy cron responses while supporting bounded editable pages and compact mutations", async () => {
+    const jobs = [
+      { id: "one", schedule: "0 9 * * *", prompt: "First", lastRun: null, requiredOutputs: ["/private/output"] },
+      { id: "two", schedule: "0 10 * * *", prompt: "Second", lastRun: 123, lastError: "private error", requiredOutputs: [] },
+    ] as const;
+    const saveJobs = vi.fn(async () => undefined);
+    const handler = createRpcStoreHandler({
+      getConfig: () => ({ model: null }), setConfig: () => {}, updateConfig: vi.fn(),
+      loadJobs: async () => jobs, saveJobs, randomId: () => "generated",
+    });
+
+    await expect(handler({ type: "cron_list" })).resolves.toEqual({ jobs });
+    await expect(handler({ type: "cron_list", cursor: 0, limit: 1, editableOnly: true, maxPromptLength: 8_000 })).resolves.toEqual({
+      jobs: [{ id: "one", schedule: "0 9 * * *", prompt: "First" }], nextCursor: 1,
+    });
+    await expect(handler({ type: "cron_list", cursor: 0, limit: 1, editableOnly: true, maxPromptLength: 3 })).rejects.toThrow(/prompt exceeds requested limit/iu);
+    await expect(handler({ type: "cron_add", schedule: "0 11 * * *", prompt: "Third", includeJob: false })).resolves.toEqual({ jobId: "generated" });
+    expect(saveJobs).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ id: "generated", prompt: "Third" })]));
+  });
+
   it("never returns MCP secrets and applies retain/delete environment patches", async () => {
     const harness = configHarness({
       model: null,

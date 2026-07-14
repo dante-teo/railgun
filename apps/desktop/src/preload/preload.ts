@@ -25,6 +25,10 @@ import {
   FilePreviewSchema,
   SettingsSnapshotSchema,
   SettingsUpdateSchema,
+  CronJobIdSchema,
+  CronJobInputSchema,
+  CronJobListSchema,
+  CronJobSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, RailgunDesktopApi } from "../shared/types";
@@ -157,6 +161,24 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     updateSettings: async (update) => SettingsSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.updateSettings, SettingsUpdateSchema.parse(update)),
     ),
+    listCronJobs: async () => CronJobListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.listCronJobs),
+    ),
+    createCronJob: async (input) => CronJobSchema.parse(
+      await transport.invoke(DESKTOP_IPC.createCronJob, CronJobInputSchema.parse(input)),
+    ),
+    updateCronJob: async (id, input) => CronJobSchema.parse(
+      await transport.invoke(
+        DESKTOP_IPC.updateCronJob,
+        CronJobIdSchema.parse(id),
+        CronJobInputSchema.parse(input),
+      ),
+    ),
+    deleteCronJob: async (id) => {
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.deleteCronJob, CronJobIdSchema.parse(id)),
+      );
+    },
     signInDevin: async () => SettingsSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.signInDevin),
     ),

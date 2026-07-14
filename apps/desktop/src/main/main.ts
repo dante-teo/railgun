@@ -36,6 +36,10 @@ import {
   FilePreviewSchema,
   SettingsSnapshotSchema,
   SettingsUpdateSchema,
+  CronJobIdSchema,
+  CronJobInputSchema,
+  CronJobListSchema,
+  CronJobSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
@@ -46,6 +50,7 @@ import { createFileService } from "./fileService";
 import { createMutationQueue } from "./mutationQueue";
 import { createSettingsService } from "./settingsService";
 import { createAuthenticationCoordinator, createAuthenticationService } from "./authenticationService";
+import { createCronService } from "./cronService";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -115,6 +120,7 @@ const authenticationCoordinator = createAuthenticationCoordinator({
   snapshot: settingsService.get,
 });
 const sessionService = createSessionService((command, validate) => supervisor.call(command, validate));
+const cronService = createCronService((command, validate) => supervisor.call(command, validate), mutationQueue);
 const fileService = createFileService(app.getPath("home"), {
   decodeImage: (buffer) => {
     const image = nativeImage.createFromBuffer(buffer);
@@ -285,6 +291,22 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.getSettings, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
     return SettingsSnapshotSchema.parse(await settingsService.get());
+  });
+  ipcMain.handle(DESKTOP_IPC.listCronJobs, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return CronJobListSchema.parse(await cronService.list());
+  });
+  ipcMain.handle(DESKTOP_IPC.createCronJob, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return CronJobSchema.parse(await cronService.create(CronJobInputSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.updateCronJob, async (event, id: unknown, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return CronJobSchema.parse(await cronService.update(CronJobIdSchema.parse(id), CronJobInputSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.deleteCronJob, async (event, id: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    await cronService.delete(CronJobIdSchema.parse(id));
   });
   ipcMain.handle(DESKTOP_IPC.updateSettings, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);

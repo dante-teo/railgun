@@ -120,13 +120,29 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
         });
         return undefined;
       }
-      case "cron_list": return { jobs: await readJobs() };
+      case "cron_list": {
+        const jobs = await readJobs();
+        if (command.cursor === undefined && command.limit === undefined && command.editableOnly === undefined && command.maxPromptLength === undefined) {
+          return { jobs };
+        }
+        const cursor = command.cursor ?? 0;
+        const page = jobs.slice(cursor, cursor + (command.limit ?? jobs.length));
+        const maxPromptLength = command.maxPromptLength;
+        if (maxPromptLength !== undefined && page.some(job => job.prompt.length > maxPromptLength)) {
+          throw new Error(`cron job prompt exceeds requested limit of ${maxPromptLength}`);
+        }
+        const projected = command.editableOnly === true
+          ? page.map(({ id, schedule, prompt }) => ({ id, schedule, prompt }))
+          : page;
+        const nextCursor = cursor + page.length;
+        return { jobs: projected, ...(nextCursor < jobs.length ? { nextCursor } : {}) };
+      }
       case "cron_add": {
         const jobs = await readJobs();
         const job = validateJob({ id: command.jobId ?? newId(), schedule: command.schedule, prompt: command.prompt, lastRun: null }, "RPC cron command");
         if (jobs.some(item => item.id === job.id)) throw new Error(`cron job already exists: ${job.id}`);
         await writeJobs([...jobs, job]);
-        return { job };
+        return command.includeJob === false ? { jobId: job.id } : { job };
       }
       case "cron_update": {
         validateMutablePatch(command.patch as Record<string, unknown>, ["schedule", "prompt"], "cron");
@@ -137,7 +153,7 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
         const job = validateJob({ ...current, ...command.patch }, "RPC cron command");
         const next = [...jobs]; next[index] = job;
         await writeJobs(next);
-        return { job };
+        return command.includeJob === false ? { jobId: job.id } : { job };
       }
       case "cron_remove": {
         const jobs = await readJobs();

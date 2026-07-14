@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseCronSchedule } from "./cron";
 
 export const DESKTOP_ACTIVITY_LIMITS = Object.freeze({
   id: 256,
@@ -51,6 +52,37 @@ export const DESKTOP_FILE_LIMITS = Object.freeze({
   imagePixels: 40_000_000,
   dataUrl: 60_000_000,
 });
+
+export const DESKTOP_CRON_LIMITS = Object.freeze({
+  jobs: 500,
+  id: 256,
+  schedule: 256,
+  summary: 1_000,
+  // One maximally JSON-escaped prompt plus its response envelope must remain below 64 KiB.
+  prompt: 8_000,
+});
+
+export const CronJobIdSchema = z.string().trim().min(1).max(DESKTOP_CRON_LIMITS.id);
+export const CronScheduleSchema = z.string().max(DESKTOP_CRON_LIMITS.schedule).transform((value, context) => {
+  const result = parseCronSchedule(value);
+  if (!result.valid) {
+    context.addIssue({ code: "custom", message: result.error });
+    return z.NEVER;
+  }
+  return result.schedule;
+});
+export const CronPromptSchema = z.string().trim().min(1).max(DESKTOP_CRON_LIMITS.prompt);
+export const CronJobInputSchema = z.strictObject({
+  schedule: CronScheduleSchema,
+  prompt: CronPromptSchema,
+});
+export const CronJobSchema = z.strictObject({
+  id: CronJobIdSchema,
+  schedule: CronScheduleSchema,
+  summary: z.string().trim().min(1).max(DESKTOP_CRON_LIMITS.summary),
+  prompt: CronPromptSchema,
+});
+export const CronJobListSchema = z.array(CronJobSchema).max(DESKTOP_CRON_LIMITS.jobs).readonly();
 
 export const FileNameSchema = z.string()
   .min(1)

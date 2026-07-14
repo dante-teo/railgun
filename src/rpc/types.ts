@@ -45,9 +45,9 @@ export type RpcCommand =
   | { id?: string; type: "mcp_list" }
   | { id?: string; type: "mcp_upsert"; name: string; command: string; args?: readonly string[]; env?: Record<string, string | null> }
   | { id?: string; type: "mcp_remove"; name: string }
-  | { id?: string; type: "cron_list" }
-  | { id?: string; type: "cron_add"; schedule: string; prompt: string; jobId?: string }
-  | { id?: string; type: "cron_update"; jobId: string; patch: { schedule?: string; prompt?: string } }
+  | { id?: string; type: "cron_list"; cursor?: number; limit?: number; editableOnly?: boolean; maxPromptLength?: number }
+  | { id?: string; type: "cron_add"; schedule: string; prompt: string; jobId?: string; includeJob?: boolean }
+  | { id?: string; type: "cron_update"; jobId: string; patch: { schedule?: string; prompt?: string }; includeJob?: boolean }
   | { id?: string; type: "cron_remove"; jobId: string }
   | { id?: string; type: "memory_list"; limit?: number }
   | { id?: string; type: "memory_search"; query: string; limit?: number }

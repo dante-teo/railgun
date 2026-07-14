@@ -35,11 +35,14 @@ describe("preload desktop bridge", () => {
       "abortPrompt",
       "branchSession",
       "compactContext",
+      "createCronJob",
+      "deleteCronJob",
       "followUpPrompt",
       "forkSession",
       "getBackendSnapshot",
       "getChatControls",
       "getSettings",
+      "listCronJobs",
       "listFiles",
       "listMockScenarios",
       "listSessions",
@@ -63,6 +66,7 @@ describe("preload desktop bridge", () => {
       "startNewChat",
       "steerPrompt",
       "updateAgentControls",
+      "updateCronJob",
       "updateSettings",
     ]);
     expect(exposed).not.toHaveProperty("invoke");
@@ -188,6 +192,30 @@ describe("preload desktop bridge", () => {
     invoke.mockResolvedValueOnce(undefined);
     await expect(api.revealFile(["notes.txt"])).resolves.toBeUndefined();
     expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.revealFile, ["notes.txt"]);
+  });
+
+  it("validates cron arguments and results on fixed channels", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const job = { id: "job-1", schedule: "0 9 * * 1-5", summary: "At 09:00, Monday through Friday", prompt: "Plan" };
+    invoke.mockResolvedValueOnce([job]);
+    await expect(api.listCronJobs()).resolves.toEqual([job]);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.listCronJobs);
+
+    invoke.mockResolvedValueOnce(job);
+    await expect(api.createCronJob({ schedule: " 0  9 * * 1-5 ", prompt: " Plan " })).resolves.toEqual(job);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.createCronJob, { schedule: "0 9 * * 1-5", prompt: "Plan" });
+    await expect(api.createCronJob({ schedule: "0 0 9 * * *", prompt: "Plan" })).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce({ ...job, schedule: "0 10 * * *", summary: "At 10:00" });
+    await expect(api.updateCronJob("job-1", { schedule: "0 10 * * *", prompt: "Plan" })).resolves.toMatchObject({ schedule: "0 10 * * *" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.updateCronJob, "job-1", { schedule: "0 10 * * *", prompt: "Plan" });
+    await expect(api.updateCronJob("", { schedule: "0 10 * * *", prompt: "Plan" })).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.deleteCronJob("job-1")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.deleteCronJob, "job-1");
+    invoke.mockResolvedValueOnce({ deleted: true });
+    await expect(api.deleteCronJob("job-1")).rejects.toThrow();
   });
 
   it("exposes correlated interaction responses and withholds invalid interaction events", async () => {

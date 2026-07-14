@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { createRpcTranscriptPage } from "../../../../src/rpc/sessionTranscript.js";
 import { getMockScenario } from "./scenarios";
+import { parseCronSchedule } from "../shared/cron";
 
 const scenario = getMockScenario(process.argv[2] ?? "ready-idle");
 let messageCount = 0;
@@ -89,6 +90,18 @@ let config: Record<string, unknown> = {
   },
   advisor: { enabled: false, model: "mock-reference" },
 };
+interface MockCronJob {
+  readonly id: string;
+  schedule: string;
+  prompt: string;
+  readonly lastRun: number | null;
+  readonly requiredOutputs: readonly string[];
+}
+let cronJobs: MockCronJob[] = [
+  { id: "mock-cron-morning", schedule: "0 9 * * 1-5", prompt: "Summarize the priorities for today", lastRun: null, requiredOutputs: [] },
+  { id: "mock-cron-review", schedule: "*/30 8-17 * * MON-FRI", prompt: "Review active work and flag blockers", lastRun: 1_752_500_000_000, requiredOutputs: ["/tmp/private-contract"] },
+];
+let nextCronJob = 1;
 let writingFrame = false;
 interface QueuedFrame {
   readonly line: string;
@@ -370,9 +383,64 @@ if (scenario.behavior === "authentication-required") {
       setTimeout(() => { messageCount = 1; respond(type, command.id); }, scenario.behavior === "slow-compaction" ? 600 : 10);
       return;
     }
+    if (type === "cron_list") {
+      if (scenario.behavior === "store-error") respond(type, command.id, { error: "mock store error: cron_list" });
+      else {
+        const available = scenario.behavior === "empty-stores" ? [] : cronJobs;
+        if (command.cursor === undefined && command.limit === undefined && command.editableOnly === undefined && command.maxPromptLength === undefined) {
+          respond(type, command.id, { data: { jobs: available } });
+        } else {
+          const cursor = typeof command.cursor === "number" ? command.cursor : 0;
+          const limit = typeof command.limit === "number" ? command.limit : available.length;
+          const page = available.slice(cursor, cursor + limit);
+          const maxPromptLength = typeof command.maxPromptLength === "number" ? command.maxPromptLength : undefined;
+          if (maxPromptLength !== undefined && page.some(job => job.prompt.length > maxPromptLength)) {
+            respond(type, command.id, { error: `cron job prompt exceeds requested limit of ${String(maxPromptLength)}` });
+          } else {
+            const jobs = command.editableOnly === true ? page.map(({ id, schedule, prompt }) => ({ id, schedule, prompt })) : page;
+            const nextCursor = cursor + page.length;
+            respond(type, command.id, { data: { jobs, ...(nextCursor < available.length ? { nextCursor } : {}) } });
+          }
+        }
+      }
+      return;
+    }
+    if (type === "cron_add") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: cron_add" }); return; }
+      const schedule = typeof command.schedule === "string" ? parseCronSchedule(command.schedule) : undefined;
+      if (schedule === undefined || !schedule.valid || typeof command.prompt !== "string" || command.prompt.trim() === "") {
+        respond(type, command.id, { error: "invalid cron job" }); return;
+      }
+      const job: MockCronJob = { id: `mock-cron-${String(nextCronJob++)}`, schedule: schedule.schedule, prompt: command.prompt.trim(), lastRun: null, requiredOutputs: [] };
+      cronJobs = [...cronJobs, job];
+      respond(type, command.id, { data: command.includeJob === false ? { jobId: job.id } : { job } });
+      return;
+    }
+    if (type === "cron_update") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: cron_update" }); return; }
+      const index = cronJobs.findIndex(job => job.id === command.jobId);
+      const patch = typeof command.patch === "object" && command.patch !== null ? command.patch as Record<string, unknown> : undefined;
+      const schedule = typeof patch?.schedule === "string" ? parseCronSchedule(patch.schedule) : undefined;
+      if (index < 0) { respond(type, command.id, { error: `cron job not found: ${String(command.jobId)}` }); return; }
+      if (schedule === undefined || !schedule.valid || typeof patch?.prompt !== "string" || patch.prompt.trim() === "") {
+        respond(type, command.id, { error: "invalid cron update" }); return;
+      }
+      const current = cronJobs[index]!;
+      const job = { ...current, schedule: schedule.schedule, prompt: patch.prompt.trim() };
+      cronJobs = cronJobs.map(item => item.id === job.id ? job : item);
+      respond(type, command.id, { data: command.includeJob === false ? { jobId: job.id } : { job } });
+      return;
+    }
+    if (type === "cron_remove") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: cron_remove" }); return; }
+      if (!cronJobs.some(job => job.id === command.jobId)) { respond(type, command.id, { error: `cron job not found: ${String(command.jobId)}` }); return; }
+      cronJobs = cronJobs.filter(job => job.id !== command.jobId);
+      respond(type, command.id);
+      return;
+    }
     const emptyStoreData: Record<string, unknown> = {
       memory_list: { memories: [] }, memory_search: { memories: [] },
-      notes_search: { notes: [] }, cron_list: { jobs: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
+      notes_search: { notes: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
     };
     if (type in emptyStoreData) {
       if (scenario.behavior === "store-error") respond(type, command.id, { error: `mock store error: ${type}` });

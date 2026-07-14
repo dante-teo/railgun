@@ -21,6 +21,14 @@ const positiveLimit = (value: unknown): number | undefined => {
   return value as number;
 };
 
+const positiveInteger = (value: unknown, field: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+    throw new Error(`invalid command: ${field} must be a positive integer`);
+  }
+  return value as number;
+};
+
 const nonNegativeCursor = (value: unknown): number | undefined => {
   if (value === undefined) return undefined;
   if (!Number.isInteger(value) || (value as number) < 0) {
@@ -57,7 +65,7 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     case "prompt": case "steer": case "follow_up":
       return { ...base, type, message: nonEmpty(value.message, "message") };
     case "abort": case "get_state": case "get_messages": case "get_available_models": case "compact":
-    case "session_list": case "session_save": case "config_get": case "mcp_list": case "cron_list": case "skills_list":
+    case "session_list": case "session_save": case "config_get": case "mcp_list": case "skills_list":
       return { ...base, type };
     case "set_model": return { ...base, type, modelId: nonEmpty(value.modelId, "modelId") };
     case "set_auto_compaction": {
@@ -106,8 +114,28 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
       return { ...base, type, name: nonEmpty(value.name, "name"), command: nonEmpty(value.command, "command"), ...(value.args === undefined ? {} : { args: stringArray(value.args, "args") }), ...(envRaw === undefined ? {} : { env: envRaw as Record<string, string | null> }) };
     }
     case "mcp_remove": return { ...base, type, name: nonEmpty(value.name, "name") };
-    case "cron_add": return { ...base, type, schedule: nonEmpty(value.schedule, "schedule"), prompt: nonEmpty(value.prompt, "prompt"), ...(value.jobId === undefined ? {} : { jobId: nonEmpty(value.jobId, "jobId") }) };
-    case "cron_update": return { ...base, type, jobId: nonEmpty(value.jobId, "jobId"), patch: patch(value.patch) as { schedule?: string; prompt?: string } };
+    case "cron_list": {
+      if (value.editableOnly !== undefined && typeof value.editableOnly !== "boolean") throw new Error("invalid command: editableOnly must be a boolean");
+      const cursor = nonNegativeCursor(value.cursor);
+      const limit = positiveLimit(value.limit);
+      const maxPromptLength = positiveInteger(value.maxPromptLength, "maxPromptLength");
+      return {
+        ...base,
+        type,
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(limit === undefined ? {} : { limit }),
+        ...(value.editableOnly === undefined ? {} : { editableOnly: value.editableOnly }),
+        ...(maxPromptLength === undefined ? {} : { maxPromptLength }),
+      };
+    }
+    case "cron_add": {
+      if (value.includeJob !== undefined && typeof value.includeJob !== "boolean") throw new Error("invalid command: includeJob must be a boolean");
+      return { ...base, type, schedule: nonEmpty(value.schedule, "schedule"), prompt: nonEmpty(value.prompt, "prompt"), ...(value.jobId === undefined ? {} : { jobId: nonEmpty(value.jobId, "jobId") }), ...(value.includeJob === undefined ? {} : { includeJob: value.includeJob }) };
+    }
+    case "cron_update": {
+      if (value.includeJob !== undefined && typeof value.includeJob !== "boolean") throw new Error("invalid command: includeJob must be a boolean");
+      return { ...base, type, jobId: nonEmpty(value.jobId, "jobId"), patch: patch(value.patch) as { schedule?: string; prompt?: string }, ...(value.includeJob === undefined ? {} : { includeJob: value.includeJob }) };
+    }
     case "cron_remove": return { ...base, type, jobId: nonEmpty(value.jobId, "jobId") };
     case "memory_list": return { ...base, type, ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }) };
     case "memory_search": return { ...base, type, query: nonEmpty(value.query, "query"), ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }) };

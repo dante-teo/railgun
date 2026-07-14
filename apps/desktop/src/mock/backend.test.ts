@@ -152,6 +152,35 @@ describe("mock backend process", () => {
     } finally { failed.kill(); }
   });
 
+  it("provides stateful cron CRUD while preserving empty and store-error scenarios", async () => {
+    const child = startMock("ready-idle");
+    try {
+      send(child, { id: "cron-list", type: "cron_list" });
+      const initial = JSON.parse((await nextLine(child)).line) as { data: { jobs: Array<{ id: string }> } };
+      expect(initial.data.jobs).toHaveLength(2);
+      send(child, { id: "cron-add", type: "cron_add", schedule: " 0  10 * * * ", prompt: "New prompt" });
+      const added = JSON.parse((await nextLine(child)).line) as { data: { job: { id: string } } };
+      expect(added.data.job.id).toMatch(/^mock-cron-/u);
+      send(child, { id: "cron-update", type: "cron_update", jobId: added.data.job.id, patch: { schedule: "30 10 * * *", prompt: "Updated prompt" } });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ success: true, data: { job: { schedule: "30 10 * * *", prompt: "Updated prompt" } } });
+      send(child, { id: "cron-remove", type: "cron_remove", jobId: added.data.job.id });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "cron-remove", success: true });
+      send(child, { id: "cron-list-final", type: "cron_list" });
+      expect((JSON.parse((await nextLine(child)).line) as { data: { jobs: unknown[] } }).data.jobs).toHaveLength(2);
+    } finally { child.kill(); }
+
+    const empty = startMock("empty-stores");
+    try {
+      send(empty, { id: "cron-empty", type: "cron_list" });
+      expect(JSON.parse((await nextLine(empty)).line)).toMatchObject({ success: true, data: { jobs: [] } });
+    } finally { empty.kill(); }
+    const failed = startMock("store-error");
+    try {
+      send(failed, { id: "cron-error", type: "cron_add", schedule: "0 9 * * *", prompt: "No" });
+      expect(JSON.parse((await nextLine(failed)).line)).toMatchObject({ success: false, error: "mock store error: cron_add" });
+    } finally { failed.kill(); }
+  });
+
   it("delays startup responses", async () => {
     const child = startMock("delayed-startup");
     const startedAt = Date.now();

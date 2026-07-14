@@ -295,7 +295,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 2. Every connection begins in legacy mode. `protocol.ts` validates each decoded command at runtime. A successful `initialize {version:1}` before the first run allocates active session metadata and returns capability names; unsupported versions leave legacy mode intact. JSONL framing and raw agent events are unchanged.
 3. Legacy commands retain in-memory history, shell auto-approval, clarification errors, original response shapes, and one in-flight prompt. Protocol v1 uses request-ID resolver maps for approvals and clarifications and rejects pending requests on abort, EOF, or run settlement.
 4. Initialized runs hydrate a session-scoped todo store and automatically checkpoint valid completed or aborted transcripts. Enhanced `get_state` reports session identity, start time, and saved/unsaved/error status. Session handlers serialize mutations, model changes, and compaction; prepare full provider metadata and a model-specific system prompt before activation; and activate loaded, branched, or forked transcripts without discarding the previous active session on validation/not-found failures. Branch persistence accepts only validated complete-turn prefixes, and forks use bounded independent UUID identities. Switching a persisted transcript to another model derives a new unsaved session identity so saved metadata remains immutable. Desktop requests message-free mutations and metadata-only loading, then restores through byte-bounded `session_transcript` pages whose optional persistence IDs and complete-turn markers enable safe branching without exposing raw tool/provider payloads.
-5. `storeHandlers.ts` adapts the existing config/MCP, cron, memory, note, and skill modules. Generic config patches cannot change MCP servers; MCP reads redact values and environment patches implement retain/delete semantics. Semantic note search loads the embedder only when called.
+5. `storeHandlers.ts` adapts the existing config/MCP, cron, memory, note, and skill modules. Generic config patches cannot change MCP servers; MCP reads redact values and environment patches implement retain/delete semantics. Cron defaults retain their full legacy response shapes, while optional cursor/limit and editable-only projection fields let bounded clients receive one `id`/`schedule`/`prompt` job at a time; a caller-supplied prompt limit fails before serialization, and `includeJob: false` reduces successful add/update responses to `jobId`. Semantic note search loads the embedder only when called.
 6. EOF detaches the line reader, rejects pending interactions, aborts and awaits an active run, and then returns to the CLI shutdown/cleanup path.
 
 **Desktop bootstrap (`pnpm dev` / `pnpm dev:mock`):**
@@ -391,8 +391,9 @@ This document records the intended system architecture for Railgun. Keep it curr
    to the titlebar, while the hidden pane becomes inert and is removed from the
    accessibility tree. Its visibility remains session-only, while the validated,
    versioned sidebar width persists in renderer-local storage. A separate
-   versioned route record restores only Task or Settings and never implicitly
-   resumes a session; malformed, obsolete, and unknown values fall back to Task.
+   versioned route record restores only Task, Automation, or Settings and never
+   implicitly resumes a session; malformed, obsolete, and unknown values fall
+   back to Task.
    The layout reserves the live sidebar width as a real flex item, keeping the
    main pane and toolbar out from under the floating material. The optional,
    non-resizable activity side-car is not rendered or exposed to accessibility

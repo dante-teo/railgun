@@ -58,6 +58,18 @@ receive bounded independent UUID-based IDs. Cursor pagination prevents a large
 persisted history or a single oversized provider payload from exceeding
 Electron's JSONL frame limit.
 
+Cron management remains response-compatible by default. Bounded-frame clients
+can request `cron_list` pages with `cursor` and `limit`, ask for an
+`editableOnly` projection containing only `id`, `schedule`, and `prompt`, and
+set `maxPromptLength` so an oversized persisted prompt becomes a small
+correlated error before JSONL serialization. `cron_add` and `cron_update`
+accept `includeJob: false`, returning only the persisted `jobId`; callers that
+omit it continue to receive the full job. The desktop requests one editable
+job per page, caps accepted prompts at 8,000 characters, and uses compact
+mutation acknowledgements. This keeps worst-case JSON escaping below the
+supervisor's 64 KiB frame ceiling without exposing runtime fields or changing
+the cron persistence format.
+
 MCP secrets never cross JSONL: reads expose command, arguments, and environment key presence only. MCP environment upserts retain omitted keys and delete keys assigned `null`. Generic config patches reject `mcpServers`; both config and cron continue to use their existing atomic writers.
 
 Desktop task controls reuse the existing `get_available_models`, `get_state`,

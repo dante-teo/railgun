@@ -66,6 +66,10 @@ const controlApi = {
   updateSettings: async () => controlApi.getSettings(),
   signInDevin: async () => controlApi.getSettings(),
   signOutDevin: async () => controlApi.getSettings(),
+  listCronJobs: async () => [],
+  createCronJob: async (input: { schedule: string; prompt: string }) => ({ id: "cron", summary: "Every day", ...input }),
+  updateCronJob: async (id: string, input: { schedule: string; prompt: string }) => ({ id, summary: "Every day", ...input }),
+  deleteCronJob: async () => undefined,
 };
 const fileApi = {
   listFiles: async () => ({ entries: [] }),
@@ -109,6 +113,7 @@ describe("desktop shell", () => {
     expect(filterSessions(sessions, "OLD")).toEqual([sessions[1]]);
     expect(filterSessions(sessions, "missing")).toEqual([]);
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "settings" }) })).toBe("settings");
+    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "automation" }) })).toBe("automation");
     expect(readStoredArea({ getItem: () => "not json" })).toBe("chat");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 0, area: "settings" }) })).toBe("chat");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "obsolete" }) })).toBe("chat");
@@ -168,6 +173,11 @@ describe("desktop shell", () => {
     expect(screen.getByText("Inspect restored todos")).toBeTruthy();
     expect(screen.getByText("Saved")).toBeTruthy();
     expect(screen.queryByText(/provider internals/u)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Automation" }));
+    expect(await screen.findByRole("heading", { name: "Automation" })).toBeTruthy();
+    expect(window.localStorage.getItem("railgun.desktop.route")).toContain("automation");
+    fireEvent.click(screen.getByRole("button", { name: /Rich history QA/u }));
+    expect(await screen.findByText("Visible restored answer")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Branch from this message" }));
     expect(screen.getByRole("dialog", { name: "Branch from this message?" })).toBeTruthy();
@@ -233,10 +243,12 @@ describe("desktop shell", () => {
     fireEvent.click(expandSidebar);
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
     const newTask = screen.getByRole("button", { name: "New Task" });
+    const automation = screen.getByRole("button", { name: "Automation" });
     const settings = screen.getByRole("button", { name: "Settings" });
     expect(newTask.className).toContain("sidebar-action");
+    expect(automation.className).toContain("sidebar-action");
     expect(settings.className).toContain("sidebar-action");
-    expect(settings.previousElementSibling?.classList.contains("sidebar-divider")).toBe(true);
+    expect(automation.previousElementSibling?.classList.contains("sidebar-divider")).toBe(true);
     expect(document.querySelector(".sidebar-footer")?.previousElementSibling).toBe(settings);
     fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun" }), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));

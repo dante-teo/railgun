@@ -695,6 +695,16 @@ or stale message IDs cannot leave a session on an incomplete path. Forks use a
 bounded independent `fork-<UUID>` identity. This transcript projection is the
 required restoration path for bounded-frame clients such as the desktop app.
 
+Cron commands also retain their original full-job responses by default.
+Bounded-frame clients may page `cron_list` with a zero-based `cursor`, a
+`limit` from 1 to 100, `editableOnly: true`, and a positive
+`maxPromptLength`. Editable-only pages contain just `id`, `schedule`, and
+`prompt`, plus `nextCursor` when more jobs remain; a selected prompt above the
+requested limit returns a correlated error before serialization. `cron_add`
+and `cron_update` accept `includeJob: false` to return only `{ "jobId": "…" }`
+after persistence. Omitting these optional fields preserves the legacy list
+and mutation response shapes.
+
 Minimal example:
 
 ```sh
@@ -726,8 +736,15 @@ response before another prompt can start.
 The sidebar's search action opens a keyboard-accessible task palette over the
 newest-first saved-session list. Filtering matches preview, model, or session ID
 without changing backend order; selecting a result explicitly resumes its safe
-text transcript and persisted todos. Relaunch restores only the last valid Task
-or Settings area, never an active session.
+text transcript and persisted todos. Relaunch restores only the last valid
+Task, Automation, or Settings area, never an active session.
+
+Automation lists scheduled prompts in backend file order and supports create,
+edit, and confirmed delete operations while a task is running. Schedules use
+standard five-field cron syntax in the machine's local timezone and display a
+live readable description. Job IDs remain backend-generated; runtime history,
+pause/daemon controls, and required-output contracts are intentionally not
+editable from the desktop.
 
 For branch/fork QA, resume the populated rich-history task under the Ready / idle
 scenario. Complete assistant messages with later visible history expose

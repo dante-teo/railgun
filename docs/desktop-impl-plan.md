@@ -485,9 +485,41 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     compression, and Reduce Motion/Transparency and Increase Contrast fallbacks
     follow the desktop Liquid Glass design system.
 
-- [ ] **DESK-016 — Build Automation**
+- [x] **DESK-016 — Build Automation**
   - List, create, edit, and delete cron jobs.
   - Validate five-field cron schedules and show a readable summary.
+  - The versioned desktop route now restores Automation alongside Task and
+    Settings. Switching areas keeps the active Task controller and session
+    intact; selecting the active task returns directly to its existing state.
+  - A fixed preload/main boundary exposes only list, create, update, and delete
+    operations. Strict bounded schemas project each backend job to `id`,
+    `schedule`, `summary`, and `prompt`, withholding execution metadata,
+    output contracts, and stored errors. Backend-generated IDs remain opaque.
+  - Schedule handling is centralized in a pure shared utility using
+    `cron-parser` and `cronstrue`: whitespace is normalized, exactly five
+    local-time fields are required, semantic ranges are parsed, and a live
+    readable summary is shown. Backend RPC validation remains authoritative.
+    Desktop prompts are capped at 8,000 characters so even worst-case JSON
+    escaping fits beneath the supervised 64 KiB transport-frame limit.
+  - Cron mutations use the desktop's shared mutation queue and the existing
+    `cron_add`, `cron_update`, and `cron_remove` RPC commands without changing
+    persistence. Backward-compatible optional response controls keep legacy
+    protocol shapes intact. Failed mutations keep their create/edit or
+    explicit-delete-confirmation dialog open for retry.
+    Desktop list calls use backward-compatible, editable-only pagination with
+    one job per frame; mutation calls request compact job-ID acknowledgements.
+    Legacy RPC callers retain their original unpaginated/full-job responses.
+  - The Automation UI preserves backend file order and covers loading, empty,
+    disconnected, retryable load-error, and mutation-error states. Actions and
+    submission are disabled while disconnected, invalid, or busy; pause,
+    history, daemon, runtime metadata, and required-output controls stay out of
+    scope.
+    Starting a mutation invalidates older list requests so stale snapshots
+    cannot overwrite successful local CRUD results; failed mutations refresh
+    the underlying list while preserving their retry dialog and error.
+  - The deterministic mock supplies ordered cron fixtures and stateful CRUD,
+    while its existing empty-store and store-error scenarios exercise the
+    corresponding Automation states.
 
 - [ ] **DESK-017 — Build Knowledge**
   - Memory search/create/edit/delete.

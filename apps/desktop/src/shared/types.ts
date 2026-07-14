@@ -25,6 +25,8 @@ import type {
   SettingsSectionSchema,
   SettingsSnapshotSchema,
   SettingsUpdateSchema,
+  CronJobSchema,
+  CronJobInputSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -55,6 +57,8 @@ export type FilePreview = z.infer<typeof FilePreviewSchema>;
 export type SettingsSection = z.infer<typeof SettingsSectionSchema>;
 export type SettingsSnapshot = z.infer<typeof SettingsSnapshotSchema>;
 export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
+export type CronJob = z.infer<typeof CronJobSchema>;
+export type CronJobInput = z.infer<typeof CronJobInputSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -82,6 +86,10 @@ export interface RailgunDesktopApi {
   compactContext: () => Promise<ControlMutationResult>;
   getSettings: () => Promise<SettingsSnapshot>;
   updateSettings: (update: SettingsUpdate) => Promise<SettingsSnapshot>;
+  listCronJobs: () => Promise<readonly CronJob[]>;
+  createCronJob: (input: CronJobInput) => Promise<CronJob>;
+  updateCronJob: (id: string, input: CronJobInput) => Promise<CronJob>;
+  deleteCronJob: (id: string) => Promise<void>;
   signInDevin: () => Promise<SettingsSnapshot>;
   signOutDevin: () => Promise<SettingsSnapshot>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
@@ -119,6 +127,10 @@ export const DESKTOP_IPC = {
   updateSettings: "settings:update",
   signInDevin: "settings:sign-in-devin",
   signOutDevin: "settings:sign-out-devin",
+  listCronJobs: "cron:list",
+  createCronJob: "cron:create",
+  updateCronJob: "cron:update",
+  deleteCronJob: "cron:delete",
   agentEvent: "agent:event",
   appCommand: "app:command",
   interactionRequest: "agent:interaction-request",
