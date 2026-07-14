@@ -219,7 +219,7 @@ session becomes durable after its first successful turn:
   - `/moa <preset>` — activate a named preset; `/moa off` disables MoA for the session.
   - `/branch [--summary] <message-id>` — move the saved session branch to a prior message, optionally inserting a summary of the abandoned suffix. Bare `/branch` opens a recent-message picker.
   - `/fork` — copy the active branch into a new session and continue there.
-  - `/dream` — manually trigger memory consolidation. Reviews all stored memories, merges duplicates, deletes stale entries, and promotes stable user preferences to `~/.railgun/SOUL.md`. Requires at least 5 stored memories. Progress lines appear in the transcript.
+  - `/dream` — manually trigger memory consolidation. Reviews all stored memories, merges duplicates, deletes stale entries, and promotes stable user preferences to `~/.railgun/SOUL.md`. Requires at least 5 stored memories. Progress lines appear in the transcript. The installed background service also runs this automatically at local midnight.
   - `/cron` — list all scheduled jobs.
   - `/cron add <id> <schedule> <prompt>` — create a new cron job. `<schedule>` is a 5-field cron expression (e.g. `0 9 * * *`); `<prompt>` is the remainder of the line. Validates the expression and rejects duplicate ids.
   - `/cron remove <id>` — delete a scheduled job by id.
@@ -545,9 +545,16 @@ For users who want the cron scheduler to run automatically in the background wit
 > - **Supported Platforms**: The daemon commands are only supported on **macOS** and **Linux**. Windows is not supported (the commands will throw an error on unsupported platforms).
 To manage the background service, use the following subcommands:
 
-- **`railgun cron install`**: Registers and enables a persistent OS daemon (`launchd` on macOS, or a `systemd` user service on Linux). This service is configured to run `railgun cron` in the foreground at user login, automatically keeping the scheduler alive in the background without needing an active REPL session. Cron job logs are written to `~/.railgun/cron/logs/cron-YYYY-MM-DD.log` (rotated daily at UTC midnight, 7-day retention). A `cron-latest.log` symlink in that directory points to today's UTC date file.
+- **`railgun cron install`**: Registers and enables a persistent OS daemon (`launchd` on macOS, or a `systemd` user service on Linux). This service is configured to run `railgun cron` in the foreground at user login, automatically keeping the scheduler alive in the background without needing an active REPL session. It also installs a hidden OS-managed task that runs `railgun dream` every day at local midnight. Cron job logs are written to `~/.railgun/cron/logs/cron-YYYY-MM-DD.log` (rotated daily at UTC midnight, 7-day retention). A `cron-latest.log` symlink in that directory points to today's UTC date file.
 - **`railgun cron status`**: Queries the OS service manager and prints the current status of the daemon, including the platform, service file path, log directory, and whether the daemon is installed and running.
-- **`railgun cron uninstall`**: Stops, disables, and completely removes the generated `launchd` plist or `systemd` unit file from your system.
+- **`railgun cron uninstall`**: Stops, disables, and completely removes the generated scheduler and hidden nightly-dream services from your system.
+
+The nightly dream task is separate from `~/.railgun/cron/jobs.json` and does
+not appear in `/cron` listings. It invokes the same `railgun dream` command as
+the manual path, including its minimum-five-memory guard; use `railgun dream`
+when you want to watch its progress in the terminal. The generated task uses
+the machine's local timezone and keeps its output hidden from interactive
+sessions.
 
 #### Running in the foreground
 

@@ -19,6 +19,8 @@ import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import {
   currentPlatform,
+  dreamServiceFilePath,
+  dreamTimerFilePath,
   formatStatus,
   installDaemon,
   resolveRailgunBin,
@@ -110,6 +112,19 @@ describe("serviceFilePath", () => {
   });
 });
 
+describe("hidden dream service paths", () => {
+  it("uses a separate launchd plist on macOS", () => {
+    const p = dreamServiceFilePath("darwin");
+    expect(p).toContain("LaunchAgents");
+    expect(p).toContain("sh.railgun.dream.plist");
+  });
+
+  it("uses a separate systemd service and timer on Linux", () => {
+    expect(dreamServiceFilePath("linux")).toMatch(/railgun-dream\.service$/);
+    expect(dreamTimerFilePath()).toMatch(/railgun-dream\.timer$/);
+  });
+});
+
 describe("resolveRailgunBin", () => {
   it("returns argv[1] for a globally installed binary", () => {
     expect(resolveRailgunBin(["/usr/bin/node", "/usr/local/bin/railgun"])).toBe("/usr/local/bin/railgun");
@@ -146,6 +161,15 @@ describe("installDaemon — darwin", () => {
     expect(content).toContain("RunAtLoad");
     expect(content).toContain("KeepAlive");
     expect(content).toContain(tmpHome);   // log path and HOME env both use tmpHome
+  });
+
+  it("also installs a hidden midnight dream launch agent", () => {
+    installDaemon("darwin", nodeBin, railgunBin);
+    const content = readFileSync(dreamServiceFilePath("darwin"), "utf8");
+    expect(content).toContain(`<string>${railgunBin}</string>`);
+    expect(content).toContain("<string>dream</string>");
+    expect(content).toContain("<key>StartCalendarInterval</key>");
+    expect(content).toContain("<integer>0</integer>");
   });
 
   it("calls launchctl load after writing the plist", () => {
@@ -194,6 +218,7 @@ describe("uninstallDaemon — darwin", () => {
     uninstallDaemon("darwin");
 
     expect(existsSync(serviceFilePath("darwin"))).toBe(false);
+    expect(existsSync(dreamServiceFilePath("darwin"))).toBe(false);
     const unloadCall = vi.mocked(spawnSync).mock.calls.find(
       c => c[0] === "launchctl" && (c[1] as string[]).includes("unload"),
     );
@@ -206,28 +231,32 @@ describe("uninstallDaemon — darwin", () => {
   });
 });
 
-// ─── uninstall — linux (order matters) ───────────────────────────────────────
+// ─── uninstall — linux ───────────────────────────────────────────────────────
 
-describe("uninstallDaemon — linux: systemctl call order", () => {
-  it("removes the unit file before calling daemon-reload", () => {
+describe("uninstallDaemon — linux", () => {
+  it("disables both units, removes their files, then reloads systemd", () => {
     installDaemon("linux", nodeBin, railgunBin);
     vi.mocked(spawnSync).mockClear();
 
-    let fileExistedAtDisable: boolean | undefined;
-    let fileExistedAtReload: boolean | undefined;
+    let cronExistedAtDisable = false;
+    let cronExistedAtReload = true;
     vi.mocked(spawnSync).mockImplementation((_cmd, args) => {
       const argv = args as string[];
       const filePath = serviceFilePath("linux");
-      if (argv.includes("disable")) fileExistedAtDisable = existsSync(filePath);
-      if (argv.includes("daemon-reload")) fileExistedAtReload = existsSync(filePath);
+      if (argv.includes("disable") && argv.includes("railgun-cron")) {
+        cronExistedAtDisable = existsSync(filePath);
+      }
+      if (argv.includes("daemon-reload")) cronExistedAtReload = existsSync(filePath);
       return { status: 0, stdout: "", stderr: "", pid: 0, signal: null, output: [] };
     });
 
     uninstallDaemon("linux");
 
-    expect(fileExistedAtDisable).toBe(true);   // file still present when disable runs
-    expect(fileExistedAtReload).toBe(false);   // file already gone when daemon-reload runs
+    expect(cronExistedAtDisable).toBe(true);
+    expect(cronExistedAtReload).toBe(false);
     expect(existsSync(serviceFilePath("linux"))).toBe(false); // final state
+    expect(existsSync(dreamServiceFilePath("linux"))).toBe(false);
+    expect(existsSync(dreamTimerFilePath())).toBe(false);
   });
 
   it("is a no-op when the service file does not exist", () => {
@@ -279,6 +308,17 @@ describe("installDaemon — linux", () => {
     expect(content).toContain("Restart=always");
     expect(content).toContain("WantedBy=default.target");
     expect(content).toContain(tmpHome);
+  });
+
+  it("also installs a hidden midnight dream service and timer", () => {
+    installDaemon("linux", nodeBin, railgunBin);
+    const service = readFileSync(dreamServiceFilePath("linux"), "utf8");
+    const timer = readFileSync(dreamTimerFilePath(), "utf8");
+    expect(service).toContain(`ExecStart="${nodeBin}" "${railgunBin}" dream`);
+    expect(service).toContain("Type=oneshot");
+    expect(timer).toContain("OnCalendar=*-*-* 00:00:00");
+    expect(timer).toContain("Persistent=true");
+    expect(timer).toContain("Unit=railgun-dream.service");
   });
 
   it("calls systemctl daemon-reload then enable --now", () => {

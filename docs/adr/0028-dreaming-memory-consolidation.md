@@ -92,11 +92,13 @@ Four new methods added to support the dream subsystem:
 
 ## Consequences
 
-- **No automatic scheduling**: `railgun dream` is a one-shot command that
-  users schedule externally (e.g. `0 3 * * * railgun dream` in crontab).
-  The existing `railgun cron` infrastructure is not used — unattended dreaming
-  does not fit the cron job model (it needs the full memory store, not a
-  single scheduled prompt).
+- **Automatic scheduling**: `railgun cron install` also registers a hidden,
+  OS-managed `railgun dream` task that runs at local midnight (launchd
+  `StartCalendarInterval` on macOS; a persistent systemd timer on Linux).
+  The task remains separate from user-defined cron jobs because it needs the
+  full memory store rather than a single scheduled prompt. It is not persisted
+  in `jobs.json` or exposed by `/cron`; it invokes the normal dream command,
+  including the minimum-five-memory guard, with service output suppressed.
 
 - **LLM cost per run**: each dream is a full agent session. With 20 memories
   the prompt is small (~2K tokens); with hundreds it grows proportionally.
