@@ -1,33 +1,26 @@
 name: Publish CLI
 
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-    branches:
-      - main
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: npm-publish-${{ github.event.workflow_run.head_sha }}
+  group: npm-publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
     name: Publish to npm
-    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
