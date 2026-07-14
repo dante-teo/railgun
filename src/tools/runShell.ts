@@ -124,7 +124,6 @@ registry.register({
     const approved = await awaitApproval(() => context.confirmShellCommand(command), context.signal);
     if (context.signal.aborted) return STOPPED_RESULT;
     if (!approved) return { content: `Command not approved: ${command}`, isError: true };
-    context.checkpointGuard?.beforeMutation();
     context.sessionApprovals.add(requirement.patternId);
     return runShellBounded(command, context);
   }

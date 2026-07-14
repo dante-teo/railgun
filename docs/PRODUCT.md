@@ -179,29 +179,8 @@ and config, and the session store is never opened. Full suite: 52 test files,
 592 tests, zero regressions; `pnpm typecheck` clean.
   Phase 28: `src/skills.test.ts` proves `splitFrontmatter` correctly handles LF and CRLF opening fences (CRLF offset is 5, not 4, so frontmatter does not contain a leading `\n`), no-fence input returns the full body, and a missing closing `---` produces no frontmatter; `parseSkillFile` returns a valid `SkillMeta` for well-formed files, infers `name` from directory (for `SKILL.md`) or filename, returns `null` with a `[skills]`-prefixed warning for missing description, invalid name, or overlength description, and respects `disable-model-invocation: true`; `discoverSkills` returns `[]` for a non-existent directory, stops recursion at a `SKILL.md` directory root (no nested skills discovered), finds `.md` files at any level, and skips non-`.md` files; `buildSkillIndex` builds a deduplication map with first-loaded-wins semantics and warns on collision; `formatSkillsForPrompt` returns `""` for an empty index, excludes disabled-model-invocation skills, produces correct `<available_skills>` XML, and escapes `&`/`"`/`<`/`>` in description attributes; `expandSkillCommand` returns `null` for non-`/skill:` input, an `{ kind: "error" }` discriminant for unknown names, `{ kind: "expanded" }` with the full XML body for known skills, and appends trailing args after `</skill>`. `src/tools/skillView.test.ts` proves `skill_view` returns the body for a known name, an error for an unknown name, and an error when the `name` argument is absent. `src/paths.test.ts` proves `SKILLS_PATH` is derived from the same Railgun home as all other paths.
 
-Phase 22 adds automatic working-directory snapshots before file-mutating tool
-calls and a `/rollback` REPL command to undo the agent's last round of
-changes. Before the first `write_file` or approved `run_shell_command` in a
-user turn, a `CheckpointGuard` calls `snapshot`, which stages all files into a
-per-project shadow git repository at `~/.railgun/checkpoints/<cwd-hash>/` and
-commits them. Subsequent `beforeMutation` calls within the same turn are
-no-ops; `resetTurn` re-arms the guard for the next turn. `/rollback` calls
-`git checkout HEAD -- .` against the shadow repo, restoring the working tree
-to the pre-turn state. One-shot mode receives no guard. See ADR-0013.
-
 Phase 21 (not shown here — see replication plan) added the shell-command
 approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/trust.json` persists trust decisions keyed by canonical path, with ancestor-directory inheritance; `--approve`/`-a` and `--no-approve`/`-na` CLI flags override for one invocation; `/trust` REPL command updates the decision mid-session; `defaultProjectTrust: "ask"|"always"|"never"` in `config.json` short-circuits the prompt. Trust is plumbing-only in Phase 20 — no project-local resources are gated yet. See ADR-0013.
-  Phase 22: `src/checkpoint.test.ts` proves `shadowGitDir` determinism,
-  `snapshot` creates a commit in a fresh shadow repo, a second snapshot when
-  nothing changed is a no-op (covered by `--allow-empty`), `rollback` restores
-  overwritten and deleted files to their pre-snapshot content, rollback against
-  a missing shadow repo throws, `createCheckpointGuard.beforeMutation` takes
-  exactly one commit per turn (duplicates are no-ops), and `resetTurn` re-arms
-  the guard so the next `beforeMutation` takes a second commit;
-  `src/tools/writeFile.test.ts` proves `checkpointGuard.beforeMutation` is
-  invoked exactly once when the guard is present in `ToolContext`;
-  `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
-  returned by `findMatches`.
   Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded
   directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after
   `set(cwd, "deny")`, `trusted (session)` for `trust-session` without writing to disk,
@@ -488,7 +467,7 @@ protocol failures, and unrelated errors fail immediately.
   and proves list/chooser/print avoid Devin or SQLite where required;
   `src/repl/SessionChooser.test.ts` covers wrapping Up/Down navigation;
   `src/session.test.ts` covers required saved models; and
-  `src/repl/App.test.tsx` covers transcript/todo hydration, rollback helpers,
+  `src/repl/App.test.tsx` covers transcript/todo hydration, todo restoration helpers,
   unsaved retry, and recovery clearing. Phase 13: `src/auth.test.ts` covers
   environment/file selection, missing-cache OAuth, model-discovery and stream
   invalidation, removal failure, fresh login verification, cache preservation,
@@ -539,17 +518,6 @@ protocol failures, and unrelated errors fail immediately.
   `run()` call across normal/aborted/fatal-error outcomes, and that
   `steer`/`followUp` on an idle session throw without mutating the queue
   mirror or emitting `queue_update`.
-  Phase 22: `src/checkpoint.test.ts` proves `shadowGitDir` determinism,
-  `snapshot` creates a commit in a fresh shadow repo, a second snapshot when
-  nothing changed is a no-op (covered by `--allow-empty`), `rollback` restores
-  overwritten and deleted files to their pre-snapshot content, rollback against
-  a missing shadow repo throws, `createCheckpointGuard.beforeMutation` takes
-  exactly one commit per turn (duplicates are no-ops), and `resetTurn` re-arms
-  the guard so the next `beforeMutation` takes a second commit;
-  `src/tools/writeFile.test.ts` proves `checkpointGuard.beforeMutation` is
-  invoked exactly once when the guard is present in `ToolContext`;
-  `src/commands.test.ts` proves `/rollback` is present in `KNOWN_COMMANDS` and
-  returned by `findMatches`.
   Phase 19: `src/tools/clarify.test.ts` proves all six handler cases — missing question arg, absent callback, open-ended callback call returning `{ question, answer }` JSON, choices callback call, max-4 truncation, and abort-before-call returning the stopped message; `src/agent/systemPrompt.test.ts` proves the clarify guidance string is present in the generated prompt; full suite (42 files / 421 tests) passes with zero regressions; `pnpm typecheck` passes clean under `exactOptionalPropertyTypes: true` and `noUncheckedIndexedAccess: true`.
   Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after `set(cwd, "deny")`, `trusted (session)` for `trust-session` without writing to disk, ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`. `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume modes, rejection on login/logout/config/list modes, and both-flags-together throwing `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included in the persisted output of `setConfiguredModel`, and is rejected for values outside the `"ask"/"always"/"never"` set. See ADR-0013.
   Phase 21: `src/security/commandApproval.test.ts` proves hardline blocks for

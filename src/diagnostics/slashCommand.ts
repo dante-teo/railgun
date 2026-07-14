@@ -5,7 +5,6 @@ const SLASH_PHASES: Readonly<Record<string, string>> = Object.freeze({
   "/model": "slash_model",
   "/settings": "slash_settings",
   "/compact": "slash_compact",
-  "/rollback": "slash_rollback",
   "/trust": "slash_trust",
   "/moa": "slash_moa",
   "/branch": "slash_branch",

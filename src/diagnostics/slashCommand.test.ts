@@ -18,4 +18,8 @@ describe("slash command diagnostics", () => {
       diagnosticSlashPhase("/skill:private-skill-name"),
     ])).not.toContain("secret-value");
   });
+
+  it("assigns no dedicated phase to the removed /rollback command", () => {
+    expect(diagnosticSlashPhase("/rollback")).toBe("slash_unknown");
+  });
 });

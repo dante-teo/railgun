@@ -20,7 +20,7 @@ results, intercept user input, and register new LLM-callable tools — by
 placing `.js` or `.ts` files in `~/.railgun/extensions/`. The agent can also spawn bounded subagents via `delegate_task`, fanning a task out to up to three independent child loops running concurrently, with configurable depth limits and automatic parent-abort propagation. The REPL is a full-screen,
 resize-aware Ink interface with automatic mint-light/mint-dark appearance,
 Markdown replies, transcript history navigation, a multiline composer, slash
-commands (`/exit`, `/help`, `/clear`, `/model`, `/compact`), and Tab completion. A `.railgun.md` (or
+commands, and Tab completion. A `.railgun.md` (or
 `RAILGUN.md`) found in the project tree (walking up to the git root), or
 an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the working directory,
  is loaded into the system prompt automatically at session startup — as is
@@ -213,11 +213,18 @@ session becomes durable after its first successful turn:
   - `/model <name-or-index>` — switch the active model directly and save as the new default.
   - `/model <name-or-index> --session` — switch for this session only (not saved).
   - `/model --session` — open the picker; the selected model applies to this session only.
+  - `/settings` — open nested pickers for the primary model, default MoA preset, and advisor.
   - `/compact` — manually summarize and compact the current conversation history now, without waiting for the automatic 90%-context-window trigger. Prints `Compacted conversation history to stay under the context limit.` on success.
+  - `/trust` — inspect or change the project trust decision for this session or future sessions.
+  - `/moa` — open a session-only picker for the active mixture-of-agents preset.
+  - `/moa <preset>` — activate a named preset; `/moa off` disables MoA for the session.
+  - `/branch [--summary] <message-id>` — move the saved session branch to a prior message, optionally inserting a summary of the abandoned suffix. Bare `/branch` opens a recent-message picker.
+  - `/fork` — copy the active branch into a new session and continue there.
   - `/dream` — manually trigger memory consolidation. Reviews all stored memories, merges duplicates, deletes stale entries, and promotes stable user preferences to `~/.railgun/SOUL.md`. Requires at least 5 stored memories. Progress lines appear in the transcript.
   - `/cron` — list all scheduled jobs.
   - `/cron add <id> <schedule> <prompt>` — create a new cron job. `<schedule>` is a 5-field cron expression (e.g. `0 9 * * *`); `<prompt>` is the remainder of the line. Validates the expression and rejects duplicate ids.
   - `/cron remove <id>` — delete a scheduled job by id.
+  - `/skill:<name> [args]` — load a discovered local skill and send its instructions, plus optional arguments, into the next agent turn.
   (The agent tool can also manage jobs via natural language — ask "list my scheduled tasks" or "add a daily summary job".)
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
@@ -231,9 +238,10 @@ session becomes durable after its first successful turn:
   `DEVIN_TOKEN` instead. Failed turns are never replayed automatically.
   Todo changes from the failed turn are rolled back, though file and shell
   side effects already performed by tools cannot be undone.
-- **Checkpoint error**: a completed turn stays usable in memory and the
+- **Session save error**: a completed turn stays usable in memory and the
   status line shows `unsaved`. The next successful turn retries the complete
-  pending snapshot; a recovery message appears once persistence succeeds.
+  pending conversation/todo state; a recovery message appears once persistence
+  succeeds.
 - **Context compaction**: after each turn step, if the model's reported
   input+output token usage reaches 90% of its context window, Railgun
   automatically summarizes the conversation and replaces history with a
@@ -407,7 +415,10 @@ historical tool frames are intentionally not reconstructed.
 Missing IDs, corrupt saved state, database failures, and unavailable saved
 models exit nonzero with an actionable error. Treat `state.db` as private
 application state rather than editing it manually; stop Railgun before making
-a backup so the database and its WAL are consistent.
+a backup so the database and its WAL are consistent. Session persistence covers
+conversation history and todos only. File writes and shell-command side effects
+apply directly to the working directory, so protect project files with normal
+version control or backups.
 
 ### Manual persistence smoke test
 

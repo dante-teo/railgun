@@ -17,7 +17,7 @@ import type { DevinSession } from "../session.js";
 import { loadConfig, parseMoAPreset, setConfiguredModel, isAdvisorActive, updateConfig } from "../config.js";
 import type { MoAPreset } from "../agent/moa.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
-import { findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
+import { HELP_TEXT, findMatches, nextCompletionState, parseSlashCommand } from "../commands.js";
 import { toolLineIcon, approvalColor, shouldAppendToolTranscriptLine, shouldShowToolLine } from "./toolLineStyle.js";
 import { ModelRow, resolveModelCommand } from "./ModelChooser.js";
 import { Suggestions } from "./Suggestions.js";
@@ -33,7 +33,6 @@ import { parseMouseWheel } from "./mouse.js";
 import { ThemeController, themeForMode } from "./theme.js";
 import type { Theme, ThemeMode } from "./theme.js";
 import { createViewport, reduceViewport, visibleViewportRows } from "./viewport.js";
-import { createCheckpointGuard, shadowGitDir, rollback } from "../checkpoint.js";
 import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
@@ -328,7 +327,6 @@ const ChatApp = ({
   const [completionIndex, setCompletionIndex] = useState<number | null>(null);
   const [completionMatches, setCompletionMatches] = useState<readonly string[]>([]);
   const liveMatches = useMemo(() => (draft.startsWith("/") && !draft.includes(" ") ? findMatches(draft) : []), [draft]);
-  const checkpointGuard = useMemo(() => createCheckpointGuard(process.cwd()), []);
   const [streaming, setStreaming] = useState("");
   const streamSegmentsRef = useRef(createStreamSegments());
   const [busy, setBusy] = useState(false);
@@ -605,10 +603,10 @@ const ChatApp = ({
     if (text.startsWith("/")) {
       const { command, arg } = parseSlashCommand(text);
       const slashOperation = diagnostics.observer.start({ phase: diagnosticSlashPhase(command) });
-        try {
+      try {
         if (command === "/exit") { exit(); return; }
         if (command === "/help") {
-          setLines(previous => [...previous, { kind: "assistant", text: "Commands: /exit, /help, /clear, /model, /settings, /compact, /rollback, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /cron [add|remove], /skill:<name>" }]);
+          setLines(previous => [...previous, { kind: "assistant", text: HELP_TEXT }]);
           return;
         }
         if (command === "/clear") {
@@ -716,15 +714,6 @@ const ChatApp = ({
             setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? String(error) }]);
           } finally {
             setBusy(false);
-          }
-          return;
-        }
-        if (command === "/rollback") {
-          try {
-            rollback(shadowGitDir(process.cwd()), process.cwd());
-            setLines(previous => [...previous, { kind: "assistant", text: "Rolled back to the last checkpoint." }]);
-          } catch (error) {
-            setLines(previous => [...previous, { kind: "error", text: `Rollback failed: ${error instanceof Error ? error.message : String(error)}` }]);
           }
           return;
         }
@@ -940,7 +929,6 @@ const ChatApp = ({
       confirmShellCommand,
       iterationBudget: () => iterationBudgetRef.current,
       todoStore: todoStoreRef.current,
-      checkpointGuard,
       clarifyCallback,
       commandApprovalMode: approvalMode,
       operationTimeoutMs,
@@ -998,7 +986,6 @@ const ChatApp = ({
       }
     });
     activeAgentRef.current = agentSession;
-    checkpointGuard.resetTurn();
     const outcome = await agentSession.run({ history, text });
     activeAgentRef.current = null;
     unsubscribe();
@@ -1038,7 +1025,7 @@ const ChatApp = ({
     setBusy(false);
     setTodoLoading(false);
     setQueuedSteer(false);
-  }, [activeMoaPreset, activeSession, busy, checkpointGuard, checkpointUnsaved, clarifyCallback, confirmShellCommand, diagnostics, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
+  }, [activeMoaPreset, activeSession, busy, checkpointUnsaved, clarifyCallback, confirmShellCommand, diagnostics, exit, extensionRunner, flushStreamingLine, history, onToolExecutionEnd, onToolExecutionStart, pendingClarify, pendingCommand, persistence, stdoutWrite]);
 
   const useComposerInput = (handler: (input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]) => void, isActive: boolean): void => {
     useInput((input, key) => {

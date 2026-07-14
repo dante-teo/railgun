@@ -24,7 +24,6 @@ export interface AgentDependencies {
   readonly clarifyCallback?: ClarifyCallback;
   readonly todoStore?: TodoStore;
   readonly iterationBudget?: () => IterationBudget;
-  readonly checkpointGuard?: { beforeMutation: () => void; resetTurn: () => void };
   readonly commandApprovalMode?: CommandApprovalMode;
   readonly sessionApprovals?: Set<string>;
   readonly reviewerModel?: string;
@@ -105,7 +104,6 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           clearQueues: queues.clear,
           ...(dependencies.todoStore !== undefined ? { todoStore: dependencies.todoStore } : {}),
           ...(dependencies.clarifyCallback !== undefined ? { clarifyCallback: dependencies.clarifyCallback } : {}),
-          ...(dependencies.checkpointGuard ? { checkpointGuard: dependencies.checkpointGuard } : {}),
           ...(dependencies.commandApprovalMode !== undefined ? { commandApprovalMode: dependencies.commandApprovalMode } : {}),
           ...(dependencies.sessionApprovals !== undefined ? { sessionApprovals: dependencies.sessionApprovals } : {}),
           ...(dependencies.reviewerModel !== undefined ? { reviewerModel: dependencies.reviewerModel } : {}),

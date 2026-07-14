@@ -34,7 +34,6 @@ registry.register({
     if (content === undefined) {
       return { content: 'Error: write_file requires a string "content" argument', isError: true };
     }
-    context.checkpointGuard?.beforeMutation();
     try {
       await writeFile(path, content, "utf-8");
       return { content: `Wrote ${content.length} bytes to ${path}`, isError: false };

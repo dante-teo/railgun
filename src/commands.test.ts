@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOWN_COMMANDS } from "./commands.js";
+import { HELP_TEXT, matchCommand, parseSlashCommand, findMatches, nextCompletionState, KNOWN_COMMANDS } from "./commands.js";
+
+const expectedCommands = [
+  "/exit", "/help", "/clear", "/model", "/settings", "/compact",
+  "/trust", "/moa", "/branch", "/fork", "/dream", "/cron",
+] as const;
 
 describe("KNOWN_COMMANDS", () => {
-  it("contains /cron along with the other commands", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
+  it("contains the supported command surface", () => {
+    expect([...KNOWN_COMMANDS]).toEqual(expectedCommands);
+  });
+
+  it("does not recognize or suggest the removed /rollback command", () => {
+    expect(matchCommand("/rollback")).toBeUndefined();
+    expect(findMatches("/roll")).toEqual([]);
+  });
+
+  it("does not document /rollback in help", () => {
+    expect(HELP_TEXT).not.toContain("/rollback");
   });
 });
 
@@ -69,10 +82,11 @@ describe("parseSlashCommand", () => {
     expect(result).not.toHaveProperty("arg");
   });
 });
+
 describe("findMatches", () => {
   it("returns all commands for '/'", () => {
-     expect([...KNOWN_COMMANDS]).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
-     expect(findMatches("/")).toEqual(["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/rollback", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"]);
+    expect([...KNOWN_COMMANDS]).toEqual(expectedCommands);
+    expect(findMatches("/")).toEqual(expectedCommands);
   });
 
   it("returns no matches for '/sk'", () => {

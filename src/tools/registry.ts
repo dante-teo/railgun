@@ -11,7 +11,6 @@ export interface ToolContext {
   confirmShellCommand: (command: string) => Promise<boolean>;
   signal: AbortSignal;
   clarifyCallback?: ClarifyCallback;
-  checkpointGuard?: { beforeMutation: () => void };
   commandApprovalMode: CommandApprovalMode;
   sessionApprovals: Set<string>;
   devin?: DevinProvider;

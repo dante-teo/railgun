@@ -30,7 +30,6 @@ The Hermes desktop app in `tmp_reference/apps/desktop` is a UX reference only. W
 | Subagents | Delegation start/end events | Simple current-run activity list |
 | Project folder | `--cwd`, project context, trust gate | Folder picker and trust prompt |
 | Files | File tools operate in the project folder | Read-only file tree and preview |
-| Rollback | Shadow-git checkpoints | Confirmed Rollback action |
 | Cron | List/add/update/remove jobs | Simple cron CRUD screen |
 | Memories | Memory store CRUD/search | Memory list and editor |
 | Notes | Import and keyword/semantic search | Import and search screen |
@@ -287,10 +286,9 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - New chat, newest-first session list, filter, resume, and checkpoint status.
   - Restore the last valid route after relaunch.
 
-- [ ] **DESK-012 — Add branch, fork, and rollback**
+- [ ] **DESK-012 — Add branch and fork**
   - Branch from a message, with optional summary.
   - Fork the active session.
-  - Confirm rollback and refresh affected UI afterward.
 
 - [ ] **DESK-013 — Add project folder and trust flow**
   - Folder picker and recent folders.

@@ -42,7 +42,6 @@ export interface RunTurnOptions {
   /** @deprecated Prefer takeFollowUp to preserve assistant boundaries. */
   takeFollowUps?: () => readonly string[];
   clearQueues?: () => number;
-  checkpointGuard?: { beforeMutation: () => void };
   commandApprovalMode?: CommandApprovalMode;
   sessionApprovals?: Set<string>;
   reviewerModel?: string;
@@ -368,7 +367,6 @@ export const runTurn = async (
     signal,
     ...(options?.todoStore !== undefined ? { todoStore: options.todoStore } : {}),
     ...(options?.clarifyCallback !== undefined ? { clarifyCallback: options.clarifyCallback } : {}),
-    ...(options?.checkpointGuard ? { checkpointGuard: options.checkpointGuard } : {}),
     commandApprovalMode: options?.commandApprovalMode ?? "manual",
     // Note: callers that omit sessionApprovals get an ephemeral Set scoped to this turn;
     // session-approval persistence requires the caller to supply and retain the same Set across turns.
