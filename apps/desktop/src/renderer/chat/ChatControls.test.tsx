@@ -100,6 +100,9 @@ describe("chat toolbar controls", () => {
     await screen.findByRole("button", { name: "Agent settings" });
     act(() => bridge.emit({ type: "context-usage", inputTokens: 100_000, outputTokens: 50_000 }));
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Agent settings" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Compact context" }));
     await waitFor(() => expect(compactContext).toHaveBeenCalledOnce());
     expect(screen.getByText("Not measured yet")).toBeTruthy();

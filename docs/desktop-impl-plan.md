@@ -80,10 +80,11 @@ the main pane read as one uninterrupted surface:
 The app should look native to macOS 26, using Liquid Glass deliberately rather than applying blur everywhere.
 
 - Use glass selectively where it communicates hierarchy: the floating sidebar,
-  toolbar and composer controls, popovers, and sheets. Keep the effect subtle;
+  toolbar, anchored popovers, dialogs, and sheets. Keep the effect subtle;
   transparency, tint, blur, borders, and depth should support the content rather
   than become decoration of their own.
-- Keep transcripts, code, forms, and long lists on calm readable surfaces.
+- Keep transcripts, code, forms, cards, the composer, prompts, and long lists on
+  calm opaque or lightly tonal surfaces.
 - Use a transparent titlebar with correct traffic-light spacing and native window behavior.
 - Use restrained depth, edge highlights, adaptive tint, and short fluid transitions.
 - Support light/dark appearance, Reduce Transparency, Increase Contrast, and Reduce Motion.
@@ -93,27 +94,41 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
 ### Implemented shell contract
 
 - The main canvas is a flat, continuous surface. The floating sidebar owns its
-  glass tint and gradient; no divider, shadow seam, or sidebar material may
+  subtle glass tint; no divider, shadow seam, or sidebar material may
   extend into the surrounding canvas.
 - `--sidebar-gutter` supplies the same outer inset on every sidebar edge.
 - Electron's traffic-light position and the renderer's titlebar tokens are a
   coordinated contract. The toolbar title/subtitle block and present or future
   toolbar actions share `--titlebar-control-center-y`, keeping them vertically
   aligned with the traffic lights.
+- The toolbar's borderless blurred fade spans the full window behind the inset
+  sidebar. Sidebar expansion changes the toolbar content inset, not the material
+  width; no sidebar edge may create a toolbar color seam.
 - One labelled `PanelLeft` control collapses and restores the sidebar. It is a
   ghost button at the sidebar's top-right while expanded and a circular glass
   button beside the traffic lights while collapsed. Collapse state is
   session-only; the hidden sidebar is inert and removed from the accessibility
   tree.
 - Sidebar width is clamped, pointer- and keyboard-resizable, and stored in a
-  versioned renderer-local record. The main pane and its toolbar participate in
-  the same flex layout, so both move with the live sidebar width. The optional
-  inspector uses the same infrastructure but is omitted from the DOM and
-  accessibility tree until a feature supplies real content.
+  versioned renderer-local record. Main-pane content follows the live sidebar
+  width while the toolbar material remains full-window. The optional inspector
+  uses the same infrastructure but is omitted from the DOM and accessibility
+  tree until a feature supplies real content.
+- Chat uses one full-height overlay grid cell for toolbar, transcript, operation
+  errors, and composer. Error banners sit below the toolbar fade and follow the
+  sidebar inset. The native transcript scrollbar is hidden in favor of one
+  centered, height-capped dash rail whose existing dashes change color to show
+  position.
 - Renderer components consume semantic CSS custom properties and shared
   material recipes instead of raw palette values. Reduced Transparency removes
   blur, Reduced Motion removes animated transitions, and Increase Contrast uses
   stronger solid boundaries and focus indicators.
+- Liquid glass is contextual to toolbar controls. Ordinary buttons are flat and
+  shadow-free; a shaped tonal action must have a visibly distinct fill and at
+  least 4.5:1 text contrast, otherwise it should use the plain text treatment.
+- Dialogs default to no decorative close button and finish with explicit footer
+  actions. Dropdown callouts include an anchored arrow; selects use the same
+  dense menu material without a trigger arrow.
 
 Design references:
 

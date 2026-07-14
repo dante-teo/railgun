@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Bot, Send, Square } from "lucide-react";
+import type { OverlayScrollbars } from "overlayscrollbars";
+import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/input";
@@ -237,41 +239,85 @@ interface TranscriptProps {
   readonly onRestart: () => Promise<void>;
 }
 
+const transcriptScrollOptions = {
+  overflow: { x: "hidden", y: "scroll" },
+  scrollbars: { visibility: "hidden" },
+} as const;
+
+const TRANSCRIPT_DASH_COUNT = 24;
+const TRANSCRIPT_ACTIVE_DASH_COUNT = 4;
+const TRANSCRIPT_DASH_INDEXES = Array.from({ length: TRANSCRIPT_DASH_COUNT }, (_, index) => index);
+const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
+
+export const transcriptActiveDashIndexes = (progress: number): readonly number[] => {
+  const start = Math.round(clampUnit(progress) * (TRANSCRIPT_DASH_COUNT - TRANSCRIPT_ACTIVE_DASH_COUNT));
+  return Array.from({ length: TRANSCRIPT_ACTIVE_DASH_COUNT }, (_, index) => start + index);
+};
+
+type ScrollMetrics = Readonly<Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">>;
+
+export const transcriptScrollProgress = ({ scrollTop, scrollHeight, clientHeight }: ScrollMetrics): number => {
+  const scrollableHeight = scrollHeight - clientHeight;
+  return scrollableHeight <= 0 ? 0 : clampUnit(scrollTop / scrollableHeight);
+};
+
+const TranscriptScrollIndicator = ({ progress }: { readonly progress: number }): React.JSX.Element => {
+  const activeDashes = transcriptActiveDashIndexes(progress);
+  return (
+    <div className="transcript-scroll-indicator" aria-hidden="true">
+      {TRANSCRIPT_DASH_INDEXES.map(index => <span className={activeDashes.includes(index) ? "active" : undefined} key={index} />)}
+    </div>
+  );
+};
+
 export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps): React.JSX.Element => {
   const { state } = controller;
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const updateScrollProgress = useCallback((instance: OverlayScrollbars): void => {
+    setScrollProgress(transcriptScrollProgress(instance.elements().scrollOffsetElement));
+  }, []);
   const entries = [
     ...state.messages.map(message => ({ kind: "message" as const, order: message.order, message })),
     ...state.activity.entries.map(activity => ({ kind: "activity" as const, order: activity.order, activity })),
   ].sort((left, right) => left.order - right.order);
   const empty = entries.length === 0;
   return (
-    <div className={`transcript ${empty ? "empty" : ""}`} aria-live="polite">
-      {empty && snapshot.phase === "ready"
-        ? <EmptyState className="welcome" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." />
-        : null}
-      {empty && snapshot.phase !== "ready"
-        ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
-        : null}
-      {entries.map(entry => entry.kind === "activity" ? <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} /> : (
-        <article className={`message ${entry.message.role} ${entry.message.status}`} key={entry.message.id} data-status={entry.message.status}>
-          <div className="message-role">{entry.message.role === "user" ? "You" : "Railgun"}</div>
-          {entry.message.role === "assistant" && entry.message.status !== "streaming"
-            ? <MarkdownMessage>{entry.message.text}</MarkdownMessage>
-            : <p>{entry.message.text}</p>}
-          {entry.message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
-        </article>
-      ))}
-      {state.failedRun === undefined ? null : (
-        <div className="run-error" role="alert">
-          <span>{state.failedRun.error}</span>
-          {snapshot.phase === "ready"
-            ? <Button type="button" size="sm" variant="glass" onClick={() => void controller.retry()}>Retry</Button>
-            : <Button type="button" size="sm" variant="glass" onClick={() => void onRestart()}>Restart backend</Button>}
+    <div className="transcript-stage">
+      <OverlayScrollbarsComponent
+        className="transcript"
+        options={transcriptScrollOptions}
+        events={{ initialized: updateScrollProgress, updated: updateScrollProgress, scroll: updateScrollProgress }}
+      >
+        <div className={`transcript-content ${empty ? "empty" : ""}`} aria-live="polite">
+          {empty && snapshot.phase === "ready"
+            ? <EmptyState className="welcome" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." />
+            : null}
+          {empty && snapshot.phase !== "ready"
+            ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
+            : null}
+          {entries.map(entry => entry.kind === "activity" ? <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} /> : (
+            <article className={`message ${entry.message.role} ${entry.message.status}`} key={entry.message.id} data-status={entry.message.status}>
+              <div className="message-role">{entry.message.role === "user" ? "You" : "Railgun"}</div>
+              {entry.message.role === "assistant" && entry.message.status !== "streaming"
+                ? <MarkdownMessage>{entry.message.text}</MarkdownMessage>
+                : <p>{entry.message.text}</p>}
+              {entry.message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
+            </article>
+          ))}
+          {state.failedRun === undefined ? null : (
+            <div className="run-error" role="alert">
+              <span>{state.failedRun.error}</span>
+              {snapshot.phase === "ready"
+                ? <Button type="button" size="sm" variant="tonal" onClick={() => void controller.retry()}>Retry</Button>
+                : <Button type="button" size="sm" variant="tonal" onClick={() => void onRestart()}>Restart backend</Button>}
+            </div>
+          )}
+          {state.running && state.messages.at(-1)?.role !== "assistant"
+            ? <div className="thinking"><i /><i /><i /><span>Railgun is thinking</span></div>
+            : null}
         </div>
-      )}
-      {state.running && state.messages.at(-1)?.role !== "assistant"
-        ? <div className="thinking"><i /><i /><i /><span>Railgun is thinking</span></div>
-        : null}
+      </OverlayScrollbarsComponent>
+      <TranscriptScrollIndicator progress={scrollProgress} />
     </div>
   );
 };
@@ -317,7 +363,7 @@ const InteractionPromptCard = ({ prompt, onAnswer, onApproval, onSelectAnswer }:
       <pre className="interaction-command" aria-label="Command preview">{prompt.command}</pre>
       {prompt.error === undefined ? null : <p className="interaction-error" role="alert">{prompt.error}</p>}
       <div className="interaction-actions">
-        <Button ref={approvalControl} type="button" variant="glass" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, false)}>Deny</Button>
+        <Button ref={approvalControl} type="button" variant="tonal" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, false)}>Deny</Button>
         <Button type="button" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, true)}>{prompt.submitting ? "Submitting…" : "Allow"}</Button>
       </div>
     </section>
@@ -339,7 +385,7 @@ const InteractionPromptCard = ({ prompt, onAnswer, onApproval, onSelectAnswer }:
             onChange={event => onSelectAnswer(prompt.id, event.target.value)}
           />
           <div className="interaction-actions">
-            <Button type="button" variant="glass" disabled={prompt.submitting} onClick={decline}>Decline</Button>
+            <Button type="button" variant="tonal" disabled={prompt.submitting} onClick={decline}>Decline</Button>
             <Button type="submit" disabled={prompt.submitting || prompt.answer.trim() === ""}>{prompt.submitting ? "Submitting…" : "Submit"}</Button>
           </div>
         </form>

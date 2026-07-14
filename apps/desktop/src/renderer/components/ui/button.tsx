@@ -11,7 +11,9 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         primary: "ui-button-primary",
-        glass: "ui-button-glass",
+        tonal: "ui-button-tonal",
+        // Compatibility alias: liquid glass is applied only by toolbar context styles.
+        glass: "ui-button-tonal",
         ghost: "ui-button-ghost",
         destructive: "ui-button-destructive",
         capsule: "ui-button-capsule",

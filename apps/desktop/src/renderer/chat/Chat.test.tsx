@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
-import { ActivityInspector, Composer, Transcript, useChatController } from "./Chat";
+import { ActivityInspector, Composer, Transcript, transcriptActiveDashIndexes, transcriptScrollProgress, useChatController } from "./Chat";
 
 afterEach(cleanup);
 
@@ -64,7 +64,31 @@ const Harness = (): React.JSX.Element => {
   return <><Transcript controller={controller} snapshot={ready} onRestart={async () => undefined} /><ActivityInspector activity={controller.state.activity} /><Composer controller={controller} available /><button>After composer</button></>;
 };
 
-describe("chat composer", () => {
+describe("chat renderer", () => {
+  it("renders one fixed set of transcript position dashes", async () => {
+    makeApi();
+    const { container } = render(<Harness />);
+
+    const indicator = container.querySelector(".transcript-scroll-indicator");
+    expect(indicator?.children).toHaveLength(24);
+    expect(indicator?.querySelectorAll(".active")).toHaveLength(4);
+    expect(container.querySelector(".transcript-content")?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("maps scroll progress onto the same dash elements", () => {
+    expect(transcriptActiveDashIndexes(-1)).toEqual([0, 1, 2, 3]);
+    expect(transcriptActiveDashIndexes(0)).toEqual([0, 1, 2, 3]);
+    expect(transcriptActiveDashIndexes(0.5)).toEqual([10, 11, 12, 13]);
+    expect(transcriptActiveDashIndexes(1)).toEqual([20, 21, 22, 23]);
+    expect(transcriptActiveDashIndexes(2)).toEqual([20, 21, 22, 23]);
+  });
+
+  it("calculates bounded transcript progress from scroll metrics", () => {
+    expect(transcriptScrollProgress({ scrollTop: 250, scrollHeight: 1_000, clientHeight: 500 })).toBe(0.5);
+    expect(transcriptScrollProgress({ scrollTop: 0, scrollHeight: 500, clientHeight: 500 })).toBe(0);
+    expect(transcriptScrollProgress({ scrollTop: 800, scrollHeight: 1_000, clientHeight: 500 })).toBe(1);
+  });
+
   it("sends on idle Enter and preserves Shift+Enter multiline input", async () => {
     const run = deferred<void>();
     const sendPrompt = vi.fn(() => run.promise);

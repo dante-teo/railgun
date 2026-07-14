@@ -43,7 +43,7 @@ export const BackendStatus = ({ snapshot, onRetry }: BackendStatusProps): React.
         {snapshot.error === undefined ? null : <p className="error-detail">{snapshot.error}</p>}
         {snapshot.diagnostics.length === 0 ? null : <details><summary>Diagnostics</summary><pre>{snapshot.diagnostics.join("\n")}</pre></details>}
         {onRetry !== undefined && RETRYABLE_PHASES.has(snapshot.phase)
-          ? <Button type="button" variant="glass" onClick={() => void onRetry()}>Retry</Button>
+          ? <Button type="button" variant="tonal" onClick={() => void onRetry()}>Retry</Button>
           : null}
       </CardContent>
     </Card>

@@ -8,9 +8,12 @@ export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 
 export const DropdownMenuContent = forwardRef<React.ComponentRef<typeof DropdownMenuPrimitive.Content>, React.ComponentProps<typeof DropdownMenuPrimitive.Content>>(
-  ({ className, sideOffset = 6, ...props }, ref) => (
+  ({ className, children, sideOffset = 8, ...props }, ref) => (
     <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.Content ref={ref} className={cn("ui-popover ui-dropdown-content", className)} sideOffset={sideOffset} {...props} />
+      <DropdownMenuPrimitive.Content ref={ref} className={cn("ui-popover ui-dropdown-content", className)} sideOffset={sideOffset} {...props}>
+        {children}
+        <DropdownMenuPrimitive.Arrow className="ui-popover-arrow" width={14} height={7} />
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   ),
 );

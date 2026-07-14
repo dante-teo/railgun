@@ -16,7 +16,7 @@ interface DialogContentProps extends React.ComponentProps<typeof DialogPrimitive
 }
 
 export const DialogContent = forwardRef<React.ComponentRef<typeof DialogPrimitive.Content>, DialogContentProps>(
-  ({ className, children, showClose = true, ...props }, ref) => (
+  ({ className, children, showClose = false, ...props }, ref) => (
     <DialogPrimitive.Portal>
       <DialogOverlay />
       <DialogPrimitive.Content ref={ref} className={cn("ui-dialog-content", className)} {...props}>
@@ -30,6 +30,8 @@ DialogContent.displayName = "DialogContent";
 
 export const DialogHeader = ({ className, ...props }: React.ComponentProps<"div">): React.JSX.Element =>
   <div className={cn("ui-dialog-header", className)} {...props} />;
+export const DialogFooter = ({ className, ...props }: React.ComponentProps<"div">): React.JSX.Element =>
+  <div className={cn("ui-dialog-footer", className)} {...props} />;
 export const DialogTitle = ({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>): React.JSX.Element =>
   <DialogPrimitive.Title className={cn("ui-dialog-title", className)} {...props} />;
 export const DialogDescription = ({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Description>): React.JSX.Element =>

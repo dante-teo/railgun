@@ -39,7 +39,7 @@ export const MockPanel = ({ snapshot, scenarios, onSelect }: MockPanelProps): Re
             <SelectTrigger aria-label="Mock scenario"><SelectValue placeholder="Choose a scenario" /></SelectTrigger>
             <SelectContent>{scenarios.map((scenario) => <SelectItem value={scenario.id} key={scenario.id}>{scenario.label}</SelectItem>)}</SelectContent>
           </Select>
-          <Button type="button" variant="glass" disabled={restarting || selectedId.length === 0} onClick={() => void restart()}>
+          <Button type="button" variant="tonal" disabled={restarting || selectedId.length === 0} onClick={() => void restart()}>
             {restarting ? "Restarting…" : "Restart backend"}
           </Button>
         </div>
@@ -164,7 +164,7 @@ export const App = (): React.JSX.Element => {
 
   const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
-        <Button className="new-chat" variant="glass" onClick={() => void startNewChat()}><CirclePlus aria-hidden="true" />New chat</Button>
+        <Button className="new-chat" variant="tonal" onClick={() => void startNewChat()}><CirclePlus aria-hidden="true" />New chat</Button>
         <nav aria-label="Main navigation">
           <Button variant="ghost" className={area === "chat" ? "active" : ""} aria-current={area === "chat" ? "page" : undefined} onClick={() => setArea("chat")}><MessageSquare aria-hidden="true" />Chat</Button>
           <Button variant="ghost" className={area === "settings" ? "active" : ""} aria-current={area === "settings" ? "page" : undefined} onClick={() => setArea("settings")}><Settings aria-hidden="true" />Settings</Button>

@@ -2,12 +2,14 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Button, ButtonGroup } from "./button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogTitle,
   DialogTrigger,
   Sheet,
@@ -19,12 +21,25 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input, Textarea } from "./input";
 import { EmptyState, ErrorState, LoadingState } from "./state";
 
+beforeAll(() => vi.stubGlobal("ResizeObserver", class {
+  observe(): void { /* jsdom layout is static */ }
+  unobserve(): void { /* jsdom layout is static */ }
+  disconnect(): void { /* jsdom layout is static */ }
+}));
+afterAll(() => vi.unstubAllGlobals());
 afterEach(cleanup);
 
 describe("Button", () => {
-  it.each(["primary", "glass", "ghost", "destructive", "capsule"] as const)("renders the %s variant", (variant) => {
+  it.each(["primary", "tonal", "ghost", "destructive", "capsule"] as const)("renders the %s variant", (variant) => {
     render(<Button variant={variant}>{variant}</Button>);
     expect(screen.getByRole("button", { name: variant }).className).toContain(`ui-button-${variant}`);
+  });
+
+  it("keeps glass as an opaque tonal compatibility alias", () => {
+    render(<Button variant="glass">Legacy</Button>);
+    const className = screen.getByRole("button", { name: "Legacy" }).className;
+    expect(className).toContain("ui-button-tonal");
+    expect(className).not.toContain("ui-button-glass");
   });
 
   it("supports circular icon controls and native disabled behavior", () => {
@@ -54,7 +69,7 @@ describe("fields and menus", () => {
     const onSelect = vi.fn();
     render(
       <DropdownMenu>
-        <DropdownMenuTrigger asChild><Button variant="glass">Actions</Button></DropdownMenuTrigger>
+        <DropdownMenuTrigger asChild><Button variant="tonal">Actions</Button></DropdownMenuTrigger>
         <DropdownMenuContent>
           <DropdownMenuItem onSelect={onSelect}>Open details</DropdownMenuItem>
         </DropdownMenuContent>
@@ -65,26 +80,30 @@ describe("fields and menus", () => {
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     const item = await screen.findByRole("menuitem", { name: "Open details" });
+    expect(document.querySelector(".ui-popover-arrow")).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(item));
     fireEvent.keyDown(item, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Open details" })).toBeNull());
   });
 });
 
 describe("overlays", () => {
-  it("opens and closes a labeled dialog", async () => {
+  it("omits a decorative close button and closes through a footer action", async () => {
     render(
       <Dialog>
         <DialogTrigger asChild><Button>Open dialog</Button></DialogTrigger>
         <DialogContent>
           <DialogTitle>Connection details</DialogTitle>
           <DialogDescription>Validated backend information.</DialogDescription>
+          <DialogFooter><DialogClose asChild><Button>Done</Button></DialogClose></DialogFooter>
         </DialogContent>
       </Dialog>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Open dialog" }));
     expect(await screen.findByRole("dialog", { name: "Connection details" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 

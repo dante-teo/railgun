@@ -735,6 +735,12 @@ change, compaction, backend restart, or New Chat. Configuration reads are
 reduced in Electron main to a bounded display-safe snapshot; raw configuration,
 unknown keys, and provider-only model fields do not cross preload.
 
+The desktop transcript fills the main canvas behind its floating toolbar and
+composer. Its native scrollbar is hidden in favor of a centered dash indicator
+on the left; active dashes show the current scroll range. Operation errors stay
+visible below the toolbar and follow the sidebar inset instead of adding a new
+layout row.
+
 The real desktop backend never opens browser OAuth implicitly. If its cached
 credential is missing or rejected, run `pnpm start login` in Terminal and use
 Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that

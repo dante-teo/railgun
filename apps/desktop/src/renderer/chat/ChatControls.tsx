@@ -8,7 +8,7 @@ import type {
   ModelPersistenceMode,
 } from "../../shared/types";
 import { Button } from "../components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { errorMessage } from "../lib/utils";
@@ -77,7 +77,7 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
   useEffect(() => { setActiveIndex(index => Math.min(index, Math.max(0, filtered.length - 1))); }, [filtered.length]);
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
-      <DialogTrigger asChild><Button type="button" size="sm" variant="glass" disabled={disabled} aria-label="Choose model">
+      <DialogTrigger asChild><Button type="button" size="sm" variant="tonal" disabled={disabled} aria-label="Choose model">
         {current?.name ?? controls.activeModelId}<ChevronDown aria-hidden="true" />
       </Button></DialogTrigger>
       <DialogContent className="model-dialog">
@@ -119,10 +119,10 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
           ))}
         </div>
         {error === undefined ? null : <p className="control-error" role="alert">{error}</p>}
-        <div className="model-actions">
-          <Button type="button" variant="glass" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This chat</Button>
+        <DialogFooter className="model-actions">
+          <Button type="button" variant="tonal" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This chat</Button>
           <Button type="button" disabled={disabled || !selectedIsVisible} onClick={() => void apply("default")}>Make default</Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -140,7 +140,7 @@ const AgentDialog = ({ controls, disabled, error, onUpdate, onCompact }: AgentDi
   const advisorModelId = controls.advisor.modelId ?? controls.activeModelId;
   const summary = `${controls.activeMoaPreset === null ? "MoA off" : controls.activeMoaPreset} · Advisor ${controls.advisor.enabled ? "on" : "off"}`;
   return <Dialog>
-    <DialogTrigger asChild><Button type="button" size="sm" variant="glass" disabled={disabled} aria-label="Agent settings"><Sparkles aria-hidden="true" />{summary}</Button></DialogTrigger>
+    <DialogTrigger asChild><Button type="button" size="sm" variant="tonal" disabled={disabled} aria-label="Agent settings"><Sparkles aria-hidden="true" />{summary}</Button></DialogTrigger>
     <DialogContent className="agent-controls-dialog">
       <DialogHeader><DialogTitle>Agent settings</DialogTitle><DialogDescription>Defaults apply to the next run, not one already in progress.</DialogDescription></DialogHeader>
       <div className="agent-control-fields">
@@ -157,7 +157,7 @@ const AgentDialog = ({ controls, disabled, error, onUpdate, onCompact }: AgentDi
         <div className="agent-advisor-row"><div><span>Advisor</span><small>Review completed primary-model steps.</small></div><Button
           type="button"
           size="sm"
-          variant={controls.advisor.enabled ? "capsule" : "glass"}
+          variant={controls.advisor.enabled ? "capsule" : "tonal"}
           aria-pressed={controls.advisor.enabled}
           disabled={disabled}
           onClick={() => void onUpdate({ advisor: { enabled: !controls.advisor.enabled, modelId: advisorModelId } })}
@@ -173,13 +173,14 @@ const AgentDialog = ({ controls, disabled, error, onUpdate, onCompact }: AgentDi
         <div className="agent-compact-row"><div><span>Context</span><small>Summarize the current history to free context space.</small></div><Button
           type="button"
           size="sm"
-          variant="glass"
+          variant="tonal"
           aria-label="Compact context"
           disabled={disabled || controls.messageCount === 0}
           onClick={() => void onCompact()}
         >Compact</Button></div>
       </div>
       {error === undefined ? null : <p className="control-error" role="alert">{error}</p>}
+      <DialogFooter><DialogClose asChild><Button type="button">Done</Button></DialogClose></DialogFooter>
     </DialogContent>
   </Dialog>;
 };
@@ -245,7 +246,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
 
   if (controls === undefined && !available) return <div className="chat-controls-state"><span>Controls unavailable</span></div>;
   if (controls === undefined) return <div className="chat-controls-state">
-    {loading ? <span role="status">Loading controls…</span> : <><span role="alert">{error}</span><Button type="button" size="sm" variant="glass" onClick={() => void load()}>Retry</Button></>}
+    {loading ? <span role="status">Loading controls…</span> : <><span role="alert">{error}</span><Button type="button" size="sm" variant="tonal" onClick={() => void load()}>Retry</Button></>}
   </div>;
 
   const disabled = !available || running || mutating;

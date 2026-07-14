@@ -31,21 +31,30 @@ source records, and SIL Open Font License notices are bundled under
 `apps/desktop/src/renderer/public/fonts/` and load only through the packaged
 `railgun://app/` origin.
 
-Liquid Glass communicates hierarchy rather than covering every layer. The
-sidebar, controls, composer, cards/lists, popovers, and dialogs use shared
-neutral tint, backdrop saturation/blur, reflective inner rims, borders, and
-restrained elevation. Control, floating, popover, and dialog recipes have
-separate density tokens: notably, dropdowns remain visibly translucent while
-dialogs use a denser theme-aware tint, scrim, and shadow to separate them from
-the dimmed page. The content canvas and toolbar remain calm readability layers.
-No displacement map, remote imagery, or theme-switcher demo is part of the
-product material.
+Material communicates hierarchy rather than covering every layer. Glass is
+reserved for the inset sidebar, continuous top toolbar, anchored popovers, and
+dialogs. Cards, lists, fields, the composer, and prompts use opaque or lightly
+tonal content surfaces with hairlines and restrained depth. Ordinary action
+buttons use four flat, shadow-free system-like recipes: tinted capsule, plain
+text action, filled accent capsule, or white/tonal capsule. Destructive actions
+reuse the filled geometry with the danger color. Toolbar controls remain a
+separate liquid-glass hierarchy, while sidebar navigation stays neutral.
+The toolbar material spans the full window behind the inset sidebar; expanding
+the sidebar changes only the toolbar content inset. It has no separator and
+uses a blurred vertical fade into the content canvas. Liquid-glass control
+effects are contextual to this toolbar hierarchy. Ordinary tonal actions use
+dedicated light/dark surface and label tokens whose text contrast must remain
+at least WCAG AA (4.5:1).
+Dialogs use a dense theme-aware tint, simple rim, restrained scrim, broad soft
+shadow, and grouped inset content. The content canvas remains a calm readability
+layer. No displacement map, remote imagery, or theme-switcher demo is part of
+the product material.
 
 System accessibility preferences take precedence over the visual effect.
-Reduce Transparency replaces shared glass with opaque canvas fills and removes
-backdrop filters; Increase Contrast strengthens borders and focus rings; Reduce
-Motion suppresses decorative transitions. These fallbacks must be preserved
-when adding a new shared surface or material variant.
+Reduce Transparency replaces hierarchical glass with opaque canvas fills and
+removes backdrop filters; Increase Contrast strengthens borders and focus
+rings; Reduce Motion suppresses decorative transitions. These fallbacks must
+be preserved when adding a new shared surface or material variant.
 
 ## Interaction
 
@@ -108,12 +117,24 @@ the same model; text entry is reserved for free-form answers and preset names.
   backend interruption remains a danger-styled inline row with its Retry or
   Restart action rather than degrading to unstyled text.
 
+- The desktop chat is one full-height canvas. Toolbar, transcript, operation
+  errors, and composer occupy the same overlay grid cell instead of creating
+  disconnected vertical regions. Operation errors align below the toolbar fade,
+  remain above transcript/composer content, and follow the live sidebar inset.
+  The native transcript scrollbar is hidden. A vertically centered dash rail on
+  the transcript's left edge is capped at 30rem; scrolling changes the existing
+  dashes from muted to active rather than drawing a second thumb over them.
+
 - The desktop composer gives message entry its own full-width row. Its quiet
   footer shows the active model, one combined Agent settings trigger, exact
   context usage, and Send/Stop without turning every action into a separate
   glass pill. The searchable model dialog provides explicit `This chat` and
   `Make default` choices. Agent settings contains MoA, advisor, advisor model,
   and manual Compact controls; portalled select menus stack above the dialog.
+  Dialogs omit a decorative close control by default and use explicit trailing
+  footer actions such as Done; the selection-driven command palette is the
+  intentional close-less exception. Anchored dropdowns include a material arrow
+  and share the dense readable menu recipe with selects.
   Compact is disabled during runs/control mutations and for empty history.
   Context usage is the latest provider-reported input plus output total against
   the active model's context window and reads `Not measured yet` after model
