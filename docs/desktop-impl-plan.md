@@ -161,6 +161,27 @@ Security defaults:
 - sanitized Markdown and allowlisted external links;
 - no credentials or MCP secrets sent to the renderer.
 
+### Desktop interaction boundary
+
+Approval and clarification requests are the one interactive extension to the
+reduced renderer event stream. The backend's RPC request IDs remain main-process
+state: `interactionBroker` validates and redacts bounded request content, then
+assigns an opaque desktop correlation ID before sending the closed request
+shape through preload. Renderer responses accept only that opaque ID and the
+fixed approval or clarification payload; they never receive unrestricted IPC or
+the backend request ID.
+
+Prompt cards preserve backend arrival order and may remain open concurrently.
+They lock the ordinary composer while keeping Stop available. Approval Escape
+maps to denial; clarification Escape submits `[user declined to answer]`.
+Response failures keep the card open with an inline retryable error. Invalid
+backend interaction frames are declined or denied when their request ID is
+usable, with abort as the safe fallback, so malformed input cannot crash the
+main process or leave a run waiting indefinitely. Broker mappings and renderer
+prompt state are cleared on agent run settlement, abort, backend restart,
+process exit, shutdown, or disconnection. Hardline shell blocks remain owned by
+the backend and have no desktop bypass.
+
 ## Local tickets
 
 Status: `[ ]` backlog, `[>]` active, `[x]` complete.
@@ -273,10 +294,16 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Tool-call IDs correlate only an in-flight invocation: settled IDs may be reused by later turns without suppressing their rows. Failed initial/backend runs retain the danger-styled Retry/Restart presentation.
   - The `agent-activity` mock covers parallel success/error tools, todo loading/update, MoA, advisor, and subagent events while cancellation and disconnection scenarios remain available. Mock integration tests use a persistent buffered line reader so fragmented or coalesced stdout frames are never discarded between assertions.
 
-- [ ] **DESK-009 — Implement approval and clarification prompts**
-  - Correlated shell allow/deny UI that preserves Railgun's hardline blocks.
-  - Choice and free-text clarification UI.
-  - Abort or backend exit must settle every open prompt without hanging.
+- [x] **DESK-009 — Implement approval and clarification prompts**
+  - Correlated shell allow/deny UI that preserves Railgun's hardline blocks;
+    mock coverage includes both allow and deny outcomes.
+  - Choice and free-text clarification UI, with keyboard navigation, Escape
+    decline behavior, inline errors, and multiple prompt ordering.
+  - Main-process broker correlation keeps backend IDs private, bounds and
+    redacts prompt text, and safely settles malformed requests.
+  - Abort, run end, backend restart, process exit, shutdown, and disconnection
+    settle every open prompt without hanging; the deterministic mock covers
+    cancellation and disconnect behavior.
 
 - [ ] **DESK-010 — Add model and context controls**
   - Searchable model picker with persistent or session-only selection.

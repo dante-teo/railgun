@@ -1,9 +1,29 @@
-import type { DesktopAgentEvent } from "../../shared/types";
+import type { DesktopAgentEvent, DesktopInteractionRequest } from "../../shared/types";
 import { activityReducer, initialActivityState } from "./activityState";
 import type { ActivityState } from "./activityState";
 
 export type MessageStatus = "streaming" | "complete" | "queued" | "failed" | "stopped";
 export type QueueKind = "steering" | "follow-up";
+
+export interface ApprovalPrompt {
+  readonly type: "approval";
+  readonly id: string;
+  readonly command: string;
+  readonly submitting: boolean;
+  readonly error: string | undefined;
+}
+
+export interface ClarificationPrompt {
+  readonly type: "clarification";
+  readonly id: string;
+  readonly question: string;
+  readonly choices: readonly string[] | undefined;
+  readonly answer: string;
+  readonly submitting: boolean;
+  readonly error: string | undefined;
+}
+
+export type InteractionPrompt = ApprovalPrompt | ClarificationPrompt;
 
 export interface TranscriptMessage {
   readonly id: string;
@@ -40,6 +60,7 @@ export interface ChatState {
   readonly activeRun: RunRequest | undefined;
   readonly activity: ActivityState;
   readonly nextOrder: number;
+  readonly interactions: readonly InteractionPrompt[];
 }
 
 export const initialChatState: ChatState = {
@@ -52,6 +73,7 @@ export const initialChatState: ChatState = {
   activeRun: undefined,
   activity: initialActivityState,
   nextOrder: 1,
+  interactions: [],
 };
 
 export type ChatAction =
@@ -69,6 +91,11 @@ export type ChatAction =
   | { readonly type: "stop-acknowledged" }
   | { readonly type: "run-end" }
   | { readonly type: "backend-failed"; readonly error: string }
+  | { readonly type: "interaction-request"; readonly request: DesktopInteractionRequest }
+  | { readonly type: "interaction-answer"; readonly id: string; readonly answer: string }
+  | { readonly type: "interaction-submit"; readonly id: string }
+  | { readonly type: "interaction-resolved"; readonly id: string }
+  | { readonly type: "interaction-failed"; readonly id: string; readonly error: string }
   | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" }> }
   | { readonly type: "reset" };
 
@@ -144,6 +171,7 @@ const failRun = (state: ChatState, userId: string, text: string, error: string):
     ...state,
     messages,
     queue: [],
+    interactions: [],
     running: false,
     stopping: false,
     failedRun: { userId, text, error },
@@ -163,6 +191,7 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         submissionError: undefined,
         failedRun: undefined,
         activeRun: { userId: action.id, text: action.text },
+        interactions: [],
         nextOrder: state.nextOrder + 1,
       };
     case "retry-start":
@@ -178,6 +207,7 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         submissionError: undefined,
         failedRun: undefined,
         activeRun: { userId: retry.userId, text: retry.text },
+        interactions: [],
       };
     case "request-failed":
       return failRun(state, action.userId, action.text, action.error);
@@ -237,10 +267,11 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         running: false,
         stopping: false,
         activeRun: undefined,
+        interactions: [],
         activity: activityReducer(state.activity, { type: "settle", reason: "interrupted" }),
       };
     case "backend-failed": {
-      const settled = { ...state, activity: activityReducer(state.activity, { type: "settle", reason: "interrupted" }) };
+      const settled = { ...state, interactions: [], activity: activityReducer(state.activity, { type: "settle", reason: "interrupted" }) };
       if (!state.running || state.activeRun === undefined) return settled;
       return failRun(settled, state.activeRun.userId, state.activeRun.text, action.error);
     }
@@ -253,6 +284,36 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         nextOrder: ordered ? state.nextOrder + 1 : state.nextOrder,
       };
     }
+    case "interaction-request": {
+      if (!state.running || state.interactions.some(prompt => prompt.id === action.request.id)) return state;
+      const prompt: InteractionPrompt = action.request.type === "approval"
+        ? { ...action.request, submitting: false, error: undefined }
+        : { ...action.request, choices: action.request.choices, answer: "", submitting: false, error: undefined };
+      return { ...state, interactions: [...state.interactions, prompt] };
+    }
+    case "interaction-answer":
+      return {
+        ...state,
+        interactions: state.interactions.map(prompt => prompt.id === action.id && prompt.type === "clarification"
+          ? { ...prompt, answer: action.answer, error: undefined }
+          : prompt),
+      };
+    case "interaction-submit":
+      return {
+        ...state,
+        interactions: state.interactions.map(prompt => prompt.id === action.id
+          ? { ...prompt, submitting: true, error: undefined }
+          : prompt),
+      };
+    case "interaction-resolved":
+      return { ...state, interactions: state.interactions.filter(prompt => prompt.id !== action.id) };
+    case "interaction-failed":
+      return {
+        ...state,
+        interactions: state.interactions.map(prompt => prompt.id === action.id
+          ? { ...prompt, submitting: false, error: action.error }
+          : prompt),
+      };
     case "reset":
       return initialChatState;
   }

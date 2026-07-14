@@ -97,4 +97,21 @@ describe("chat event reduction", () => {
       expect.objectContaining({ kind: "moa-aggregation", status: "success" }),
     ]);
   });
+
+  it("keeps simultaneous prompts in arrival order and settles them at lifecycle boundaries", () => {
+    let state = chatReducer(initialChatState, { type: "initial-submit", id: "user-1", text: "hello" });
+    state = chatReducer(state, { type: "interaction-request", request: { type: "approval", id: "11111111-1111-4111-8111-111111111111", command: "echo one" } });
+    state = chatReducer(state, { type: "interaction-request", request: { type: "clarification", id: "22222222-2222-4222-8222-222222222222", question: "Which?", choices: ["A", "B"] } });
+    expect(state.interactions.map(prompt => prompt.id)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ]);
+    state = chatReducer(state, { type: "interaction-submit", id: state.interactions[0]!.id });
+    state = chatReducer(state, { type: "interaction-failed", id: state.interactions[0]!.id, error: "temporary" });
+    expect(state.interactions[0]).toMatchObject({ submitting: false, error: "temporary" });
+    state = chatReducer(state, { type: "run-end" });
+    expect(state.interactions).toEqual([]);
+    state = chatReducer(state, { type: "interaction-request", request: { type: "approval", id: "33333333-3333-4333-8333-333333333333", command: "late" } });
+    expect(state.interactions).toEqual([]);
+  });
 });

@@ -2,6 +2,7 @@ import type { z } from "zod";
 import type {
   AppCommandSchema,
   BackendSnapshotSchema,
+  DesktopInteractionRequestSchema,
   DesktopAgentEventSchema,
   MockScenarioIdSchema,
   MockScenarioSchema,
@@ -16,6 +17,7 @@ export type BackendSnapshot = z.infer<typeof BackendSnapshotSchema>;
 export type MockScenario = z.infer<typeof MockScenarioSchema>;
 export type DesktopAgentEvent = z.infer<typeof DesktopAgentEventSchema>;
 export type AppCommand = z.infer<typeof AppCommandSchema>;
+export type DesktopInteractionRequest = z.infer<typeof DesktopInteractionRequestSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -30,6 +32,9 @@ export interface RailgunDesktopApi {
   openExternal: (url: string) => Promise<void>;
   startNewChat: () => Promise<BackendSnapshot>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
+  respondToApproval: (id: string, approved: boolean) => Promise<void>;
+  respondToClarification: (id: string, answer: string) => Promise<void>;
+  onInteractionRequest: (listener: (request: DesktopInteractionRequest) => void) => () => void;
   onAppCommand: (listener: (command: AppCommand) => void) => () => void;
 }
 
@@ -47,4 +52,7 @@ export const DESKTOP_IPC = {
   startNewChat: "agent:new-chat",
   agentEvent: "agent:event",
   appCommand: "app:command",
+  interactionRequest: "agent:interaction-request",
+  respondToApproval: "agent:approval-response",
+  respondToClarification: "agent:clarification-response",
 } as const;

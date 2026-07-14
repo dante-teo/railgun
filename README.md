@@ -718,6 +718,13 @@ transcript, so the next prompt has empty RPC history in both modes. Aborting a
 mock prompt cancels all remaining scheduled output and settles its pending RPC
 response before another prompt can start.
 
+The desktop mock also includes approval, choice clarification, free-text
+clarification, cancellation, and disconnection scenarios. Approval and
+clarification prompts are rendered inline; the ordinary composer is locked while
+they are open, Stop remains available, and prompt responses are correlated by
+opaque renderer IDs. Backend request IDs never cross the preload boundary, and
+hardline-blocked shell commands remain backend-owned with no desktop bypass.
+
 The real desktop backend never opens browser OAuth implicitly. If its cached
 credential is missing or rejected, run `pnpm start login` in Terminal and use
 Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that

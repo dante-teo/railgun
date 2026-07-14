@@ -27,6 +27,7 @@ const deferred = <T,>() => {
 
 const makeApi = (overrides: Partial<RailgunDesktopApi> = {}) => {
   let listener: ((event: DesktopAgentEvent) => void) | undefined;
+  let interactionListener: ((request: import("../../shared/types").DesktopInteractionRequest) => void) | undefined;
   const api: RailgunDesktopApi = {
     getBackendSnapshot: async () => ready,
     restartBackend: async () => ready,
@@ -40,11 +41,18 @@ const makeApi = (overrides: Partial<RailgunDesktopApi> = {}) => {
     openExternal: async () => undefined,
     startNewChat: async () => ready,
     onAgentEvent: next => { listener = next; return () => undefined; },
+    respondToApproval: async () => undefined,
+    respondToClarification: async () => undefined,
+    onInteractionRequest: next => { interactionListener = next; return () => undefined; },
     onAppCommand: () => () => undefined,
     ...overrides,
   };
   Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
-  return { api, emit: (event: DesktopAgentEvent) => listener?.(event) };
+  return {
+    api,
+    emit: (event: DesktopAgentEvent) => listener?.(event),
+    emitInteraction: (request: import("../../shared/types").DesktopInteractionRequest) => interactionListener?.(request),
+  };
 };
 
 const Harness = (): React.JSX.Element => {
@@ -189,5 +197,59 @@ describe("chat composer", () => {
     expect(screen.getByText("In progress")).toBeTruthy();
     act(() => bridge.emit({ type: "subagent-end", index: 0, goal: "Inspect tests", result: "Found coverage" }));
     expect(screen.getByText("Completed", { selector: ".subagent-status" })).toBeTruthy();
+  });
+
+  it("renders correlated approval and clarification prompts while locking the composer", async () => {
+    const respondToApproval = vi.fn(async () => undefined);
+    const respondToClarification = vi.fn(async () => undefined);
+    const bridge = makeApi({ respondToApproval, respondToClarification });
+    render(<Harness />);
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    fireEvent.change(textbox, { target: { value: "start" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    act(() => bridge.emitInteraction({ type: "approval", id: "11111111-1111-4111-8111-111111111111", command: "sudo safe-command" }));
+    act(() => bridge.emitInteraction({ type: "clarification", id: "22222222-2222-4222-8222-222222222222", question: "Choose a path", choices: ["Fast", "Safe"] }));
+    expect(screen.getByRole("region", { name: "Shell command approval" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Clarification request" })).toBeTruthy();
+    expect(textbox).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(respondToApproval).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", true));
+    fireEvent.click(screen.getByRole("radio", { name: "Safe" }));
+    await waitFor(() => expect(respondToClarification).toHaveBeenCalledWith("22222222-2222-4222-8222-222222222222", "Safe"));
+  });
+
+  it("denies an approval when Escape is pressed", async () => {
+    const respondToApproval = vi.fn(async () => undefined);
+    const respondToClarification = vi.fn(async () => undefined);
+    const bridge = makeApi({ respondToApproval, respondToClarification });
+    render(<Harness />);
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    fireEvent.change(textbox, { target: { value: "start" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    act(() => bridge.emitInteraction({ type: "approval", id: "55555555-5555-4555-8555-555555555555", command: "sudo safe-command" }));
+
+    fireEvent.keyDown(screen.getByRole("region", { name: "Shell command approval" }), { key: "Escape" });
+    await waitFor(() => expect(respondToApproval).toHaveBeenCalledWith("55555555-5555-4555-8555-555555555555", false));
+    expect(respondToClarification).not.toHaveBeenCalled();
+  });
+
+  it("submits free text and uses Escape to decline clarification", async () => {
+    const respondToClarification = vi.fn(async () => undefined);
+    const bridge = makeApi({ respondToClarification });
+    render(<Harness />);
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    fireEvent.change(textbox, { target: { value: "start" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    act(() => bridge.emitInteraction({ type: "clarification", id: "33333333-3333-4333-8333-333333333333", question: "What should I use?" }));
+    const answer = screen.getByRole("textbox", { name: "Your answer" });
+    fireEvent.change(answer, { target: { value: "the safe option" } });
+    fireEvent.submit(answer.closest("form")!);
+    await waitFor(() => expect(respondToClarification).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", "the safe option"));
+
+    act(() => bridge.emitInteraction({ type: "clarification", id: "44444444-4444-4444-8444-444444444444", question: "Another answer?" }));
+    fireEvent.keyDown(screen.getByRole("region", { name: "Clarification request" }), { key: "Escape" });
+    await waitFor(() => expect(respondToClarification).toHaveBeenCalledWith("44444444-4444-4444-8444-444444444444", "[user declined to answer]"));
   });
 });

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Bot, Send, Square } from "lucide-react";
-import type { BackendSnapshot, DesktopAgentEvent } from "../../shared/types";
+import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/input";
 import { EmptyState } from "../components/ui/state";
 import { BackendStatus } from "../backendStatus";
 import { chatReducer, initialChatState } from "./chatState";
-import type { QueueKind } from "./chatState";
+import type { InteractionPrompt, QueueKind } from "./chatState";
 import type { ActivityEntry, ActivityState, ActivityStatus } from "./activityState";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { createDeltaFrameBuffer } from "./streaming";
@@ -54,6 +54,14 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     };
     const unsubscribe = window.railgunDesktop.onAgentEvent(handleEvent);
     return () => { deltaBuffer.current?.clear(); unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    const handleInteraction = (request: DesktopInteractionRequest): void => {
+      dispatch({ type: "interaction-request", request });
+    };
+    const unsubscribe = window.railgunDesktop.onInteractionRequest(handleInteraction);
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -118,13 +126,37 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     }
   };
 
+  const setInteractionAnswer = (id: string, answer: string): void => {
+    dispatch({ type: "interaction-answer", id, answer });
+  };
+
+  const respondToApproval = async (id: string, approved: boolean): Promise<void> => {
+    dispatch({ type: "interaction-submit", id });
+    try {
+      await window.railgunDesktop.respondToApproval(id, approved);
+      dispatch({ type: "interaction-resolved", id });
+    } catch (error) {
+      dispatch({ type: "interaction-failed", id, error: errorMessage(error, "Unable to submit approval") });
+    }
+  };
+
+  const respondToClarification = async (id: string, answer: string): Promise<void> => {
+    dispatch({ type: "interaction-submit", id });
+    try {
+      await window.railgunDesktop.respondToClarification(id, answer);
+      dispatch({ type: "interaction-resolved", id });
+    } catch (error) {
+      dispatch({ type: "interaction-failed", id, error: errorMessage(error, "Unable to submit clarification") });
+    }
+  };
+
   const reset = (): void => {
     deltaBuffer.current?.clear();
     setDraft("");
     dispatch({ type: "reset" });
   };
 
-  return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, reset };
+  return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, reset, setInteractionAnswer, respondToApproval, respondToClarification };
 };
 
 export type ChatController = ReturnType<typeof useChatController>;
@@ -246,10 +278,116 @@ interface ComposerProps {
   readonly available: boolean;
 }
 
+const declineAnswer = "[user declined to answer]";
+
+interface InteractionPromptProps {
+  readonly prompt: InteractionPrompt;
+  readonly onAnswer: (id: string, answer: string) => Promise<void>;
+  readonly onApproval: (id: string, approved: boolean) => Promise<void>;
+  readonly onSelectAnswer: (id: string, answer: string) => void;
+}
+
+const InteractionPromptCard = ({ prompt, onAnswer, onApproval, onSelectAnswer }: InteractionPromptProps): React.JSX.Element => {
+  const firstControl = useRef<HTMLInputElement>(null);
+  const approvalControl = useRef<HTMLButtonElement>(null);
+  const choiceRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (prompt.type === "approval") approvalControl.current?.focus();
+    else if (firstControl.current !== null) firstControl.current.focus();
+    else choiceRefs.current[0]?.focus();
+  }, [prompt.type]);
+
+  const decline = (): void => {
+    if (prompt.submitting) return;
+    if (prompt.type === "approval") void onApproval(prompt.id, false);
+    else void onAnswer(prompt.id, declineAnswer);
+  };
+
+  const choices = prompt.type === "clarification" ? prompt.choices : undefined;
+  return prompt.type === "approval" ? (
+    <section className="interaction-prompt approval-prompt" aria-label="Shell command approval" onKeyDown={event => {
+      if (event.key === "Escape") { event.preventDefault(); decline(); }
+    }}>
+      <div className="interaction-prompt-heading"><p className="eyebrow">Approval needed</p><h2>Allow this shell command?</h2></div>
+      <pre className="interaction-command" aria-label="Command preview">{prompt.command}</pre>
+      {prompt.error === undefined ? null : <p className="interaction-error" role="alert">{prompt.error}</p>}
+      <div className="interaction-actions">
+        <Button ref={approvalControl} type="button" variant="glass" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, false)}>Deny</Button>
+        <Button type="button" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, true)}>{prompt.submitting ? "Submitting…" : "Allow"}</Button>
+      </div>
+    </section>
+  ) : (
+    <section className="interaction-prompt clarification-prompt" aria-label="Clarification request" onKeyDown={event => {
+      if (event.key === "Escape") { event.preventDefault(); decline(); }
+    }}>
+      <div className="interaction-prompt-heading"><p className="eyebrow">Clarification needed</p><h2>{prompt.question}</h2></div>
+      {choices === undefined ? (
+        <form onSubmit={event => { event.preventDefault(); if (prompt.answer.trim() !== "") void onAnswer(prompt.id, prompt.answer); }}>
+          <label className="interaction-label" htmlFor={`clarification-${prompt.id}`}>Your answer</label>
+          <input
+            ref={firstControl}
+            id={`clarification-${prompt.id}`}
+            className="ui-field ui-input"
+            value={prompt.answer}
+            maxLength={100_000}
+            disabled={prompt.submitting}
+            onChange={event => onSelectAnswer(prompt.id, event.target.value)}
+          />
+          <div className="interaction-actions">
+            <Button type="button" variant="glass" disabled={prompt.submitting} onClick={decline}>Decline</Button>
+            <Button type="submit" disabled={prompt.submitting || prompt.answer.trim() === ""}>{prompt.submitting ? "Submitting…" : "Submit"}</Button>
+          </div>
+        </form>
+      ) : (
+        <div role="radiogroup" aria-label="Clarification choices" className="interaction-choices">
+          {choices.map((choice, index) => (
+            <Button
+              type="button"
+              role="radio"
+              aria-checked={prompt.answer === choice}
+              className="interaction-choice"
+              key={choice}
+              ref={element => { choiceRefs.current[index] = element; }}
+              disabled={prompt.submitting}
+              onClick={() => { onSelectAnswer(prompt.id, choice); void onAnswer(prompt.id, choice); }}
+              onKeyDown={event => {
+                if (event.key !== "ArrowDown" && event.key !== "ArrowRight" && event.key !== "ArrowUp" && event.key !== "ArrowLeft" && event.key !== "Enter") return;
+                event.preventDefault();
+                if (event.key === "Enter") {
+                  void onAnswer(prompt.id, prompt.answer || choice);
+                  return;
+                }
+                const offset = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
+                choiceRefs.current[(index + offset + choices.length) % choices.length]?.focus();
+              }}
+            >{choice}</Button>
+          ))}
+        </div>
+      )}
+      {prompt.error === undefined ? null : <p className="interaction-error" role="alert">{prompt.error}</p>}
+    </section>
+  );
+};
+
+const InteractionPrompts = ({ controller }: { readonly controller: ChatController }): React.JSX.Element => (
+  <div className="interaction-prompts" aria-label="Pending agent prompts">
+    {controller.state.interactions.map(prompt => <InteractionPromptCard
+      key={prompt.id}
+      prompt={prompt}
+      onAnswer={controller.respondToClarification}
+      onApproval={controller.respondToApproval}
+      onSelectAnswer={controller.setInteractionAnswer}
+    />)}
+  </div>
+);
+
 export const Composer = ({ controller, available }: ComposerProps): React.JSX.Element => {
   const { state, draft } = controller;
+  const interactionsOpen = state.interactions.length > 0;
   return (
     <div className="composer-wrap">
+      <InteractionPrompts controller={controller} />
       {state.queue.length === 0 ? null : (
         <section className="prompt-queue" aria-label="Queued messages">
           <h2>Queued</h2>
@@ -261,7 +399,7 @@ export const Composer = ({ controller, available }: ComposerProps): React.JSX.El
           aria-label="Message Railgun"
           placeholder={available ? "Message Railgun…" : "Backend unavailable"}
           value={draft}
-          disabled={!available}
+          disabled={!available || interactionsOpen}
           onChange={event => controller.setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
@@ -281,7 +419,7 @@ export const Composer = ({ controller, available }: ComposerProps): React.JSX.El
         )}
       </div>
       {state.submissionError === undefined ? null : <p className="composer-error" role="alert">{state.submissionError}</p>}
-      <p className="composer-hint">{state.running ? "Enter steers · Tab queues follow-up · Shift+Enter adds a line" : "Enter sends · Shift+Enter adds a line"}</p>
+      <p className="composer-hint">{interactionsOpen ? "Answer the pending prompt to continue" : state.running ? "Enter steers · Tab queues follow-up · Shift+Enter adds a line" : "Enter sends · Shift+Enter adds a line"}</p>
     </div>
   );
 };

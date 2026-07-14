@@ -16,6 +16,8 @@ describe("mock scenario registry", () => {
       "store-error",
       "approval",
       "clarification",
+      "clarification-choice",
+      "clarification-free-text",
       "cancellation",
       "agent-activity",
     ]);

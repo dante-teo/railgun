@@ -93,6 +93,9 @@ describe("desktop shell", () => {
       openExternal: async () => undefined,
       startNewChat,
       onAgentEvent: (listener) => { agentListener = listener; return () => undefined; },
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
       onAppCommand: () => () => undefined,
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
@@ -150,6 +153,9 @@ describe("desktop shell", () => {
       openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
       onAgentEvent: () => () => undefined,
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
       onAppCommand: () => () => undefined,
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
@@ -180,6 +186,9 @@ describe("desktop shell", () => {
       openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
       onAgentEvent: () => () => undefined,
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
       onAppCommand: (listener) => { appCommandListener = listener; return () => undefined; },
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
@@ -230,6 +239,9 @@ describe("desktop shell", () => {
       openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
       onAgentEvent: () => () => undefined,
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
       onAppCommand: () => () => undefined,
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });

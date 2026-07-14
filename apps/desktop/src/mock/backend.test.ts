@@ -115,6 +115,43 @@ describe("mock backend process", () => {
     }
   });
 
+  it("exposes deterministic approval allow/deny and choice/free-text clarification flows", async () => {
+    const approvalChild = startMock("approval");
+    try {
+      send(approvalChild, { id: "prompt-allow", type: "prompt", message: "approve" });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ type: "agent_start" });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ type: "approval_request", requestId: "mock-approval-1" });
+      send(approvalChild, { id: "approval-allow", type: "approval_response", requestId: "mock-approval-1", approved: true });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ id: "approval-allow", success: true });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ type: "agent_end" });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ id: "prompt-allow", success: true });
+      send(approvalChild, { id: "prompt-deny", type: "prompt", message: "deny" });
+      await nextLine(approvalChild);
+      await nextLine(approvalChild);
+      send(approvalChild, { id: "approval-deny", type: "approval_response", requestId: "mock-approval-1", approved: false });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ id: "approval-deny", success: true });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ type: "agent_end" });
+      expect(JSON.parse((await nextLine(approvalChild)).line)).toMatchObject({ id: "prompt-deny", success: false, error: "shell command denied" });
+    } finally {
+      approvalChild.kill();
+    }
+
+    const choiceChild = startMock("clarification-choice");
+    try {
+      send(choiceChild, { id: "prompt-choice", type: "prompt", message: "choose" });
+      await nextLine(choiceChild);
+      expect(JSON.parse((await nextLine(choiceChild)).line)).toMatchObject({
+        type: "clarification_request", choices: ["Use the fast path", "Use the safe path"],
+      });
+      send(choiceChild, { id: "clarification-choice", type: "clarification_response", requestId: "mock-clarification-1", answer: "Use the safe path" });
+      expect(JSON.parse((await nextLine(choiceChild)).line)).toMatchObject({ id: "clarification-choice", success: true });
+      expect(JSON.parse((await nextLine(choiceChild)).line)).toMatchObject({ type: "agent_end" });
+      expect(JSON.parse((await nextLine(choiceChild)).line)).toMatchObject({ id: "prompt-choice", success: true });
+    } finally {
+      choiceChild.kill();
+    }
+  });
+
   it("exits intentionally before and after readiness", async () => {
     const crash = startMock("crash-before-ready");
     expect(await waitForExit(crash)).toBe(17);

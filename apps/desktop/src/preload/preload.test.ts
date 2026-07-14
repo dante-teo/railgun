@@ -39,7 +39,10 @@ describe("preload desktop bridge", () => {
       "onAgentEvent",
       "onAppCommand",
       "onBackendSnapshot",
+      "onInteractionRequest",
       "openExternal",
+      "respondToApproval",
+      "respondToClarification",
       "restartBackend",
       "selectMockScenario",
       "sendPrompt",
@@ -93,6 +96,25 @@ describe("preload desktop bridge", () => {
     invoke.mockResolvedValueOnce(undefined);
     await expect(api.openExternal("https://example.com/docs")).resolves.toBeUndefined();
     expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.openExternal, "https://example.com/docs");
+  });
+
+  it("exposes correlated interaction responses and withholds invalid interaction events", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.respondToApproval("11111111-1111-4111-8111-111111111111", true)).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith(DESKTOP_IPC.respondToApproval, "11111111-1111-4111-8111-111111111111", true);
+    await expect(api.respondToApproval("", true)).rejects.toThrow();
+    await expect(api.respondToClarification("11111111-1111-4111-8111-111111111111", " ")).rejects.toThrow();
+
+    const listener = vi.fn();
+    const cleanup = api.onInteractionRequest(listener);
+    const handler = on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.interactionRequest)?.[1] as
+      (event: unknown, value: unknown) => void;
+    handler({}, { type: "approval", id: "", command: "echo no" });
+    handler({}, { type: "approval", id: "11111111-1111-4111-8111-111111111111", command: "echo yes" });
+    expect(listener).toHaveBeenCalledOnce();
+    cleanup();
+    expect(removeListener).toHaveBeenCalledWith(DESKTOP_IPC.interactionRequest, handler);
   });
 
   it("starts a new backend chat and validates the reset snapshot", async () => {

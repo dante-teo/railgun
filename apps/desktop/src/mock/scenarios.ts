@@ -14,6 +14,8 @@ export type MockScenarioBehavior =
   | "store-error"
   | "approval"
   | "clarification"
+  | "clarification-choice"
+  | "clarification-free-text"
   | "cancellation"
   | "agent-activity";
 
@@ -108,6 +110,18 @@ export const MOCK_SCENARIOS = defineMockScenarios([
     label: "Clarification request",
     description: "Requests clarification during a prompt.",
     behavior: "clarification",
+  },
+  {
+    id: "clarification-choice",
+    label: "Choice clarification",
+    description: "Requests one answer from a bounded list of choices.",
+    behavior: "clarification-choice",
+  },
+  {
+    id: "clarification-free-text",
+    label: "Free-text clarification",
+    description: "Requests a validated free-text answer.",
+    behavior: "clarification-free-text",
   },
   {
     id: "cancellation",

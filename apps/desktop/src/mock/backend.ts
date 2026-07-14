@@ -151,13 +151,19 @@ if (scenario.behavior === "authentication-required") {
       messageCount += 2;
       const prompt: ActivePrompt = { id: command.id, timers: new Set(), steering: [], followUp: [] };
       activePrompt = prompt;
-      if (scenario.behavior === "approval" || scenario.behavior === "clarification") {
-        const kind = scenario.behavior;
+      if (scenario.behavior === "approval" || scenario.behavior === "clarification" || scenario.behavior === "clarification-choice" || scenario.behavior === "clarification-free-text") {
+        const kind = scenario.behavior === "approval" ? "approval" : "clarification";
         const requestId = `mock-${kind}-1`;
         activeInteraction = { kind, requestId, promptId: command.id };
+        writeFragmented({ type: "agent_start" }, 8, prompt);
         writeFragmented(kind === "approval"
           ? { type: "approval_request", requestId, command: "sudo mock-command" }
-          : { type: "clarification_request", requestId, question: "Which option should the mock use?" });
+          : {
+            type: "clarification_request",
+            requestId,
+            question: scenario.behavior === "clarification-choice" ? "Which option should the mock use?" : "What should the mock use?",
+            ...(scenario.behavior === "clarification-choice" ? { choices: ["Use the fast path", "Use the safe path"] } : {}),
+          });
         return;
       }
       writeFragmented({ type: "agent_start" }, 8, prompt);
@@ -248,6 +254,7 @@ if (scenario.behavior === "authentication-required") {
       activeInteraction = undefined;
       activePrompt = undefined;
       respond(type, command.id);
+      writeFragmented({ type: "agent_end", messages: [] });
       if (type === "approval_response" && command.approved !== true) respond("prompt", interaction.promptId, { error: "shell command denied" });
       else respond("prompt", interaction.promptId);
       return;

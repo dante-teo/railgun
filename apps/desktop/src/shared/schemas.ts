@@ -10,6 +10,16 @@ export const DESKTOP_ACTIVITY_LIMITS = Object.freeze({
   todos: 256,
 });
 
+export const DESKTOP_INTERACTION_LIMITS = Object.freeze({
+  backendRequestId: 256,
+  correlationId: 128,
+  command: 8_000,
+  question: 8_000,
+  choice: 500,
+  choices: 32,
+  answer: 100_000,
+});
+
 const boundedActivityString = (limit: number) => z.string().max(limit);
 const activityId = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.id).min(1);
 const modelName = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.model).min(1);
@@ -27,6 +37,8 @@ export const MockScenarioIdSchema = z.enum([
   "store-error",
   "approval",
   "clarification",
+  "clarification-choice",
+  "clarification-free-text",
   "cancellation",
   "agent-activity",
 ]);
@@ -68,6 +80,41 @@ export const ExternalUrlSchema = z.string().max(2_048).transform((value, context
   }
 });
 export const EmptyResponseSchema = z.undefined();
+
+export const InteractionCorrelationIdSchema = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.correlationId);
+export const BackendInteractionRequestIdSchema = z.string().min(1).max(DESKTOP_INTERACTION_LIMITS.backendRequestId);
+const interactionCommand = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.command);
+const interactionQuestion = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.question);
+const interactionChoice = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.choice);
+
+export const BackendApprovalRequestSchema = z.strictObject({
+  type: z.literal("approval_request"),
+  requestId: BackendInteractionRequestIdSchema,
+  command: interactionCommand,
+});
+
+export const BackendClarificationRequestSchema = z.strictObject({
+  type: z.literal("clarification_request"),
+  requestId: BackendInteractionRequestIdSchema,
+  question: interactionQuestion,
+  choices: z.array(interactionChoice).min(1).max(DESKTOP_INTERACTION_LIMITS.choices).optional(),
+});
+
+export const DesktopInteractionRequestSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("approval"),
+    id: InteractionCorrelationIdSchema,
+    command: interactionCommand,
+  }),
+  z.strictObject({
+    type: z.literal("clarification"),
+    id: InteractionCorrelationIdSchema,
+    question: interactionQuestion,
+    choices: z.array(interactionChoice).min(1).max(DESKTOP_INTERACTION_LIMITS.choices).optional(),
+  }),
+]);
+
+export const ClarificationAnswerSchema = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.answer);
 
 export const AppCommandSchema = z.enum([
   "new-chat",

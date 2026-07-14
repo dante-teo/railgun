@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from "electron";
 import { resolve } from "node:path";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
+import { createInteractionBroker } from "./interactionBroker";
 import { toDesktopAgentEvent } from "./agentBoundary";
 import type { BackendRuntime } from "./backendSupervisor";
 import { createRendererProtocolHandler, RAILGUN_RENDERER_URL } from "./rendererProtocol";
@@ -18,6 +19,8 @@ import { getMockScenario, listMockScenarios } from "../mock/scenarios";
 import {
   AppCommandSchema,
   BackendSnapshotSchema,
+  ClarificationAnswerSchema,
+  InteractionCorrelationIdSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
   PromptTextSchema,
@@ -77,6 +80,7 @@ const senderContext = {
 interface RendererPushPayloads {
   [DESKTOP_IPC.backendSnapshot]: BackendSnapshot;
   [DESKTOP_IPC.agentEvent]: DesktopAgentEvent;
+  [DESKTOP_IPC.interactionRequest]: import("../shared/types").DesktopInteractionRequest;
 }
 
 const sendToRailgunWindows = <Channel extends keyof RendererPushPayloads>(
@@ -88,7 +92,13 @@ const sendToRailgunWindows = <Channel extends keyof RendererPushPayloads>(
   }
 };
 
+const interactionBroker = createInteractionBroker({
+  call: (command, validate) => supervisor.call(command, validate),
+  emit: request => sendToRailgunWindows(DESKTOP_IPC.interactionRequest, request),
+});
+
 const broadcastSnapshot = (snapshot: BackendSnapshot): void => {
+  if (snapshot.phase !== "ready") interactionBroker.settle();
   sendToRailgunWindows(DESKTOP_IPC.backendSnapshot, BackendSnapshotSchema.parse(snapshot));
 };
 
@@ -127,6 +137,17 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.abortPrompt, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
     await supervisor.call({ type: "abort" });
+  });
+  ipcMain.handle(DESKTOP_IPC.respondToApproval, async (event, id: unknown, approved: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    const validId = InteractionCorrelationIdSchema.parse(id);
+    if (typeof approved !== "boolean") throw new Error("Approval response must be a boolean");
+    await interactionBroker.respondToApproval(validId, approved);
+  });
+  ipcMain.handle(DESKTOP_IPC.respondToClarification, async (event, id: unknown, answer: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    const validId = InteractionCorrelationIdSchema.parse(id);
+    await interactionBroker.respondToClarification(validId, ClarificationAnswerSchema.parse(answer));
   });
   ipcMain.handle(DESKTOP_IPC.openExternal, async (event, value: unknown) => {
     await openExternalFromRenderer(event, value, senderContext, url => shell.openExternal(url));
@@ -186,6 +207,7 @@ const createWindow = (initialCommand?: AppCommand): BrowserWindow => {
 registerIpc();
 supervisor.subscribe(broadcastSnapshot);
 supervisor.subscribeBackendEvents((value) => {
+  interactionBroker.receiveBackendEvent(value);
   const event = toDesktopAgentEvent(value);
   if (event === undefined) return;
   sendToRailgunWindows(DESKTOP_IPC.agentEvent, event);
@@ -218,4 +240,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => supervisor.shutdown());
+app.on("before-quit", () => {
+  interactionBroker.settle();
+  supervisor.shutdown();
+});

@@ -3,6 +3,9 @@ import {
   AppCommandSchema,
   BackendSnapshotSchema,
   DesktopAgentEventSchema,
+  DesktopInteractionRequestSchema,
+  InteractionCorrelationIdSchema,
+  ClarificationAnswerSchema,
   EmptyResponseSchema,
   ExternalUrlSchema,
   MockScenarioIdSchema,
@@ -90,6 +93,28 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
       };
       transport.on(DESKTOP_IPC.agentEvent, handler);
       return () => transport.removeListener(DESKTOP_IPC.agentEvent, handler);
+    },
+    respondToApproval: async (id, approved) => {
+      const validId = InteractionCorrelationIdSchema.parse(id);
+      if (typeof approved !== "boolean") throw new Error("Approval response must be a boolean");
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.respondToApproval, validId, approved),
+      );
+    },
+    respondToClarification: async (id, answer) => {
+      const validId = InteractionCorrelationIdSchema.parse(id);
+      const validAnswer = ClarificationAnswerSchema.parse(answer);
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.respondToClarification, validId, validAnswer),
+      );
+    },
+    onInteractionRequest: (listener) => {
+      const handler = (_event: unknown, payload: unknown): void => {
+        const result = DesktopInteractionRequestSchema.safeParse(payload);
+        if (result.success) listener(result.data);
+      };
+      transport.on(DESKTOP_IPC.interactionRequest, handler);
+      return () => transport.removeListener(DESKTOP_IPC.interactionRequest, handler);
     },
     onAppCommand: (listener) => {
       if (!appCommandSubscribed) {
