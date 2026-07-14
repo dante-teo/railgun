@@ -107,6 +107,7 @@ const fakeSessionStore = (): SessionStore => ({
   branch: vi.fn(),
   branchWithSummary: vi.fn(async () => {}),
   forkSession: vi.fn(() => "fork-id"),
+  getActiveBranchMessageIds: vi.fn(() => []),
   getRecentMessages: vi.fn(() => []),
   close: vi.fn(),
 });

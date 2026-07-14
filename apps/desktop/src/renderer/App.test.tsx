@@ -10,6 +10,11 @@ import { filterSessions } from "./tasks/filterSessions";
 
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
 Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: class {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+} });
 
 afterEach(() => {
   cleanup();
@@ -37,6 +42,8 @@ const desktopSession = {
 const sessionApi = {
   listSessions: async () => [],
   resumeSession: async () => desktopSession,
+  branchSession: async () => desktopSession,
+  forkSession: async () => desktopSession,
   onSessionSnapshot: () => () => undefined,
 };
 const unusedControlMutation = async () => ({ controls: chatControls, persistence: "session-only" as const });
@@ -118,10 +125,19 @@ describe("desktop shell", () => {
     const rich = {
       id: "rich", startedAt: "2026-07-14T08:45:00.000Z", model: "mock-model", messageCount: 3, running: false,
       checkpoint: { state: "saved" as const },
-      transcript: [{ role: "user" as const, text: "Rich history QA" }, { role: "assistant" as const, text: "Visible restored answer" }],
+      transcript: [
+        { role: "user" as const, text: "Rich history QA", messageId: 11 },
+        { role: "assistant" as const, text: "Earlier restored answer", messageId: 12, branchable: true as const },
+        { role: "user" as const, text: "Continue", messageId: 13 },
+        { role: "assistant" as const, text: "Visible restored answer", messageId: 14, branchable: true as const },
+      ],
       todos: [{ id: "todo", content: "Inspect restored todos", status: "in_progress" as const }],
     };
     const resumeSession = vi.fn(async () => rich);
+    const branchSession = vi.fn()
+      .mockRejectedValueOnce(new Error("mock branch failed"))
+      .mockResolvedValue({ ...rich, messageCount: 2, transcript: rich.transcript.slice(0, 2) });
+    const forkSession = vi.fn(async () => ({ ...rich, id: "rich-fork" }));
     const api: RailgunDesktopApi = {
       getBackendSnapshot: async () => snapshot("ready"), restartBackend: async () => snapshot("starting"), onBackendSnapshot: () => () => undefined,
       listMockScenarios: async () => [], selectMockScenario: async () => snapshot("ready"),
@@ -131,7 +147,7 @@ describe("desktop shell", () => {
         { id: "rich", model: "mock-model", startedAtLocal: "today", messageCount: 3, firstUserPreview: "Rich history QA" },
         { id: "older", model: "other", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Older chat" },
       ],
-      resumeSession, onSessionSnapshot: () => () => undefined, ...controlApi,
+      resumeSession, branchSession, forkSession, onSessionSnapshot: () => () => undefined, ...controlApi,
       onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
     };
@@ -159,6 +175,24 @@ describe("desktop shell", () => {
     expect(screen.getByText("Inspect restored todos")).toBeTruthy();
     expect(screen.getByText("Saved")).toBeTruthy();
     expect(screen.queryByText(/provider internals/u)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch from this message" }));
+    expect(screen.getByRole("dialog", { name: "Branch from this message?" })).toBeTruthy();
+    const summarize = screen.getByRole("checkbox", { name: "Summarize later messages" });
+    expect((summarize as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(summarize);
+    fireEvent.click(screen.getByRole("button", { name: /^Branch$/u }));
+    expect((await screen.findByRole("alert")).textContent).toContain("mock branch failed");
+    expect(screen.getByRole("dialog", { name: "Branch from this message?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Branch$/u }));
+    await waitFor(() => expect(branchSession).toHaveBeenCalledTimes(2));
+    expect(branchSession).toHaveBeenLastCalledWith(12, true);
+    expect(screen.queryByText("Visible restored answer")).toBeNull();
+
+    const richRow = screen.getByRole("button", { name: /Rich history QA/u });
+    fireEvent.contextMenu(richRow);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Fork task" }));
+    await waitFor(() => expect(forkSession).toHaveBeenCalledWith("rich"));
   });
 
   it("uses the product chat UI in mock mode and streams validated replies", async () => {

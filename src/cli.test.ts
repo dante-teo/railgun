@@ -69,6 +69,7 @@ const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
   branch: vi.fn(),
   branchWithSummary: vi.fn(async () => {}),
   forkSession: vi.fn(() => "forked-id"),
+  getActiveBranchMessageIds: vi.fn(() => []),
   getRecentMessages: vi.fn(() => []),
   close: vi.fn(),
   db: makeMemoriesDb(),

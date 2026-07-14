@@ -6,6 +6,7 @@ import {
   SessionSummaryListSchema,
   RestoredTranscriptMessageSchema,
   RestoredTodoSchema,
+  PersistenceMessageIdSchema,
 } from "../shared/schemas";
 import type { SessionSnapshot, SessionSummary } from "../shared/types";
 import type { BackendRpcCommand } from "./backendSupervisor";
@@ -15,6 +16,13 @@ type Call = <T>(command: BackendRpcCommand, validate: (data: unknown) => T) => P
 const rawSummaryList = z.strictObject({ sessions: SessionSummaryListSchema });
 const rawMutation = z.strictObject({
   sessionId: SessionIdSchema,
+});
+const rawBranchMutation = z.strictObject({
+  recentMessages: z.array(z.strictObject({
+    id: PersistenceMessageIdSchema,
+    role: z.string().max(32),
+    preview: z.string().max(DESKTOP_SESSION_LIMITS.preview),
+  })).max(100),
 });
 const rawTranscriptPage = z.strictObject({
   sessionId: SessionIdSchema,
@@ -81,6 +89,25 @@ export const createSessionService = (call: Call) => {
       if (result.sessionId !== validId) throw new Error("Backend activated a mismatched session");
       const next = await snapshot();
       if (next.id !== validId) throw new Error("Backend reported a mismatched active session");
+      return next;
+    },
+    branch: async (messageId: number, summarize: boolean): Promise<SessionSnapshot> => {
+      const validMessageId = PersistenceMessageIdSchema.parse(messageId);
+      if (typeof summarize !== "boolean") throw new Error("Summarize must be a boolean");
+      await call(
+        { type: "session_branch", messageId: validMessageId, summarize, includeMessages: false },
+        value => rawBranchMutation.parse(value),
+      );
+      return snapshot();
+    },
+    fork: async (sessionId: string): Promise<SessionSnapshot> => {
+      const validId = SessionIdSchema.parse(sessionId);
+      const result = await call(
+        { type: "session_fork", sessionId: validId, includeMessages: false },
+        value => rawMutation.parse(value),
+      );
+      const next = await snapshot();
+      if (next.id !== result.sessionId) throw new Error("Backend activated a mismatched fork");
       return next;
     },
     snapshot,

@@ -29,6 +29,7 @@ import {
   PromptTextSchema,
   SessionIdSchema,
   SessionSnapshotSchema,
+  PersistenceMessageIdSchema,
   SessionSummaryListSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
@@ -181,6 +182,19 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.resumeSession, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
     const result = await sessionService.resume(SessionIdSchema.parse(value));
+    broadcastSessionSnapshot(result);
+    return SessionSnapshotSchema.parse(result);
+  });
+  ipcMain.handle(DESKTOP_IPC.branchSession, async (event, messageId: unknown, summarize: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    if (typeof summarize !== "boolean") throw new Error("Summarize must be a boolean");
+    const result = await sessionService.branch(PersistenceMessageIdSchema.parse(messageId), summarize);
+    broadcastSessionSnapshot(result);
+    return SessionSnapshotSchema.parse(result);
+  });
+  ipcMain.handle(DESKTOP_IPC.forkSession, async (event, sessionId: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    const result = await sessionService.fork(SessionIdSchema.parse(sessionId));
     broadcastSessionSnapshot(result);
     return SessionSnapshotSchema.parse(result);
   });

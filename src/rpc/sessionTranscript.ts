@@ -1,6 +1,8 @@
 export interface RpcTranscriptMessage {
   readonly role: "user" | "assistant";
   readonly text: string;
+  readonly messageId?: number;
+  readonly branchable?: true;
 }
 
 export interface RpcTranscriptPage {
@@ -29,7 +31,9 @@ const transcriptMessage = (message: unknown): RpcTranscriptMessage | undefined =
         return content?.type === "text" && typeof content.text === "string" ? [content.text] : [];
       }).join("")
       : "").trim();
-  return text === "" ? undefined : { role: item.role, text };
+  if (text === "") return undefined;
+  const hasToolCalls = item.role === "assistant" && Array.isArray(item.content) && item.content.some(part => record(part)?.type === "toolCall");
+  return { role: item.role, text, ...(item.role === "assistant" && !hasToolCalls ? { branchable: true as const } : {}) };
 };
 
 const truncateUtf8 = (text: string, maxBytes: number): string => {
@@ -50,6 +54,7 @@ export const createRpcTranscriptPage = (
   history: readonly unknown[],
   cursor = 0,
   limit = RPC_TRANSCRIPT_PAGE_LIMIT,
+  messageIds?: readonly number[],
 ): RpcTranscriptPage => {
   const messages: RpcTranscriptMessage[] = [];
   let next = cursor;
@@ -59,7 +64,13 @@ export const createRpcTranscriptPage = (
       next += 1;
       continue;
     }
-    const candidate = { ...projected, text: truncateUtf8(projected.text, RPC_TRANSCRIPT_TEXT_BUDGET) };
+    const messageId = messageIds?.[next];
+    const candidate = {
+      role: projected.role,
+      text: truncateUtf8(projected.text, RPC_TRANSCRIPT_TEXT_BUDGET),
+      ...(messageId === undefined ? {} : { messageId }),
+      ...(messageId !== undefined && projected.branchable ? { branchable: true as const } : {}),
+    };
     const proposed = { sessionId, messages: [...messages, candidate], nextCursor: next + 1 };
     if (Buffer.byteLength(JSON.stringify(proposed), "utf8") > RPC_TRANSCRIPT_DATA_BUDGET && messages.length > 0) break;
     messages.push(candidate);

@@ -51,4 +51,34 @@ describe("desktop session service", () => {
       : { sessionId: "saved-1", messages: [], nextCursor: 0 }));
     await expect(stalled.snapshot()).rejects.toThrow(/cursor/u);
   });
+
+  it("branches and forks through message-free mutations before returning authoritative snapshots", async () => {
+    const forkState = { ...state, sessionId: "saved-1-fork", startedAt: "2026-07-14T09:00:00.000Z" };
+    let forked = false;
+    const call = vi.fn(async (command: { type: string; [key: string]: unknown }) => {
+      if (command.type === "session_branch") return { recentMessages: [{ id: 9, role: "user", preview: "One" }] };
+      if (command.type === "session_fork") { forked = true; return { sessionId: "saved-1-fork" }; }
+      if (command.type === "get_state") return forked ? forkState : state;
+      if (command.type === "session_transcript") return { sessionId: forked ? forkState.sessionId : state.sessionId, messages: [{ role: "user", text: "One", messageId: 9 }] };
+      throw new Error(`unexpected ${command.type}`);
+    });
+    const service = createSessionService((command, validate) => call(command).then(validate));
+
+    await expect(service.branch(9, true)).resolves.toMatchObject({ id: "saved-1", transcript: [{ messageId: 9 }] });
+    expect(call).toHaveBeenCalledWith({ type: "session_branch", messageId: 9, summarize: true, includeMessages: false });
+    await expect(service.fork("saved-1")).resolves.toMatchObject({ id: "saved-1-fork" });
+    expect(call).toHaveBeenCalledWith({ type: "session_fork", sessionId: "saved-1", includeMessages: false });
+  });
+
+  it("rejects malformed branch mutation responses and mismatched fork activation", async () => {
+    const malformed = createSessionService(async (command, validate) => validate(command.type === "session_branch"
+      ? { messages: [{ role: "tool", content: "private" }] }
+      : {}));
+    await expect(malformed.branch(1, false)).rejects.toThrow();
+
+    const mismatched = createSessionService(async (command, validate) => validate(command.type === "session_fork"
+      ? { sessionId: "fork" }
+      : command.type === "get_state" ? state : { sessionId: "saved-1", messages: [] }));
+    await expect(mismatched.fork("saved-1")).rejects.toThrow(/mismatched fork/u);
+  });
 });

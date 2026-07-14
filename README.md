@@ -688,14 +688,19 @@ the model of a persisted session creates a new unsaved session identity with a
 copy of the active transcript and todos; it never rewrites the saved session's
 immutable model metadata.
 
-`session_load` retains its existing full-history response by default. Clients
-that do not need provider history can send `includeMessages: false` and then
-page through `session_transcript` with `sessionId`, an optional zero-based
-`cursor`, and an optional `limit` from 1 to 100. Transcript pages contain only
-bounded textual user/assistant messages plus an optional `nextCursor`; thinking,
-tool calls, arguments, results, and other provider-only fields are removed
-before JSONL serialization. This is the required restoration path for bounded-
-frame clients such as the desktop app.
+`session_load`, `session_branch`, and `session_fork` retain their existing
+full-history responses by default. Clients that do not need provider history
+can send `includeMessages: false` and then page through `session_transcript`
+with `sessionId`, an optional zero-based `cursor`, and an optional `limit` from
+1 to 100. Transcript pages contain only bounded textual user/assistant messages
+plus an optional positive persistence `messageId`, an optional
+`branchable: true` marker, and `nextCursor`; thinking, tool calls, arguments,
+results, and other provider-only fields are removed before JSONL serialization.
+The branch marker appears only on persisted complete assistant-turn boundaries.
+Persistence revalidates that boundary before moving the active leaf, so invalid
+or stale message IDs cannot leave a session on an incomplete path. Forks use a
+bounded independent `fork-<UUID>` identity. This transcript projection is the
+required restoration path for bounded-frame clients such as the desktop app.
 
 `--approve` and `--no-approve` are incompatible with `--mode rpc` and produce a
 usage error.
@@ -733,6 +738,16 @@ newest-first saved-session list. Filtering matches preview, model, or session ID
 without changing backend order; selecting a result explicitly resumes its safe
 text transcript and persisted todos. Relaunch restores only the last valid Task
 or Settings area, never an active session.
+
+For branch/fork QA, resume the populated rich-history task under the Ready / idle
+scenario. Complete assistant messages with later visible history expose
+**Branch from this message**; its dialog supports cancellation, optional tail
+summarization, inline retry errors, and authoritative transcript hydration.
+Right-click a saved sidebar row—or focus it and press Shift+F10—to choose
+**Fork task**. Under the Cancellation scenario, start a prompt and fork a saved
+row to verify stop-and-settle occurs before activation. Resume a saved task, then
+switch to Command rejection to verify a failed branch keeps its dialog and
+current renderer state intact.
 
 The desktop mock also includes ordered saved tasks (including a rich Markdown,
 todo, and scrolling fixture), empty/error stores, approval, choice clarification,

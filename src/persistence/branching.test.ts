@@ -341,26 +341,28 @@ describe("branching", () => {
     const rows = db.prepare("SELECT id, ordinal FROM messages ORDER BY id ASC").all() as IdRow[];
     db.close();
 
-    const msg2 = rows.find(r => r.ordinal === 2);
-    expect(msg2).toBeDefined();
-    store.branch("session-branch", msg2!.id);
+    const msg1 = rows.find(r => r.ordinal === 1);
+    expect(msg1).toBeDefined();
+    store.branch("session-branch", msg1!.id);
 
-    // Save a checkpoint with messages 0–2 + a new message 4' (ordinal 3).
+    // Save a checkpoint with the first complete turn plus a new turn.
     const newMessages: readonly DevinMessage[] = [
-      ...userAssistantMessages.slice(0, 3),
+      ...userAssistantMessages.slice(0, 2),
+      { role: "user", content: "Try a new direction" },
       { role: "assistant", content: [{ type: "text", text: "A new direction" }] },
     ];
     store.saveCheckpoint(checkpoint({ messages: newMessages }));
 
     const loaded = store.loadSession("session-branch");
     expect(loaded?.messages).toHaveLength(4);
+    expect(loaded?.messages[2]).toMatchObject({ role: "user", content: "Try a new direction" });
     expect(loaded?.messages[3]).toMatchObject({ role: "assistant", content: [{ type: "text", text: "A new direction" }] });
 
     // Old messages 3–5 still exist.
     const db2 = new Database(path, { readonly: true });
     interface CountRow { count: number }
     const allCount = db2.prepare("SELECT COUNT(*) AS count FROM messages WHERE session_id = 'session-branch'").get() as CountRow;
-    expect(allCount.count).toBe(7); // original 6 + 1 new message
+    expect(allCount.count).toBe(8); // original 6 + 2-message new turn
     db2.close();
   });
 
@@ -387,6 +389,7 @@ describe("branching", () => {
     // branch_summary is a DB-internal leaf marker; loadSession excludes it and returns only
     // messages 0–1 (the branch point and everything before it).
     expect(loaded?.messages).toHaveLength(2);
+    expect(store.getActiveBranchMessageIds("session-branch")).toEqual([rows[0]!.id, msg1!.id]);
 
     // The summary row has parent_id = msg1.id.
     const db2 = new Database(path, { readonly: true });
@@ -412,6 +415,7 @@ describe("branching", () => {
 
     expect(forked?.messages).toHaveLength(original?.messages.length ?? -1);
     expect(forked?.messages).toEqual(original?.messages);
+    expect(store.getActiveBranchMessageIds(newId)).toHaveLength(forked?.messages.length ?? -1);
 
     // New checkpoint on the fork does not affect the original.
     const extraMsg: readonly DevinMessage[] = [
@@ -440,6 +444,18 @@ describe("branching", () => {
     const intersection = [...origIds].filter(id => forkIds.has(id));
     expect(intersection).toHaveLength(0);
     db.close();
+  });
+
+  it("uses bounded independent IDs across repeated forks", () => {
+    const sourceId = "s".repeat(256);
+    store.saveCheckpoint(checkpoint({ id: sourceId }));
+
+    let currentId = sourceId;
+    for (let index = 0; index < 20; index += 1) {
+      currentId = store.forkSession(currentId);
+      expect(currentId).toMatch(/^fork-[0-9a-f-]{36}$/u);
+      expect(currentId.length).toBeLessThanOrEqual(256);
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -478,6 +494,24 @@ describe("branching", () => {
   it("branch to nonexistent message throws", () => {
     store.saveCheckpoint(checkpoint());
     expect(() => store.branch("session-branch", 99999)).toThrow(/does not exist/);
+  });
+
+  it("rejects incomplete branch points without changing the active leaf", async () => {
+    store.saveCheckpoint(checkpoint());
+    interface BranchRow { id: number; ordinal: number }
+    interface LeafRow { current_leaf_id: number }
+    const rows = store.db.prepare("SELECT id, ordinal FROM messages WHERE session_id = ? ORDER BY id").all("session-branch") as BranchRow[];
+    const userMessageId = rows.find(row => row.ordinal === 0)!.id;
+    const originalLeaf = (store.db.prepare("SELECT current_leaf_id FROM sessions WHERE id = ?").get("session-branch") as LeafRow).current_leaf_id;
+
+    expect(() => store.branch("session-branch", userMessageId)).toThrow(/complete turn boundary/u);
+    expect((store.db.prepare("SELECT current_leaf_id FROM sessions WHERE id = ?").get("session-branch") as LeafRow).current_leaf_id).toBe(originalLeaf);
+
+    const provider = fakeProvider("must not run");
+    await expect(store.branchWithSummary("session-branch", userMessageId, provider, "model-x")).rejects.toThrow(/complete turn boundary/u);
+    expect(provider.streamChatRequests).toHaveLength(0);
+    expect((store.db.prepare("SELECT current_leaf_id FROM sessions WHERE id = ?").get("session-branch") as LeafRow).current_leaf_id).toBe(originalLeaf);
+    expect(store.loadSession("session-branch")?.messages).toEqual(userAssistantMessages);
   });
 
   // -------------------------------------------------------------------------

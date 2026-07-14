@@ -200,6 +200,21 @@ prompt state are cleared on agent run settlement, abort, backend restart,
 process exit, shutdown, or disconnection. Hardline shell blocks remain owned by
 the backend and have no desktop bypass.
 
+### Desktop session-mutation boundary
+
+Saved transcript messages may carry only an optional positive persistence
+`messageId` in addition to their projected role and text. IDs are aligned with
+decoded active-branch history before tool-only provider messages are filtered;
+internal `branch_summary` rows never receive a renderer projection. Desktop
+branch and fork calls set `includeMessages: false`, validate the narrow mutation
+acknowledgement in Electron main, and then rebuild the renderer exclusively from
+the paginated safe transcript and authoritative session state. Raw provider
+messages therefore remain compatible for existing RPC clients without crossing
+the desktop IPC boundary. Branch markers are emitted only for persisted,
+complete assistant-turn boundaries, and persistence revalidates the selected
+prefix before moving its leaf. Forks use bounded independent identifiers rather
+than recursively extending their source session IDs.
+
 ### Desktop chat-control boundary
 
 The renderer never receives `config_get` output or provider model objects
@@ -402,7 +417,7 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
       operations, empty/error stores, cancellation, disconnection, and
       checkpoint state transitions.
 
-- [ ] **DESK-012 — Add branch and fork**
+- [x] **DESK-012 — Add branch and fork**
   - Branch from a message, with optional summary.
   - Fork the active session.
 

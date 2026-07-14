@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Search, Settings, SlidersHorizontal, SquarePen, TerminalSquare } from "lucide-react";
+import { Bot, GitFork, Search, Settings, SlidersHorizontal, SquarePen, TerminalSquare } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader } from "./components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { ErrorState, LoadingState } from "./components/ui/state";
@@ -70,6 +72,11 @@ export const App = (): React.JSX.Element => {
   const [activeSession, setActiveSession] = useState<SessionSnapshot>();
   const [sessionOperation, setSessionOperation] = useState(false);
   const [todoPaneVisible, setTodoPaneVisible] = useState(true);
+  const [branchMessageId, setBranchMessageId] = useState<number>();
+  const [branchSummarize, setBranchSummarize] = useState(false);
+  const [branchSubmitting, setBranchSubmitting] = useState(false);
+  const [branchError, setBranchError] = useState<string>();
+  const [contextSessionId, setContextSessionId] = useState<string>();
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
@@ -136,17 +143,20 @@ export const App = (): React.JSX.Element => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const activateSessionSnapshot = (nextSession: SessionSnapshot): void => {
+    setActiveSession(nextSession);
+    chat.hydrate(nextSession);
+    setControlsResetKey(key => key + 1);
+    selectArea("chat");
+  };
+
   const startNewTask = async (): Promise<void> => {
     if (sessionOperation) return;
     setSessionOperation(true);
     if (running && !await chat.stopAndWait()) { setSessionOperation(false); return; }
     try {
       setOperationError(undefined);
-      const nextSession = await window.railgunDesktop.startNewChat();
-      setActiveSession(nextSession);
-      chat.hydrate(nextSession);
-      setControlsResetKey(key => key + 1);
-      selectArea("chat");
+      activateSessionSnapshot(await window.railgunDesktop.startNewChat());
       await loadSessions();
     } catch (error) {
       setOperationError(errorMessage(error, "Unable to start a new task"));
@@ -159,13 +169,39 @@ export const App = (): React.JSX.Element => {
     if (running && !await chat.stopAndWait()) { setSessionOperation(false); return; }
     try {
       setOperationError(undefined);
-      const nextSession = await window.railgunDesktop.resumeSession(sessionId);
-      setActiveSession(nextSession);
-      chat.hydrate(nextSession);
-      setControlsResetKey(key => key + 1);
-      selectArea("chat");
+      activateSessionSnapshot(await window.railgunDesktop.resumeSession(sessionId));
     } catch (error) {
       setOperationError(errorMessage(error, "Unable to resume the session"));
+    } finally { setSessionOperation(false); }
+  };
+
+  const hydrateMutation = async (operation: () => Promise<SessionSnapshot>): Promise<void> => {
+    activateSessionSnapshot(await operation());
+    await loadSessions();
+  };
+
+  const branchSession = async (): Promise<void> => {
+    if (branchMessageId === undefined || branchSubmitting) return;
+    setBranchSubmitting(true);
+    setBranchError(undefined);
+    try {
+      await hydrateMutation(() => window.railgunDesktop.branchSession(branchMessageId, branchSummarize));
+      setBranchMessageId(undefined);
+      setBranchSummarize(false);
+    } catch (error) {
+      setBranchError(errorMessage(error, "Unable to branch the task"));
+    } finally { setBranchSubmitting(false); }
+  };
+
+  const forkSession = async (sessionId: string): Promise<void> => {
+    if (sessionOperation) return;
+    setSessionOperation(true);
+    if (running && !await chat.stopAndWait()) { setSessionOperation(false); return; }
+    try {
+      setOperationError(undefined);
+      await hydrateMutation(() => window.railgunDesktop.forkSession(sessionId));
+    } catch (error) {
+      setOperationError(errorMessage(error, "Unable to fork the task"));
     } finally { setSessionOperation(false); }
   };
 
@@ -230,14 +266,21 @@ export const App = (): React.JSX.Element => {
           <div className="session-list">
             {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
               : sessions.length === 0 ? <p>No saved tasks</p>
-                : sessions.map(session => <button
-                    type="button"
-                    className={`session-row ${activeSession?.id === session.id ? "active" : ""}`}
-                    aria-current={activeSession?.id === session.id ? "true" : undefined}
-                    disabled={sessionOperation}
-                    key={session.id}
-                    onClick={() => void resumeSession(session.id)}
-                  ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>)}
+                : sessions.map(session => <DropdownMenu open={contextSessionId === session.id} onOpenChange={open => setContextSessionId(open ? session.id : undefined)} key={session.id}>
+                    <div className="session-row-context">
+                      <button
+                        type="button"
+                        className={`session-row ${activeSession?.id === session.id ? "active" : ""}`}
+                        aria-current={activeSession?.id === session.id ? "true" : undefined}
+                        disabled={sessionOperation}
+                        onContextMenu={event => { event.preventDefault(); if (!sessionOperation) setContextSessionId(session.id); }}
+                        onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); setContextSessionId(session.id); } }}
+                        onClick={() => void resumeSession(session.id)}
+                      ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
+                      <DropdownMenuTrigger asChild><span className="session-context-anchor" aria-hidden="true" /></DropdownMenuTrigger>
+                    </div>
+                    <DropdownMenuContent align="start"><DropdownMenuItem disabled={sessionOperation} onSelect={() => void forkSession(session.id)}><GitFork aria-hidden="true" />Fork task</DropdownMenuItem></DropdownMenuContent>
+                  </DropdownMenu>)}
           </div>
         </section>
         <div className="sidebar-divider" aria-hidden="true" />
@@ -264,7 +307,13 @@ export const App = (): React.JSX.Element => {
             <div className="content-toolbar-title"><h1>{activeSession?.transcript.find(message => message.role === "user")?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
           </header>
           {operationError === undefined ? null : <div className="shell-error" role="alert">{operationError}</div>}
-          <Transcript controller={chat} snapshot={snapshot} onRestart={restartBackend} />
+          <Transcript
+            controller={chat}
+            snapshot={snapshot}
+            onRestart={restartBackend}
+            canBranch={snapshot.phase === "ready" && !running && !sessionOperation && activeSession?.checkpoint.state === "saved"}
+            onBranch={messageId => { setBranchMessageId(messageId); setBranchSummarize(false); setBranchError(undefined); }}
+          />
           <Composer
             controller={chat}
             available={snapshot.phase === "ready"}
@@ -314,6 +363,17 @@ export const App = (): React.JSX.Element => {
         onRetry={() => { void loadSessions(); }}
         onSelect={(sessionId) => { void resumeSession(sessionId); }}
       />
+      <Dialog open={branchMessageId !== undefined} onOpenChange={open => { if (!open && !branchSubmitting) { setBranchMessageId(undefined); setBranchError(undefined); } }}>
+        <DialogContent className="branch-dialog">
+          <DialogHeader><DialogTitle>Branch from this message?</DialogTitle><DialogDescription>This rewinds the active task to this message. Later messages remain preserved in the abandoned branch.</DialogDescription></DialogHeader>
+          <label className="branch-summary-option"><input type="checkbox" checked={branchSummarize} disabled={branchSubmitting} onChange={event => setBranchSummarize(event.target.checked)} /> <span>Summarize later messages</span></label>
+          {branchError === undefined ? null : <p className="branch-dialog-error" role="alert">{branchError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="ghost" disabled={branchSubmitting} onClick={() => setBranchMessageId(undefined)}>Cancel</Button>
+            <Button type="button" variant="tonal" disabled={branchSubmitting} onClick={() => void branchSession()}>{branchSubmitting ? "Branching…" : "Branch"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

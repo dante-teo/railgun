@@ -65,6 +65,17 @@ rows with a stale leaf pointer, and never a schema change without its
 corresponding `user_version` bump (the pragma is issued inside the same
 transaction as the DDL).
 
+**Only complete turn boundaries can become active leaves.** Both `branch` and
+`branchWithSummary` decode and validate the selected active-branch prefix before
+moving `current_leaf_id` or invoking the summarizer. A user prompt or an
+assistant tool-call phase is therefore rejected without changing persistence;
+complete assistant turns remain valid branch points. This validation is owned
+by persistence even when a UI prefilters its choices.
+
+**Fork identities are independent and bounded.** `forkSession` assigns
+`fork-<UUID>` rather than extending the source session ID. Repeated forks remain
+within bounded-client ID schemas and cannot grow recursively.
+
 **`/branch` and `/fork` as REPL slash commands.** The branch/fork surface
 is two new commands. `/branch [--summary] [id]` with no id prints a recent-
 message picker. `/fork` copies the active branch into a new session and
@@ -85,9 +96,8 @@ initialisation in both the fresh and resume code paths.
   message's position in the current branch path at save time. They are
   human-readable but are not a structural invariant — `parent_id` is the
   ordering source of truth.
-- `forkSession` generates the new session id as
-  `\`${sourceId}-fork-${Date.now()}\``. This is stable enough for a
-  single-user local tool; a distributed scenario would need a UUID.
+- Fork IDs do not encode ancestry. Branch ancestry remains represented by the
+  copied message path, while the independent UUID prevents ID-length growth.
 - The v1 schema had `messages_session_ordinal ON messages(session_id,
   ordinal)`. The v2 schema replaces it with `messages_session ON
   messages(session_id)` and `messages_parent ON messages(parent_id)` to

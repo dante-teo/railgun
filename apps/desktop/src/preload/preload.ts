@@ -16,6 +16,7 @@ import {
   MockScenarioListSchema,
   ModelPersistenceModeSchema,
   PromptTextSchema,
+  PersistenceMessageIdSchema,
   SessionIdSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
@@ -99,6 +100,16 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     ),
     resumeSession: async (sessionId) => SessionSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.resumeSession, SessionIdSchema.parse(sessionId)),
+    ),
+    branchSession: async (messageId, summarize) => {
+      const validMessageId = PersistenceMessageIdSchema.parse(messageId);
+      if (typeof summarize !== "boolean") throw new Error("Summarize must be a boolean");
+      return SessionSnapshotSchema.parse(
+        await transport.invoke(DESKTOP_IPC.branchSession, validMessageId, summarize),
+      );
+    },
+    forkSession: async (sessionId) => SessionSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.forkSession, SessionIdSchema.parse(sessionId)),
     ),
     onSessionSnapshot: (listener) => {
       const handler = (_event: unknown, payload: unknown): void => {

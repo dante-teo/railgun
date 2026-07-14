@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
@@ -45,6 +46,7 @@ export interface SessionStore {
   branch(sessionId: string, messageId: number): void;
   branchWithSummary(sessionId: string, messageId: number, devin: DevinProvider, model: string): Promise<void>;
   forkSession(sessionId: string): string;
+  getActiveBranchMessageIds(sessionId: string): readonly number[];
   getRecentMessages(sessionId: string, limit?: number): readonly RecentMessage[];
   close(): void;
 }
@@ -527,6 +529,17 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
     return selectBranchFromLeaf.all({ leafId: startId, sessionId }) as MessageRow[];
   };
 
+  const assertCompleteBranchPoint = (rows: readonly MessageRow[], index: number, messageId: number): void => {
+    try {
+      const messages = rows.slice(0, index + 1)
+        .filter(row => row.role !== "branch_summary")
+        .map(decodeMessageRow);
+      validateTranscript(messages);
+    } catch {
+      throw new Error(`message ${messageId} is not a complete turn boundary`);
+    }
+  };
+
   const loadSession = (id: string): PersistedSession | undefined => {
     const session = selectSession.get(id) as SessionRow | undefined;
     if (!session) return undefined;
@@ -619,6 +632,12 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
       if (!selectMessage.get(messageId, sessionId)) {
         throw new Error(`message ${messageId} does not exist in session ${sessionId}`);
       }
+      const currentBranch = getBranch(sessionId);
+      const branchPointIndex = currentBranch.findIndex(row => row.id === messageId && row.role !== "branch_summary");
+      if (branchPointIndex === -1) {
+        throw new Error(`message ${messageId} is not on the active branch of session ${sessionId}`);
+      }
+      assertCompleteBranchPoint(currentBranch, branchPointIndex, messageId);
       updateLeaf.run(messageId, sessionId);
     },
 
@@ -628,6 +647,7 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
       if (branchPointIndex === -1) {
         throw new Error(`message ${messageId} is not on the active branch of session ${sessionId}`);
       }
+      assertCompleteBranchPoint(currentBranch, branchPointIndex, messageId);
 
       // Messages after the branch point are the abandoned segment.
       const abandonedRows = currentBranch.slice(branchPointIndex + 1);
@@ -660,7 +680,7 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
       const sourceSession = selectSession.get(sessionId) as SessionRow | undefined;
       if (!sourceSession) throw new Error(`session ${sessionId} not found`);
 
-      const newId = `${sessionId}-fork-${Date.now()}`;
+      const newId = `fork-${randomUUID()}`;
       db.transaction(() => {
         insertSession.run(newId, sourceSession.model, new Date().toISOString(), sourceSession.todos_json);
         let lastId: number | null = null;
@@ -681,6 +701,11 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
         if (lastId !== null) updateLeaf.run(lastId, newId);
       })();
       return newId;
+    },
+
+    getActiveBranchMessageIds: (sessionId) => {
+      if (!selectSession.get(sessionId)) throw new Error(`session ${sessionId} not found`);
+      return getBranch(sessionId).filter(row => row.role !== "branch_summary").map(row => row.id);
     },
 
     getRecentMessages: (sessionId, limit = 10) => {

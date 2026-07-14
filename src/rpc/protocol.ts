@@ -84,9 +84,13 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     case "session_branch": {
       if (!Number.isInteger(value.messageId) || (value.messageId as number) < 1) throw new Error("invalid command: messageId must be a positive integer");
       if (value.summarize !== undefined && typeof value.summarize !== "boolean") throw new Error("invalid command: summarize must be a boolean");
-      return { ...base, type, messageId: value.messageId as number, ...(value.summarize === undefined ? {} : { summarize: value.summarize }) };
+      if (value.includeMessages !== undefined && typeof value.includeMessages !== "boolean") throw new Error("invalid command: includeMessages must be a boolean");
+      return { ...base, type, messageId: value.messageId as number, ...(value.summarize === undefined ? {} : { summarize: value.summarize }), ...(value.includeMessages === undefined ? {} : { includeMessages: value.includeMessages }) };
     }
-    case "session_fork": return { ...base, type, ...(value.sessionId === undefined ? {} : { sessionId: nonEmpty(value.sessionId, "sessionId") }) };
+    case "session_fork": {
+      if (value.includeMessages !== undefined && typeof value.includeMessages !== "boolean") throw new Error("invalid command: includeMessages must be a boolean");
+      return { ...base, type, ...(value.sessionId === undefined ? {} : { sessionId: nonEmpty(value.sessionId, "sessionId") }), ...(value.includeMessages === undefined ? {} : { includeMessages: value.includeMessages }) };
+    }
     case "session_recent_messages": return { ...base, type, ...(value.sessionId === undefined ? {} : { sessionId: nonEmpty(value.sessionId, "sessionId") }), ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }) };
     case "session_transcript": return {
       ...base,

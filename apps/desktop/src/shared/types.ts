@@ -58,6 +58,8 @@ export interface RailgunDesktopApi {
   startNewChat: () => Promise<SessionSnapshot>;
   listSessions: () => Promise<readonly SessionSummary[]>;
   resumeSession: (sessionId: string) => Promise<SessionSnapshot>;
+  branchSession: (messageId: number, summarize: boolean) => Promise<SessionSnapshot>;
+  forkSession: (sessionId: string) => Promise<SessionSnapshot>;
   onSessionSnapshot: (listener: (snapshot: SessionSnapshot) => void) => () => void;
   getChatControls: () => Promise<ChatControlsSnapshot>;
   setChatModel: (modelId: string, persistence: ModelPersistenceMode) => Promise<ControlMutationResult>;
@@ -84,6 +86,8 @@ export const DESKTOP_IPC = {
   startNewChat: "agent:new-chat",
   listSessions: "sessions:list",
   resumeSession: "sessions:resume",
+  branchSession: "sessions:branch",
+  forkSession: "sessions:fork",
   sessionSnapshot: "sessions:snapshot",
   getChatControls: "agent:get-chat-controls",
   setChatModel: "agent:set-chat-model",

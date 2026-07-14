@@ -14,6 +14,7 @@ interface MockSession {
   todos: unknown[];
   persistence: "unsaved" | "saved" | "error";
   checkpointError?: string;
+  messageIds?: number[];
 }
 const savedSessions: MockSession[] = [
   {
@@ -52,6 +53,12 @@ const savedSessions: MockSession[] = [
   },
 ];
 let nextSession = 1;
+let nextMessageId = 1_000;
+const ensureMessageIds = (session: MockSession): number[] => {
+  if (session.messageIds === undefined) session.messageIds = session.messages.map(() => nextMessageId++);
+  return session.messageIds;
+};
+savedSessions.forEach(ensureMessageIds);
 let activeSession: MockSession = {
   id: "mock-session", startedAt: "2026-07-14T09:00:00.000Z", startedAtLocal: "7/14/2026, 5:00:00 PM",
   model: "mock-model", messages: [], todos: [], persistence: "unsaved",
@@ -62,7 +69,9 @@ const firstUserPreview = (session: MockSession): string => {
   return typeof message?.content === "string" ? message.content.slice(0, 500) : "";
 };
 const checkpointMockTurn = (assistantText: string): void => {
+  const messageIds = ensureMessageIds(activeSession);
   activeSession.messages.push({ role: "assistant", content: [{ type: "text", text: assistantText }] });
+  messageIds.push(nextMessageId++);
   activeSession.persistence = scenario.behavior === "store-error" ? "error" : "saved";
   if (activeSession.persistence === "error") activeSession.checkpointError = "mock checkpoint write failed";
   else delete activeSession.checkpointError;
@@ -243,7 +252,7 @@ if (scenario.behavior === "authentication-required") {
       }
       const selected = savedSessions.find(session => session.id === command.sessionId);
       if (selected === undefined) { respond(type, command.id, { error: `session not found: ${String(command.sessionId)}` }); return; }
-      activeSession = { ...selected, messages: [...selected.messages], todos: [...selected.todos] };
+      activeSession = { ...selected, messages: [...selected.messages], messageIds: [...ensureMessageIds(selected)], todos: [...selected.todos] };
       syncSessionState();
       setTimeout(() => respond(type, command.id, {
         data: {
@@ -265,7 +274,49 @@ if (scenario.behavior === "authentication-required") {
       }
       const cursor = command.cursor as number | undefined;
       const limit = command.limit as number | undefined;
-      respond(type, command.id, { data: createRpcTranscriptPage(activeSession.id, activeSession.messages, cursor, limit) });
+      respond(type, command.id, { data: createRpcTranscriptPage(activeSession.id, activeSession.messages, cursor, limit, ensureMessageIds(activeSession)) });
+      return;
+    }
+    if (type === "session_branch") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot branch a session while agent is running" }); return; }
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: session_branch" }); return; }
+      if (!Number.isInteger(command.messageId) || (command.messageId as number) < 1) { respond(type, command.id, { error: "invalid command: messageId must be a positive integer" }); return; }
+      if (typeof command.summarize !== "boolean" || (command.includeMessages !== undefined && typeof command.includeMessages !== "boolean")) { respond(type, command.id, { error: "invalid branch options" }); return; }
+      if (activeSession.persistence !== "saved") { respond(type, command.id, { error: "active session must be saved before branching" }); return; }
+      const index = ensureMessageIds(activeSession).indexOf(command.messageId as number);
+      if (index < 0) { respond(type, command.id, { error: `message ${String(command.messageId)} is not on the active branch` }); return; }
+      const branchableIds = new Set(createRpcTranscriptPage(activeSession.id, activeSession.messages, 0, 100, ensureMessageIds(activeSession)).messages.filter(message => message.branchable).map(message => message.messageId));
+      if (!branchableIds.has(command.messageId as number)) { respond(type, command.id, { error: `message ${String(command.messageId)} is not a complete turn boundary` }); return; }
+      activeSession.messages = activeSession.messages.slice(0, index + 1);
+      activeSession.messageIds = ensureMessageIds(activeSession).slice(0, index + 1);
+      const savedIndex = savedSessions.findIndex(session => session.id === activeSession.id);
+      if (savedIndex >= 0) savedSessions[savedIndex] = activeSession;
+      syncSessionState();
+      setTimeout(() => respond(type, command.id, { data: {
+        ...(command.includeMessages === false ? {} : { messages: activeSession.messages }),
+        recentMessages: activeSession.messages.slice(-10).map((message, offset) => ({ id: activeSession.messageIds![Math.max(0, activeSession.messages.length - 10) + offset], role: (message as Record<string, unknown>).role, preview: "mock message" })),
+      } }), 80);
+      return;
+    }
+    if (type === "session_fork") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot fork a session while agent is running" }); return; }
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: session_fork" }); return; }
+      if (command.includeMessages !== undefined && typeof command.includeMessages !== "boolean") { respond(type, command.id, { error: "invalid command: includeMessages must be a boolean" }); return; }
+      const source = savedSessions.find(session => session.id === (command.sessionId ?? activeSession.id));
+      if (source === undefined) { respond(type, command.id, { error: `session not found: ${String(command.sessionId)}` }); return; }
+      const forkId = `mock-fork-${String(nextSession++)}`;
+      activeSession = {
+        ...source,
+        id: forkId,
+        startedAt: new Date(Date.UTC(2026, 6, 14, 11, nextSession)).toISOString(),
+        startedAtLocal: "7/14/2026, 7:00:00 PM",
+        messages: [...source.messages],
+        messageIds: source.messages.map(() => nextMessageId++),
+        todos: [...source.todos],
+      };
+      savedSessions.unshift(activeSession);
+      syncSessionState();
+      setTimeout(() => respond(type, command.id, { data: { sessionId: forkId, ...(command.includeMessages === false ? {} : { messages: activeSession.messages }) } }), 80);
       return;
     }
     if (type === "get_available_models") {
@@ -335,7 +386,9 @@ if (scenario.behavior === "authentication-required") {
         return;
       }
       const text = typeof command.message === "string" ? command.message : "";
+      const messageIds = ensureMessageIds(activeSession);
       activeSession.messages.push({ role: "user", content: text });
+      messageIds.push(nextMessageId++);
       messageCount = activeSession.messages.length + 1;
       activeSession.persistence = "unsaved";
       const prompt: ActivePrompt = { id: command.id, timers: new Set(), steering: [], followUp: [] };

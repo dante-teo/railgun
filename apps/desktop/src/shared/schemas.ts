@@ -106,6 +106,7 @@ export const ExternalUrlSchema = z.string().max(2_048).transform((value, context
 export const EmptyResponseSchema = z.undefined();
 
 export const SessionIdSchema = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.id);
+export const PersistenceMessageIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sessionModel = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.model);
 export const SessionSummarySchema = z.strictObject({
   id: SessionIdSchema,
@@ -119,6 +120,12 @@ export const SessionSummaryListSchema = z.array(SessionSummarySchema).max(DESKTO
 export const RestoredTranscriptMessageSchema = z.strictObject({
   role: z.enum(["user", "assistant"]),
   text: z.string().min(1).max(DESKTOP_SESSION_LIMITS.messageText),
+  messageId: PersistenceMessageIdSchema.optional(),
+  branchable: z.literal(true).optional(),
+}).superRefine((message, context) => {
+  if (message.branchable && (message.role !== "assistant" || message.messageId === undefined)) {
+    context.addIssue({ code: "custom", message: "Branchable messages must be persisted assistant boundaries" });
+  }
 });
 export const RestoredTodoSchema = z.strictObject({
   id: z.string().min(1).max(DESKTOP_SESSION_LIMITS.id),

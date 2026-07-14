@@ -108,6 +108,37 @@ describe("mock backend process", () => {
     } finally { child.kill(); }
   });
 
+  it("branches by projected persistence ID and creates independent active forks", async () => {
+    const child = startMock("ready-idle");
+    try {
+      send(child, { id: "load", type: "session_load", sessionId: "mock-session-older", includeMessages: false });
+      await nextLine(child);
+      send(child, { id: "transcript", type: "session_transcript", sessionId: "mock-session-older" });
+      const transcript = JSON.parse((await nextLine(child)).line) as { data: { messages: Array<{ messageId: number }> } };
+      expect(transcript.data.messages.every(message => Number.isInteger(message.messageId))).toBe(true);
+
+      send(child, { id: "fork", type: "session_fork", sessionId: "mock-session-older", includeMessages: false });
+      const fork = JSON.parse((await nextLine(child)).line) as { data: { sessionId: string } };
+      expect(fork.data.sessionId).toMatch(/^mock-fork-/u);
+      send(child, { id: "fork-transcript", type: "session_transcript", sessionId: fork.data.sessionId });
+      const forkTranscript = JSON.parse((await nextLine(child)).line) as { data: { messages: Array<{ messageId: number; branchable?: true }> } };
+      const forkPoint = forkTranscript.data.messages.find(message => message.branchable)?.messageId;
+      if (forkPoint === undefined) throw new Error("mock transcript has no complete branch boundary");
+      send(child, { id: "branch", type: "session_branch", messageId: forkPoint, summarize: true, includeMessages: false });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "branch", success: true, data: { recentMessages: expect.arrayContaining([expect.objectContaining({ id: forkPoint })]) } });
+      send(child, { id: "state", type: "get_state" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { sessionId: fork.data.sessionId, messageCount: 2 } });
+      send(child, { id: "list-after-branch", type: "session_list" });
+      const afterBranch = JSON.parse((await nextLine(child)).line) as { data: { sessions: Array<{ id: string; messageCount: number }> } };
+      expect(afterBranch.data.sessions.find(session => session.id === fork.data.sessionId)?.messageCount).toBe(2);
+
+      send(child, { id: "reload-source", type: "session_load", sessionId: "mock-session-older", includeMessages: false });
+      await nextLine(child);
+      send(child, { id: "source-state", type: "get_state" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { sessionId: "mock-session-older", messageCount: 2 } });
+    } finally { child.kill(); }
+  });
+
   it("keeps empty and error session-store scenarios aligned", async () => {
     const empty = startMock("empty-stores");
     try {

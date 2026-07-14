@@ -9,6 +9,10 @@ describe("parseRpcCommand", () => {
       .toEqual({ type: "session_transcript", sessionId: "saved", cursor: 10, limit: 50 });
     expect(parseRpcCommand({ type: "session_load", sessionId: "saved", includeMessages: false }))
       .toEqual({ type: "session_load", sessionId: "saved", includeMessages: false });
+    expect(parseRpcCommand({ type: "session_branch", messageId: 12, summarize: true, includeMessages: false }))
+      .toEqual({ type: "session_branch", messageId: 12, summarize: true, includeMessages: false });
+    expect(parseRpcCommand({ type: "session_fork", sessionId: "saved", includeMessages: false }))
+      .toEqual({ type: "session_fork", sessionId: "saved", includeMessages: false });
   });
 
   it.each([
@@ -17,6 +21,8 @@ describe("parseRpcCommand", () => {
     [{ type: "memory_list", limit: 0 }, /limit/],
     [{ type: "session_transcript", sessionId: "saved", cursor: -1 }, /cursor/],
     [{ type: "session_load", sessionId: "saved", includeMessages: "no" }, /includeMessages/],
+    [{ type: "session_branch", messageId: 1, includeMessages: "no" }, /includeMessages/],
+    [{ type: "session_fork", includeMessages: "no" }, /includeMessages/],
     [{ type: "mcp_upsert", name: "x", command: "node", env: { TOKEN: 2 } }, /env values/],
     [{ type: "future" }, /unknown command/],
   ])("rejects malformed command %#", (command, expected) => {

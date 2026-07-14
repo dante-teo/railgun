@@ -27,6 +27,8 @@ export type InteractionPrompt = ApprovalPrompt | ClarificationPrompt;
 
 export interface TranscriptMessage {
   readonly id: string;
+  readonly messageId?: number;
+  readonly branchable?: true;
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly status: Exclude<MessageStatus, "queued">;
@@ -320,6 +322,8 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         ...initialChatState,
         messages: action.messages.map((message, index) => ({
           id: `restored-${String(index + 1)}`,
+          ...(message.messageId === undefined ? {} : { messageId: message.messageId }),
+          ...(message.branchable === undefined ? {} : { branchable: message.branchable }),
           role: message.role,
           text: message.text,
           status: "complete",

@@ -100,10 +100,14 @@ describe("desktop boundary schemas", () => {
   it("accepts only bounded sanitized desktop session payloads", () => {
     const summary = { id: "session-1", model: "model-a", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Hello" };
     expect(SessionSummaryListSchema.parse([summary])).toEqual([summary]);
-    const session = { id: "session-1", startedAt: "2026-07-14T08:00:00.000Z", model: "model-a", messageCount: 2, running: false, checkpoint: { state: "saved" }, transcript: [{ role: "user", text: "Hello" }], todos: [] };
+    const session = { id: "session-1", startedAt: "2026-07-14T08:00:00.000Z", model: "model-a", messageCount: 2, running: false, checkpoint: { state: "saved" }, transcript: [{ role: "user", text: "Hello", messageId: 42 }], todos: [] };
     expect(SessionSnapshotSchema.parse(session)).toEqual(session);
     expect(() => SessionSnapshotSchema.parse({ ...session, rawMessages: [{ role: "tool", content: "secret" }] })).toThrow();
     expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "tool", text: "secret" }] })).toThrow();
+    expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "user", text: "Hello", messageId: 0 }] })).toThrow();
+    expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "user", text: "Hello", messageId: 42, branchable: true }] })).toThrow();
+    expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "assistant", text: "Hello", branchable: true }] })).toThrow();
+    expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "user", text: "Hello", messageId: 42, provider: { secret: true } }] })).toThrow();
     expect(() => SessionSummaryListSchema.parse(Array.from({ length: DESKTOP_SESSION_LIMITS.sessions + 1 }, () => summary))).toThrow();
     expect(() => SessionSnapshotSchema.parse({ ...session, checkpoint: { state: "error", detail: "x".repeat(DESKTOP_SESSION_LIMITS.checkpointError + 1) } })).toThrow();
   });

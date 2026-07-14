@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { Bot, Send, Square } from "lucide-react";
+import { Bot, GitBranch, Send, Square } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest, SessionSnapshot } from "../../shared/types";
@@ -257,6 +257,8 @@ interface TranscriptProps {
   readonly controller: ChatController;
   readonly snapshot: BackendSnapshot;
   readonly onRestart: () => Promise<void>;
+  readonly canBranch?: boolean;
+  readonly onBranch?: (messageId: number) => void;
 }
 
 const transcriptScrollOptions = {
@@ -312,7 +314,7 @@ const TranscriptScrollIndicator = ({ progress, dashCount }: { readonly progress:
   );
 };
 
-export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps): React.JSX.Element => {
+export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranch }: TranscriptProps): React.JSX.Element => {
   const { state } = controller;
   const [scrollPresentation, setScrollPresentation] = useState(initialTranscriptScrollPresentation);
   const followTranscript = useRef(true);
@@ -371,13 +373,20 @@ export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps)
           {empty && snapshot.phase !== "ready"
             ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
             : null}
-          {entries.map(entry => entry.kind === "activity" ? <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} /> : (
+          {entries.map((entry, entryIndex) => entry.kind === "activity" ? <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} /> : (
             <article className={`message ${entry.message.role} ${entry.message.status}`} key={entry.message.id} data-status={entry.message.status}>
               <div className="message-role">{entry.message.role === "user" ? "You" : "Railgun"}</div>
               {entry.message.role === "assistant" && entry.message.status !== "streaming"
                 ? <MarkdownMessage>{entry.message.text}</MarkdownMessage>
                 : <p>{entry.message.text}</p>}
               {entry.message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
+              {canBranch && onBranch !== undefined && entry.message.branchable && entry.message.messageId !== undefined && entries.slice(entryIndex + 1).some(candidate => candidate.kind === "message") ? <Button
+                type="button"
+                className="branch-message-action"
+                size="sm"
+                variant="ghost"
+                onClick={() => onBranch(entry.message.messageId!)}
+              ><GitBranch aria-hidden="true" />Branch from this message</Button> : null}
             </article>
           ))}
           {state.failedRun === undefined ? null : (

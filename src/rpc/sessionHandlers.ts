@@ -123,7 +123,10 @@ export const createRpcSessionHandler = (options: {
         const persisted = store.loadSession(selected.id);
         if (persisted === undefined) throw new Error(`session not found: ${selected.id}`);
         activate(persisted);
-        return { messages: persisted.messages, recentMessages: store.getRecentMessages(persisted.id) };
+        return {
+          ...(command.includeMessages === false ? {} : { messages: persisted.messages }),
+          recentMessages: store.getRecentMessages(persisted.id),
+        };
       }
       case "session_fork": {
         guardIdle("fork a session");
@@ -136,7 +139,7 @@ export const createRpcSessionHandler = (options: {
         const persisted = store.loadSession(forkId);
         if (persisted === undefined) throw new Error(`forked session not found: ${forkId}`);
         activate(persisted);
-        return { sessionId: forkId, messages: persisted.messages };
+        return { sessionId: forkId, ...(command.includeMessages === false ? {} : { messages: persisted.messages }) };
       }
       case "session_recent_messages": {
         const selected = requireActive();
@@ -154,7 +157,10 @@ export const createRpcSessionHandler = (options: {
       case "session_transcript": {
         const selected = requireActive();
         if (command.sessionId !== selected.id) throw new Error("requested transcript does not match the active session");
-        return createRpcTranscriptPage(selected.id, selected.history, command.cursor, command.limit);
+        const messageIds = selected.persistence === "saved"
+          ? requireStore().getActiveBranchMessageIds(selected.id)
+          : undefined;
+        return createRpcTranscriptPage(selected.id, selected.history, command.cursor, command.limit, messageIds);
       }
     }
   };

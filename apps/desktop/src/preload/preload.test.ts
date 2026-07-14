@@ -33,8 +33,10 @@ describe("preload desktop bridge", () => {
     const exposed = exposeInMainWorld.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(Object.keys(exposed).sort()).toEqual([
       "abortPrompt",
+      "branchSession",
       "compactContext",
       "followUpPrompt",
+      "forkSession",
       "getBackendSnapshot",
       "getChatControls",
       "listMockScenarios",
@@ -166,6 +168,17 @@ describe("preload desktop bridge", () => {
     await expect(api.resumeSession("session-1")).resolves.toEqual(session);
     expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.resumeSession, "session-1");
     await expect(api.resumeSession(" ")).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce({ ...session, checkpoint: { state: "saved" }, transcript: [{ role: "user", text: "One", messageId: 7 }] });
+    await expect(api.branchSession(7, true)).resolves.toMatchObject({ transcript: [{ messageId: 7 }] });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.branchSession, 7, true);
+    await expect(api.branchSession(0, false)).rejects.toThrow();
+    await expect(api.branchSession(7, "yes" as never)).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce({ ...session, id: "fork-1", checkpoint: { state: "saved" } });
+    await expect(api.forkSession("session-1")).resolves.toMatchObject({ id: "fork-1" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.forkSession, "session-1");
+    await expect(api.forkSession(" ")).rejects.toThrow();
   });
 
   it("withholds invalid events and removes the exact listener", () => {

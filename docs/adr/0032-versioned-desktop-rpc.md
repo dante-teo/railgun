@@ -45,13 +45,17 @@ An initialized connection allocates an unsaved session immediately. A valid comp
 
 Session mutations, model changes, and compaction share one ordered session-operation queue. Compaction therefore checkpoints the session it started against before a queued load/new/fork can activate another transcript. Each activated model is resolved to its full provider metadata and model-specific system prompt before session activation. Changing the model of a saved or checkpoint-error transcript derives a new unsaved session ID with copied history and todos, preserving the immutable metadata of the original saved session; changing an empty unsaved session updates it in place. Legacy `set_model` behavior remains unchanged.
 
-`session_load` remains response-compatible and includes full provider history by
-default. Bounded-frame clients request `includeMessages: false`, then retrieve
-the active session through `session_transcript` pages. That projection removes
-thinking, tool calls, tool results, and provider-only fields before transport,
-caps each textual message and page by serialized UTF-8 size, and requires the
-requested session ID to match the active session. Cursor pagination prevents a
-large persisted history or a single oversized provider payload from exceeding
+`session_load`, `session_branch`, and `session_fork` remain response-compatible
+and include full provider history by default. Bounded-frame clients request
+`includeMessages: false`, then retrieve the active session through
+`session_transcript` pages. That projection removes thinking, tool calls, tool
+results, and provider-only fields before transport, caps each textual message
+and page by serialized UTF-8 size, and requires the requested session ID to
+match the active session. Saved projections may include a positive persistence
+message ID; only complete assistant turns receive `branchable: true`.
+Persistence revalidates the selected prefix before moving its leaf, and forks
+receive bounded independent UUID-based IDs. Cursor pagination prevents a large
+persisted history or a single oversized provider payload from exceeding
 Electron's JSONL frame limit.
 
 MCP secrets never cross JSONL: reads expose command, arguments, and environment key presence only. MCP environment upserts retain omitted keys and delete keys assigned `null`. Generic config patches reject `mcpServers`; both config and cron continue to use their existing atomic writers.
