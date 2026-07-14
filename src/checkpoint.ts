@@ -22,12 +22,12 @@ export const snapshot = (gitDir: string, cwd: string): boolean => {
   ensureShadowRepo(gitDir);
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: cwd };
   execFileSync("git", ["add", "-A"], { cwd, env });
-  try {
-    execFileSync("git", ["commit", "-m", `checkpoint ${new Date().toISOString()}`, "--allow-empty"], { cwd, env });
-    return true;
-  } catch {
-    return false; // nothing to commit (no changes since last snapshot)
-  }
+  execFileSync("git", [
+    "-c", "user.name=Railgun Checkpoint",
+    "-c", "user.email=railgun@localhost",
+    "commit", "-m", `checkpoint ${new Date().toISOString()}`, "--allow-empty",
+  ], { cwd, env });
+  return true;
 };
 
 /** Restore working tree to the last snapshot (HEAD of the shadow repo). */

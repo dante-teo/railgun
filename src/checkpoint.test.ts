@@ -56,6 +56,12 @@ describe("snapshot and rollback", () => {
       encoding: "utf-8",
     });
     expect(log).toContain("checkpoint");
+    const author = execFileSync("git", ["log", "-1", "--format=%an <%ae>"], {
+      env: { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: cwd },
+      cwd,
+      encoding: "utf-8",
+    });
+    expect(author.trim()).toBe("Railgun Checkpoint <railgun@localhost>");
   });
 
   it("second snapshot when no changes still returns (--allow-empty)", async () => {
