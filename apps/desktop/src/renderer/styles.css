@@ -472,8 +472,7 @@ kbd { font-family: var(--font-sans); }
 .collapsed-sidebar-controls .sidebar-toggle:not(:disabled):active { background: var(--color-menu-hover); transform: none; }
 .collapsed-sidebar-action { display: flex; }
 .brand { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2) var(--space-5); font-size: 0.9375rem; font-weight: var(--weight-bold); letter-spacing: -0.01em; }
-.brand-mark { display: grid; width: 1.625rem; height: 1.625rem; place-items: center; border-radius: var(--radius-xs); color: var(--color-on-accent); background: var(--color-accent); }
-.brand-mark svg { width: 1rem; }
+.brand-mark { display: block; width: 1.625rem; height: 1.625rem; flex: none; object-fit: contain; }
 .sidebar-action { justify-content: flex-start; width: 100%; min-height: 2.25rem; gap: var(--space-2); padding-inline: var(--space-2); border-radius: var(--radius-sm); color: var(--color-text); font-size: 0.875rem; font-weight: 400; line-height: 1; letter-spacing: -0.01em; }
 .sidebar-action:not(:disabled):hover { color: var(--color-text); background: var(--material-sidebar-control-hover); }
 .sidebar-action.active { color: var(--color-accent-strong); background: var(--color-accent-soft); }

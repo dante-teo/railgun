@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cli:
     name: CLI
@@ -38,3 +42,35 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+  desktop:
+    name: Desktop
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: pnpm --filter @dantea/railgun-desktop typecheck
+
+      - name: Test
+        run: pnpm --filter @dantea/railgun-desktop test
+
+      - name: Stage backend assets
+        run: pnpm --filter @dantea/railgun-desktop build:backend-assets
+
+      - name: Package
+        run: pnpm --filter @dantea/railgun-desktop exec electron-forge package --arch arm64

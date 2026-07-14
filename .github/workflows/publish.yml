@@ -1,4 +1,4 @@
-name: Publish CLI
+name: Release
 
 on:
   push:
@@ -7,16 +7,21 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
+env:
+  TAP_REPOSITORY: dante-teo/homebrew-tap
+
 jobs:
-  publish:
-    name: Publish to npm
+  publish-cli:
+    name: Publish CLI to npm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -38,20 +43,232 @@ jobs:
         run: |
           package_name="$(node -p "require('./package.json').name")"
           package_version="$(node -p "require('./package.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
+            exit 1
+          fi
           if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
             echo "${package_name}@${package_version} is already published; nothing to do."
-            echo "should_publish=false" >> "${GITHUB_OUTPUT}"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "Publishing ${package_name}@${package_version}."
-            echo "should_publish=true" >> "${GITHUB_OUTPUT}"
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
         if: steps.package.outputs.should_publish == 'true'
         run: pnpm install --frozen-lockfile
 
-      # prepublishOnly type-checks, tests, builds, and smoke-tests the packaged
-      # CLI launch path before npm uploads anything.
+      # npm trusted publishing currently performs its OIDC exchange in the npm
+      # CLI. prepublishOnly still runs the pnpm-based checks and package smoke test.
       - name: Build, test, and publish
         if: steps.package.outputs.should_publish == 'true'
         run: npm publish --access public
+
+  build-desktop:
+    name: Desktop (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare release metadata
+        id: metadata
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$version" != "$package_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Import Developer ID certificate
+        id: keychain
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/railgun-release.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          certificate="$RUNNER_TEMP/railgun-release.p12"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          security find-identity -v -p codesigning "$keychain" | grep 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)'
+          echo "path=$keychain" >> "$GITHUB_OUTPUT"
+
+      - name: Build, sign, and notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_KEYCHAIN: ${{ steps.keychain.outputs.path }}
+          RAILGUN_DESKTOP_BUILD_VERSION: ${{ github.run_number }}
+          RAILGUN_DESKTOP_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          pnpm --filter @dantea/railgun-desktop build:backend-assets
+          pnpm --filter @dantea/railgun-desktop exec electron-forge make --arch "${{ matrix.arch }}"
+
+      - name: Verify signed application
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="apps/desktop/out/Railgun-darwin-${{ matrix.arch }}/Railgun.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+
+      - name: Prepare release artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.metadata.outputs.version }}"
+          source="$(find "apps/desktop/out/make/zip/darwin/${{ matrix.arch }}" -maxdepth 1 -name '*.zip' -print -quit)"
+          destination="$RUNNER_TEMP/Railgun-${version}-${{ matrix.arch }}.zip"
+          test -n "$source"
+          mv "$source" "$destination"
+          echo "path=$destination" >> "$GITHUB_OUTPUT"
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: railgun-desktop-${{ matrix.arch }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish desktop and update Homebrew
+    needs:
+      - publish-cli
+      - build-desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: railgun-desktop-*
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare release metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          arm64_zip="dist/Railgun-${version}-arm64.zip"
+          x64_zip="dist/Railgun-${version}-x64.zip"
+          test -f "$arm64_zip"
+          test -f "$x64_zip"
+          arm64_sha256="$(sha256sum "$arm64_zip" | awk '{print $1}')"
+          x64_sha256="$(sha256sum "$x64_zip" | awk '{print $1}')"
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          {
+            echo "version=$version"
+            echo "arm64_sha256=$arm64_sha256"
+            echo "x64_sha256=$x64_sha256"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
+          else
+            args=("$GITHUB_REF_NAME" dist/*.zip --verify-tag --generate-notes)
+            if [ "${{ steps.metadata.outputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
+            gh release create "${args[@]}"
+          fi
+
+      - name: Update Homebrew Cask
+        if: steps.metadata.outputs.prerelease == 'false'
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          ARM64_SHA256: ${{ steps.metadata.outputs.arm64_sha256 }}
+          X64_SHA256: ${{ steps.metadata.outputs.x64_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$HOMEBREW_TAP_DEPLOY_KEY"
+          eval "$(ssh-agent -s)"
+          ssh-add - <<< "$HOMEBREW_TAP_DEPLOY_KEY"
+          mkdir -p "$HOME/.ssh"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
+          git clone "git@github.com:${TAP_REPOSITORY}.git" "$RUNNER_TEMP/homebrew-tap"
+          cd "$RUNNER_TEMP/homebrew-tap"
+          mkdir -p Casks
+          cat > Casks/railgun.rb <<RUBY
+          cask "railgun" do
+            arch arm: "arm64", intel: "x64"
+
+            version "$VERSION"
+            sha256 arm:   "$ARM64_SHA256",
+                   intel: "$X64_SHA256"
+
+            url "https://github.com/dante-teo/railgun/releases/download/v#{version}/Railgun-#{version}-#{arch}.zip"
+            name "Railgun"
+            desc "AI coding agent for local development workflows"
+            homepage "https://github.com/dante-teo/railgun"
+
+            depends_on macos: ">= :ventura"
+
+            app "Railgun.app"
+
+            zap trash: [
+              "~/Library/Application Support/Railgun",
+              "~/Library/Caches/sh.railgun.desktop",
+              "~/Library/Preferences/sh.railgun.desktop.plist",
+              "~/Library/Saved Application State/sh.railgun.desktop.savedState",
+            ]
+          end
+          RUBY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/railgun.rb
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "railgun $VERSION"
+          git push origin HEAD:main

@@ -1,5 +1,6 @@
 {
   "name": "@dantea/railgun-desktop",
+  "productName": "Railgun",
   "version": "0.0.0",
   "private": true,
   "main": ".vite/build/main.js",
@@ -10,7 +11,8 @@
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
     "build:backend-assets": "node scripts/build-backend.mjs",
     "build": "pnpm run package",
-    "package": "pnpm run build:backend-assets && electron-forge package"
+    "package": "pnpm run build:backend-assets && electron-forge package",
+    "make": "pnpm run build:backend-assets && electron-forge make"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.19",

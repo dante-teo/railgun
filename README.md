@@ -877,6 +877,44 @@ transport logs. The [Barlow provenance record](apps/desktop/src/renderer/public/
 and [Departure Mono Nerd Font provenance record](apps/desktop/src/renderer/public/fonts/departure-mono-nerd-font/SOURCE.md)
 link their upstream releases and colocated SIL Open Font License notices.
 
+### Desktop releases
+
+The tag workflow keeps the npm CLI release and macOS desktop release on the
+same version. A `vX.Y.Z` tag must match the root `package.json` version. It
+builds Railgun natively on GitHub's arm64 and Intel macOS runners, imports the
+Developer ID certificate into an ephemeral keychain, signs and notarizes both
+apps, validates each stapled ticket, and publishes these GitHub release assets:
+
+```text
+Railgun-X.Y.Z-arm64.zip
+Railgun-X.Y.Z-x64.zip
+```
+
+Stable releases then update `Casks/railgun.rb` in
+`dante-teo/homebrew-tap`; prereleases publish artifacts without changing the
+Cask. Failed release jobs are safe to rerun: an existing npm version is
+skipped, existing GitHub assets are replaced, and an unchanged Cask produces no
+commit. The release workflow requires these Actions secrets:
+
+- `MACOS_CERTIFICATE_P12_BASE64`
+- `MACOS_CERTIFICATE_PASSWORD`
+- `APPLE_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+- `APPLE_TEAM_ID`
+- `HOMEBREW_TAP_DEPLOY_KEY`, a write-enabled deploy key scoped only to the tap
+
+Users install the stable desktop with:
+
+```sh
+brew install --cask dante-teo/tap/railgun
+```
+
+See the [release runbook](docs/RELEASING.md) for versioning, credential
+ownership and rotation, verification, prerelease metadata, and failure
+recovery. The desktop is distributed through Homebrew and GitHub Releases, not
+the Mac App Store; [ADR 0036](docs/adr/0036-homebrew-only-desktop-distribution.md)
+records that decision.
+
 ```sh
 pnpm run typecheck   # tsc --noEmit
 pnpm test            # vitest run — includes real temporary-SQLite persistence tests and CLI/REPL/session coverage

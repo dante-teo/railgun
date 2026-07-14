@@ -212,6 +212,10 @@ describe("desktop shell", () => {
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
     render(<App />);
     const searchTasks = await screen.findByRole("button", { name: "Search tasks" });
+    const brandMark = document.querySelector<HTMLImageElement>(".brand-mark");
+    expect(brandMark?.getAttribute("src")).toBe("./brand/railgun-icon.png");
+    expect(brandMark?.getAttribute("alt")).toBe("");
+    expect(document.querySelector(".brand .lucide-bot")).toBeNull();
     expect(searchTasks.className).toContain("task-search-button");
     expect(searchTasks.className).toContain("ui-button-sidebar-icon");
     expect(searchTasks.className).toContain("ui-button-compact-icon");

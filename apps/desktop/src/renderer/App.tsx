@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Clock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import { Clock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
@@ -264,7 +264,7 @@ export const App = (): React.JSX.Element => {
     </Dialog>
   </>;
   const sidebar = <>
-        <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
+        <div className="brand"><img className="brand-mark" src="./brand/railgun-icon.png" alt="" /><span>Railgun</span></div>
         <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
         <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><Clock aria-hidden="true" />Scheduled</Button>
         <section className="session-navigation" aria-label="Tasks">

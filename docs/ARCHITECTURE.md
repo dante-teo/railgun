@@ -695,6 +695,13 @@ keeps the newest 50 per job. Cron mode does not open the session database.
   the desktop build compiles and deploys the root package's production runtime
   plus the mock backend into Forge resources; these runtime assets are separate
   from the root package's published-file contract.
+- A matching `v*` tag publishes the CLI and two native macOS ZIPs. The release
+  workflow imports the Developer ID certificate into an ephemeral keychain,
+  signs and notarizes arm64 and Intel applications, verifies their stapled
+  tickets, and updates the Homebrew Cask only for stable versions. Its npm,
+  GitHub Release, and Cask writes are idempotent enough to rerun failed jobs.
+  See [the release runbook](RELEASING.md) and
+  [ADR 0036](adr/0036-homebrew-only-desktop-distribution.md).
 - The workspace uses pnpm's hoisted linker because Forge's packaging preflight
   requires it, and workspace-package injection makes `pnpm deploy --prod`
   self-contained. Forge dependency pruning is disabled: with one hoisted

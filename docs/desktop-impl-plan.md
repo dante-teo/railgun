@@ -575,9 +575,12 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Visual QA at minimum, default, and full-screen window sizes.
 
 - [ ] **DESK-021 — Package the macOS app**
-  - Build arm64 and x64 DMG/ZIP artifacts.
-  - Add the final layered app icon, signing, hardened runtime, and notarization.
-  - Run the complete workflow on a clean Mac.
+  - [x] Build native arm64 and x64 ZIP artifacts for GitHub Releases and
+    Homebrew Cask installation.
+  - [x] Add the final layered app icon, Developer ID signing, hardened runtime,
+    notarization, stapling, and verification to the tag workflow.
+  - [ ] Complete the first tagged release on clean GitHub-hosted macOS runners
+    and verify installation through Homebrew.
 
 ## Delivery order
 
