@@ -436,6 +436,9 @@ This document records the intended system architecture for Railgun. Keep it curr
     acknowledgements during stopping are ignored without clearing the draft.
     Initial prompt failures retain one retryable user message, while backend
     failure finalizes partial output and stale failures after reset are ignored.
+    The renderer tracks transcript follow mode separately from visual scroll
+    progress: layout updates pin only while following, any non-automatic scroll
+    away disengages it, and reaching the bottom re-engages it.
 
 `toolcall_delta` and `toolcall_end` events together drive
 `src/agent/turn.ts`'s tool-calling loop in both paths (Phase 5 added

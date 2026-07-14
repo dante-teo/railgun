@@ -117,8 +117,11 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
 - Chat uses one full-height overlay grid cell for toolbar, transcript, operation
   errors, and composer. Error banners sit below the toolbar fade and follow the
   sidebar inset. The native transcript scrollbar is hidden in favor of one
-  centered, height-capped dash rail whose existing dashes change color to show
-  position.
+  centered dash rail that is hidden without overflow, grows from four dashes to
+  a height-capped maximum as history accumulates, and changes existing dashes
+  to show position. New content follows only while the viewport remains at the
+  bottom; any user-driven scroll away preserves the reading position until the
+  viewport returns to the bottom.
 - Renderer components consume semantic CSS custom properties and shared
   material recipes instead of raw palette values. Reduced Transparency removes
   blur, Reduced Motion removes animated transitions, and Increase Contrast uses

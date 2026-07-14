@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Bot, Send, Square } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
@@ -244,14 +244,16 @@ const transcriptScrollOptions = {
   scrollbars: { visibility: "hidden" },
 } as const;
 
-const TRANSCRIPT_DASH_COUNT = 24;
+const TRANSCRIPT_MAX_DASH_COUNT = 24;
 const TRANSCRIPT_ACTIVE_DASH_COUNT = 4;
-const TRANSCRIPT_DASH_INDEXES = Array.from({ length: TRANSCRIPT_DASH_COUNT }, (_, index) => index);
+const TRANSCRIPT_BOTTOM_TOLERANCE = 4;
+const TRANSCRIPT_DASH_GROWTH_PX = 96;
 const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
 
-export const transcriptActiveDashIndexes = (progress: number): readonly number[] => {
-  const start = Math.round(clampUnit(progress) * (TRANSCRIPT_DASH_COUNT - TRANSCRIPT_ACTIVE_DASH_COUNT));
-  return Array.from({ length: TRANSCRIPT_ACTIVE_DASH_COUNT }, (_, index) => start + index);
+export const transcriptActiveDashIndexes = (progress: number, dashCount = TRANSCRIPT_MAX_DASH_COUNT): readonly number[] => {
+  const activeDashCount = Math.min(TRANSCRIPT_ACTIVE_DASH_COUNT, dashCount);
+  const start = Math.round(clampUnit(progress) * (dashCount - activeDashCount));
+  return Array.from({ length: activeDashCount }, (_, index) => start + index);
 };
 
 type ScrollMetrics = Readonly<Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">>;
@@ -261,21 +263,75 @@ export const transcriptScrollProgress = ({ scrollTop, scrollHeight, clientHeight
   return scrollableHeight <= 0 ? 0 : clampUnit(scrollTop / scrollableHeight);
 };
 
-const TranscriptScrollIndicator = ({ progress }: { readonly progress: number }): React.JSX.Element => {
-  const activeDashes = transcriptActiveDashIndexes(progress);
+export const transcriptIsAtBottom = ({ scrollTop, scrollHeight, clientHeight }: ScrollMetrics): boolean => {
+  const scrollableHeight = scrollHeight - clientHeight;
+  return scrollableHeight <= 0 || scrollableHeight - scrollTop <= TRANSCRIPT_BOTTOM_TOLERANCE;
+};
+
+export const transcriptIndicatorDashCount = ({ scrollHeight, clientHeight }: ScrollMetrics): number => {
+  const scrollableHeight = scrollHeight - clientHeight;
+  if (scrollableHeight <= 0) return 0;
+  return Math.min(TRANSCRIPT_MAX_DASH_COUNT, TRANSCRIPT_ACTIVE_DASH_COUNT + Math.floor(scrollableHeight / TRANSCRIPT_DASH_GROWTH_PX));
+};
+
+interface TranscriptScrollPresentation {
+  readonly progress: number;
+  readonly dashCount: number;
+}
+
+const initialTranscriptScrollPresentation: TranscriptScrollPresentation = { progress: 0, dashCount: 0 };
+
+const TranscriptScrollIndicator = ({ progress, dashCount }: { readonly progress: number; readonly dashCount: number }): React.JSX.Element | null => {
+  if (dashCount === 0) return null;
+  const activeDashes = transcriptActiveDashIndexes(progress, dashCount);
+  const dashIndexes = Array.from({ length: dashCount }, (_, index) => index);
   return (
-    <div className="transcript-scroll-indicator" aria-hidden="true">
-      {TRANSCRIPT_DASH_INDEXES.map(index => <span className={activeDashes.includes(index) ? "active" : undefined} key={index} />)}
+    <div className="transcript-scroll-indicator" aria-hidden="true" style={{ "--transcript-indicator-dash-count": dashCount } as CSSProperties}>
+      {dashIndexes.map(index => <span className={activeDashes.includes(index) ? "active" : undefined} key={index} />)}
     </div>
   );
 };
 
 export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps): React.JSX.Element => {
   const { state } = controller;
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const updateScrollProgress = useCallback((instance: OverlayScrollbars): void => {
-    setScrollProgress(transcriptScrollProgress(instance.elements().scrollOffsetElement));
+  const [scrollPresentation, setScrollPresentation] = useState(initialTranscriptScrollPresentation);
+  const followTranscript = useRef(true);
+  const automaticScrollTop = useRef<number | undefined>(undefined);
+  const updateScrollPresentation = useCallback((instance: OverlayScrollbars): void => {
+    const scrollElement = instance.elements().scrollOffsetElement;
+    const progress = transcriptScrollProgress(scrollElement);
+    const dashCount = transcriptIndicatorDashCount(scrollElement);
+    setScrollPresentation(current => {
+      if (current.progress === progress && current.dashCount === dashCount) return current;
+      return { progress, dashCount };
+    });
   }, []);
+  const scrollTranscriptToBottom = useCallback((instance: OverlayScrollbars): void => {
+    const scrollElement = instance.elements().scrollOffsetElement;
+    const bottom = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+    automaticScrollTop.current = bottom;
+    scrollElement.scrollTop = bottom;
+  }, []);
+  const initializeTranscriptScroll = useCallback((instance: OverlayScrollbars): void => {
+    followTranscript.current = true;
+    scrollTranscriptToBottom(instance);
+    updateScrollPresentation(instance);
+  }, [scrollTranscriptToBottom, updateScrollPresentation]);
+  const handleTranscriptUpdated = useCallback((instance: OverlayScrollbars): void => {
+    if (followTranscript.current) scrollTranscriptToBottom(instance);
+    updateScrollPresentation(instance);
+  }, [scrollTranscriptToBottom, updateScrollPresentation]);
+  const handleTranscriptScroll = useCallback((instance: OverlayScrollbars): void => {
+    const scrollElement = instance.elements().scrollOffsetElement;
+    const automaticTarget = automaticScrollTop.current;
+    const matchesAutomaticScroll = automaticTarget !== undefined
+      && Math.abs(scrollElement.scrollTop - automaticTarget) <= TRANSCRIPT_BOTTOM_TOLERANCE;
+    if (!matchesAutomaticScroll) {
+      automaticScrollTop.current = undefined;
+      followTranscript.current = transcriptIsAtBottom(scrollElement);
+    }
+    updateScrollPresentation(instance);
+  }, [updateScrollPresentation]);
   const entries = [
     ...state.messages.map(message => ({ kind: "message" as const, order: message.order, message })),
     ...state.activity.entries.map(activity => ({ kind: "activity" as const, order: activity.order, activity })),
@@ -286,7 +342,7 @@ export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps)
       <OverlayScrollbarsComponent
         className="transcript"
         options={transcriptScrollOptions}
-        events={{ initialized: updateScrollProgress, updated: updateScrollProgress, scroll: updateScrollProgress }}
+        events={{ initialized: initializeTranscriptScroll, updated: handleTranscriptUpdated, scroll: handleTranscriptScroll }}
       >
         <div className={`transcript-content ${empty ? "empty" : ""}`} aria-live="polite">
           {empty && snapshot.phase === "ready"
@@ -317,7 +373,7 @@ export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps)
             : null}
         </div>
       </OverlayScrollbarsComponent>
-      <TranscriptScrollIndicator progress={scrollProgress} />
+      <TranscriptScrollIndicator progress={scrollPresentation.progress} dashCount={scrollPresentation.dashCount} />
     </div>
   );
 };

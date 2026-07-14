@@ -122,8 +122,15 @@ the same model; text entry is reserved for free-form answers and preset names.
   disconnected vertical regions. Operation errors align below the toolbar fade,
   remain above transcript/composer content, and follow the live sidebar inset.
   The native transcript scrollbar is hidden. A vertically centered dash rail on
-  the transcript's left edge is capped at 30rem; scrolling changes the existing
-  dashes from muted to active rather than drawing a second thumb over them.
+  the transcript's left edge is hidden until the transcript overflows. It starts
+  as a short four-dash rail, grows with scrollable history up to 24 dashes or
+  30rem, and changes existing dashes from muted to active to show position. The
+  transcript initializes at the newest content and follows content and layout
+  growth while it remains at the bottom. Any scroll away from the automatic
+  destination—whether caused by wheel, touch, keyboard, selection, browser
+  find, or accessibility tooling—disengages following and preserves the current
+  position. Returning within 4px of the bottom re-engages immediate following
+  for subsequent updates.
 
 - The desktop composer gives message entry its own full-width row. Its quiet
   footer shows the active model, one combined Agent settings trigger, exact

@@ -737,9 +737,12 @@ unknown keys, and provider-only model fields do not cross preload.
 
 The desktop transcript fills the main canvas behind its floating toolbar and
 composer. Its native scrollbar is hidden in favor of a centered dash indicator
-on the left; active dashes show the current scroll range. Operation errors stay
-visible below the toolbar and follow the sidebar inset instead of adding a new
-layout row.
+on the left. The indicator is hidden until the transcript overflows, then grows
+from a short rail as history accumulates; active dashes show the current scroll
+range. The transcript follows new output while it is at the bottom, preserves
+the reading position after any user-driven scroll away, and resumes following
+when returned to the bottom. Operation errors stay visible below the toolbar and
+follow the sidebar inset instead of adding a new layout row.
 
 The real desktop backend never opens browser OAuth implicitly. If its cached
 credential is missing or rejected, run `pnpm start login` in Terminal and use

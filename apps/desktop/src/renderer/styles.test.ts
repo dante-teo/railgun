@@ -111,7 +111,7 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.transcript-content\s*\{[^}]*min-height:\s*100%[^}]*padding-top:\s*var\(--transcript-top-inset\)[^}]*padding-bottom:\s*var\(--transcript-bottom-inset\)/u);
     expect(css).toContain("--transcript-indicator-max-height: 30rem");
     expect(css).not.toContain("--transcript-scrollbar-max-height");
-    expect(css).toMatch(/\.transcript-scroll-indicator\s*\{[^}]*position:\s*absolute[^}]*top:\s*50%[^}]*height:\s*min\(var\(--transcript-indicator-max-height\), 42vh\)[^}]*grid-auto-rows:\s*1fr[^}]*transform:\s*translateY\(-50%\)/u);
+    expect(css).toMatch(/\.transcript-scroll-indicator\s*\{[^}]*position:\s*absolute[^}]*top:\s*50%[^}]*height:\s*min\(var\(--transcript-indicator-max-height\), 42vh, calc\(var\(--transcript-indicator-dash-count\) \* var\(--space-5\)\)\)[^}]*grid-auto-rows:\s*1fr[^}]*transform:\s*translateY\(-50%\)/u);
     expect(css).toMatch(/\.transcript-scroll-indicator span\s*\{[^}]*background:\s*var\(--color-transcript-dash-muted\)/u);
     expect(css).toMatch(/\.transcript-scroll-indicator span\.active\s*\{[^}]*background:\s*var\(--color-transcript-dash-active\)/u);
     expect(css).toMatch(/\.transcript > \.os-scrollbar\s*\{[^}]*display:\s*none/u);

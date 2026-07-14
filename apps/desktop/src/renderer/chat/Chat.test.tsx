@@ -1,11 +1,74 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import type { OverlayScrollbars } from "overlayscrollbars";
 import type { BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
-import { ActivityInspector, Composer, Transcript, transcriptActiveDashIndexes, transcriptScrollProgress, useChatController } from "./Chat";
+import { ActivityInspector, Composer, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController } from "./Chat";
+
+const overlayHarness = vi.hoisted(() => ({
+  clientHeight: 0,
+  scrollHeight: 0,
+  element: undefined as HTMLElement | undefined,
+}));
+
+vi.mock("overlayscrollbars-react", async () => {
+  const React = await import("react");
+  type Events = Readonly<{
+    initialized?: (instance: OverlayScrollbars) => void;
+    updated?: (instance: OverlayScrollbars, event: unknown) => void;
+    scroll?: (instance: OverlayScrollbars, event: Event) => void;
+  }>;
+  return {
+    OverlayScrollbarsComponent: ({ children, className, events }: {
+      readonly children: ReactNode;
+      readonly className?: string;
+      readonly events?: Events;
+    }) => {
+      const elementRef = React.useRef<HTMLDivElement>(null);
+      const instanceRef = React.useRef<OverlayScrollbars | undefined>(undefined);
+      const initializedRef = React.useRef(false);
+      if (instanceRef.current === undefined) {
+        instanceRef.current = {
+          elements: () => ({ scrollOffsetElement: elementRef.current }),
+        } as unknown as OverlayScrollbars;
+      }
+      React.useLayoutEffect(() => {
+        const element = elementRef.current;
+        const instance = instanceRef.current;
+        if (element === null || instance === undefined) return;
+        Object.defineProperties(element, {
+          clientHeight: { configurable: true, get: () => overlayHarness.clientHeight },
+          scrollHeight: { configurable: true, get: () => overlayHarness.scrollHeight },
+        });
+        overlayHarness.element = element;
+        if (initializedRef.current) events?.updated?.(instance, undefined);
+        else {
+          initializedRef.current = true;
+          events?.initialized?.(instance);
+        }
+      });
+      return <div
+        className={className}
+        data-testid="transcript-scroll"
+        ref={elementRef}
+        onScroll={event => {
+          const instance = instanceRef.current;
+          if (instance !== undefined) events?.scroll?.(instance, event.nativeEvent);
+        }}
+      >{children}</div>;
+    },
+  };
+});
 
 afterEach(cleanup);
+
+beforeEach(() => {
+  overlayHarness.clientHeight = 0;
+  overlayHarness.scrollHeight = 0;
+  overlayHarness.element = undefined;
+});
 
 const ready: BackendSnapshot = {
   mode: "mock",
@@ -65,14 +128,27 @@ const Harness = (): React.JSX.Element => {
 };
 
 describe("chat renderer", () => {
-  it("renders one fixed set of transcript position dashes", async () => {
+  it("hides transcript position dashes when there is no overflow", () => {
     makeApi();
     const { container } = render(<Harness />);
 
-    const indicator = container.querySelector(".transcript-scroll-indicator");
-    expect(indicator?.children).toHaveLength(24);
-    expect(indicator?.querySelectorAll(".active")).toHaveLength(4);
+    expect(container.querySelector(".transcript-scroll-indicator")).toBeNull();
     expect(container.querySelector(".transcript-content")?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("grows the transcript position rail with overflow up to its maximum", () => {
+    expect(transcriptIndicatorDashCount({ scrollTop: 0, scrollHeight: 500, clientHeight: 500 })).toBe(0);
+    expect(transcriptIndicatorDashCount({ scrollTop: 0, scrollHeight: 501, clientHeight: 500 })).toBe(4);
+    expect(transcriptIndicatorDashCount({ scrollTop: 0, scrollHeight: 596, clientHeight: 500 })).toBe(5);
+    expect(transcriptIndicatorDashCount({ scrollTop: 0, scrollHeight: 10_000, clientHeight: 500 })).toBe(24);
+
+    overlayHarness.clientHeight = 500;
+    overlayHarness.scrollHeight = 501;
+    makeApi();
+    const { container } = render(<Harness />);
+    const indicator = container.querySelector(".transcript-scroll-indicator");
+    expect(indicator?.children).toHaveLength(4);
+    expect(indicator?.querySelectorAll(".active")).toHaveLength(4);
   });
 
   it("maps scroll progress onto the same dash elements", () => {
@@ -81,12 +157,94 @@ describe("chat renderer", () => {
     expect(transcriptActiveDashIndexes(0.5)).toEqual([10, 11, 12, 13]);
     expect(transcriptActiveDashIndexes(1)).toEqual([20, 21, 22, 23]);
     expect(transcriptActiveDashIndexes(2)).toEqual([20, 21, 22, 23]);
+    expect(transcriptActiveDashIndexes(0, 4)).toEqual([0, 1, 2, 3]);
+    expect(transcriptActiveDashIndexes(1, 5)).toEqual([1, 2, 3, 4]);
   });
 
   it("calculates bounded transcript progress from scroll metrics", () => {
     expect(transcriptScrollProgress({ scrollTop: 250, scrollHeight: 1_000, clientHeight: 500 })).toBe(0.5);
     expect(transcriptScrollProgress({ scrollTop: 0, scrollHeight: 500, clientHeight: 500 })).toBe(0);
     expect(transcriptScrollProgress({ scrollTop: 800, scrollHeight: 1_000, clientHeight: 500 })).toBe(1);
+  });
+
+  it("detects the transcript bottom with non-scrollable content and a 4px tolerance", () => {
+    expect(transcriptIsAtBottom({ scrollTop: 0, scrollHeight: 400, clientHeight: 500 })).toBe(true);
+    expect(transcriptIsAtBottom({ scrollTop: 496, scrollHeight: 1_000, clientHeight: 500 })).toBe(true);
+    expect(transcriptIsAtBottom({ scrollTop: 495.9, scrollHeight: 1_000, clientHeight: 500 })).toBe(false);
+  });
+
+  it("mounts a long transcript at the bottom", () => {
+    overlayHarness.clientHeight = 500;
+    overlayHarness.scrollHeight = 1_000;
+    makeApi();
+    render(<Harness />);
+
+    expect(overlayHarness.element?.scrollTop).toBe(500);
+  });
+
+  it("keeps streaming content updates pinned while follow mode is active", () => {
+    overlayHarness.clientHeight = 500;
+    overlayHarness.scrollHeight = 1_000;
+    const bridge = makeApi();
+    render(<Harness />);
+
+    overlayHarness.scrollHeight = 1_200;
+    act(() => {
+      bridge.emit({ type: "assistant-delta", text: "streaming output" });
+      bridge.emit({ type: "run-end" });
+    });
+
+    expect(overlayHarness.element?.scrollTop).toBe(700);
+  });
+
+  it("does not treat repeated delayed automatic scroll events as leaving the bottom", () => {
+    overlayHarness.clientHeight = 500;
+    overlayHarness.scrollHeight = 1_000;
+    const bridge = makeApi();
+    render(<Harness />);
+    const scroller = screen.getByTestId("transcript-scroll");
+
+    overlayHarness.scrollHeight = 1_200;
+    act(() => bridge.emit({ type: "tool-start", id: "first", name: "first update" }));
+    expect(scroller.scrollTop).toBe(700);
+
+    overlayHarness.scrollHeight = 1_400;
+    act(() => {
+      fireEvent.scroll(scroller);
+      fireEvent.scroll(scroller);
+    });
+    act(() => bridge.emit({ type: "tool-start", id: "second", name: "second update" }));
+    expect(scroller.scrollTop).toBe(900);
+  });
+
+  it("preserves position after any non-automatic scroll away from the bottom", () => {
+    overlayHarness.clientHeight = 500;
+    overlayHarness.scrollHeight = 1_000;
+    const bridge = makeApi();
+    render(<Harness />);
+    const scroller = screen.getByTestId("transcript-scroll");
+
+    scroller.scrollTop = 200;
+    fireEvent.scroll(scroller);
+    overlayHarness.scrollHeight = 1_200;
+    act(() => bridge.emit({ type: "tool-start", id: "first", name: "first update" }));
+    expect(scroller.scrollTop).toBe(200);
+  });
+
+  it("resumes following after returning to the bottom", () => {
+    overlayHarness.clientHeight = 500;
+    overlayHarness.scrollHeight = 1_200;
+    const bridge = makeApi();
+    render(<Harness />);
+    const scroller = screen.getByTestId("transcript-scroll");
+
+    scroller.scrollTop = 200;
+    fireEvent.scroll(scroller);
+    scroller.scrollTop = 700;
+    fireEvent.scroll(scroller);
+    overlayHarness.scrollHeight = 1_400;
+    act(() => bridge.emit({ type: "tool-start", id: "second", name: "second update" }));
+    expect(scroller.scrollTop).toBe(900);
   });
 
   it("sends on idle Enter and preserves Shift+Enter multiline input", async () => {
