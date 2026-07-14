@@ -22,6 +22,19 @@ const snapshot = (phase: BackendPhase): BackendSnapshot => ({
   transportLog: [{ direction: "system", text: "Starting backend" }],
 });
 
+const chatControls = {
+  models: [{ id: "mock-model", name: "Mock Model", inputs: ["text"] as const, supportsTools: true, reasoning: false, contextWindow: 100_000, maxOutputTokens: 4_000 }],
+  activeModelId: "mock-model", defaultModelId: null, messageCount: 0,
+  moaPresets: [], activeMoaPreset: null, advisor: { enabled: false, modelId: null }, contextWindow: 100_000,
+} as const;
+const unusedControlMutation = async () => ({ controls: chatControls, persistence: "session-only" as const });
+const controlApi = {
+  getChatControls: async () => chatControls,
+  setChatModel: unusedControlMutation,
+  updateAgentControls: unusedControlMutation,
+  compactContext: unusedControlMutation,
+};
+
 describe("BackendStatus", () => {
   it.each([
     ["starting", "Starting Railgun"],
@@ -76,7 +89,7 @@ describe("MockPanel", () => {
 
 describe("desktop shell", () => {
   it("uses the product chat UI in mock mode and streams validated replies", async () => {
-    let agentListener: ((event: DesktopAgentEvent) => void) | undefined;
+    const agentListeners = new Set<(event: DesktopAgentEvent) => void>();
     const sendPrompt = vi.fn(async () => undefined);
     const abortPrompt = vi.fn(async () => undefined);
     const startNewChat = vi.fn(async () => snapshot("starting"));
@@ -92,7 +105,8 @@ describe("desktop shell", () => {
       abortPrompt,
       openExternal: async () => undefined,
       startNewChat,
-      onAgentEvent: (listener) => { agentListener = listener; return () => undefined; },
+      ...controlApi,
+      onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined,
@@ -121,11 +135,11 @@ describe("desktop shell", () => {
     fireEvent.keyDown(paletteSearch, { key: "Enter" });
     await waitFor(() => expect(abortPrompt).toHaveBeenCalledOnce());
 
-    act(() => agentListener?.({ type: "assistant-delta", text: "Mock response" }));
-    act(() => agentListener?.({ type: "run-end" }));
+    act(() => agentListeners.forEach(listener => listener({ type: "assistant-delta", text: "Mock response" })));
+    act(() => agentListeners.forEach(listener => listener({ type: "run-end" })));
     expect(screen.getByText("Mock response")).toBeTruthy();
-    act(() => agentListener?.({ type: "tool-start", id: "todo", name: "todo" }));
-    act(() => agentListener?.({ type: "tool-end", id: "todo", name: "todo", failed: false, todos: [{ id: "done", content: "Desktop activity", status: "completed" }] }));
+    act(() => agentListeners.forEach(listener => listener({ type: "tool-start", id: "todo", name: "todo" })));
+    act(() => agentListeners.forEach(listener => listener({ type: "tool-end", id: "todo", name: "todo", failed: false, todos: [{ id: "done", content: "Desktop activity", status: "completed" }] })));
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
     expect(screen.getByRole("separator", { name: "Resize inspector" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -152,6 +166,7 @@ describe("desktop shell", () => {
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
+      ...controlApi,
       onAgentEvent: () => () => undefined,
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,
@@ -185,6 +200,7 @@ describe("desktop shell", () => {
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
+      ...controlApi,
       onAgentEvent: () => () => undefined,
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,
@@ -238,6 +254,7 @@ describe("desktop shell", () => {
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
       startNewChat: async () => snapshot("starting"),
+      ...controlApi,
       onAgentEvent: () => () => undefined,
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,

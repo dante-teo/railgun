@@ -69,6 +69,26 @@ export const toDesktopAgentEvent = (value: unknown): DesktopAgentEvent | undefin
     case "agent_end":
       event = { type: "run-end" };
       break;
+    case "turn_end": {
+      const usage = record.usage;
+      if (typeof usage !== "object" || usage === null) break;
+      const values = usage as Record<string, unknown>;
+      if (Number.isSafeInteger(values.inputTokens) && (values.inputTokens as number) >= 0 &&
+        Number.isSafeInteger(values.outputTokens) && (values.outputTokens as number) >= 0) {
+        event = {
+          type: "context-usage",
+          inputTokens: values.inputTokens as number,
+          outputTokens: values.outputTokens as number,
+        };
+      }
+      break;
+    }
+    case "compaction_start":
+    case "compaction_end":
+      if (record.reason === "threshold" || record.reason === "overflow") {
+        event = { type: "context-reset", reason: "compaction" };
+      }
+      break;
     case "message_update": {
       const streamEvent = record.streamEvent;
       if (typeof streamEvent === "object" && streamEvent !== null) {

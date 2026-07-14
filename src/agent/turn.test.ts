@@ -53,6 +53,24 @@ const fakeProvider = (rounds: readonly FakeRound[]): FakeProvider => {
 };
 
 describe("runTurn", () => {
+  it("includes the latest provider usage totals in turn_end", async () => {
+    const devin = fakeProvider([[
+      { type: "usage", inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { type: "text_delta", delta: "measured" },
+      { type: "done", reason: "stop" },
+    ]]);
+    const events: AgentEvent[] = [];
+
+    await runTurn(devin, "model-1", 1_000_000, defaultSystemPrompt, [], "Hi", defaultBudget(), approveAll, async event => {
+      events.push(event);
+    });
+
+    expect(events.find(event => event.type === "turn_end")).toMatchObject({
+      type: "turn_end",
+      usage: { inputTokens: 120, outputTokens: 30 },
+    });
+  });
+
   it("accumulates text_delta events, streams via message_update text_delta events, and appends user+assistant messages", async () => {
     const devin = fakeProvider([
       [

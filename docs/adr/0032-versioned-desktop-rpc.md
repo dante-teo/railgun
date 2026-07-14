@@ -46,6 +46,21 @@ Session mutations, model changes, and compaction share one ordered session-opera
 
 MCP secrets never cross JSONL: reads expose command, arguments, and environment key presence only. MCP environment upserts retain omitted keys and delete keys assigned `null`. Generic config patches reject `mcpServers`; both config and cron continue to use their existing atomic writers.
 
+Desktop chat controls reuse the existing `get_available_models`, `get_state`,
+`set_model`, `config_get`, `config_update`, and `compact` commands rather than
+adding parallel backend commands. Electron main is the orchestration boundary:
+it validates and reduces those responses to display-safe metadata, serializes
+mutations, and keeps raw configuration out of the renderer. A persisted model
+choice switches the active chat before writing the default so write failure can
+be returned as a recoverable partial outcome. The generic config update treats
+`activeMoaPreset: null` as narrow deletion; advisor patches remain shallow
+object replacement, preserving unrelated top-level unknown fields.
+
+`turn_end` may add provider-reported input/output totals. This is an additive
+event field: existing required fields and legacy RPC behavior are unchanged.
+The desktop maps exact totals plus compaction start/end into its bounded event
+vocabulary instead of estimating tokens in the renderer.
+
 Pending interactions are stored in maps keyed by unique request ID. Abort, EOF, and run settlement reject all remaining requests, preventing parallel approvals from overwriting one another or leaving promises unresolved.
 
 ## Consequences

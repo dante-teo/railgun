@@ -465,7 +465,12 @@ export const runTurn = async (
         () => runStep(devin, effectiveModel, systemPrompt, messages, context, allTextParts, doEmit, options?.extensionRunner, effectiveToolsets, progressState, options?.cron === true, finalizing),
         () => compress("overflow")
       );
-      await doEmit({ type: "turn_end", message: outcome.message, toolResults: outcome.toolResults });
+      await doEmit({
+        type: "turn_end",
+        message: outcome.message,
+        toolResults: outcome.toolResults,
+        ...(outcome.usage === undefined ? {} : { usage: outcome.usage }),
+      });
       turnEndedThisAttempt = true;
       if (options?.onTurnEnd) {
         await runBoundedOperation(signal, context.operationTimeoutMs, "Turn-end advisor work", () =>

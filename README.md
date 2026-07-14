@@ -725,6 +725,16 @@ they are open, Stop remains available, and prompt responses are correlated by
 opaque renderer IDs. Backend request IDs never cross the preload boundary, and
 hardline-blocked shell commands remain backend-owned with no desktop bypass.
 
+The composer footer keeps chat configuration compact: the model trigger opens a
+searchable picker with session-only (`This chat`) and persisted (`Make default`)
+choices, while Agent settings contains the persisted MoA preset, advisor toggle
+and model, and manual Compact action. Compact is unavailable during a run or for
+empty history. The context label is based on the latest exact provider-reported
+input plus output tokens—not a renderer estimate—and resets after a model
+change, compaction, backend restart, or New Chat. Configuration reads are
+reduced in Electron main to a bounded display-safe snapshot; raw configuration,
+unknown keys, and provider-only model fields do not cross preload.
+
 The real desktop backend never opens browser OAuth implicitly. If its cached
 credential is missing or rejected, run `pnpm start login` in Terminal and use
 Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that

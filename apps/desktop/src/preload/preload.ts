@@ -1,15 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   AppCommandSchema,
+  AgentControlUpdateSchema,
   BackendSnapshotSchema,
+  ChatControlsSnapshotSchema,
+  ChatModelIdSchema,
+  ClarificationAnswerSchema,
+  ControlMutationResultSchema,
   DesktopAgentEventSchema,
   DesktopInteractionRequestSchema,
-  InteractionCorrelationIdSchema,
-  ClarificationAnswerSchema,
   EmptyResponseSchema,
   ExternalUrlSchema,
+  InteractionCorrelationIdSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
+  ModelPersistenceModeSchema,
   PromptTextSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
@@ -85,6 +90,22 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     },
     startNewChat: async () => BackendSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.startNewChat),
+    ),
+    getChatControls: async () => ChatControlsSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.getChatControls),
+    ),
+    setChatModel: async (modelId, persistence) => ControlMutationResultSchema.parse(
+      await transport.invoke(
+        DESKTOP_IPC.setChatModel,
+        ChatModelIdSchema.parse(modelId),
+        ModelPersistenceModeSchema.parse(persistence),
+      ),
+    ),
+    updateAgentControls: async (update) => ControlMutationResultSchema.parse(
+      await transport.invoke(DESKTOP_IPC.updateAgentControls, AgentControlUpdateSchema.parse(update)),
+    ),
+    compactContext: async () => ControlMutationResultSchema.parse(
+      await transport.invoke(DESKTOP_IPC.compactContext),
     ),
     onAgentEvent: (listener) => {
       const handler = (_event: unknown, payload: unknown): void => {

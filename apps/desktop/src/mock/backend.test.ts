@@ -65,6 +65,7 @@ describe("mock backend process", () => {
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "message_update" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "message_update" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "message_end" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "turn_end", usage: { inputTokens: 1_200, outputTokens: 300 } });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "agent_end" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "prompt-1", success: true });
       send(child, { id: "state-2", type: "get_state" });
@@ -222,7 +223,7 @@ describe("mock backend process", () => {
       expect(events.map(event => event?.type)).toEqual([
         "run-start", "tool-start", "subagent-start", "tool-start", "tool-start", "moa-reference-start",
         "tool-end", "tool-end", "tool-end", "moa-reference-end", "moa-aggregating", "advisor-note",
-        "subagent-end", "assistant-delta", "assistant-complete", "run-end",
+        "subagent-end", "assistant-delta", "assistant-complete", "context-usage", "run-end",
       ]);
       expect(events).toContainEqual(expect.objectContaining({ type: "tool-end", id: "shell-1", failed: true }));
     } finally {

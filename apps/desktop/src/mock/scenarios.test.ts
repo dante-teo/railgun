@@ -20,6 +20,8 @@ describe("mock scenario registry", () => {
       "clarification-free-text",
       "cancellation",
       "agent-activity",
+      "empty-model-catalog",
+      "slow-compaction",
     ]);
     expect(listMockScenarios()[0]).not.toHaveProperty("behavior");
   });

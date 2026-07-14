@@ -9,6 +9,10 @@ import {
   ExternalUrlSchema,
   DesktopAgentEventSchema,
   DESKTOP_ACTIVITY_LIMITS,
+  ChatControlsSnapshotSchema,
+  ModelPersistenceModeSchema,
+  AgentControlUpdateSchema,
+  ControlMutationResultSchema,
 } from "./schemas";
 
 const validSnapshot = {
@@ -66,5 +70,27 @@ describe("desktop boundary schemas", () => {
     expect(() => DesktopAgentEventSchema.parse({ ...events[0], args: { secret: true } })).toThrow();
     expect(() => DesktopAgentEventSchema.parse({ ...events[0], input: "x".repeat(DESKTOP_ACTIVITY_LIMITS.detail + 1) })).toThrow();
     expect(() => DesktopAgentEventSchema.parse({ ...events[5], text: "x".repeat(DESKTOP_ACTIVITY_LIMITS.content + 1) })).toThrow();
+  });
+
+  it("validates bounded chat controls without accepting raw configuration", () => {
+    const controls = {
+      models: [{ id: "model-a", name: "Model A", inputs: ["text", "image"], supportsTools: true, reasoning: true, contextWindow: 200_000, maxOutputTokens: 16_000 }],
+      activeModelId: "model-a",
+      defaultModelId: "model-a",
+      messageCount: 2,
+      moaPresets: [{ name: "review", referenceModels: ["ref-a"], aggregatorModel: "model-a", referenceMaxTokens: 4_000 }],
+      activeMoaPreset: "review",
+      advisor: { enabled: true, modelId: "ref-a" },
+      contextWindow: 200_000,
+    } as const;
+    expect(ChatControlsSnapshotSchema.parse(controls)).toEqual(controls);
+    expect(ModelPersistenceModeSchema.parse("default")).toBe("default");
+    expect(AgentControlUpdateSchema.parse({ moaPreset: null })).toEqual({ moaPreset: null });
+    expect(AgentControlUpdateSchema.parse({ advisor: { enabled: true, modelId: "ref-a" } })).toBeTruthy();
+    expect(ControlMutationResultSchema.parse({ controls, persistence: "partial", warning: "Chat changed; default was not saved." })).toBeTruthy();
+    expect(() => ChatControlsSnapshotSchema.parse({ ...controls, config: { secret: "no" } })).toThrow();
+    expect(() => ChatControlsSnapshotSchema.parse({ ...controls, models: Array.from({ length: 257 }, (_, index) => ({ ...controls.models[0], id: `m-${index}` })) })).toThrow();
+    expect(() => AgentControlUpdateSchema.parse({})).toThrow();
+    expect(() => AgentControlUpdateSchema.parse({ advisor: { enabled: true, modelId: null } })).toThrow();
   });
 });

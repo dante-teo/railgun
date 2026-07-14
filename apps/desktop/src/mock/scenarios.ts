@@ -17,7 +17,9 @@ export type MockScenarioBehavior =
   | "clarification-choice"
   | "clarification-free-text"
   | "cancellation"
-  | "agent-activity";
+  | "agent-activity"
+  | "empty-model-catalog"
+  | "slow-compaction";
 
 export interface MockScenarioDefinition extends Omit<MockScenario, "id"> {
   readonly id: string;
@@ -134,6 +136,18 @@ export const MOCK_SCENARIOS = defineMockScenarios([
     label: "Agent activity",
     description: "Emits tools, todos, MoA, advisor, and subagent activity.",
     behavior: "agent-activity",
+  },
+  {
+    id: "empty-model-catalog",
+    label: "Empty model catalog",
+    description: "Returns no available models while retaining the active session model.",
+    behavior: "empty-model-catalog",
+  },
+  {
+    id: "slow-compaction",
+    label: "Slow compaction",
+    description: "Completes manual compaction after a deterministic delay.",
+    behavior: "slow-compaction",
   },
 ] as const);
 

@@ -26,6 +26,19 @@ describe("agent renderer boundary", () => {
     })).toEqual({ type: "tool-end", id: "tool-1", name: "read_file", failed: true, output: "secret" });
   });
 
+  it("maps exact usage totals and automatic compaction resets", () => {
+    expect(toDesktopAgentEvent({
+      type: "turn_end",
+      message: { role: "assistant", content: [] },
+      toolResults: [],
+      usage: { inputTokens: 120, outputTokens: 30 },
+    })).toEqual({ type: "context-usage", inputTokens: 120, outputTokens: 30 });
+    expect(toDesktopAgentEvent({ type: "compaction_start", reason: "threshold" }))
+      .toEqual({ type: "context-reset", reason: "compaction" });
+    expect(toDesktopAgentEvent({ type: "turn_end", usage: { inputTokens: -1, outputTokens: 2 } }))
+      .toBeUndefined();
+  });
+
   it("recursively redacts and truncates tool details at the renderer boundary", () => {
     const event = toDesktopAgentEvent({
       type: "tool_execution_start", toolCallId: "tool-1", toolName: "run_shell",

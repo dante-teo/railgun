@@ -108,6 +108,18 @@ the same model; text entry is reserved for free-form answers and preset names.
   backend interruption remains a danger-styled inline row with its Retry or
   Restart action rather than degrading to unstyled text.
 
+- The desktop composer gives message entry its own full-width row. Its quiet
+  footer shows the active model, one combined Agent settings trigger, exact
+  context usage, and Send/Stop without turning every action into a separate
+  glass pill. The searchable model dialog provides explicit `This chat` and
+  `Make default` choices. Agent settings contains MoA, advisor, advisor model,
+  and manual Compact controls; portalled select menus stack above the dialog.
+  Compact is disabled during runs/control mutations and for empty history.
+  Context usage is the latest provider-reported input plus output total against
+  the active model's context window and reads `Not measured yet` after model
+  changes, compaction, restart, or New Chat until another provider turn reports
+  usage. Loading and mutation failures stay inline and retryable.
+
 ## UI states
 
 Seven observable states drive the visual treatment of the transcript and composer area.

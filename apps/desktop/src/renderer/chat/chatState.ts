@@ -96,7 +96,7 @@ export type ChatAction =
   | { readonly type: "interaction-submit"; readonly id: string }
   | { readonly type: "interaction-resolved"; readonly id: string }
   | { readonly type: "interaction-failed"; readonly id: string; readonly error: string }
-  | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" }> }
+  | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" | "context-usage" | "context-reset" }> }
   | { readonly type: "reset" };
 
 const finishLastAssistant = (

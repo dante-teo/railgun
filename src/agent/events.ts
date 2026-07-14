@@ -1,4 +1,5 @@
 import type { DevinMessage, DevinStreamEvent } from "widevin";
+import type { UsageTotals } from "./compaction.js";
 
 export interface ToolResult {
   toolCallId: string;
@@ -10,7 +11,7 @@ export type AgentEvent =
   | { type: "agent_start" }
   | { type: "agent_end"; messages: readonly DevinMessage[] }
   | { type: "turn_start" }
-  | { type: "turn_end"; message: DevinMessage; toolResults: readonly ToolResult[] }
+  | { type: "turn_end"; message: DevinMessage; toolResults: readonly ToolResult[]; usage?: UsageTotals }
   | { type: "message_start"; message: DevinMessage }
   | { type: "message_update"; streamEvent: DevinStreamEvent }
   | { type: "message_end"; message: DevinMessage }

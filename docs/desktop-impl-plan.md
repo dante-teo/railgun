@@ -182,6 +182,34 @@ prompt state are cleared on agent run settlement, abort, backend restart,
 process exit, shutdown, or disconnection. Hardline shell blocks remain owned by
 the backend and have no desktop bypass.
 
+### Desktop chat-control boundary
+
+The renderer never receives `config_get` output or provider model objects
+directly. Electron main combines `get_available_models`, `get_state`, and
+`config_get` into a strict bounded snapshot containing display-safe model
+metadata, the active and configured-default model IDs, message count, parsed
+MoA summaries, advisor state, and the selected model's context window. Preload
+exposes only `getChatControls`, `setChatModel`, `updateAgentControls`, and
+`compactContext`, validating arguments and results on both sides of IPC.
+
+Model changes are session-only unless the user explicitly selects `Make
+default`. That path changes the active chat first and then atomically persists
+the configured model; persistence failure returns a partial result explaining
+that the chat changed but the default did not. MoA and advisor updates persist
+for subsequent runs and do not alter work already in progress. Selecting MoA
+Off uses the generic config patch's narrow `activeMoaPreset: null` deletion
+semantics, while advisor updates replace only the advisor object and preserve
+unknown configuration fields.
+
+Provider `turn_end` events may include exact input/output usage totals. Main
+reduces those totals and automatic compaction lifecycle events into bounded
+desktop context events. The renderer never estimates tokens: it displays the
+latest exact total against the active model's context window, then clears that
+measurement after model changes, compaction, backend restart, or New Chat.
+Manual Compact remains available inside Agent settings, is disabled during a
+run/control mutation or for empty history, and refreshes authoritative controls
+after successful completion.
+
 ## Local tickets
 
 Status: `[ ]` backlog, `[>]` active, `[x]` complete.
@@ -305,10 +333,24 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     settle every open prompt without hanging; the deterministic mock covers
     cancellation and disconnect behavior.
 
-- [ ] **DESK-010 — Add model and context controls**
-  - Searchable model picker with persistent or session-only selection.
-  - MoA preset selector and advisor controls.
-  - Context status and manual Compact action.
+- [x] **DESK-010 — Add model and context controls**
+  - The composer's quiet footer exposes a searchable, keyboard-accessible model
+    picker with explicit `This chat` and `Make default` choices. Default
+    persistence happens after the active-chat switch, so write failure can
+    report a partial result without losing the successful session change.
+  - One Agent settings dialog contains the persisted MoA preset, advisor toggle,
+    advisor model, and manual Compact action. Mutations are disabled while a run
+    or another control mutation is active; Compact is also disabled for empty
+    history and clears measured usage only after success.
+  - Context status uses the latest exact provider-reported input and output token
+    totals against the selected model's context window. It returns to `Not
+    measured yet` after model changes, compaction, backend restart, or New Chat.
+  - Main and preload expose only bounded control snapshots and fixed validated
+    operations. Raw configuration and unknown configuration keys never cross
+    into the renderer; MoA Off removes `activeMoaPreset`, advisor replacement
+    touches only its object, and unrelated configuration fields are preserved.
+  - Deterministic mocks cover populated and empty model catalogs, successful and
+    delayed compaction, mutation rejection, cancellation, and disconnection.
 
 ### Sessions and projects
 

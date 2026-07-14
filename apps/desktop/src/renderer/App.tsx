@@ -10,6 +10,7 @@ import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
 import { ShellLayout } from "./shell/ShellLayout";
 import { ActivityInspector, Composer, Transcript, useChatController } from "./chat/Chat";
+import { ChatToolbarControls } from "./chat/ChatControls";
 import { BackendStatus, PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
 import { errorMessage } from "./lib/utils";
 export { BackendStatus } from "./backendStatus";
@@ -59,10 +60,15 @@ export const App = (): React.JSX.Element => {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string>();
   const [operationError, setOperationError] = useState<string>();
+  const [controlsResetKey, setControlsResetKey] = useState(0);
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
+
+  useEffect(() => {
+    if (snapshot !== undefined && snapshot.phase !== "ready") setControlsResetKey(key => key + 1);
+  }, [snapshot?.phase]);
 
   useEffect(() => {
     let active = true;
@@ -99,6 +105,7 @@ export const App = (): React.JSX.Element => {
       const nextSnapshot = await window.railgunDesktop.startNewChat();
       setSnapshot(nextSnapshot);
       chat.reset();
+      setControlsResetKey(key => key + 1);
       setArea("chat");
     } catch (error) {
       setOperationError(errorMessage(error, "Unable to start a new chat"));
@@ -169,7 +176,11 @@ export const App = (): React.JSX.Element => {
           <header className="content-toolbar"><div className="content-toolbar-title"><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
           {operationError === undefined ? null : <div className="shell-error" role="alert">{operationError}</div>}
           <Transcript controller={chat} snapshot={snapshot} onRestart={restartBackend} />
-          <Composer controller={chat} available={snapshot.phase === "ready"} />
+          <Composer
+            controller={chat}
+            available={snapshot.phase === "ready"}
+            controls={<ChatToolbarControls running={running} available={snapshot.phase === "ready"} resetKey={controlsResetKey} />}
+          />
         </section>
       ) : (
         <section className="settings-surface">

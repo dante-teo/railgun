@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Bot, Send, Square } from "lucide-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest } from "../../shared/types";
 import { Button } from "../components/ui/button";
@@ -49,6 +50,8 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
         case "assistant-delta": deltaBuffer.current?.push(event.text); break;
         case "assistant-complete": deltaBuffer.current?.flush(); dispatch({ type: "assistant-complete" }); break;
         case "queue-update": dispatch({ type: "queue-update", steering: event.steering, followUp: event.followUp }); break;
+        case "context-usage":
+        case "context-reset": break;
         default: dispatch({ type: "activity", event }); break;
       }
     };
@@ -276,6 +279,7 @@ export const Transcript = ({ controller, snapshot, onRestart }: TranscriptProps)
 interface ComposerProps {
   readonly controller: ChatController;
   readonly available: boolean;
+  readonly controls?: ReactNode;
 }
 
 const declineAnswer = "[user declined to answer]";
@@ -382,7 +386,7 @@ const InteractionPrompts = ({ controller }: { readonly controller: ChatControlle
   </div>
 );
 
-export const Composer = ({ controller, available }: ComposerProps): React.JSX.Element => {
+export const Composer = ({ controller, available, controls }: ComposerProps): React.JSX.Element => {
   const { state, draft } = controller;
   const interactionsOpen = state.interactions.length > 0;
   return (
@@ -412,11 +416,14 @@ export const Composer = ({ controller, available }: ComposerProps): React.JSX.El
             }
           }}
         />
-        {state.running ? (
-          <Button variant="destructive" size="icon" className="send-button" aria-label="Stop" disabled={state.stopping} onClick={() => void controller.stop()}><Square aria-hidden="true" /></Button>
-        ) : (
-          <Button size="icon" className="send-button" aria-label="Send" disabled={draft.trim() === "" || !available} onClick={() => void controller.sendInitial()}><Send aria-hidden="true" /></Button>
-        )}
+        <div className="composer-footer">
+          {controls === undefined ? null : <div className="composer-controls">{controls}</div>}
+          {state.running ? (
+            <Button variant="destructive" size="icon" className="send-button" aria-label="Stop" disabled={state.stopping} onClick={() => void controller.stop()}><Square aria-hidden="true" /></Button>
+          ) : (
+            <Button size="icon" className="send-button" aria-label="Send" disabled={draft.trim() === "" || !available} onClick={() => void controller.sendInitial()}><Send aria-hidden="true" /></Button>
+          )}
+        </div>
       </div>
       {state.submissionError === undefined ? null : <p className="composer-error" role="alert">{state.submissionError}</p>}
       <p className="composer-hint">{interactionsOpen ? "Answer the pending prompt to continue" : state.running ? "Enter steers · Tab queues follow-up · Shift+Enter adds a line" : "Enter sends · Shift+Enter adds a line"}</p>

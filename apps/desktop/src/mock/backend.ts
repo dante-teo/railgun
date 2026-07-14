@@ -3,6 +3,19 @@ import { getMockScenario } from "./scenarios";
 
 const scenario = getMockScenario(process.argv[2] ?? "ready-idle");
 let messageCount = 0;
+let activeModel = "mock-model";
+let config: Record<string, unknown> = {
+  model: "mock-model",
+  defaultProjectTrust: "ask",
+  moaPresets: {
+    review: {
+      referenceModels: [{ model: "mock-reference" }],
+      aggregator: { model: "mock-model" },
+      referenceMaxTokens: 4_000,
+    },
+  },
+  advisor: { enabled: false, model: "mock-reference" },
+};
 let writingFrame = false;
 interface QueuedFrame {
   readonly line: string;
@@ -117,8 +130,8 @@ if (scenario.behavior === "authentication-required") {
       const sendState = (): void => {
         respond(type, command.id, {
           data: {
-            running: false,
-            model: "mock-model",
+            running: activePrompt !== undefined,
+            model: activeModel,
             messageCount,
             todos: [],
             protocolVersion: 1,
@@ -131,6 +144,41 @@ if (scenario.behavior === "authentication-required") {
         }
       };
       setTimeout(sendState, scenario.behavior === "delayed-startup" ? 600 : 15);
+      return;
+    }
+    if (type === "get_available_models") {
+      respond(type, command.id, { data: { models: scenario.behavior === "empty-model-catalog" ? [] : [
+        { id: "mock-model", name: "Mock Model", provider: "devin", baseUrl: "https://mock.invalid", input: ["text", "image"], supportsTools: true, reasoning: true, contextWindow: 200_000, maxTokens: 16_000 },
+        { id: "mock-reference", name: "Mock Reference", provider: "devin", baseUrl: "https://mock.invalid", input: ["text"], supportsTools: true, reasoning: false, contextWindow: 100_000, maxTokens: 8_000 },
+      ] } });
+      return;
+    }
+    if (type === "config_get") {
+      respond(type, command.id, { data: { config } });
+      return;
+    }
+    if (type === "set_model") {
+      if (activePrompt !== undefined) respond(type, command.id, { error: "cannot change model while agent is running" });
+      else if (command.modelId !== "mock-model" && command.modelId !== "mock-reference") respond(type, command.id, { error: "unknown model" });
+      else { activeModel = command.modelId; respond(type, command.id); }
+      return;
+    }
+    if (type === "config_update") {
+      if (typeof command.patch !== "object" || command.patch === null || Array.isArray(command.patch)) {
+        respond(type, command.id, { error: "invalid config patch" });
+        return;
+      }
+      const { activeMoaPreset, ...patch } = command.patch as Record<string, unknown>;
+      config = { ...config, ...patch };
+      if (activeMoaPreset === null) delete config.activeMoaPreset;
+      else if (activeMoaPreset !== undefined) config.activeMoaPreset = activeMoaPreset;
+      respond(type, command.id, { data: { config } });
+      return;
+    }
+    if (type === "compact") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot compact while agent is running" }); return; }
+      if (messageCount === 0) { respond(type, command.id, { error: "cannot compact empty history" }); return; }
+      setTimeout(() => { messageCount = 1; respond(type, command.id); }, scenario.behavior === "slow-compaction" ? 600 : 10);
       return;
     }
     const emptyStoreData: Record<string, unknown> = {
@@ -183,6 +231,7 @@ if (scenario.behavior === "authentication-required") {
           { type: "subagent_end", goal: "Inspect the desktop activity path", index: 0, result: "Activity path inspected." },
           { type: "message_update", streamEvent: { type: "text_delta", delta: "Activity sequence complete." } },
           { type: "message_end", message: { role: "assistant", content: "Activity sequence complete." } },
+          { type: "turn_end", message: { role: "assistant", content: [] }, toolResults: [], usage: { inputTokens: 1_200, outputTokens: 300 } },
           { type: "agent_end", messages: [] },
         ];
         events.forEach((event, index) => schedulePromptOutput(prompt, event, 10 + index * 10));
@@ -212,6 +261,12 @@ if (scenario.behavior === "authentication-required") {
           type: "message_end",
           message: { role: "assistant", content: "mock markdown response" },
         }, 70);
+        schedulePromptOutput(prompt, {
+          type: "turn_end",
+          message: { role: "assistant", content: [] },
+          toolResults: [],
+          usage: { inputTokens: 1_200, outputTokens: 300 },
+        }, 90);
         schedulePromptOutput(prompt, { type: "agent_end", messages: [] }, 120);
       }
       const responseTimer = setTimeout(() => {

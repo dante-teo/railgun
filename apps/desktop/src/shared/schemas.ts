@@ -20,6 +20,16 @@ export const DESKTOP_INTERACTION_LIMITS = Object.freeze({
   answer: 100_000,
 });
 
+export const DESKTOP_CONTROL_LIMITS = Object.freeze({
+  models: 256,
+  presets: 128,
+  modelId: 256,
+  modelName: 500,
+  presetName: 256,
+  referenceModels: 8,
+  warning: 2_000,
+});
+
 const boundedActivityString = (limit: number) => z.string().max(limit);
 const activityId = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.id).min(1);
 const modelName = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.model).min(1);
@@ -41,6 +51,8 @@ export const MockScenarioIdSchema = z.enum([
   "clarification-free-text",
   "cancellation",
   "agent-activity",
+  "empty-model-catalog",
+  "slow-compaction",
 ]);
 
 export const TransportLogEntrySchema = z.strictObject({
@@ -80,6 +92,62 @@ export const ExternalUrlSchema = z.string().max(2_048).transform((value, context
   }
 });
 export const EmptyResponseSchema = z.undefined();
+
+export const ChatModelIdSchema = z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.modelId);
+const controlPresetName = z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.presetName);
+const tokenLimit = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+
+export const DesktopModelMetadataSchema = z.strictObject({
+  id: ChatModelIdSchema,
+  name: z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.modelName),
+  inputs: z.array(z.enum(["text", "image"])).min(1).max(2).readonly(),
+  supportsTools: z.boolean(),
+  reasoning: z.boolean(),
+  contextWindow: tokenLimit,
+  maxOutputTokens: tokenLimit,
+});
+
+export const MoAPresetSummarySchema = z.strictObject({
+  name: controlPresetName,
+  referenceModels: z.array(ChatModelIdSchema).min(1).max(DESKTOP_CONTROL_LIMITS.referenceModels).readonly(),
+  aggregatorModel: ChatModelIdSchema,
+  referenceMaxTokens: tokenLimit.optional(),
+});
+
+export const AdvisorControlSchema = z.strictObject({
+  enabled: z.boolean(),
+  modelId: ChatModelIdSchema.nullable(),
+}).superRefine((value, context) => {
+  if (value.enabled && value.modelId === null) context.addIssue({ code: "custom", message: "Enabled advisor requires a model" });
+});
+
+export const ChatControlsSnapshotSchema = z.strictObject({
+  models: z.array(DesktopModelMetadataSchema).max(DESKTOP_CONTROL_LIMITS.models).readonly(),
+  activeModelId: ChatModelIdSchema,
+  defaultModelId: ChatModelIdSchema.nullable(),
+  messageCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  moaPresets: z.array(MoAPresetSummarySchema).max(DESKTOP_CONTROL_LIMITS.presets).readonly(),
+  activeMoaPreset: controlPresetName.nullable(),
+  advisor: AdvisorControlSchema,
+  contextWindow: tokenLimit.nullable(),
+});
+
+export const ModelPersistenceModeSchema = z.enum(["chat", "default"]);
+
+export const AgentControlUpdateSchema = z.strictObject({
+  moaPreset: controlPresetName.nullable().optional(),
+  advisor: AdvisorControlSchema.optional(),
+}).superRefine((value, context) => {
+  if (value.moaPreset === undefined && value.advisor === undefined) {
+    context.addIssue({ code: "custom", message: "At least one agent control must be provided" });
+  }
+});
+
+export const ControlMutationResultSchema = z.strictObject({
+  controls: ChatControlsSnapshotSchema,
+  persistence: z.enum(["session-only", "saved", "partial"]),
+  warning: z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.warning).optional(),
+});
 
 export const InteractionCorrelationIdSchema = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.correlationId);
 export const BackendInteractionRequestIdSchema = z.string().min(1).max(DESKTOP_INTERACTION_LIMITS.backendRequestId);
@@ -129,6 +197,12 @@ export const AppCommandSchema = z.enum([
 export const DesktopAgentEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("run-start") }),
   z.strictObject({ type: z.literal("run-end") }),
+  z.strictObject({
+    type: z.literal("context-usage"),
+    inputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    outputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  }),
+  z.strictObject({ type: z.literal("context-reset"), reason: z.enum(["compaction", "model", "backend", "new-chat"]) }),
   z.strictObject({ type: z.literal("assistant-delta"), text: z.string() }),
   z.strictObject({ type: z.literal("assistant-complete") }),
   z.strictObject({

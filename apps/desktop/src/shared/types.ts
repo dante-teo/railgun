@@ -7,6 +7,13 @@ import type {
   MockScenarioIdSchema,
   MockScenarioSchema,
   TransportLogEntrySchema,
+  ChatControlsSnapshotSchema,
+  ModelPersistenceModeSchema,
+  AgentControlUpdateSchema,
+  ControlMutationResultSchema,
+  DesktopModelMetadataSchema,
+  MoAPresetSummarySchema,
+  AdvisorControlSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -18,6 +25,14 @@ export type MockScenario = z.infer<typeof MockScenarioSchema>;
 export type DesktopAgentEvent = z.infer<typeof DesktopAgentEventSchema>;
 export type AppCommand = z.infer<typeof AppCommandSchema>;
 export type DesktopInteractionRequest = z.infer<typeof DesktopInteractionRequestSchema>;
+export type ChatControlsSnapshot = z.infer<typeof ChatControlsSnapshotSchema>;
+export type ModelPersistenceMode = z.infer<typeof ModelPersistenceModeSchema>;
+export type AgentControlUpdate = z.infer<typeof AgentControlUpdateSchema>;
+export type ControlMutationResult = z.infer<typeof ControlMutationResultSchema>;
+export type DesktopModelMetadata = z.infer<typeof DesktopModelMetadataSchema>;
+export type MoAPresetSummary = z.infer<typeof MoAPresetSummarySchema>;
+export type AdvisorControl = z.infer<typeof AdvisorControlSchema>;
+export type ContextUsageEvent = Extract<DesktopAgentEvent, { type: "context-usage" }>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -31,6 +46,10 @@ export interface RailgunDesktopApi {
   abortPrompt: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   startNewChat: () => Promise<BackendSnapshot>;
+  getChatControls: () => Promise<ChatControlsSnapshot>;
+  setChatModel: (modelId: string, persistence: ModelPersistenceMode) => Promise<ControlMutationResult>;
+  updateAgentControls: (update: AgentControlUpdate) => Promise<ControlMutationResult>;
+  compactContext: () => Promise<ControlMutationResult>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
   respondToApproval: (id: string, approved: boolean) => Promise<void>;
   respondToClarification: (id: string, answer: string) => Promise<void>;
@@ -50,6 +69,10 @@ export const DESKTOP_IPC = {
   abortPrompt: "agent:abort",
   openExternal: "shell:open-external",
   startNewChat: "agent:new-chat",
+  getChatControls: "agent:get-chat-controls",
+  setChatModel: "agent:set-chat-model",
+  updateAgentControls: "agent:update-controls",
+  compactContext: "agent:compact-context",
   agentEvent: "agent:event",
   appCommand: "app:command",
   interactionRequest: "agent:interaction-request",

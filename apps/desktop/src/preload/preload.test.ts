@@ -33,8 +33,10 @@ describe("preload desktop bridge", () => {
     const exposed = exposeInMainWorld.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(Object.keys(exposed).sort()).toEqual([
       "abortPrompt",
+      "compactContext",
       "followUpPrompt",
       "getBackendSnapshot",
+      "getChatControls",
       "listMockScenarios",
       "onAgentEvent",
       "onAppCommand",
@@ -46,11 +48,38 @@ describe("preload desktop bridge", () => {
       "restartBackend",
       "selectMockScenario",
       "sendPrompt",
+      "setChatModel",
       "startNewChat",
       "steerPrompt",
+      "updateAgentControls",
     ]);
     expect(exposed).not.toHaveProperty("invoke");
     expect(exposed).not.toHaveProperty("ipcRenderer");
+  });
+
+  it("validates chat control arguments and results on fixed channels", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const controls = {
+      models: [], activeModelId: "model-a", defaultModelId: null, messageCount: 0,
+      moaPresets: [], activeMoaPreset: null, advisor: { enabled: false, modelId: null }, contextWindow: null,
+    } as const;
+    invoke.mockResolvedValueOnce(controls);
+    await expect(api.getChatControls()).resolves.toEqual(controls);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.getChatControls);
+
+    invoke.mockResolvedValueOnce({ controls, persistence: "session-only" });
+    await expect(api.setChatModel("model-a", "chat")).resolves.toMatchObject({ persistence: "session-only" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.setChatModel, "model-a", "chat");
+    await expect(api.setChatModel("", "chat")).rejects.toThrow();
+    await expect(api.setChatModel("model-a", "forever" as never)).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce({ controls, persistence: "saved" });
+    await expect(api.updateAgentControls({ moaPreset: null })).resolves.toMatchObject({ persistence: "saved" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.updateAgentControls, { moaPreset: null });
+
+    invoke.mockResolvedValueOnce({ controls, persistence: "session-only" });
+    await expect(api.compactContext()).resolves.toMatchObject({ persistence: "session-only" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.compactContext);
   });
 
   it("uses fixed channels and validates invoke results", async () => {

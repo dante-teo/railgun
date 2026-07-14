@@ -18,16 +18,20 @@ import {
 import { getMockScenario, listMockScenarios } from "../mock/scenarios";
 import {
   AppCommandSchema,
+  AgentControlUpdateSchema,
   BackendSnapshotSchema,
+  ChatModelIdSchema,
   ClarificationAnswerSchema,
   InteractionCorrelationIdSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
+  ModelPersistenceModeSchema,
   PromptTextSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent } from "../shared/types";
 import { openExternalFromRenderer } from "./externalLinks";
+import { createChatControlsService } from "./chatControls";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -70,6 +74,7 @@ const supervisor = new BackendSupervisor({
   spawnChild: createBackendChildFactory(backendRuntime),
   ...(backendMode === "mock" ? { initialScenarioId: "ready-idle" } : {}),
 });
+const chatControls = createChatControlsService(supervisor);
 
 const senderContext = {
   windows: railgunWindows,
@@ -155,6 +160,22 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.startNewChat, (event) => {
     assertAuthorizedIpcSender(event, senderContext);
     return BackendSnapshotSchema.parse(supervisor.start());
+  });
+  ipcMain.handle(DESKTOP_IPC.getChatControls, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return chatControls.get();
+  });
+  ipcMain.handle(DESKTOP_IPC.setChatModel, async (event, modelId: unknown, persistence: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return chatControls.setModel(ChatModelIdSchema.parse(modelId), ModelPersistenceModeSchema.parse(persistence));
+  });
+  ipcMain.handle(DESKTOP_IPC.updateAgentControls, async (event, update: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return chatControls.update(AgentControlUpdateSchema.parse(update));
+  });
+  ipcMain.handle(DESKTOP_IPC.compactContext, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return chatControls.compact();
   });
 };
 
