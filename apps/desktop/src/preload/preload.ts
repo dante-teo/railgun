@@ -23,6 +23,8 @@ import {
   DirectoryListingSchema,
   FilePathSegmentsSchema,
   FilePreviewSchema,
+  SettingsSnapshotSchema,
+  SettingsUpdateSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, RailgunDesktopApi } from "../shared/types";
@@ -148,6 +150,18 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     ),
     compactContext: async () => ControlMutationResultSchema.parse(
       await transport.invoke(DESKTOP_IPC.compactContext),
+    ),
+    getSettings: async () => SettingsSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.getSettings),
+    ),
+    updateSettings: async (update) => SettingsSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.updateSettings, SettingsUpdateSchema.parse(update)),
+    ),
+    signInDevin: async () => SettingsSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.signInDevin),
+    ),
+    signOutDevin: async () => SettingsSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.signOutDevin),
     ),
     onAgentEvent: (listener) => {
       const handler = (_event: unknown, payload: unknown): void => {

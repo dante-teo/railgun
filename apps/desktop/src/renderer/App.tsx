@@ -1,62 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen, TerminalSquare } from "lucide-react";
+import { Bot, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./components/ui/dropdown-menu";
-import { Card, CardContent, CardHeader } from "./components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { ErrorState, LoadingState } from "./components/ui/state";
 import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
 import { ShellLayout } from "./shell/ShellLayout";
 import { ActivityInspector, Composer, Transcript, useChatController } from "./chat/Chat";
 import { ChatToolbarControls } from "./chat/ChatControls";
-import { BackendStatus, PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
+import { PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
 import { errorMessage } from "./lib/utils";
 import { readStoredArea, writeStoredArea } from "./routeStorage";
 import type { AppArea } from "./routeStorage";
 import { TaskPalette } from "./tasks/TaskPalette";
 import { FileBrowser } from "./files/FileBrowser";
 import type { InspectorLayoutMode } from "./shell/inspectorLayout";
-
-interface MockPanelProps {
-  readonly snapshot: BackendSnapshot;
-  readonly scenarios: readonly MockScenario[];
-  readonly onSelect: (id: string) => Promise<void>;
-}
-
-export const MockPanel = ({ snapshot, scenarios, onSelect }: MockPanelProps): React.JSX.Element => {
-  const [selectedId, setSelectedId] = useState(snapshot.scenarioId ?? scenarios[0]?.id ?? "");
-  const [restarting, setRestarting] = useState(false);
-  useEffect(() => { if (snapshot.scenarioId !== undefined) setSelectedId(snapshot.scenarioId); }, [snapshot.scenarioId]);
-  const restart = async (): Promise<void> => {
-    if (selectedId.length === 0) return;
-    setRestarting(true);
-    try { await onSelect(selectedId); } finally { setRestarting(false); }
-  };
-  return (
-    <Card className="mock-panel">
-      <CardHeader><p className="eyebrow">Mock diagnostics</p><h2>Backend scenario</h2></CardHeader>
-      <CardContent>
-        <div className="scenario-controls">
-          <Select value={selectedId} onValueChange={setSelectedId}>
-            <SelectTrigger aria-label="Mock scenario"><SelectValue placeholder="Choose a scenario" /></SelectTrigger>
-            <SelectContent>{scenarios.map((scenario) => <SelectItem value={scenario.id} key={scenario.id}>{scenario.label}</SelectItem>)}</SelectContent>
-          </Select>
-          <Button type="button" variant="tonal" disabled={restarting || selectedId.length === 0} onClick={() => void restart()}>
-            {restarting ? "Restarting…" : "Restart backend"}
-          </Button>
-        </div>
-        <p className="scenario-description">{scenarios.find((scenario) => scenario.id === selectedId)?.description}</p>
-        <div className="transport"><h3>Transport log</h3><ol>{snapshot.transportLog.map((entry, index) => (
-          <li key={`${String(index)}-${entry.direction}`}><span>{entry.direction}</span><code>{entry.text}</code></li>
-        ))}</ol></div>
-      </CardContent>
-    </Card>
-  );
-};
+import { SettingsPage } from "./settings/SettingsPage";
 
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
@@ -268,6 +230,16 @@ export const App = (): React.JSX.Element => {
     </main>
   );
 
+  if (area === "settings") return <SettingsPage
+    backend={snapshot}
+    agentRunning={running}
+    scenarios={scenarios}
+    onBack={() => selectArea("chat")}
+    onSaved={() => setControlsResetKey(key => key + 1)}
+    onRetryBackend={restartBackend}
+    onSelectScenario={selectMockScenario}
+  />;
+
   const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
         <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
@@ -293,12 +265,10 @@ export const App = (): React.JSX.Element => {
           </div>
         </section>
         <div className="sidebar-divider" aria-hidden="true" />
-        <Button variant="ghost" className={`sidebar-action sidebar-settings${area === "settings" ? " active" : ""}`} aria-current={area === "settings" ? "page" : undefined} onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
+        <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
         <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
       </>;
-  const toolbarActions = area === "chat" ? <div className="content-toolbar-actions">
-    <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
-    <Button
+  const todoPaneToggle = <Button
       type="button"
       variant="sidebarIcon"
       size="icon"
@@ -308,8 +278,8 @@ export const App = (): React.JSX.Element => {
       disabled={!hasActivity}
       title={hasActivity && activityPaneVisible ? "Hide Todos" : "Show Todos"}
       onClick={() => setActivityPaneVisible(visible => !visible)}
-    ><SlidersHorizontal aria-hidden="true" /></Button>
-    {filesPaneVisible ? null : <Button
+    ><SlidersHorizontal aria-hidden="true" /></Button>;
+  const filesPaneToggle = <Button
       type="button"
       variant="sidebarIcon"
       size="icon"
@@ -318,10 +288,12 @@ export const App = (): React.JSX.Element => {
       aria-pressed="false"
       title="Open Files"
       onClick={() => setFilesPaneVisible(true)}
-    ><PanelRightOpen aria-hidden="true" /></Button>}
-  </div> : undefined;
-  const content = area === "chat" ? (
-        <section className="chat-surface">
+    ><PanelRightOpen aria-hidden="true" /></Button>;
+  const toolbarActions = <div className="content-toolbar-actions">
+    <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
+    {filesPaneVisible ? todoPaneToggle : <div className="right-pane-controls">{todoPaneToggle}{filesPaneToggle}</div>}
+  </div>;
+  const content = <section className="chat-surface">
           <header className="content-toolbar">
             <div className="content-toolbar-title"><h1>{activeSession?.transcript.find(message => message.role === "user")?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
           </header>
@@ -338,18 +310,7 @@ export const App = (): React.JSX.Element => {
             available={snapshot.phase === "ready"}
             controls={<ChatToolbarControls running={running} available={snapshot.phase === "ready"} resetKey={controlsResetKey} />}
           />
-        </section>
-      ) : (
-        <section className="settings-surface">
-          <header className="content-toolbar"><div className="content-toolbar-title"><h1>Settings</h1><p>Runtime and diagnostics</p></div></header>
-          {operationError === undefined ? null : <div className="shell-error" role="alert">{operationError}</div>}
-          <div className="settings-content">
-            <BackendStatus snapshot={snapshot} onRetry={restartBackend} />
-            {snapshot.mode === "mock" ? <MockPanel snapshot={snapshot} scenarios={scenarios} onSelect={selectMockScenario} /> : null}
-            <Card className="boundary-note"><CardHeader><TerminalSquare /><div><h2>Secure desktop boundary</h2><p>Renderer access is limited to the validated Railgun API.</p></div></CardHeader></Card>
-          </div>
-        </section>
-      );
+        </section>;
 
   return (
     <>

@@ -13,6 +13,8 @@ import type {
   ModelPersistenceMode,
 } from "../shared/types";
 import type { BackendRpcCommand } from "./backendSupervisor";
+import { createMutationQueue } from "./mutationQueue";
+import type { MutationQueue } from "./mutationQueue";
 
 export interface ChatControlsBackend {
   call<T>(command: BackendRpcCommand, validate: (data: unknown) => T): Promise<T>;
@@ -114,7 +116,7 @@ const validateEmpty = (value: unknown): undefined => {
   return undefined;
 };
 
-export const createChatControlsService = (backend: ChatControlsBackend) => {
+export const createChatControlsService = (backend: ChatControlsBackend, mutations: MutationQueue = createMutationQueue()) => {
   const load = async (): Promise<{ readonly controls: ChatControlsSnapshot; readonly running: boolean }> => {
     const [catalog, state, configResponse] = await Promise.all([
       backend.call({ type: "get_available_models" }, value => modelsResponseSchema.parse(value)),
@@ -137,12 +139,7 @@ export const createChatControlsService = (backend: ChatControlsBackend) => {
   };
   const get = async (): Promise<ChatControlsSnapshot> => (await load()).controls;
 
-  let mutationQueue = Promise.resolve();
-  const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
-    const pending = mutationQueue.then(operation);
-    mutationQueue = pending.then(() => undefined, () => undefined);
-    return pending;
-  };
+  const mutate = <T>(operation: () => Promise<T>): Promise<T> => mutations.run(operation);
 
   const setModel = (rawModelId: string, rawPersistence: ModelPersistenceMode): Promise<ControlMutationResult> => mutate(async () => {
     const selectedModelId = modelId.parse(rawModelId);

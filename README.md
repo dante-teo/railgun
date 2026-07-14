@@ -750,6 +750,16 @@ change, compaction, backend restart, or New Task. Configuration reads are
 reduced in Electron main to a bounded display-safe snapshot; raw configuration,
 unknown keys, and provider-only model fields do not cross preload.
 
+Desktop Settings is a restorable full-page route rather than a card inside the
+Task shell. Its sidebar contains General, Agent, Trust, Provider, and
+Diagnostics. Search matches section names, labels, and descriptions, then moves
+focus to the selected row. General persists the default model and operation
+timeout; Agent persists the default MoA preset and advisor; Trust persists the
+approval mode and smart-review model. Saves are explicit per section, the UI
+prompts before discarding dirty edits, and changes apply only to new tasks or
+the next run.
+Unknown configuration keys remain backend-owned and preserved.
+
 The desktop transcript fills the main canvas behind its floating toolbar and
 composer. Its native scrollbar is hidden in favor of a centered dash indicator
 on the left. The indicator is hidden until the transcript overflows, then grows
@@ -763,12 +773,18 @@ When todos exist, the top-right toggle controls a non-resizable floating card.
 At wide widths it reserves transcript space and wraps its content up to the
 available height; at constrained widths the same visible card becomes an
 overlay instead of disappearing or leaving an empty pane behind it.
+While Files is closed, the Todos and Files controls share one divided glass
+capsule. Opening Files gives it a fully separate opaque right workspace with its
+own header and divider; the Task toolbar material stops at that boundary.
 
-The real desktop backend never opens browser OAuth implicitly. If its cached
-credential is missing or rejected, run `pnpm start login` in Terminal and use
-Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that
-launches the app and relaunch Railgun; a cached login cannot override that
-environment credential.
+The real desktop backend never opens browser OAuth implicitly during startup.
+Use Settings → Provider to launch supervised browser sign-in or remove the
+cached credential. Successful sign-in and sign-out restart the backend; helper
+failure preserves the existing credential and backend. Authentication and task
+mutations are mutually exclusive, so a task cannot begin while browser sign-in
+is pending. Sign-out removes only the cache: an active `DEVIN_TOKEN` continues
+to take precedence. If that environment credential is rejected, update or
+unset it in the environment that launches the app and relaunch Railgun.
 
 The native desktop shell supports `⌘N` for New Task, `⌘K` for the command
 palette, `⌘1` for Task, `⌘,` for Settings, and `⌃⌘S` to toggle the sidebar.

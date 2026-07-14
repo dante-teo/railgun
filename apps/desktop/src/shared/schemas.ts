@@ -246,6 +246,58 @@ export const ControlMutationResultSchema = z.strictObject({
   warning: z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.warning).optional(),
 });
 
+export const SettingsSectionSchema = z.enum(["general", "agent", "trust", "provider", "diagnostics"]);
+export const SettingsSnapshotSchema = z.strictObject({
+  models: z.array(DesktopModelMetadataSchema).max(DESKTOP_CONTROL_LIMITS.models).readonly(),
+  moaPresets: z.array(MoAPresetSummarySchema).max(DESKTOP_CONTROL_LIMITS.presets).readonly(),
+  general: z.strictObject({
+    defaultModelId: ChatModelIdSchema.nullable(),
+    operationTimeoutSeconds: z.number().positive().max(86_400),
+  }),
+  agent: z.strictObject({
+    moaPreset: controlPresetName.nullable(),
+    advisor: AdvisorControlSchema,
+  }),
+  trust: z.strictObject({
+    approvalMode: z.enum(["manual", "smart", "off"]),
+    reviewerModelId: ChatModelIdSchema.nullable(),
+  }),
+  provider: z.strictObject({
+    state: z.enum(["signed-in", "environment-managed", "sign-in-required", "unavailable"]),
+    source: z.enum(["cached", "environment", "none"]),
+    message: z.string().max(2_000),
+  }),
+  diagnostics: z.strictObject({
+    phase: BackendSnapshotSchema.shape.phase,
+    message: z.string().max(2_000),
+    entries: z.array(z.string().max(2_000)).max(20).readonly(),
+    mockMode: z.boolean(),
+  }),
+  running: z.boolean(),
+});
+
+export const SettingsUpdateSchema = z.discriminatedUnion("section", [
+  z.strictObject({
+    section: z.literal("general"),
+    defaultModelId: ChatModelIdSchema.nullable(),
+    operationTimeoutSeconds: z.number().positive().max(86_400).refine(value => Number.isInteger(value * 1_000), "Timeout must resolve to whole milliseconds"),
+  }),
+  z.strictObject({
+    section: z.literal("agent"),
+    moaPreset: controlPresetName.nullable(),
+    advisor: AdvisorControlSchema,
+  }),
+  z.strictObject({
+    section: z.literal("trust"),
+    approvalMode: z.enum(["manual", "smart", "off"]),
+    reviewerModelId: ChatModelIdSchema.nullable(),
+  }).superRefine((value, context) => {
+    if (value.approvalMode === "smart" && value.reviewerModelId === null) {
+      context.addIssue({ code: "custom", path: ["reviewerModelId"], message: "Smart review requires a model" });
+    }
+  }),
+]);
+
 export const InteractionCorrelationIdSchema = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.correlationId);
 export const BackendInteractionRequestIdSchema = z.string().min(1).max(DESKTOP_INTERACTION_LIMITS.backendRequestId);
 const interactionCommand = z.string().trim().min(1).max(DESKTOP_INTERACTION_LIMITS.command);

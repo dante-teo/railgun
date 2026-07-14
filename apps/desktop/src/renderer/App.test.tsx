@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { App, MockPanel } from "./App";
+import { App } from "./App";
 import type { BackendPhase, BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../shared/types";
 import { BackendStatus } from "./backendStatus";
 import { readStoredArea } from "./routeStorage";
@@ -54,6 +54,18 @@ const controlApi = {
   setChatModel: unusedControlMutation,
   updateAgentControls: unusedControlMutation,
   compactContext: unusedControlMutation,
+  getSettings: async () => ({
+    models: chatControls.models, moaPresets: chatControls.moaPresets,
+    general: { defaultModelId: null, operationTimeoutSeconds: 600 },
+    agent: { moaPreset: null, advisor: chatControls.advisor },
+    trust: { approvalMode: "manual" as const, reviewerModelId: null },
+    provider: { state: "signed-in" as const, source: "cached" as const, message: "Signed in" },
+    diagnostics: { phase: "ready" as const, message: "Healthy", entries: [], mockMode: true },
+    running: false,
+  }),
+  updateSettings: async () => controlApi.getSettings(),
+  signInDevin: async () => controlApi.getSettings(),
+  signOutDevin: async () => controlApi.getSettings(),
 };
 const fileApi = {
   listFiles: async () => ({ entries: [] }),
@@ -84,32 +96,6 @@ describe("BackendStatus", () => {
     render(<BackendStatus snapshot={snapshot(phase)} onRetry={onRetry} />);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(onRetry).toHaveBeenCalledOnce());
-  });
-});
-
-describe("MockPanel", () => {
-  it("opens the scenario menu, updates the selection, and restarts that backend", async () => {
-    const onSelect = vi.fn(async () => undefined);
-    render(<MockPanel
-      snapshot={snapshot("ready")}
-      scenarios={[
-        { id: "ready-idle", label: "Ready / idle", description: "Ready now" },
-        { id: "delayed-startup", label: "Delayed startup", description: "Ready later" },
-      ]}
-      onSelect={onSelect}
-    />);
-
-    const scenarioSelect = screen.getByRole("combobox", { name: "Mock scenario" });
-    expect(scenarioSelect).toBeTruthy();
-    expect(screen.getByText("Ready now")).toBeTruthy();
-    expect(screen.getByText("Starting backend")).toBeTruthy();
-    fireEvent.keyDown(scenarioSelect, { key: "ArrowDown" });
-    const delayedOption = await screen.findByRole("option", { name: "Delayed startup" });
-    expect(delayedOption.closest("[data-side]")?.className).toContain("radix-select-trigger-width");
-    fireEvent.click(delayedOption);
-    expect(screen.getByText("Ready later")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Restart backend" }));
-    expect(onSelect).toHaveBeenCalledWith("delayed-startup");
   });
 });
 
@@ -283,6 +269,7 @@ describe("desktop shell", () => {
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
     const openFiles = screen.getByRole("button", { name: "Open Files" });
     expect(openFiles.getAttribute("aria-pressed")).toBe("false");
+    expect(openFiles.closest(".right-pane-controls")).toBe(showTodos.closest(".right-pane-controls"));
     fireEvent.click(openFiles);
     expect(await screen.findByRole("complementary", { name: "Files workspace" })).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull());
@@ -297,13 +284,12 @@ describe("desktop shell", () => {
     fireEvent.click(collapseFiles);
     expect(screen.queryByRole("complementary", { name: "Files workspace" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
-    expect(screen.getByText("Secure desktop boundary")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Chat" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "New Task" }));
-    await waitFor(() => expect(startNewChat).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("heading", { name: "What are we building?" })).toBeTruthy();
-    expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New Task" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun" }));
+    expect(await screen.findByText("Mock response")).toBeTruthy();
+    expect(startNewChat).not.toHaveBeenCalled();
   });
 
   it("retries a failed backend from the shell", async () => {
@@ -393,7 +379,7 @@ describe("desktop shell", () => {
     const nativeSearch = await screen.findByRole("textbox", { name: "Search commands" });
     fireEvent.change(nativeSearch, { target: { value: "settings" } });
     fireEvent.keyDown(nativeSearch, { key: "Enter" });
-    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
 
     act(() => appCommandListener?.("show-chat"));
     expect(await screen.findByRole("heading", { name: "New Task" })).toBeTruthy();

@@ -34,6 +34,8 @@ import {
   DirectoryListingSchema,
   FilePathSegmentsSchema,
   FilePreviewSchema,
+  SettingsSnapshotSchema,
+  SettingsUpdateSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
@@ -41,6 +43,9 @@ import { openExternalFromRenderer } from "./externalLinks";
 import { createChatControlsService } from "./chatControls";
 import { createSessionService } from "./sessionService";
 import { createFileService } from "./fileService";
+import { createMutationQueue } from "./mutationQueue";
+import { createSettingsService } from "./settingsService";
+import { createAuthenticationCoordinator, createAuthenticationService } from "./authenticationService";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -83,7 +88,32 @@ const supervisor = new BackendSupervisor({
   spawnChild: createBackendChildFactory(backendRuntime),
   ...(backendMode === "mock" ? { initialScenarioId: "ready-idle" } : {}),
 });
-const chatControls = createChatControlsService(supervisor);
+const mutationQueue = createMutationQueue();
+const chatControls = createChatControlsService(supervisor, mutationQueue);
+const settingsService = createSettingsService(supervisor, chatControls, mutationQueue);
+const waitForBackendReady = (action: "login" | "logout"): Promise<void> => new Promise((resolveReady, rejectReady) => {
+  let unsubscribe = (): void => undefined;
+  const timeout = setTimeout(() => {
+    unsubscribe();
+    rejectReady(new Error("Backend did not become ready after authentication"));
+  }, 20_000);
+  unsubscribe = supervisor.subscribe((next) => {
+    if (next.phase === "starting") return;
+    clearTimeout(timeout);
+    unsubscribe();
+    if (next.phase === "ready" || (action === "logout" && next.phase === "authentication-required")) resolveReady();
+    else rejectReady(new Error(next.error ?? "Backend could not restart after authentication"));
+  });
+  supervisor.restartBackend();
+});
+const authentication = createAuthenticationService(backendRuntime, waitForBackendReady);
+const authenticationCoordinator = createAuthenticationCoordinator({
+  mutations: mutationQueue,
+  isAgentRunning: async () => (await settingsService.get()).running,
+  signIn: authentication.signIn,
+  signOut: authentication.signOut,
+  snapshot: settingsService.get,
+});
 const sessionService = createSessionService((command, validate) => supervisor.call(command, validate));
 const fileService = createFileService(app.getPath("home"), {
   decodeImage: (buffer) => {
@@ -138,6 +168,7 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.restartBackend, (event) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     return BackendSnapshotSchema.parse(supervisor.restartBackend());
   });
   ipcMain.handle(DESKTOP_IPC.listMockScenarios, (event) => {
@@ -153,15 +184,18 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.sendPrompt, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     await supervisor.call({ type: "prompt", message: PromptTextSchema.parse(value) });
     broadcastSessionSnapshot(await sessionService.snapshot());
   });
   ipcMain.handle(DESKTOP_IPC.steerPrompt, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     await supervisor.call({ type: "steer", message: PromptTextSchema.parse(value) });
   });
   ipcMain.handle(DESKTOP_IPC.followUpPrompt, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     await supervisor.call({ type: "follow_up", message: PromptTextSchema.parse(value) });
   });
   ipcMain.handle(DESKTOP_IPC.abortPrompt, async (event) => {
@@ -196,6 +230,7 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.startNewChat, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     const result = await sessionService.create();
     broadcastSessionSnapshot(result);
     return SessionSnapshotSchema.parse(result);
@@ -206,12 +241,14 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.resumeSession, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     const result = await sessionService.resume(SessionIdSchema.parse(value));
     broadcastSessionSnapshot(result);
     return SessionSnapshotSchema.parse(result);
   });
   ipcMain.handle(DESKTOP_IPC.branchSession, async (event, messageId: unknown, summarize: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     if (typeof summarize !== "boolean") throw new Error("Summarize must be a boolean");
     const result = await sessionService.branch(PersistenceMessageIdSchema.parse(messageId), summarize);
     broadcastSessionSnapshot(result);
@@ -219,6 +256,7 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.forkSession, async (event, sessionId: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     const result = await sessionService.fork(SessionIdSchema.parse(sessionId));
     broadcastSessionSnapshot(result);
     return SessionSnapshotSchema.parse(result);
@@ -229,17 +267,38 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.setChatModel, async (event, modelId: unknown, persistence: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     const result = await chatControls.setModel(ChatModelIdSchema.parse(modelId), ModelPersistenceModeSchema.parse(persistence));
     broadcastSessionSnapshot(await sessionService.snapshot());
     return result;
   });
   ipcMain.handle(DESKTOP_IPC.updateAgentControls, async (event, update: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     return chatControls.update(AgentControlUpdateSchema.parse(update));
   });
   ipcMain.handle(DESKTOP_IPC.compactContext, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
     return chatControls.compact();
+  });
+  ipcMain.handle(DESKTOP_IPC.getSettings, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return SettingsSnapshotSchema.parse(await settingsService.get());
+  });
+  ipcMain.handle(DESKTOP_IPC.updateSettings, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return SettingsSnapshotSchema.parse(await settingsService.update(SettingsUpdateSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.signInDevin, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    if (backendMode === "mock") throw new Error("Devin sign-in is unavailable in mock mode");
+    return SettingsSnapshotSchema.parse(await authenticationCoordinator.mutate("login"));
+  });
+  ipcMain.handle(DESKTOP_IPC.signOutDevin, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    if (backendMode === "mock") throw new Error("Devin sign-out is unavailable in mock mode");
+    return SettingsSnapshotSchema.parse(await authenticationCoordinator.mutate("logout"));
   });
 };
 
@@ -327,5 +386,6 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   interactionBroker.settle();
+  authentication.shutdown();
   supervisor.shutdown();
 });

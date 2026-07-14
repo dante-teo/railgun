@@ -100,9 +100,10 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   coordinated contract. The toolbar title/subtitle block and present or future
   toolbar actions share `--titlebar-control-center-y`, keeping them vertically
   aligned with the traffic lights.
-- The toolbar's borderless blurred fade spans the full window behind the inset
+- The toolbar's borderless blurred fade spans the Task canvas behind the inset
   sidebar. Sidebar expansion changes the toolbar content inset, not the material
-  width; no sidebar edge may create a toolbar color seam.
+  width; no sidebar edge may create a toolbar color seam. When Files is open,
+  the fade stops at the right workspace divider.
 - One labelled `PanelLeft` control collapses and restores the sidebar. It is a
   ghost button at the sidebar's top-right while expanded and a circular glass
   button beside the traffic lights while collapsed. Collapse state is
@@ -110,7 +111,7 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   tree.
 - Sidebar width is clamped, pointer- and keyboard-resizable, and stored in a
   versioned renderer-local record. Main-pane content follows the live sidebar
-  width while the toolbar material remains full-window. Todos and current-run
+  width while the toolbar material remains continuous across Task. Todos and current-run
   subagents use a responsive side-car card that reserves its width and starts
   visible when the Task canvas remains wide. When space is constrained it
   starts hidden, and an explicit toggle shows it as a non-width-reserving
@@ -118,8 +119,9 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   activity. Files is a visually separate, session-only right pane with a fixed responsive width
   (`clamp(22.5rem, 42vw, 42rem)`) and a clear divider; it starts collapsed and
   can coexist with the activity side-car.
-- While Files is closed, its open control lives in the Task toolbar. While it
-  is open, the collapse control moves into the Files header. The Files title,
+- While Files is closed, its open control shares a divided glass capsule with
+  the Todos toggle in the Task toolbar. While Files is open, the collapse
+  control moves into its header. The Files title,
   subtitle, and actions share the toolbar's titlebar centerline and control
   sizing; actionable controls remain above Electron's draggable titlebar hit
   layer and explicitly opt out of window dragging.
@@ -463,10 +465,25 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 ### Railgun management
 
-- [ ] **DESK-015 — Build Settings**
-  - Edit only supported Railgun fields.
-  - Preserve unknown config keys and write atomically.
-  - Include Devin sign-in/sign-out and redacted diagnostics.
+- [x] **DESK-015 — Build Settings**
+  - Settings is a restorable full-page split route with General, Agent, Trust,
+    Provider, and Diagnostics destinations. Back restores the active Task state.
+  - Search indexes section names, labels, and descriptions and focuses the
+    selected setting. Dirty section changes require confirmation before Back,
+    section, or search-result navigation.
+  - Strict snapshots expose only supported fields. Explicit section saves use
+    validated `config_update` patches, preserving unknown keys and the atomic
+    writer; task and settings mutations share one queue.
+  - Provider launches supervised development or packaged `railgun login` and
+    `logout` helpers without exposing OAuth URLs, helper output, credentials,
+    raw configuration, or generic IPC. Successful authentication restarts the
+    backend; failures preserve it, shutdown terminates the helper, and task
+    mutations remain blocked for the complete authentication operation.
+  - Diagnostics remain bounded and redacted. Settings refreshes on backend,
+    mock-scenario, and run-state transitions without overwriting dirty drafts.
+  - Inset groups, compact controls, transparent titlebar clearance, responsive
+    compression, and Reduce Motion/Transparency and Increase Contrast fallbacks
+    follow the desktop Liquid Glass design system.
 
 - [ ] **DESK-016 — Build Automation**
   - List, create, edit, and delete cron jobs.

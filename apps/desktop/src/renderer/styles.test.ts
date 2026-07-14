@@ -88,6 +88,7 @@ describe("desktop activity styles", () => {
     expect(toolbar).toContain("background: transparent");
     expect(toolbar).not.toContain("backdrop-filter");
     expect(css).toMatch(/\.content-toolbar::before\s*\{[^}]*position:\s*fixed[^}]*top:\s*0[^}]*right:\s*0[^}]*left:\s*0[^}]*height:\s*var\(--toolbar-surface-height\)[^}]*background:\s*var\(--material-toolbar\)[^}]*backdrop-filter:\s*var\(--material-blur-toolbar\)[^}]*mask-image:\s*linear-gradient/u);
+    expect(css).toMatch(/\.workspace-open \.content-toolbar::before\s*\{[^}]*right:\s*var\(--workspace-width\)/u);
     expect(css).not.toContain("--toolbar-shell-offset");
     expect(css).toMatch(/\.desktop-shell\s*\{[^}]*--toolbar-content-left:\s*var\(--space-7\)/u);
     const title = css.match(/\.content-toolbar-title\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
@@ -98,6 +99,8 @@ describe("desktop activity styles", () => {
     expect(css).not.toContain("--shadow-toolbar-control-hover");
     expect(css).toMatch(/\.content-toolbar-actions\s*\{[^}]*z-index:\s*var\(--layer-titlebar-control\)[^}]*-webkit-app-region:\s*no-drag/u);
     expect(css).toMatch(/\.todo-pane-toggle\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--material-toolbar-control-hover\)/u);
+    expect(css).toMatch(/\.right-pane-controls\s*\{[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
+    expect(css).toMatch(/\.right-pane-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.ui-button-compact-icon\s*\{[^}]*width:\s*1\.5rem[^}]*height:\s*1\.5rem[^}]*border-radius:\s*var\(--radius-xs\)/u);
     expect(css).toMatch(/\.ui-button-sidebar-icon\s*\{[^}]*color:\s*var\(--color-text-secondary\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
     expect(css).toMatch(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);

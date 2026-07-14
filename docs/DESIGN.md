@@ -39,9 +39,11 @@ buttons use four flat, shadow-free system-like recipes: tinted capsule, plain
 text action, filled accent capsule, or white/tonal capsule. Destructive actions
 reuse the filled geometry with the danger color. Toolbar controls remain a
 separate liquid-glass hierarchy, while sidebar navigation stays neutral.
-The toolbar material spans the full window behind the inset sidebar; expanding
-the sidebar changes only the toolbar content inset. It has no separator and
-uses a blurred vertical fade into the content canvas. Liquid-glass control
+The toolbar material spans the Task canvas behind the inset sidebar; expanding
+the sidebar changes only the toolbar content inset. When the separate Files
+workspace is open, the toolbar material ends at its divider instead of painting
+through the right pane. It has no separator within Task and uses a blurred
+vertical fade into the content canvas. Liquid-glass control
 effects are contextual to this toolbar hierarchy. Ordinary tonal actions use
 dedicated light/dark surface and label tokens whose text contrast must remain
 at least WCAG AA (4.5:1).
@@ -118,8 +120,8 @@ the same model; text entry is reserved for free-form answers and preset names.
   The separate Files pane uses an opaque split tree/preview surface with a
   clear divider. Its header aligns to the toolbar centerline without inheriting
   the toolbar's extra visual depth: the open action stays in the Task toolbar
-  while collapsed, and the collapse action moves into the pane header while
-  open.
+  while collapsed, where it shares one divided glass capsule with the Todos
+  toggle, and the collapse action moves into the pane header while open.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission or
   backend interruption remains a danger-styled inline row with its Retry or
@@ -155,6 +157,20 @@ the same model; text entry is reserved for free-form answers and preset names.
   the active model's context window and reads `Not measured yet` after model
   changes, compaction, restart, or New Task until another provider turn reports
   usage. Loading and mutation failures stay inline and retryable.
+
+- Desktop Settings replaces the Task shell while open and restores the same
+  active task on Back. Its softly tinted sidebar contains General, Agent, Trust,
+  Provider, and Diagnostics; the detail canvas uses opaque inset groups,
+  hairline separators, compact native-proportioned controls, and explicit
+  section-level Save actions. Search includes setting descriptions and moves
+  focus to the result row. Navigation confirms before discarding dirty edits,
+  and live backend/run refreshes preserve those drafts.
+- Settings owns persisted defaults, not active work. Default-model changes apply
+  to new tasks; agent and trust changes apply to the next run. Mutations are
+  disabled during a run or authentication operation. Provider sign-in/out uses
+  explicit confirmation and explains that cached logout cannot override
+  `DEVIN_TOKEN`. Diagnostics show bounded redacted backend details and mock
+  scenario controls only in mock mode.
 
 ## UI states
 
@@ -268,11 +284,13 @@ REPL.
 
 Electron real-backend children use a desktop-only non-interactive startup mode.
 Missing or rejected file credentials show authentication-required and recover
-after `railgun login` followed by Retry. A rejected `DEVIN_TOKEN` instead shows
-source-specific guidance to update or unset the variable and relaunch Railgun;
-Retry alone cannot change the environment inherited by the running desktop
-process. Ordinary terminal and non-desktop RPC authentication retain the
-behavior above.
+through the supervised helper in Settings → Provider. Successful sign-in or
+cached logout restarts the backend; helper failure preserves the existing
+credential and backend, and Task mutations remain blocked until recovery
+settles. A rejected `DEVIN_TOKEN` instead shows source-specific guidance to
+update or unset the variable and relaunch Railgun; cached sign-in/logout and
+Retry cannot change the environment inherited by the running desktop process.
+Ordinary terminal and non-desktop RPC authentication retain the behavior above.
 
 ## Context compaction
 

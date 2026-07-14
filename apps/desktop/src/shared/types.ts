@@ -22,6 +22,9 @@ import type {
   DirectoryEntrySchema,
   DirectoryListingSchema,
   FilePreviewSchema,
+  SettingsSectionSchema,
+  SettingsSnapshotSchema,
+  SettingsUpdateSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -49,6 +52,9 @@ export type RestoredTodo = z.infer<typeof RestoredTodoSchema>;
 export type DirectoryEntry = z.infer<typeof DirectoryEntrySchema>;
 export type DirectoryListing = z.infer<typeof DirectoryListingSchema>;
 export type FilePreview = z.infer<typeof FilePreviewSchema>;
+export type SettingsSection = z.infer<typeof SettingsSectionSchema>;
+export type SettingsSnapshot = z.infer<typeof SettingsSnapshotSchema>;
+export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -74,6 +80,10 @@ export interface RailgunDesktopApi {
   setChatModel: (modelId: string, persistence: ModelPersistenceMode) => Promise<ControlMutationResult>;
   updateAgentControls: (update: AgentControlUpdate) => Promise<ControlMutationResult>;
   compactContext: () => Promise<ControlMutationResult>;
+  getSettings: () => Promise<SettingsSnapshot>;
+  updateSettings: (update: SettingsUpdate) => Promise<SettingsSnapshot>;
+  signInDevin: () => Promise<SettingsSnapshot>;
+  signOutDevin: () => Promise<SettingsSnapshot>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
   respondToApproval: (id: string, approved: boolean) => Promise<void>;
   respondToClarification: (id: string, answer: string) => Promise<void>;
@@ -105,6 +115,10 @@ export const DESKTOP_IPC = {
   setChatModel: "agent:set-chat-model",
   updateAgentControls: "agent:update-controls",
   compactContext: "agent:compact-context",
+  getSettings: "settings:get",
+  updateSettings: "settings:update",
+  signInDevin: "settings:sign-in-devin",
+  signOutDevin: "settings:sign-out-devin",
   agentEvent: "agent:event",
   appCommand: "app:command",
   interactionRequest: "agent:interaction-request",

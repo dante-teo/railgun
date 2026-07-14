@@ -39,6 +39,7 @@ describe("preload desktop bridge", () => {
       "forkSession",
       "getBackendSnapshot",
       "getChatControls",
+      "getSettings",
       "listFiles",
       "listMockScenarios",
       "listSessions",
@@ -57,9 +58,12 @@ describe("preload desktop bridge", () => {
       "selectMockScenario",
       "sendPrompt",
       "setChatModel",
+      "signInDevin",
+      "signOutDevin",
       "startNewChat",
       "steerPrompt",
       "updateAgentControls",
+      "updateSettings",
     ]);
     expect(exposed).not.toHaveProperty("invoke");
     expect(exposed).not.toHaveProperty("ipcRenderer");
@@ -88,6 +92,32 @@ describe("preload desktop bridge", () => {
     invoke.mockResolvedValueOnce({ controls, persistence: "session-only" });
     await expect(api.compactContext()).resolves.toMatchObject({ persistence: "session-only" });
     expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.compactContext);
+  });
+
+  it("validates settings snapshots and strict mutations without exposing raw configuration", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const settings = {
+      models: [], moaPresets: [],
+      general: { defaultModelId: null, operationTimeoutSeconds: 600 },
+      agent: { moaPreset: null, advisor: { enabled: false, modelId: null } },
+      trust: { approvalMode: "manual", reviewerModelId: null },
+      provider: { state: "sign-in-required", source: "none", message: "Sign in" },
+      diagnostics: { phase: "authentication-required", message: "Sign in", entries: [], mockMode: false },
+      running: false,
+    } as const;
+    invoke.mockResolvedValueOnce(settings);
+    await expect(api.getSettings()).resolves.toEqual(settings);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.getSettings);
+
+    invoke.mockResolvedValueOnce(settings);
+    await expect(api.updateSettings({ section: "general", defaultModelId: null, operationTimeoutSeconds: 30 })).resolves.toEqual(settings);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.updateSettings, { section: "general", defaultModelId: null, operationTimeoutSeconds: 30 });
+    await expect(api.updateSettings({ section: "trust", approvalMode: "smart", reviewerModelId: null })).rejects.toThrow(/requires a model/u);
+    await expect(api.updateSettings({ section: "general", defaultModelId: null, operationTimeoutSeconds: 30, token: "secret" } as never)).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce({ ...settings, rawConfig: {} });
+    await expect(api.signInDevin()).rejects.toThrow();
+    expect(Object.keys(api)).not.toContain("getConfig");
   });
 
   it("uses fixed channels and validates invoke results", async () => {
