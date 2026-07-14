@@ -33,7 +33,6 @@ import { parseMouseWheel } from "./mouse.js";
 import { ThemeController, themeForMode } from "./theme.js";
 import type { Theme, ThemeMode } from "./theme.js";
 import { createViewport, reduceViewport, visibleViewportRows } from "./viewport.js";
-import type { TrustChoice, TrustDecision, ProjectTrustStore } from "../trust.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
@@ -52,11 +51,6 @@ import { statusText } from "../diagnostics/status.js";
 import type { DiagnosticStatus } from "../diagnostics/status.js";
 import { diagnosticSlashPhase } from "../diagnostics/slashCommand.js";
 
-const TRUST_CHOICES: readonly { readonly label: string; readonly value: TrustChoice }[] = [
-  { label: "Trust", value: "trust" },
-  { label: "Trust (this session only)", value: "trust-session" },
-  { label: "Do not trust", value: "deny" },
-];
 const NOOP_DIAGNOSTICS = createNoopInteractiveDiagnostics();
 
 export interface DisplayLine {
@@ -298,15 +292,12 @@ interface ActionPickerState {
 
 
 const ChatApp = ({
-  session, initialMode, themeController, persistence = {}, initialTrustDecision, trustStore, cwd, extensionRunner, memoryStore, noteStore, diagnostics = NOOP_DIAGNOSTICS,
+  session, initialMode, themeController, persistence = {}, extensionRunner, memoryStore, noteStore, diagnostics = NOOP_DIAGNOSTICS,
 }: {
   readonly session: DevinSession;
   readonly initialMode: ThemeMode;
   readonly themeController: ThemeController;
   readonly persistence?: ReplPersistenceOptions;
-  readonly initialTrustDecision?: TrustDecision;
-  readonly trustStore?: ProjectTrustStore;
-  readonly cwd?: string;
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
   readonly noteStore?: NoteStore;
@@ -346,9 +337,6 @@ const ChatApp = ({
   const [gitStatus, setGitStatus] = useState<GitStatus>({ branch: null, dirty: false });
   const [modelPicker, setModelPicker] = useState<ModelPickerState | null>(null);
   const [actionPicker, setActionPicker] = useState<ActionPickerState | null>(null);
-  const [trustDecision, setTrustDecision] = useState<TrustDecision>(initialTrustDecision ?? { status: "unknown" });
-  const [pendingTrust, setPendingTrust] = useState(false);
-  const [trustSelector, setTrustSelector] = useState(() => createSelectorState(TRUST_CHOICES.length, TRUST_CHOICES.length));
   const [clarifySelector, setClarifySelector] = useState(() => createSelectorState(0, 4));
   const [approvalMode, setApprovalMode] = useState<CommandApprovalMode>("manual");
   const [reviewerModel, setReviewerModel] = useState<string | undefined>(undefined);
@@ -382,10 +370,9 @@ const ChatApp = ({
   const todoRows = todos.length === 0 && !todoLoading ? 0 : todos.length + 2;
   const pickerVisibleCount = modelPicker ? Math.max(1, Math.min(modelPicker.models.length, Math.floor((rows - 15) / 3))) : 0;
   const pickerRows = modelPicker ? pickerVisibleCount * 3 + 1 : 0;
-   const clarifyRows = pendingClarify ? 2 + (pendingClarify.choices?.length ?? 0) : 0;
-   const trustPickerRows = pendingTrust ? 8 : 0;
-   const actionPickerRows = actionPicker ? Math.min(actionPicker.items.length, actionPicker.selector.visibleCount) + 3 : 0;
-   const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + trustPickerRows + actionPickerRows + 1;
+  const clarifyRows = pendingClarify ? 2 + (pendingClarify.choices?.length ?? 0) : 0;
+  const actionPickerRows = actionPicker ? Math.min(actionPicker.items.length, actionPicker.selector.visibleCount) + 3 : 0;
+  const lowerRows = composerHeight + 3 + todoRows + suggestionCount + (pendingCommand ? 1 : 0) + pickerRows + clarifyRows + actionPickerRows + 1;
   const transcriptRows = Math.max(1, rows - 3 - lowerRows);
   const ephemeralLines: readonly DisplayLine[] = busy
     ? toolLabels.size > 0
@@ -521,21 +508,6 @@ const ChatApp = ({
       setModelPicker(null);
     }
   }, { isActive: modelPicker !== null });
-
-  useInput((_input, key) => {
-    if (!pendingTrust) return;
-    if (key.upArrow || key.downArrow) {
-      setTrustSelector(state => reduceSelector(state, { type: key.upArrow ? "up" : "down" }));
-    } else if (key.return && trustStore !== undefined) {
-      const newDecision = trustStore.set(cwd ?? process.cwd(), TRUST_CHOICES[trustSelector.selectedIndex]!.value);
-      setTrustDecision(newDecision);
-      setPendingTrust(false);
-      const scopeLabel = "scope" in newDecision ? (newDecision.scope === "persisted" ? " (persisted)" : " (session only)") : "";
-      setLines(previous => [...previous, { kind: "assistant", text: `Trust decision updated: ${newDecision.status}${scopeLabel}.` }]);
-    } else if (key.escape) {
-      setPendingTrust(false);
-    }
-  }, { isActive: pendingTrust });
 
   const completeSuggestion = useCallback(() => {
     const next = nextCompletionState(completionMatches, completionIndex, liveMatches, "tab");
@@ -714,16 +686,6 @@ const ChatApp = ({
             setLines(previous => [...previous, { kind: "error", text: describeDevinError(error) ?? String(error) }]);
           } finally {
             setBusy(false);
-          }
-          return;
-        }
-        if (command === "/trust") {
-          if (trustStore === undefined) {
-            const statusText = trustDecision.status === "unknown" ? "unknown" : `${trustDecision.status} (${trustDecision.scope})`;
-            setLines(previous => [...previous, { kind: "assistant", text: `Current trust status: ${statusText}. (Trust store not available in this session.)` }]);
-          } else {
-            setTrustSelector(createSelectorState(TRUST_CHOICES.length, TRUST_CHOICES.length));
-            setPendingTrust(true);
           }
           return;
         }
@@ -1085,9 +1047,6 @@ const ChatApp = ({
           </Box>
         );
       })()}
-      {pendingTrust && (
-        <Selector title={`Trust project folder ${cwd ?? process.cwd()}?`} items={TRUST_CHOICES.map(choice => ({ id: choice.value, label: choice.label }))} state={trustSelector} theme={theme} />
-      )}
       {actionPicker && <Selector title={actionPicker.title} items={actionPicker.items} state={actionPicker.selector} theme={theme} />}
       <Box borderStyle="round" borderColor={theme.border} paddingX={1} height={composerHeight + 2}>
         <Text color={theme.accent}>❯ </Text>
@@ -1098,8 +1057,8 @@ const ChatApp = ({
           onSubmit={value => { void handleSubmit(value); }}
           rows={composerHeight}
           maxRows={composerHeight}
-           focus={pendingCommand === null && modelPicker === null && actionPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0) && !pendingTrust}
-           placeholder={busy ? (pendingClarify ? "Type your answer…" : "Steer the active run…") : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : pendingTrust ? "Choosing trust…" : "Message Railgun"}
+           focus={pendingCommand === null && modelPicker === null && actionPicker === null && !(pendingClarify?.choices && pendingClarify.choices.length > 0)}
+           placeholder={busy ? (pendingClarify ? "Type your answer…" : "Steer the active run…") : pendingCommand ? "Awaiting approval…" : modelPicker ? "Selecting model…" : "Message Railgun"}
           textStyle={{ color: theme.text }}
           highlightStyle={{ color: theme.text }}
           keyBindings={{
@@ -1118,8 +1077,6 @@ export const runRepl = async (
   session: DevinSession,
   persistence?: ReplPersistenceOptions,
   extensionRunner?: ExtensionRunner,
-  trustDecision?: TrustDecision,
-  trustStore?: ProjectTrustStore,
   memoryStore?: MemoryStore,
   noteStore?: NoteStore,
   diagnostics?: InteractiveDiagnostics,
@@ -1132,7 +1089,6 @@ export const runRepl = async (
     diagnostics?.observer.event({ event: "terminal_setup", terminalColumns: process.stdout.columns, terminalRows: process.stdout.rows, outcome: "start" });
     await runInAlternateScreen(sequence => process.stdout.write(sequence), useAlternateScreen, () =>
       runWithMouseTracking(sequence => process.stdout.write(sequence), useAlternateScreen, async () => {
-        const cwd = process.cwd();
         const instance = render(
           <ChatApp
             session={session}
@@ -1140,8 +1096,6 @@ export const runRepl = async (
             themeController={themeController}
             {...(persistence ? { persistence } : {})}
             {...(extensionRunner ? { extensionRunner } : {})}
-            {...(trustDecision !== undefined ? { initialTrustDecision: trustDecision } : {})}
-            {...(trustStore !== undefined ? { trustStore, cwd } : {})}
             {...(memoryStore !== undefined ? { memoryStore } : {})}
             {...(noteStore !== undefined ? { noteStore } : {})}
             {...(diagnostics !== undefined ? { diagnostics } : {})}

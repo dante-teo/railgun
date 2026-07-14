@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { DevinSession } from "./session.js";
 import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
-import { desktopAuthenticationRequiredFrame, dispatchCli, parseCliArgs, type CliDependencies } from "./cli.js";
-import type { ProjectTrustStore, TrustChoice, TrustDecision } from "./trust.js";
+import { desktopAuthenticationRequiredFrame, dispatchCli, establishHomeWorkingDirectory, parseCliArgs, resolveCliModePaths, type CliDependencies } from "./cli.js";
 import { DevinApiError, type DevinProvider, type DevinModel } from "widevin";
 import { embedText } from "./persistence/embedder.js";
 import { AuthenticationRequiredError, CredentialRejectedError } from "./auth.js";
@@ -34,6 +33,37 @@ describe("desktop authentication startup status", () => {
     )).toBe('{"type":"startup_status","status":"authentication_required","credential_source":"file"}');
     expect(desktopAuthenticationRequiredFrame(new AuthenticationRequiredError(), false)).toBeUndefined();
     expect(desktopAuthenticationRequiredFrame(new Error("network"), true)).toBeUndefined();
+  });
+});
+
+describe("working directory", () => {
+  it("always establishes the supplied home directory", async () => {
+    const original = process.cwd();
+    const home = await mkdtemp(join(tmpdir(), "railgun-home-"));
+    try {
+      establishHomeWorkingDirectory(home);
+      expect(process.cwd()).toBe(await realpath(home));
+    } finally {
+      process.chdir(original);
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves relative note-import folders against the invocation directory", () => {
+    const mode = { kind: "import-notes", folder: "./notes" } as const;
+
+    expect(resolveCliModePaths(mode, "/work/project")).toEqual({
+      kind: "import-notes",
+      folder: resolve("/work/project", "notes"),
+    });
+  });
+
+  it("preserves absolute note-import folders and unrelated modes", () => {
+    const absolute = { kind: "import-notes", folder: "/shared/notes" } as const;
+    const rpc = { kind: "rpc" } as const;
+
+    expect(resolveCliModePaths(absolute, "/work/project")).toEqual(absolute);
+    expect(resolveCliModePaths(rpc, "/work/project")).toBe(rpc);
   });
 });
 
@@ -81,15 +111,9 @@ const fakeSession: DevinSession = {
   systemPrompt: ["test system prompt"] as const,
 };
 
-const fakeTrustStore = (): ProjectTrustStore => ({
-  get: vi.fn((): TrustDecision => ({ status: "trusted", scope: "persisted" })),
-  set: vi.fn((): TrustDecision => ({ status: "trusted", scope: "persisted" })),
-});
-
 const dependencies = (store = fakeStore()): CliDependencies => ({
   createStore: vi.fn(() => store),
-  createNewTrustStore: vi.fn(fakeTrustStore),
-  loadConfig: vi.fn(async (): Promise<AppConfig> => ({ model: null, defaultProjectTrust: "ask" })),
+  loadConfig: vi.fn(async (): Promise<AppConfig> => ({ model: null })),
   initFreshSession: vi.fn(async () => fakeSession),
   initSession: vi.fn(async () => fakeSession),
   runLogin: vi.fn(async () => {}),
@@ -98,7 +122,6 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
   runOneShot: vi.fn(async () => {}),
   runRpc: vi.fn(async () => {}),
   runAcp: vi.fn(async () => {}),
-  promptTrustChoice: vi.fn(async (): Promise<TrustChoice> => "trust"),
   selectSession: vi.fn(async () => undefined),
   randomId: vi.fn(() => "fresh-id"),
   now: vi.fn(() => new Date("2026-07-10T00:00:00.000Z")),
@@ -123,20 +146,9 @@ describe("parseCliArgs", () => {
     [["login"], { mode: { kind: "login" } }],
     [["logout"], { mode: { kind: "logout" } }],
     [["config"], { mode: { kind: "config" } }],
-    [["--approve"], { mode: { kind: "fresh", approve: true } }],
-    [["-a"], { mode: { kind: "fresh", approve: true } }],
-    [["--no-approve"], { mode: { kind: "fresh", noApprove: true } }],
-    [["-na"], { mode: { kind: "fresh", noApprove: true } }],
-    [["--approve", "--print", "hello"], { mode: { kind: "print", question: "hello", approve: true } }],
-    [["--resume", "abc", "--no-approve"], { mode: { kind: "resume", id: "abc", noApprove: true } }],
     [["--mode", "rpc"], { mode: { kind: "rpc" } }],
     [["--mode", "acp"], { mode: { kind: "acp" } }],
     [["import-notes", "/some/path"], { mode: { kind: "import-notes", folder: "/some/path" } }],
-    [["--cwd", "/tmp"], { mode: { kind: "fresh" }, cwd: "/tmp" }],
-    [["-C", "/tmp"], { mode: { kind: "fresh" }, cwd: "/tmp" }],
-    [["--cwd", "/tmp", "--print", "hi"], { mode: { kind: "print", question: "hi" }, cwd: "/tmp" }],
-    [["--print", "hi", "--cwd", "/tmp"], { mode: { kind: "print", question: "hi" }, cwd: "/tmp" }],
-    [["--cwd", "~/projects"], { mode: { kind: "fresh" }, cwd: "~/projects" }],
   ] as const)("parses %j", (args, expected) => {
     expect(parseCliArgs([...args])).toEqual(expected);
   });
@@ -150,6 +162,12 @@ describe("parseCliArgs", () => {
     ["-r", "a", "b"],
     ["--list-sessions", "extra"],
     ["--unknown"],
+    ["--approve"],
+    ["-a"],
+    ["--no-approve"],
+    ["-na"],
+    ["--cwd", "/tmp"],
+    ["-C", "/tmp"],
     ["login", "--approve"],
     ["--approve", "--no-approve"],
     ["--list-sessions", "-a"],
@@ -208,24 +226,6 @@ describe("dispatchCli", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("settles the active startup phase as failed when trust configuration throws", async () => {
-    const deps = dependencies();
-    const noopDiagnostics = createNoopInteractiveDiagnostics();
-    const end = vi.fn();
-    const start = vi.fn(() => ({ progress: vi.fn(), end }));
-    deps.createInteractiveDiagnostics = vi.fn(() => ({
-      ...noopDiagnostics,
-      observer: { ...noopDiagnostics.observer, start },
-    }));
-    const failure = new Error("config unavailable");
-    vi.mocked(deps.loadConfig).mockRejectedValue(failure);
-
-    await expect(dispatchCli({ kind: "fresh" }, deps)).rejects.toBe(failure);
-
-    expect(start).toHaveBeenCalledWith({ phase: "trust_configuration" });
-    expect(end).toHaveBeenCalledWith("failure", failure);
-  });
-
   it("continues an interactive session with unavailable status when diagnostics construction throws", async () => {
     const deps = dependencies();
     deps.createInteractiveDiagnostics = vi.fn(() => { throw new Error("worker unavailable"); });
@@ -233,7 +233,7 @@ describe("dispatchCli", () => {
     await dispatchCli({ kind: "fresh" }, deps);
 
     expect(deps.runRepl).toHaveBeenCalledOnce();
-    expect(vi.mocked(deps.runRepl).mock.calls[0]?.[7]?.status.kind).toBe("unavailable");
+    expect(vi.mocked(deps.runRepl).mock.calls[0]?.[5]?.status.kind).toBe("unavailable");
   });
 
   it.each(["print", "rpc", "acp", "cron", "config", "login", "logout", "list"] as const)("does not create interactive logs in %s mode", async kind => {
@@ -246,11 +246,11 @@ describe("dispatchCli", () => {
 
   it("prints effective pretty configuration without authentication, SQLite, file writes, or TUI startup", async () => {
     const deps = dependencies();
-    vi.mocked(deps.loadConfig).mockResolvedValue({ model: null, future: { kept: true }, defaultProjectTrust: "ask" });
+    vi.mocked(deps.loadConfig).mockResolvedValue({ model: null, future: { kept: true } });
 
     await dispatchCli({ kind: "config" }, deps);
 
-    expect(deps.stdout).toHaveBeenCalledWith('{\n  "model": null,\n  "future": {\n    "kept": true\n  },\n  "defaultProjectTrust": "ask"\n}');
+    expect(deps.stdout).toHaveBeenCalledWith('{\n  "model": null,\n  "future": {\n    "kept": true\n  }\n}');
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.createStore).not.toHaveBeenCalled();
     expect(deps.initFreshSession).not.toHaveBeenCalled();
@@ -312,7 +312,7 @@ describe("dispatchCli", () => {
       initialHistory: expect.any(Array),
       initialTodos: [],
       sessionMetadata: expect.objectContaining({ id: "saved" }),
-    }), expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything());
+    }), expect.anything(), expect.anything(), expect.anything());
   });
 
   it("fails actionably for a missing direct session without initializing Devin", async () => {
@@ -432,7 +432,7 @@ describe("dispatchCli — cron mode", () => {
 
   it("passes the AbortSignal, session devin/model/systemPrompt, and loaded config to runCronScheduler", async () => {
     const deps = dependencies();
-    const config = { model: "m", defaultProjectTrust: "ask" as const, approvalMode: "off" as const };
+    const config = { model: "m", approvalMode: "off" as const };
     vi.mocked(deps.loadConfig).mockResolvedValue(config);
     await dispatchCli({ kind: "cron" }, deps);
     expect(deps.loadConfig).toHaveBeenCalledOnce();

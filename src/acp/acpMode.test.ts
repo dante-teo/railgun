@@ -48,7 +48,7 @@ const fakeSession = (devin: DevinProvider): DevinSession => ({
   systemPrompt: [],
 });
 
-const fakeConfig = (): AppConfig => ({ model: null, defaultProjectTrust: "ask", approvalMode: "off" });
+const fakeConfig = (): AppConfig => ({ model: null, approvalMode: "off" });
 
 /** Connects an in-process client to the agent app and runs `op`, then closes. */
 const withClient = <T>(

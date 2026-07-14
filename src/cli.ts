@@ -6,8 +6,8 @@ import { loadExtensions, registerExtensionTools, createExtensionAPI } from "./ex
 import { homedir } from "node:os";
 import { registry } from "./tools/index.js";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { isCliEntryPoint } from "./cliEntryPoint.js";
 import { loadConfig, updateConfig } from "./config.js";
 import type { AppConfig } from "./config.js";
@@ -28,8 +28,6 @@ import type { ReplPersistenceOptions } from "./repl/App.js";
 import { runSessionChooser } from "./repl/SessionChooser.js";
 import { initDevinSession, initFreshDevinSession } from "./session.js";
 import type { DevinSession } from "./session.js";
-import { createProjectTrustStore, resolveProjectTrust, promptTrustChoiceReadline } from "./trust.js";
-import type { TrustChoice, TrustDecision, ProjectTrustStore } from "./trust.js";
 import type { DevinProvider, DevinModel } from "widevin";
 import { startScheduler } from "./cron/scheduler.js";
 import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memoryStore.js";
@@ -50,12 +48,12 @@ import { createInteractiveDiagnostics, createUnavailableInteractiveDiagnostics }
 import type { InteractiveDiagnostics } from "./diagnostics/interactiveDiagnostics.js";
 import type { OperationStart } from "./diagnostics/types.js";
 
-export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron [install|uninstall|status] | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
+export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] | railgun login | railgun logout | railgun config | railgun cron [install|uninstall|status] | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
 
 export type CliMode =
-  | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
-  | { kind: "print"; question: string; approve?: boolean; noApprove?: boolean }
-  | { kind: "resume"; id?: string; approve?: boolean; noApprove?: boolean }
+  | { kind: "fresh" }
+  | { kind: "print"; question: string }
+  | { kind: "resume"; id?: string }
   | { kind: "list" }
   | { kind: "login" }
   | { kind: "logout" }
@@ -83,12 +81,10 @@ export interface CliDependencies {
   initSession: (requiredModelId?: string, memoriesText?: string | null) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
-  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, trustDecision?: TrustDecision, trustStore?: ProjectTrustStore, memoryStore?: MemoryStore, noteStore?: NoteStore, diagnostics?: InteractiveDiagnostics) => Promise<void>;
+  runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore, noteStore?: NoteStore, diagnostics?: InteractiveDiagnostics) => Promise<void>;
   runOneShot: (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore, noteStore?: NoteStore) => Promise<void>;
   runRpc: (options: RpcModeOptions) => Promise<void>;
   runAcp: (options: AcpModeOptions) => Promise<void>;
-  createNewTrustStore: () => ProjectTrustStore;
-  promptTrustChoice: (cwd: string) => Promise<TrustChoice>;
   selectSession: (sessions: readonly SessionSummary[]) => Promise<string | undefined>;
   randomId: () => string;
   now: () => Date;
@@ -101,47 +97,20 @@ export interface CliDependencies {
   createInteractiveDiagnostics?: () => InteractiveDiagnostics;
 }
 
-export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: string } => {
-  let approve = false;
-  let noApprove = false;
-  let cwdOverride: string | undefined;
-
-  const filteredArgs: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
-    if (arg === "--approve" || arg === "-a") { approve = true; }
-    else if (arg === "--no-approve" || arg === "-na") { noApprove = true; }
-    else if (arg === "--cwd" || arg === "-C") {
-      const next = args[++i];
-      if (next === undefined) throw new CliUsageError();
-      cwdOverride = next;
-    }
-    else { filteredArgs.push(arg); }
-  }
-
-  if (approve && noApprove) throw new CliUsageError();
-
-  const trustFlags = { ...(approve && { approve: true as const }), ...(noApprove && { noApprove: true as const }) };
-
-  const cwdResult = cwdOverride !== undefined ? { cwd: cwdOverride } : {};
-
+export const parseCliArgs = (args: readonly string[]): { mode: CliMode } => {
   const parseMode = (): CliMode => {
-    if (filteredArgs.length === 0) return { kind: "fresh", ...trustFlags };
-    const [flag, ...rest] = filteredArgs;
+    if (args.length === 0) return { kind: "fresh" };
+    const [flag, ...rest] = args;
     if (flag === "login" && rest.length === 0) {
-      if (approve || noApprove) throw new CliUsageError();
       return { kind: "login" };
     }
     if (flag === "logout" && rest.length === 0) {
-      if (approve || noApprove) throw new CliUsageError();
       return { kind: "logout" };
     }
     if (flag === "config" && rest.length === 0) {
-      if (approve || noApprove) throw new CliUsageError();
       return { kind: "config" };
     }
     if (flag === "cron") {
-      if (approve || noApprove) throw new CliUsageError();
       if (rest.length === 0) return { kind: "cron" };
       if (rest.length === 1 && rest[0] === "install") return { kind: "cron-install" };
       if (rest.length === 1 && rest[0] === "uninstall") return { kind: "cron-uninstall" };
@@ -149,29 +118,24 @@ export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: st
       throw new CliUsageError();
     }
     if (flag === "import-notes" && rest.length === 1) {
-      if (approve || noApprove) throw new CliUsageError();
       return { kind: "import-notes", folder: rest[0]! };
     }
     if (flag === "dream" && rest.length === 0) {
-      if (approve || noApprove) throw new CliUsageError();
       return { kind: "dream" };
     }
-    if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!", ...trustFlags };
+    if (flag === "--print" || flag === "-p") return { kind: "print", question: rest.join(" ") || "Hello!" };
     if (flag === "--list-sessions" && rest.length === 0) {
-      if (approve || noApprove) throw new CliUsageError();
       return { kind: "list" };
     }
     if ((flag === "--resume" || flag === "-r") && rest.length <= 1) {
-      return rest[0] === undefined ? { kind: "resume", ...trustFlags } : { kind: "resume", id: rest[0], ...trustFlags };
+      return rest[0] === undefined ? { kind: "resume" } : { kind: "resume", id: rest[0] };
     }
     if (flag === "--mode") {
       if (rest.length !== 1) throw new CliUsageError();
       if (rest[0] === "rpc") {
-        if (approve || noApprove) throw new CliUsageError();
         return { kind: "rpc" };
       }
       if (rest[0] === "acp") {
-        if (approve || noApprove) throw new CliUsageError();
         return { kind: "acp" };
       }
       throw new CliUsageError();
@@ -179,7 +143,7 @@ export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: st
     throw new CliUsageError();
   };
 
-  return { mode: parseMode(), ...cwdResult };
+  return { mode: parseMode() };
 };
 
 export const formatSessionTable = (sessions: readonly SessionSummary[]): string => {
@@ -200,8 +164,6 @@ const defaultDependencies: CliDependencies = {
   runOneShot,
   runRpc: runRpcMode,
   runAcp: runAcpMode,
-  createNewTrustStore: createProjectTrustStore,
-  promptTrustChoice: promptTrustChoiceReadline,
   selectSession: runSessionChooser,
   randomId: randomUUID,
   now: () => new Date(),
@@ -213,21 +175,6 @@ const defaultDependencies: CliDependencies = {
   runCronUninstall: () => uninstallDaemon(),
   runCronStatus: () => statusDaemon(),
   createInteractiveDiagnostics,
-};
-
-const resolveSessionTrust = async (
-  mode: { approve?: boolean; noApprove?: boolean },
-  dependencies: CliDependencies,
-): Promise<{ decision: TrustDecision; store: ProjectTrustStore; config: AppConfig }> => {
-  const config = await dependencies.loadConfig();
-  const store = dependencies.createNewTrustStore();
-  const decision = await resolveProjectTrust(process.cwd(), store, {
-    ...(mode.approve && { cliApprove: true as const }),
-    ...(mode.noApprove && { cliNoApprove: true as const }),
-    defaultTrust: config.defaultProjectTrust,
-    promptTrustChoice: dependencies.promptTrustChoice,
-  });
-  return { decision, store, config };
 };
 
 type PhaseOutcome = "success" | "failure" | "timeout" | "abort";
@@ -292,8 +239,6 @@ const runPersistedRepl = async (
   memoryStore: MemoryStore,
   noteStore: NoteStore,
   extensionRunner?: ExtensionRunner,
-  trustDecision?: TrustDecision,
-  trustStore?: ProjectTrustStore,
   diagnostics?: InteractiveDiagnostics,
   onFirstSave?: () => void,
 ): Promise<void> => {
@@ -308,8 +253,8 @@ const runPersistedRepl = async (
     await store.branchWithSummary(persisted.id, messageId, session.devin, session.model.id);
   };
   diagnostics?.observer.ready();
-  if (diagnostics) await dependencies.runRepl(session, opts, extensionRunner, trustDecision, trustStore, memoryStore, noteStore, diagnostics);
-  else await dependencies.runRepl(session, opts, extensionRunner, trustDecision, trustStore, memoryStore, noteStore);
+  if (diagnostics) await dependencies.runRepl(session, opts, extensionRunner, memoryStore, noteStore, diagnostics);
+  else await dependencies.runRepl(session, opts, extensionRunner, memoryStore, noteStore);
 };
 
 const withStore = async <T>(
@@ -357,8 +302,7 @@ const bootstrapExtensions = async (
       errorClass: err.error instanceof Error ? err.error.name : "ExtensionError",
     });
   });
-  // TODO: gate on project trust
-  await loadExtensions(runner, { cwd: process.cwd(), homeDir: homedir(), trusted: true });
+  await loadExtensions(runner, { homeDir: homedir() });
 
   // MCP: load configured servers as extension tools
   const mcpServers = parseMcpServers(config.mcpServers);
@@ -388,7 +332,7 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
     return;
   }
   if (mode.kind === "print") {
-    const { decision, config } = await resolveSessionTrust(mode, dependencies);
+    const config = await dependencies.loadConfig();
     const { runner, cleanup } = await bootstrapExtensions("oneshot", config);
     try {
       await runner.emitSessionStart({ type: "session_start", reason: "new" });
@@ -403,11 +347,7 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
   }
 
   if (mode.kind === "fresh") {
-    const { decision, store: trustStore, config } = await observePhase(
-      diagnostics,
-      { phase: "trust_configuration" },
-      () => resolveSessionTrust(mode, dependencies),
-    );
+    const config = await dependencies.loadConfig();
     const sessionId = dependencies.randomId();
     const { runner, cleanup } = await observePhase(
       diagnostics,
@@ -437,8 +377,8 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
           await store.branchWithSummary(persisted.id, messageId, session.devin, session.model.id);
         };
         diagnostics?.observer.ready();
-        if (diagnostics) await dependencies.runRepl(session, opts, runner, decision, trustStore, memoryStore, noteStore, diagnostics);
-        else await dependencies.runRepl(session, opts, runner, decision, trustStore, memoryStore, noteStore);
+        if (diagnostics) await dependencies.runRepl(session, opts, runner, memoryStore, noteStore, diagnostics);
+        else await dependencies.runRepl(session, opts, runner, memoryStore, noteStore);
       });
       await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
     } finally {
@@ -455,11 +395,7 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
     return;
   }
   if (mode.kind === "resume") {
-    const { decision, store: trustStore, config } = await observePhase(
-      diagnostics,
-      { phase: "trust_configuration" },
-      () => resolveSessionTrust(mode, dependencies),
-    );
+    const config = await dependencies.loadConfig();
     await withStores(dependencies, async (store, memoryStore, noteStore) => {
       let id = mode.id;
       if (id === undefined) {
@@ -480,7 +416,7 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
       );
       try {
         await runner.emitSessionStart({ type: "session_start", reason: "resume" });
-        await runPersistedRepl(persisted, store, dependencies, memoryStore, noteStore, runner, decision, trustStore, diagnostics);
+        await runPersistedRepl(persisted, store, dependencies, memoryStore, noteStore, runner, diagnostics);
         await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
       } finally {
         cleanup();
@@ -628,13 +564,20 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
   }
 };
 
-const expandTilde = (p: string): string =>
-  p === "~" ? homedir() : p.startsWith("~/") ? resolve(homedir(), p.slice(2)) : p;
+export const establishHomeWorkingDirectory = (home = homedir()): void => {
+  process.chdir(home);
+};
+
+export const resolveCliModePaths = (mode: CliMode, invocationDirectory: string): CliMode =>
+  mode.kind === "import-notes"
+    ? { ...mode, folder: resolve(invocationDirectory, mode.folder) }
+    : mode;
 
 export const main = async (args = process.argv.slice(2)): Promise<void> => {
-  const { mode, cwd } = parseCliArgs(args);
-  if (cwd !== undefined) process.chdir(expandTilde(cwd));
-  await dispatchCli(mode);
+  const { mode } = parseCliArgs(args);
+  const resolvedMode = resolveCliModePaths(mode, process.cwd());
+  establishHomeWorkingDirectory();
+  await dispatchCli(resolvedMode);
 };
 
 export const desktopAuthenticationRequiredFrame = (

@@ -80,7 +80,6 @@ const checkpointMockTurn = (assistantText: string): void => {
 };
 let config: Record<string, unknown> = {
   model: "mock-model",
-  defaultProjectTrust: "ask",
   moaPresets: {
     review: {
       referenceModels: [{ model: "mock-reference" }],

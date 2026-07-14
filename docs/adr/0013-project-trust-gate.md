@@ -1,10 +1,13 @@
 # 0013. Per-directory project trust gate
 
+> Superseded: project trust, project selection, trust flags, and `trust.json`
+> were removed. Railgun now always runs from the current user's home directory.
+
 Date: 2026-07-12
 
 ## Status
 
-Accepted
+Superseded by ADR-0034
 
 ## Context
 

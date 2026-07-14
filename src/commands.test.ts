@@ -3,7 +3,7 @@ import { HELP_TEXT, matchCommand, parseSlashCommand, findMatches, nextCompletion
 
 const expectedCommands = [
   "/exit", "/help", "/clear", "/model", "/settings", "/compact",
-  "/trust", "/moa", "/branch", "/fork", "/dream", "/cron",
+  "/moa", "/branch", "/fork", "/dream", "/cron",
 ] as const;
 
 describe("KNOWN_COMMANDS", () => {
@@ -46,8 +46,8 @@ describe("matchCommand", () => {
     expect(matchCommand("/e")).toBe("/exit");
   });
 
-  it("returns '/trust' for the unique prefix '/tru'", () => {
-    expect(matchCommand("/tru")).toBe("/trust");
+  it("does not recognize the removed '/trust' command", () => {
+    expect(matchCommand("/tru")).toBeUndefined();
   });
 
   it("returns '/cron' for the unique prefix '/cr'", () => {

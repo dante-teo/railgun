@@ -4,7 +4,6 @@ import type { AppConfig } from "../config.js";
 
 const config: AppConfig = {
   model: "primary",
-  defaultProjectTrust: "ask",
   activeMoaPreset: "team",
   moaPresets: {
     team: {

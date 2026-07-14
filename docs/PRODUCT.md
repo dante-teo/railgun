@@ -71,7 +71,9 @@ One new tool, `note_search`, is registered under the existing `"memory"` toolset
 the tool rules block instructs the agent to call it before saying it doesn't know
 something. A new CLI command, `import-notes <folder>`, bulk-imports `.md` and `.txt`
 files from a directory: each file is split into 500-word chunks and inserted in a
-single transaction; the command prints the total chunk count. FTS5 query sanitization
+single transaction; the command prints the total chunk count. Relative folder
+operands are resolved against the invocation directory before Railgun switches
+to its fixed home workspace. FTS5 query sanitization
 extracts Unicode word tokens from raw user input and quotes every token before passing
 it to SQLite `MATCH`, so punctuation and FTS5 operators cannot produce syntax errors.
 `NoteStore` shares the existing `SessionStore.db` connection handle.
@@ -110,7 +112,7 @@ optional `referenceMaxTokens` (positive integer). New file:
 `docs/adr/0014-mixture-of-agents.md`.
 
 **Phase 28 (skills system):**
-Phase 28 adds a skills system that lets the agent learn new domain-specific abilities from Markdown files with YAML frontmatter. Skills live in `~/.railgun/skills/` (global only for now; project-local gating is a future phase). A skill file is a `.md` file containing a YAML front-matter block followed by its instruction body; a skill can also be a directory containing `SKILL.md` where the directory name becomes the skill's name. Three front-matter fields are recognized: `name` (optional override, must match `/^[a-z0-9-]{1,64}$/`), `description` (required, ≤ 1024 chars, injected into the system prompt), and `disable-model-invocation` (boolean, default `false` — when `true` the skill is hidden from the model's context but still available via `/skill:<name>`).
+Phase 28 adds a skills system that lets the agent learn new domain-specific abilities from Markdown files with YAML frontmatter. Skills live only in the user-global `~/.railgun/skills/` directory; project-local skills are not supported. A skill file is a `.md` file containing a YAML front-matter block followed by its instruction body; a skill can also be a directory containing `SKILL.md` where the directory name becomes the skill's name. Three front-matter fields are recognized: `name` (optional override, must match `/^[a-z0-9-]{1,64}$/`), `description` (required, ≤ 1024 chars, injected into the system prompt), and `disable-model-invocation` (boolean, default `false` — when `true` the skill is hidden from the model's context but still available via `/skill:<name>`).
 
 At session startup `buildSessionCore` calls `loadSkills()`, which scans `~/.railgun/skills/` synchronously, parses every valid skill file, deduplicates by name (first-found wins), and builds an index. `formatSkillsForPrompt` renders the index as an `<available_skills>` XML block appended to the system prompt; descriptions and paths are XML-attribute-escaped. The model calls `skill_view(name)` (a new `"skills"`-toolset tool) to load a skill's full instruction body on demand.
 
@@ -118,9 +120,8 @@ The `/skill:<name> [args]` REPL slash command bypasses the model for explicitly 
 
 **Phase 23 (extension system):**
 Phase 23 adds an extension system that lets outside code observe and intercept
-the agent's lifecycle without editing core source. Extensions live in
-`~/.railgun/extensions/` (global) and `.railgun/extensions/` (project-local,
-currently loaded unconditionally). An extension default-exports a factory
+the agent's lifecycle without editing core source. Extensions now live only in
+the user-global `~/.railgun/extensions/` directory. An extension default-exports a factory
 `(api: ExtensionAPI) => void | Promise<void>` and registers handlers via
 `api.on()` and new LLM-callable tools via `api.registerTool()`. Five typed
 events form a discriminated union: `tool_call` (can block — fail-closed per
@@ -172,7 +173,7 @@ appended, `call()` resolves on a success response, rejects on an error response,
 non-response lines reach event listeners, unsubscribing removes the listener,
 `stop()` kills the child, out-of-order responses correlate correctly by id, and
 malformed JSON is silently ignored; `src/cli.test.ts` proves `--mode rpc` parses
-to `{ kind: "rpc" }`, `--mode rpc --approve` throws `CliUsageError`, bare
+to `{ kind: "rpc" }`, removed project/trust flags throw `CliUsageError`, bare
 `--mode` throws, and `--mode unknown` throws; the `dispatchCli` test proves
 `initSession` and `loadConfig` are called, `runRpc` is called with the session
 and config, and the session store is never opened. Full suite: 52 test files,
@@ -180,23 +181,9 @@ and config, and the session store is never opened. Full suite: 52 test files,
   Phase 28: `src/skills.test.ts` proves `splitFrontmatter` correctly handles LF and CRLF opening fences (CRLF offset is 5, not 4, so frontmatter does not contain a leading `\n`), no-fence input returns the full body, and a missing closing `---` produces no frontmatter; `parseSkillFile` returns a valid `SkillMeta` for well-formed files, infers `name` from directory (for `SKILL.md`) or filename, returns `null` with a `[skills]`-prefixed warning for missing description, invalid name, or overlength description, and respects `disable-model-invocation: true`; `discoverSkills` returns `[]` for a non-existent directory, stops recursion at a `SKILL.md` directory root (no nested skills discovered), finds `.md` files at any level, and skips non-`.md` files; `buildSkillIndex` builds a deduplication map with first-loaded-wins semantics and warns on collision; `formatSkillsForPrompt` returns `""` for an empty index, excludes disabled-model-invocation skills, produces correct `<available_skills>` XML, and escapes `&`/`"`/`<`/`>` in description attributes; `expandSkillCommand` returns `null` for non-`/skill:` input, an `{ kind: "error" }` discriminant for unknown names, `{ kind: "expanded" }` with the full XML body for known skills, and appends trailing args after `</skill>`. `src/tools/skillView.test.ts` proves `skill_view` returns the body for a known name, an error for an unknown name, and an error when the `name` argument is absent. `src/paths.test.ts` proves `SKILLS_PATH` is derived from the same Railgun home as all other paths.
 
 Phase 21 (not shown here — see replication plan) added the shell-command
-approval gate. Phase 20 added the per-directory project trust gate: `~/.railgun/trust.json` persists trust decisions keyed by canonical path, with ancestor-directory inheritance; `--approve`/`-a` and `--no-approve`/`-na` CLI flags override for one invocation; `/trust` REPL command updates the decision mid-session; `defaultProjectTrust: "ask"|"always"|"never"` in `config.json` short-circuits the prompt. Trust is plumbing-only in Phase 20 — no project-local resources are gated yet. See ADR-0013.
-  Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded
-  directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after
-  `set(cwd, "deny")`, `trusted (session)` for `trust-session` without writing to disk,
-  ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories,
-  persisted-decision load-on-creation, and missing-file empty-store semantics;
-  `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove`
-  short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision
-  bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and
-  persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove
-  they do not throw on `trusted` and do throw (with the resource path in the message) on
-  `denied`/`unknown`.
-  `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume
-  modes, rejection on login/logout/config/list modes, and both-flags-together throwing
-  `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included
-  in the persisted output of `setConfiguredModel`, and is rejected for values outside the
-  `"ask"/"always"/"never"` set. See ADR-0013.
+approval gate. The former Phase 20 project-trust gate was later removed:
+Railgun now always runs from the user's home directory and loads only global
+`~/.railgun` resources. ADR-0013 is retained as a superseded historical record.
 
 Phase 19 adds a `clarify` tool (`src/tools/clarify.ts`) that lets the agent ask the user a clarifying question—with optional multiple-choice answers—instead of guessing when information is missing. The design is callback-based: the tool itself is platform-agnostic; the actual user-interaction mechanism is injected as `ClarifyCallback` (`src/tools/registry.ts`) via `AgentDependencies.clarifyCallback` and threaded through `RunTurnOptions` into `ToolContext`. In the REPL (`src/repl/App.tsx`) the callback uses `Promise.withResolvers` and a ref, mirroring the existing `confirmShellCommand` pattern: an `❓` prompt box renders above the composer, Up/Down and Enter select a displayed choice, and Escape resolves with `[user declined to answer]`. Numeric shortcuts and free-form input are disabled while choices are displayed; questions without choices retain free-form entry. In one-shot mode (`src/oneShot.ts`) the callback blocks on `readline`/`process.stdin`. Ctrl+C during a clarify prompt resolves it with `[user declined to answer]` and aborts cleanly. The `"clarify"` toolset is always enabled alongside `"file"`, `"terminal"`, and `"planning"`. The system prompt (`src/agent/systemPrompt.ts`) instructs the model to use `clarify` before irreversible actions when information is missing and to offer choices when the options are clear and few.
 
@@ -311,8 +298,9 @@ keeps one store in a React ref. `--print` mode emits only the final
 answer on stdout (stderr still shows the generic tool spinner for all
 tools including `todo`).
 
-Phase 10 project-level context loading remains in place: project context
-files and `~/.railgun/SOUL.md` are loaded once during session bootstrap,
+Phase 10 context loading remains in place, but the fixed workspace means context
+files are discovered from the user's home directory. Those files and
+`~/.railgun/SOUL.md` are loaded once during session bootstrap,
 truncated, scanned for prompt-injection patterns, and appended to the
 system prompt when accepted. No mid-session subdirectory hints, no
 `.cursor/rules/*.mdc` support, and no config-driven
@@ -374,12 +362,8 @@ protocol failures, and unrelated errors fail immediately.
 5. Run `pnpm start config` to inspect effective configuration without side
    effects. Hand-edit `~/.railgun/config.json` to choose the exact default model
    for new sessions, or use `null` for Devin's first returned model.
-6. On the first run in an untrusted project directory, Railgun prompts for trust on stderr before the
-   REPL starts. Choose an option (Trust, Trust parent, Trust session-only, Deny, Deny session-only);
-   persisted choices are remembered in `~/.railgun/trust.json`. Pass `--approve`/`-a` to trust for a
-   single invocation, or `--no-approve`/`-na` to deny. Set `"defaultProjectTrust": "always"` in
-   `~/.railgun/config.json` to skip the prompt globally. Use `/trust` inside a running REPL to update
-   the decision mid-session.
+6. Railgun changes its working directory to the current user's home directory
+   before startup. Project selection and per-project trust are not used.
 7. Tell the agent a fact you want remembered (e.g. "Remember that I hate coffee").
    Railgun calls `memory_write` to persist it. On the next fresh session (no `--resume`
    needed), ask about it and Railgun answers from the saved memory.
@@ -519,7 +503,8 @@ protocol failures, and unrelated errors fail immediately.
   `steer`/`followUp` on an idle session throw without mutating the queue
   mirror or emitting `queue_update`.
   Phase 19: `src/tools/clarify.test.ts` proves all six handler cases — missing question arg, absent callback, open-ended callback call returning `{ question, answer }` JSON, choices callback call, max-4 truncation, and abort-before-call returning the stopped message; `src/agent/systemPrompt.test.ts` proves the clarify guidance string is present in the generated prompt; full suite (42 files / 421 tests) passes with zero regressions; `pnpm typecheck` passes clean under `exactOptionalPropertyTypes: true` and `noUncheckedIndexedAccess: true`.
-  Phase 20: `src/trust.test.ts` proves `createProjectTrustStore` returns `unknown` for unrecorded directories, `trusted (persisted)` after `set(cwd, "trust")`, `denied (persisted)` after `set(cwd, "deny")`, `trusted (session)` for `trust-session` without writing to disk, ancestor walking (trusting `/a/b` makes `/a/b/c/d` trusted), independent sibling directories, persisted-decision load-on-creation, and missing-file empty-store semantics; `resolveProjectTrust` proves `cliApprove` short-circuits without prompting, `cliNoApprove` short-circuits, `defaultTrust: "always"/"never"` short-circuit, existing persisted decision bypasses prompt, and `defaultTrust: "ask"` with no stored decision calls the prompt and persists the result; `assertProjectTrustedForRead` and `assertProjectTrustedForInstall` prove they do not throw on `trusted` and do throw (with the resource path in the message) on `denied`/`unknown`. `src/cli.test.ts` proves `--approve`/`-a`/`--no-approve`/`-na` flag parsing on fresh/print/resume modes, rejection on login/logout/config/list modes, and both-flags-together throwing `CliUsageError`; `src/config.test.ts` proves `defaultProjectTrust` defaults to `"ask"`, is included in the persisted output of `setConfiguredModel`, and is rejected for values outside the `"ask"/"always"/"never"` set. See ADR-0013.
+  Phase 20's project-trust implementation was later removed in favor of a fixed
+  home-directory workspace. See the superseded ADR-0013.
   Phase 21: `src/security/commandApproval.test.ts` proves hardline blocks for
   `rm -rf /`, `mkfs.*`, fork bombs, and `dd of=/dev/<disk>`, that hardline
   overrides `"off"` and `"smart"` modes, dangerous-pattern detection for
@@ -551,8 +536,8 @@ protocol failures, and unrelated errors fail immediately.
   `"handled"` short-circuit, and session lifecycle observers that catch throws
   without propagating; `src/extensions/loader.test.ts` proves `.js` file
   loading, subdirectory `index.js` loading, non-ts/js file skipping, per-module
-  error isolation with continued loading, `trusted:false` skipping the
-  project-local directory, and stub API no-ops; `src/agent/turn.test.ts`
+  error isolation with continued loading, rejection of extensions outside the
+  global Railgun home, and stub API no-ops; `src/agent/turn.test.ts`
   adds three integration tests: a blocking `tool_call` handler produces a
   `"Blocked by extension"` error tool result, a `tool_result` handler
   that rewrites content changes the tool message seen by the model, and a
@@ -631,7 +616,3 @@ protocol failures, and unrelated errors fail immediately.
   `pnpm typecheck` clean.
 
 ## Open Questions
-
-- Project-local extension trust gating: the `trusted` parameter is wired but
-  unconditionally `true`; a future phase should gate it on an explicit user
-  opt-in (e.g. `railgun trust` command or a `~/.railgun/trusted-projects` list).

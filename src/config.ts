@@ -6,7 +6,6 @@ import { CONFIG_PATH } from "./paths.js";
 
 export interface AppConfig {
   readonly model: string | null;
-  readonly defaultProjectTrust: "ask" | "always" | "never";
   readonly approvalMode?: "manual" | "smart" | "off";
   readonly reviewerModel?: string;
   readonly moaPresets?: Record<string, unknown>;
@@ -16,7 +15,7 @@ export interface AppConfig {
   readonly [key: string]: unknown;
 }
 
-export const DEFAULT_CONFIG: AppConfig = { model: null, defaultProjectTrust: "ask", operationTimeoutMs: 600_000 };
+export const DEFAULT_CONFIG: AppConfig = { model: null, operationTimeoutMs: 600_000 };
 
 type JsonObject = Record<string, unknown>;
 
@@ -60,10 +59,6 @@ const validateConfig = (value: unknown, path: string): AppConfig => {
   }
   if (typeof model === "string" && (model.length === 0 || /\s/.test(model))) {
     throw new ConfigError(path, '"model" must be a non-empty string without whitespace, or null');
-  }
-  const trust = merged.defaultProjectTrust;
-  if (trust !== "ask" && trust !== "always" && trust !== "never") {
-    throw new ConfigError(path, '"defaultProjectTrust" must be "ask", "always", or "never"');
   }
   const approvalMode = merged.approvalMode;
   if (approvalMode !== undefined && approvalMode !== "manual" && approvalMode !== "smart" && approvalMode !== "off") {

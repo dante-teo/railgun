@@ -20,7 +20,6 @@ describe("RPC store handlers", () => {
   it("never returns MCP secrets and applies retain/delete environment patches", async () => {
     const harness = configHarness({
       model: null,
-      defaultProjectTrust: "ask",
       mcpServers: { demo: { command: "node", args: ["server.js"], env: { TOKEN: "secret", REGION: "us" } } },
     });
 
@@ -35,7 +34,7 @@ describe("RPC store handlers", () => {
   });
 
   it("rejects MCP changes in generic config patches before persistence", async () => {
-    const harness = configHarness({ model: null, defaultProjectTrust: "ask", future: { retained: true } });
+    const harness = configHarness({ model: null, future: { retained: true } });
     await expect(harness.handler({ type: "config_update", patch: { mcpServers: {} } })).rejects.toThrow(/MCP commands/);
     expect(harness.persist).not.toHaveBeenCalled();
     await harness.handler({ type: "config_update", patch: { approvalMode: "off" } });
@@ -45,7 +44,6 @@ describe("RPC store handlers", () => {
   it("uses null to remove the active MoA preset while preserving unknown fields and replacing only advisor", async () => {
     const harness = configHarness({
       model: null,
-      defaultProjectTrust: "ask",
       activeMoaPreset: "review",
       advisor: { enabled: true, model: "old-model" },
       future: { retained: true },
@@ -58,7 +56,6 @@ describe("RPC store handlers", () => {
 
     expect(harness.getConfig()).toEqual({
       model: null,
-      defaultProjectTrust: "ask",
       advisor: { enabled: false, model: "new-model" },
       future: { retained: true },
     });
@@ -68,7 +65,7 @@ describe("RPC store handlers", () => {
     const searchSemantic = vi.fn(() => [{ id: 1, sourcePath: null, content: "note", distance: 0.1 }]);
     const embedText = vi.fn(async () => new Float32Array([1, 2]));
     const handler = createRpcStoreHandler({
-      getConfig: () => ({ model: null, defaultProjectTrust: "ask" }),
+      getConfig: () => ({ model: null }),
       setConfig: () => {},
       updateConfig: vi.fn(),
       noteStore: {

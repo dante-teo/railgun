@@ -1,10 +1,14 @@
 # 0013. Extension system
 
+> Partially superseded: Railgun now loads extensions only from the global
+> `~/.railgun/extensions/` directory. Project-local extension discovery and its
+> trust plumbing were removed with the fixed home-directory workspace change.
+
 Date: 2026-07-12
 
 ## Status
 
-Accepted
+Partially superseded by ADR-0034
 
 ## Context
 
@@ -54,9 +58,9 @@ a factory `(api: ExtensionAPI) => void | Promise<void>`.
 - `emitSessionStart` / `emitSessionShutdown` — shared observer loop with
   per-handler try/catch; errors are isolated and reported, never propagated.
 
-**Loader (`src/extensions/loader.ts`):** `loadExtensions(runner, options)` scans
-two directories in order — project-local `.railgun/extensions/` (only when
-`options.trusted` is true) then global `~/.railgun/extensions/`. For each
+**Loader (`src/extensions/loader.ts`, amended by ADR-0034):** The original
+implementation scanned project-local `.railgun/extensions/` and then the global
+directory. The current implementation scans only `~/.railgun/extensions/`. For each
 directory it reads entries via `readdir({ withFileTypes: true })`, importing
 `.ts`/`.js` files directly and subdirectories that contain an `index.ts` or
 `index.js` (preferring `.ts`). Each module is dynamically imported via
@@ -85,11 +89,9 @@ called once per session for the `fresh`, `resume`, and `print` modes (the
 extensions). `session_start` is emitted after bootstrap, before the REPL or
 one-shot call; `session_shutdown` is emitted after it returns.
 
-**Trust model:** `trusted` is unconditionally `true` in the current
-implementation. Project-local extensions are always loaded alongside global
-ones. A future explicit trust gate is the planned control — the `trusted`
-parameter already threads through the loader so a single call-site change
-enables it.
+**Trust model (superseded):** The original implementation loaded project-local
+extensions with a threaded `trusted` parameter. ADR-0034 removed project-local
+discovery and that parameter; only user-global extensions are loaded.
 
 ## Consequences
 
@@ -106,8 +108,7 @@ enables it.
 - Session lifetime and session IDs are shared between extensions and the
   persistence layer (the `bootstrapExtensions(sessionId)` call uses the same
   UUID as `persisted.id`).
-- Project-local extensions are not yet trust-gated. The TODO is marked in
-  `bootstrapExtensions`.
+- Project-local extensions are not supported.
 - Dynamic `import()` is used for extension loading. Under `tsx` (development
   runtime), `.ts` files import correctly. A compiled production build requires
   pre-compiled `.js` extension files.

@@ -7,9 +7,7 @@ import type { ExtensionAPI, ExtensionFactory } from "./types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 
 export interface LoadExtensionsOptions {
-  readonly cwd: string;
   readonly homeDir: string;
-  readonly trusted: boolean;
 }
 
 export const createExtensionAPI = (runner: ExtensionRunner, source: string): ExtensionAPI => ({
@@ -41,43 +39,35 @@ export const loadExtensions = async (
   runner: ExtensionRunner,
   options: LoadExtensionsOptions
 ): Promise<void> => {
-  const { cwd, homeDir, trusted } = options;
-  const dirs: string[] = [];
-  // Project-local directory first, only when trusted
-  if (trusted) dirs.push(join(cwd, ".railgun", "extensions"));
-  // Global directory always
-  dirs.push(join(homeDir, ".railgun", "extensions"));
+  const dir = join(options.homeDir, ".railgun", "extensions");
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return; // directory doesn't exist — skip
+  }
 
-  for (const dir of dirs) {
-    let entries: Dirent[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue; // directory doesn't exist — skip
+  for (const entry of entries) {
+    // Direct .ts / .js file
+    if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".js"))) {
+      const modPath = join(dir, entry.name);
+      try { await loadModule(runner, modPath); }
+      catch (error) { runner.reportExtensionError({ extension: modPath, event: "load", error }); }
+      continue;
     }
 
-    for (const entry of entries) {
-      // Direct .ts / .js file
-      if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".js"))) {
-        const modPath = join(dir, entry.name);
-        try { await loadModule(runner, modPath); }
-        catch (error) { runner.reportExtensionError({ extension: modPath, event: "load", error }); }
-        continue;
-      }
-
-      // Subdirectory — probe for index.ts / index.js (prefer .ts)
-      if (!entry.isDirectory()) continue;
-      const subDir = join(dir, entry.name);
-      let subEntries: Dirent[];
-      try { subEntries = await readdir(subDir, { withFileTypes: true }); }
-      catch { continue; }
-      for (const idx of ["index.ts", "index.js"]) {
-        if (!subEntries.some(e => e.isFile() && e.name === idx)) continue;
-        const modPath = join(subDir, idx);
-        try { await loadModule(runner, modPath); }
-        catch (error) { runner.reportExtensionError({ extension: modPath, event: "load", error }); }
-        break; // prefer index.ts over index.js; stop after first match
-      }
+    // Subdirectory — probe for index.ts / index.js (prefer .ts)
+    if (!entry.isDirectory()) continue;
+    const subDir = join(dir, entry.name);
+    let subEntries: Dirent[];
+    try { subEntries = await readdir(subDir, { withFileTypes: true }); }
+    catch { continue; }
+    for (const idx of ["index.ts", "index.js"]) {
+      if (!subEntries.some(e => e.isFile() && e.name === idx)) continue;
+      const modPath = join(subDir, idx);
+      try { await loadModule(runner, modPath); }
+      catch (error) { runner.reportExtensionError({ extension: modPath, event: "load", error }); }
+      break; // prefer index.ts over index.js; stop after first match
     }
   }
 };

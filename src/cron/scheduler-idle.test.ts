@@ -11,7 +11,7 @@ import type { CronJob } from "./jobs.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const baseConfig: AppConfig = { model: null, defaultProjectTrust: "ask", approvalMode: "manual" };
+const baseConfig: AppConfig = { model: null, approvalMode: "manual" };
 const fakeModel: DevinModel = { id: "model-x", contextWindow: 100_000 } as DevinModel;
 
 type FakeRound = readonly DevinStreamEvent[] | { throws: unknown };

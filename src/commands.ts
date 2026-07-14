@@ -1,6 +1,6 @@
-export const KNOWN_COMMANDS = ["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/trust", "/moa", "/branch", "/fork", "/dream", "/cron"] as const;
+export const KNOWN_COMMANDS = ["/exit", "/help", "/clear", "/model", "/settings", "/compact", "/moa", "/branch", "/fork", "/dream", "/cron"] as const;
 
-export const HELP_TEXT = "Commands: /exit, /help, /clear, /model, /settings, /compact, /trust, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /cron [add|remove], /skill:<name>";
+export const HELP_TEXT = "Commands: /exit, /help, /clear, /model, /settings, /compact, /moa [off|preset], /branch [--summary] [id], /fork, /dream, /cron [add|remove], /skill:<name>";
 
 export const matchCommand = (partial: string): string | undefined => {
   const hits = KNOWN_COMMANDS.filter((c) => c.startsWith(partial));

@@ -22,4 +22,8 @@ describe("slash command diagnostics", () => {
   it("assigns no dedicated phase to the removed /rollback command", () => {
     expect(diagnosticSlashPhase("/rollback")).toBe("slash_unknown");
   });
+
+  it("assigns no dedicated phase to the removed /trust command", () => {
+    expect(diagnosticSlashPhase("/trust")).toBe("slash_unknown");
+  });
 });

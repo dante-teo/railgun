@@ -8,7 +8,6 @@ export const pathsForHome = (home: string) => ({
   token: join(home, "devin-token"),
   state: join(home, "state.db"),
   soul: join(home, "SOUL.md"),
-  trust: join(home, "trust.json"),
   extensions: join(home, "extensions"),
   cron: join(home, "cron", "jobs.json"),
   cronLogs: join(home, "cron", "logs"),
@@ -23,7 +22,6 @@ export const CONFIG_PATH = paths.config;
 export const TOKEN_PATH = paths.token;
 export const STATE_PATH = paths.state;
 export const SOUL_PATH = paths.soul;
-export const TRUST_PATH = paths.trust;
 export const EXTENSIONS_PATH = paths.extensions;
 export const CRON_PATH = paths.cron;
 export const SKILLS_PATH = paths.skills;

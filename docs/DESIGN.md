@@ -78,7 +78,7 @@ the same model; text entry is reserved for free-form answers and preset names.
   one viewport. Home/End jump to the beginning/end. New output and resizes
   preserve bottom-follow only when already at the bottom; otherwise an
   unseen-row cue reserves one visible transcript row.
-  - `/exit`, `/help`, `/clear`, `/model`, `/settings`, `/compact`, `/trust`, `/moa`, `/branch [--summary] [id]`, `/fork`, `/dream`, and `/cron` are the available fixed commands; `/skill:<name> [args]` dynamically expands discovered local skills. `/cron [add <id> <schedule> <prompt> | remove <id>]` lists, creates, and removes scheduled jobs; `schedule` is a 5-field cron expression. `/moa <preset-name>` activates a named preset for subsequent turns and `/moa off` deactivates it; bare `/moa` opens a session-only picker containing Off and every configured preset. The active preset name appears in the status bar. Bare `/branch` opens an arrow-key picker of recent messages, while `/branch [--summary] <id>` remains available for direct selection. `/trust` opens an arrow-key picker for persisted or session-only trust/deny decisions. `/fork` copies the active branch into a new session. Shell approval remains a `y`/`n`/Escape confirmation rather than a list selection.
+  - `/exit`, `/help`, `/clear`, `/model`, `/settings`, `/compact`, `/moa`, `/branch [--summary] [id]`, `/fork`, `/dream`, and `/cron` are the available fixed commands; `/skill:<name> [args]` dynamically expands discovered local skills. `/cron [add <id> <schedule> <prompt> | remove <id>]` lists, creates, and removes scheduled jobs; `schedule` is a 5-field cron expression. `/moa <preset-name>` activates a named preset for subsequent turns and `/moa off` deactivates it; bare `/moa` opens a session-only picker containing Off and every configured preset. The active preset name appears in the status bar. Bare `/branch` opens an arrow-key picker of recent messages, while `/branch [--summary] <id>` remains available for direct selection. `/fork` copies the active branch into a new session. Shell approval remains a `y`/`n`/Escape confirmation rather than a list selection.
 
 - Advisor notes are visually separate from user turns. The REPL parses their
   internal advisory envelope and renders an `ADVISOR` role with severity-specific
@@ -185,7 +185,7 @@ Enter confirms the latest highlight even before React repaints it.
 ## Configuration and model recovery
 
 `~/.railgun/config.json` is active as the single configuration source. Its
-effective defaults include `{ "model": null, "defaultProjectTrust": "ask",
+effective defaults include `{ "model": null,
 "operationTimeoutMs": 600000 }`: fresh REPL and one-shot sessions use Devin's
 first returned model, and each non-interactive asynchronous operation has a
 ten-minute deadline. `railgun config` renders the recursively merged,
@@ -221,12 +221,9 @@ but does not block startup. Example:
 }
 ```
 
-The optional `defaultProjectTrust` field controls the project trust gate:
-`"ask"` (default) prompts interactively before each new untrusted project's
-first session; `"always"` trusts every project without prompting; `"never"`
-denies every project without prompting. Per-project decisions are persisted
-in `~/.railgun/trust.json`; `--approve`/`-a` and `--no-approve`/`-na`
-override for a single invocation.
+Railgun always uses the current user's home directory as its working directory.
+Project selection, project-local extensions, and per-project trust settings are
+not part of the product.
 
 The optional `moaPresets` key defines named Mixture of Agents presets, each with a `referenceModels` array (up to 8 entries, each `{model, temperature?}`), an `aggregator` `{model, temperature?}`, and an optional positive `referenceMaxTokens`. The optional `activeMoaPreset` key names the default preset for both one-shot and interactive REPL sessions; `/moa` can override it for the current REPL session. Preset validation at config load time rejects missing required fields, non-positive token caps, and `activeMoaPreset` pointing to an unknown preset name. Unknown extra keys inside a preset are preserved (forward-compatible).
 

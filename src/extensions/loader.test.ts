@@ -31,7 +31,7 @@ describe("loadExtensions", () => {
       `);
 
       const runner = createExtensionRunner();
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(runner.getTools()).toHaveLength(1);
       expect(runner.getTools()[0]?.name).toBe("ext_tool");
@@ -50,7 +50,7 @@ describe("loadExtensions", () => {
       `);
 
       const runner = createExtensionRunner();
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(runner.getTools()[0]?.name).toBe("plugin_tool");
     });
@@ -65,7 +65,7 @@ describe("loadExtensions", () => {
       await writeFile(join(extDir, "config.json"), "{}");
 
       const runner = createExtensionRunner();
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(runner.getTools()).toHaveLength(0);
     });
@@ -88,7 +88,7 @@ describe("loadExtensions", () => {
       const runner = createExtensionRunner();
       const errors: ExtensionError[] = [];
       runner.onExtensionError(err => errors.push(err));
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(errors).toHaveLength(1);
       expect(errors[0]?.event).toBe("load");
@@ -96,7 +96,7 @@ describe("loadExtensions", () => {
     });
   });
 
-  it("respects trusted: false — skips project-local .railgun/extensions", async () => {
+  it("does not load extensions outside the global Railgun home", async () => {
     await withTempDir(async tmpDir => {
       const localExtDir = join(tmpDir, ".railgun", "extensions");
       await mkdir(localExtDir, { recursive: true });
@@ -109,28 +109,9 @@ describe("loadExtensions", () => {
       await mkdir(homeDir, { recursive: true });
 
       const runner = createExtensionRunner();
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(runner.getTools().find(t => t.name === "local_tool")).toBeUndefined();
-    });
-  });
-
-  it("loads project-local extensions when trusted: true", async () => {
-    await withTempDir(async tmpDir => {
-      const localExtDir = join(tmpDir, ".railgun", "extensions");
-      await mkdir(localExtDir, { recursive: true });
-      await writeFile(join(localExtDir, "local-ext.js"), `
-        export default function(api) {
-          api.registerTool({ name: "local_tool", description: "", inputSchema: {}, execute: async () => ({ content: "" }) });
-        }
-      `);
-      const homeDir = join(tmpDir, "home");
-      await mkdir(homeDir, { recursive: true });
-
-      const runner = createExtensionRunner();
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: true });
-
-      expect(runner.getTools().find(t => t.name === "local_tool")).toBeDefined();
     });
   });
 
@@ -144,7 +125,7 @@ describe("loadExtensions", () => {
       const runner = createExtensionRunner();
       const errors: ExtensionError[] = [];
       runner.onExtensionError(err => errors.push(err));
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(errors).toHaveLength(1);
       expect(String(errors[0]?.error)).toContain("does not export a default function");
@@ -169,7 +150,7 @@ describe("loadExtensions", () => {
       `);
 
       const runner = createExtensionRunner();
-      await loadExtensions(runner, { cwd: tmpDir, homeDir, trusted: false });
+      await loadExtensions(runner, { homeDir });
 
       expect(runner.getTools()[0]?.name).toBe("wired_tool");
       // session_start handler registered — emitSessionStart should call it without throwing

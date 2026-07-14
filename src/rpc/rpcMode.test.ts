@@ -52,7 +52,7 @@ const fakeSession = (devin: DevinProvider): DevinSession => ({
   systemPrompt: [],
 });
 
-const fakeConfig = (): AppConfig => ({ model: null, defaultProjectTrust: "ask", approvalMode: "off" });
+const fakeConfig = (): AppConfig => ({ model: null, approvalMode: "off" });
 
 describe("RPC configured agent activity", () => {
   it("forwards the active MoA preset and enabled advisor", () => {

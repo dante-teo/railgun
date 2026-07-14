@@ -11,7 +11,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 // Shared fakes
 // ---------------------------------------------------------------------------
 
-const baseConfig: AppConfig = { model: null, defaultProjectTrust: "ask", approvalMode: "manual" };
+const baseConfig: AppConfig = { model: null, approvalMode: "manual" };
 
 const fakeModel: DevinModel = { id: "model-x", contextWindow: 100_000 } as DevinModel;
 

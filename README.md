@@ -21,8 +21,8 @@ placing `.js` or `.ts` files in `~/.railgun/extensions/`. The agent can also spa
 resize-aware Ink interface with automatic mint-light/mint-dark appearance,
 Markdown replies, transcript history navigation, a multiline composer, slash
 commands, and Tab completion. A `.railgun.md` (or
-`RAILGUN.md`) found in the project tree (walking up to the git root), or
-an `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or `.cursorrules` in the working directory,
+`RAILGUN.md`), `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, or
+`.cursorrules` in the user's home directory
  is loaded into the system prompt automatically at session startup — as is
  a personal `~/.railgun/SOUL.md` — with untrusted content truncated and
  scanned for prompt-injection patterns before use. The agent is explicitly
@@ -112,7 +112,7 @@ session becomes durable after its first successful turn:
   background remains untouched. Appearance is not configurable.
 - **Configuration**: `~/.railgun/config.json` is the single configuration
   source. A missing file has the effective defaults `{ "model": null,
-  "defaultProjectTrust": "ask", "operationTimeoutMs": 600000 }`, which
+  "operationTimeoutMs": 600000 }`, which
   selects the first model returned by Devin. Unknown fields are preserved;
   malformed files and invalid recognized values fail without automatic repair.
   Optional recognized fields: `model` (string or null), `approvalMode`
@@ -215,7 +215,6 @@ session becomes durable after its first successful turn:
   - `/model --session` — open the picker; the selected model applies to this session only.
   - `/settings` — open nested pickers for the primary model, default MoA preset, and advisor.
   - `/compact` — manually summarize and compact the current conversation history now, without waiting for the automatic 90%-context-window trigger. Prints `Compacted conversation history to stay under the context limit.` on success.
-  - `/trust` — inspect or change the project trust decision for this session or future sessions.
   - `/moa` — open a session-only picker for the active mixture-of-agents preset.
   - `/moa <preset>` — activate a named preset; `/moa off` disables MoA for the session.
   - `/branch [--summary] <message-id>` — move the saved session branch to a prior message, optionally inserting a summary of the abandoned suffix. Bare `/branch` opens a recent-message picker.
@@ -384,7 +383,7 @@ export default function myExtension(api) {
 
 **Error isolation:** a throwing `tool_call` handler fails that single call closed (the agent gets an error tool result) without crashing the session. All other handler throws are caught, logged to stderr as `[extension error]`, and do not affect remaining handlers.
 
-**Trust:** project-local extensions (`.railgun/extensions/` in the working directory) are loaded alongside global ones. There is no sandbox — extension code runs with the same OS process privileges as Railgun.
+**Extensions:** only global extensions from `~/.railgun/extensions/` are loaded. There is no sandbox — extension code runs with the same OS process privileges as Railgun.
 
 **Development runtime:** `pnpm start` runs under `tsx`, so `.ts` extension files import directly. A compiled `dist/` build requires pre-compiled `.js` extensions.
 
@@ -407,8 +406,8 @@ wraps at either end) and press Enter to resume it; Escape or Ctrl-C cancels
 successfully. The list viewport follows selection and terminal resizes.
 `--list-sessions` prints the detailed table without authenticating to Devin.
 If there are no sessions, both commands print `No saved sessions.` and exit
-successfully. Resumes rebuild the system prompt, project context, and personal
-identity from the current launch directory and start with a fresh 90-step
+successfully. Resumes rebuild the system prompt, home-directory context, and
+personal identity from the fixed home workspace and start with a fresh 90-step
 process budget. Historical user/assistant text is restored to scrollback;
 historical tool frames are intentionally not reconstructed.
 
@@ -568,26 +567,13 @@ Any other positional argument is a usage error. `pnpm start "no flag"` prints
 the supported `login`, `logout`, `--print`, `--resume`/`-r`, and
 `--list-sessions` usage to stderr and exits non-zero without launching anything.
 
-### Working directory override
+### Working directory
 
-```sh
-pnpm start --cwd <dir>
-pnpm start -C <dir>
-```
-
-`--cwd`/`-C` changes the process working directory to `<dir>` before any other
-startup step runs. All downstream `process.cwd()` calls — project-context
-discovery, trust-store resolution, system-prompt injection — naturally pick up
-the new directory. Tilde prefixes (`~/`, `~`) are expanded even when the shell
-does not expand them (e.g. a quoted `"~/projects"`). The flag accepts any
-valid path; an absent or non-directory path causes `process.chdir` to throw
-`ENOENT`/`ENOTDIR`, which the top-level error handler prints before exiting
-non-zero. Omitting `--cwd` leaves the working directory unchanged — identical
-to current behavior. The flag is compatible with all modes and is processed
-before mode dispatch.
-
-Missing value (`pnpm start --cwd` with no argument) is a usage error and prints
-the usage string with exit code 1.
+Railgun always changes its working directory to the current user's home
+directory before startup. There is no project selection, per-project trust
+state, or working-directory override. Explicit relative paths passed to
+`import-notes` are resolved against the directory where the command was invoked
+before Railgun switches to the home directory.
 
 ### RPC mode
 
@@ -701,9 +687,6 @@ Persistence revalidates that boundary before moving the active leaf, so invalid
 or stale message IDs cannot leave a session on an incomplete path. Forks use a
 bounded independent `fork-<UUID>` identity. This transcript projection is the
 required restoration path for bounded-frame clients such as the desktop app.
-
-`--approve` and `--no-approve` are incompatible with `--mode rpc` and produce a
-usage error.
 
 Minimal example:
 

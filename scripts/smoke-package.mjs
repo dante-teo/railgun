@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -42,8 +42,9 @@ try {
   if (!diagnosticRecords.some(record => record.event === "package_smoke")) {
     throw new Error("Packaged diagnostics worker did not flush the smoke record");
   }
-  const linkedExecutable = join(temporaryDirectory, "railgun");
-  const isolatedHome = join(temporaryDirectory, "home");
+    const linkedExecutable = join(temporaryDirectory, "railgun");
+    const isolatedHome = join(temporaryDirectory, "home");
+    await mkdir(isolatedHome, { recursive: true });
   const invocation = process.platform === "win32"
     ? { command: process.execPath, args: [executable, "config"] }
     : await symlink(executable, linkedExecutable).then(() => ({

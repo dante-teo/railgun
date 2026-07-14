@@ -28,15 +28,14 @@ The Hermes desktop app in `tmp_reference/apps/desktop` is a UX reference only. W
 | MoA | MoA presets and progress events | Preset selector and progress |
 | Advisor | Advisor config and messages | Settings and severity-styled notes |
 | Subagents | Delegation start/end events | Simple current-run activity list |
-| Project folder | `--cwd`, project context, trust gate | Folder picker and trust prompt |
-| Files | File tools operate in the project folder | Read-only file tree and preview |
+| Files | File tools operate from the home directory | Read-only file tree and preview |
 | Cron | List/add/update/remove jobs | Simple cron CRUD screen |
 | Memories | Memory store CRUD/search | Memory list and editor |
 | Notes | Import and keyword/semantic search | Import and search screen |
 | Dream | Memory consolidation | Consolidate Memory action |
 | Skills | Local skill discovery and viewing | Read-only skills list and detail |
 | MCP | `mcpServers` configuration | MCP server configuration form |
-| Settings | Railgun config fields | Model, approval, trust, timeout, MoA, advisor, MCP |
+| Settings | Railgun config fields | Model, approval, timeout, MoA, advisor, MCP |
 | Authentication | Devin login/logout/token handling | Sign-in, sign-out, and recovery UI |
 
 ### Do not implement
@@ -175,7 +174,7 @@ Security defaults:
 - `nodeIntegration: false`;
 - strict CSP and blocked renderer navigation;
 - validated IPC messages;
-- file access restricted to the selected project folder;
+- file access restricted to the user's home-directory workspace;
 - sanitized Markdown and allowlisted external links;
 - no credentials or MCP secrets sent to the renderer.
 
@@ -421,13 +420,13 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Branch from a message, with optional summary.
   - Fork the active session.
 
-- [ ] **DESK-013 — Add project folder and trust flow**
-  - Folder picker and recent folders.
-  - Resolve canonical cwd and ask for trust before session startup.
-  - Persist only the existing Railgun trust choices.
+- [x] **DESK-013 — Keep a fixed home-directory workspace**
+  - Project selection and project trust were deliberately removed to keep startup simple.
+  - Desktop and CLI sessions always run from the current user's home directory.
+  - The behavioral contract is recorded in `docs/adr/0034-fixed-home-directory-workspace.md`.
 
 - [ ] **DESK-014 — Add safe file browsing**
-  - Lazy read-only tree inside the selected project.
+  - Lazy read-only tree inside the user's home directory.
   - Text/image preview and Reveal in Finder.
   - Reject traversal, symlink escape, oversized, unreadable, and binary previews safely.
 
@@ -476,4 +475,4 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 3. **Full existing-feature coverage:** DESK-012 and DESK-014 to DESK-018.
 4. **Release quality:** DESK-019 to DESK-021.
 
-The first usable milestone is complete when a user can launch the app, sign in, select and trust a project folder, work with streaming tools/todos, answer approvals and clarifications, stop a run, and resume the saved task after relaunch.
+The first usable milestone is complete when a user can launch the app, sign in, work with streaming tools/todos, answer approvals and clarifications, stop a run, and resume the saved task after relaunch.
