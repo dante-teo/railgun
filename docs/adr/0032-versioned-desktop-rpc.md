@@ -18,9 +18,15 @@ Protocol v1 adds:
   recent-message, and bounded transcript-page commands;
 - request-ID-correlated approval and clarification events/responses;
 - config and secret-redacted MCP management;
-- cron, memory, note import/search, and skill-read commands.
+- cron, memory, note import/search, Dream, fixed-ID instruction-file, and
+  skill-read commands.
 
 All JSON commands pass through runtime validation before dispatch. Raw agent events remain unenveloped and JSONL continues to split only on byte `0x0a`. Legacy clients retain the original ten commands, response shapes, shell auto-approval, clarification error, in-memory history, and one-running-prompt rule.
+
+Additive optional fields also preserve their prior omission behavior. In
+particular, `notes_import` creates embeddings only when `semantic: true` is
+explicitly present. Electron always sends that flag for native desktop imports;
+other RPC clients that omit it retain keyword-only import semantics.
 
 Electron marks only its real RPC child with `RAILGUN_DESKTOP_RPC=1`. In that
 mode authentication is non-interactive: missing and rejected credentials emit
@@ -75,6 +81,16 @@ key presence only. MCP environment upserts retain omitted keys, replace keys
 assigned any string (including the empty string), and delete keys assigned
 `null`. Generic config patches reject `mcpServers`; both config and cron
 continue to use their existing atomic writers.
+
+Dream requires an idle agent and at least five memories, shares the task
+mutation queue, emits bounded structured stages, and returns skipped/completed
+status with before/after counts. Instruction commands accept only eight opaque
+IDs for recognized global loader candidates. Responses expose labels and
+active/shadowed/missing status but never resolved paths. Precedence uses the
+loader's non-empty-content rule. Reads and atomic writes reject symlinked final
+files, symlinked parent directories, and non-regular filesystem objects. Saving
+marks cached model contexts dirty; refresh occurs only when a new, loaded, or
+forked task activates, so the current task prompt remains immutable.
 
 Desktop task controls reuse the existing `get_available_models`, `get_state`,
 `set_model`, `config_get`, `config_update`, and `compact` commands rather than

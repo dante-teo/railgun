@@ -52,19 +52,30 @@ export const formatDreamMessage = (memories: readonly Memory[], soulContent: str
   ].join("\n\n");
 };
 
+export type DreamProgressStage = "reviewing" | "consolidating" | "promoting" | "skipped" | "complete";
+export interface DreamProgress { readonly stage: DreamProgressStage; readonly memoryCount: number }
+export interface DreamSummary {
+  readonly status: "completed" | "skipped";
+  readonly beforeCount: number;
+  readonly afterCount: number;
+}
+
 export const runDreamSession = async (
   memoryStore: MemoryStore,
   devin: DevinProvider,
   model: DevinModel,
   log: (msg: string) => void = console.error,
-): Promise<void> => {
+  onProgress: (progress: DreamProgress) => void = () => undefined,
+): Promise<DreamSummary> => {
   const memories = memoryStore.all();
   if (memories.length < 5) {
     log(`Dream: only ${memories.length} memories — not enough to consolidate (minimum 5)`);
-    return;
+    onProgress({ stage: "skipped", memoryCount: memories.length });
+    return { status: "skipped", beforeCount: memories.length, afterCount: memories.length };
   }
 
   log(`Dream: reviewing ${memories.length} memories...`);
+  onProgress({ stage: "reviewing", memoryCount: memories.length });
 
   const soulContent = await loadSoulIdentity();
 
@@ -81,10 +92,19 @@ export const runDreamSession = async (
 
   agent.subscribe(event => {
     if (event.type !== "tool_execution_start") return;
-    if (event.toolName === "memory_consolidate") log("Dream: consolidating memories...");
-    if (event.toolName === "write_file") log("Dream: promoting preferences to SOUL.md...");
+    if (event.toolName === "memory_consolidate") {
+      log("Dream: consolidating memories...");
+      onProgress({ stage: "consolidating", memoryCount: memoryStore.all().length });
+    }
+    if (event.toolName === "write_file") {
+      log("Dream: promoting preferences to SOUL.md...");
+      onProgress({ stage: "promoting", memoryCount: memoryStore.all().length });
+    }
   });
 
   await agent.run(formatDreamMessage(memories, soulContent));
+  const afterCount = memoryStore.all().length;
   log("Dream: complete.");
+  onProgress({ stage: "complete", memoryCount: afterCount });
+  return { status: "completed", beforeCount: memories.length, afterCount };
 };

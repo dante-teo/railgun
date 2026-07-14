@@ -35,6 +35,9 @@ import {
   McpServerNameSchema,
   McpServerListSchema,
   McpServerUpsertSchema,
+  MemoryListSchema, MemoryMutationSchema, MemorySchema, MemoryIdSchema, KnowledgeQuerySchema,
+  NoteImportResultSchema, NoteResultListSchema, NoteSearchModeSchema, DreamSummarySchema, DreamProgressSchema,
+  InstructionFileListSchema, InstructionFileSchema, InstructionFileIdSchema, InstructionContentSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, RailgunDesktopApi } from "../shared/types";
@@ -251,6 +254,39 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
         }
       };
     },
+    listMemories: async (query) => MemoryListSchema.parse(await transport.invoke(
+      DESKTOP_IPC.listMemories,
+      query === undefined ? undefined : KnowledgeQuerySchema.parse(query),
+    )),
+    createMemory: async (value) => MemorySchema.parse(await transport.invoke(
+      DESKTOP_IPC.createMemory, MemoryMutationSchema.parse(value),
+    )),
+    updateMemory: async (id, value) => MemorySchema.parse(await transport.invoke(
+      DESKTOP_IPC.updateMemory, MemoryIdSchema.parse(id), MemoryMutationSchema.parse(value),
+    )),
+    deleteMemory: async (id) => EmptyResponseSchema.parse(await transport.invoke(
+      DESKTOP_IPC.deleteMemory, MemoryIdSchema.parse(id),
+    )),
+    importNotes: async () => NoteImportResultSchema.parse(await transport.invoke(DESKTOP_IPC.importNotes)),
+    searchNotes: async (query, mode) => NoteResultListSchema.parse(await transport.invoke(
+      DESKTOP_IPC.searchNotes, KnowledgeQuerySchema.parse(query), NoteSearchModeSchema.parse(mode),
+    )),
+    runDream: async () => DreamSummarySchema.parse(await transport.invoke(DESKTOP_IPC.runDream)),
+    onDreamProgress: (listener) => {
+      const handler = (_event: unknown, payload: unknown): void => {
+        const result = DreamProgressSchema.safeParse(payload);
+        if (result.success) listener(result.data);
+      };
+      transport.on(DESKTOP_IPC.dreamProgress, handler);
+      return () => transport.removeListener(DESKTOP_IPC.dreamProgress, handler);
+    },
+    listInstructionFiles: async () => InstructionFileListSchema.parse(await transport.invoke(DESKTOP_IPC.listInstructionFiles)),
+    getInstructionFile: async (id) => InstructionFileSchema.parse(await transport.invoke(
+      DESKTOP_IPC.getInstructionFile, InstructionFileIdSchema.parse(id),
+    )),
+    updateInstructionFile: async (id, content) => InstructionFileSchema.parse(await transport.invoke(
+      DESKTOP_IPC.updateInstructionFile, InstructionFileIdSchema.parse(id), InstructionContentSchema.parse(content),
+    )),
   };
 };
 

@@ -393,8 +393,10 @@ This document records the intended system architecture for Railgun. Keep it curr
    versioned sidebar width persists in renderer-local storage. A separate
    versioned route record restores only Task, Automation, Knowledge, or Settings and never
    implicitly resumes a session; malformed, obsolete, and unknown values fall
-   back to Task. Knowledge projects bounded skill summaries and sanitized
-   Markdown detail without source paths. Settings MCP management projects only
+   back to Task. Knowledge combines bounded, path-redacted Skills, Memories,
+   Notes, Dream, and fixed-ID global-instruction operations; skill and
+   instruction Markdown remain sanitized or plain-text edited as appropriate.
+   Settings MCP management projects only
    path-redacted commands, ordered arguments, and environment key presence.
    Add-mode duplicate-name validation prevents an upsert from attaching an
    existing server's retained secrets to a different command. Existing secret
@@ -651,6 +653,26 @@ keeps the newest 50 per job. Cron mode does not open the session database.
 - The exact record schema, fixed slash-command phase mapping, privacy exclusions,
   watchdog phase precedence, and TUI elapsed-time semantics are documented in
   `docs/INTERACTIVE_DIAGNOSTICS.md`.
+
+## Desktop Knowledge boundary
+
+- RPC v1 advertises additive `dream` and `instructions` capabilities. Dream is
+  idle-only, serialized with task operations, and emits bounded structured
+  progress; its summary reports skipped/completed status and before/after counts.
+- Electron main owns native note-folder selection. The renderer receives only
+  import counts, bounded snippets, and source basenames. Semantic embeddings are
+  mandatory for desktop imports and failures do not silently downgrade. The
+  additive RPC field remains opt-in: omitting `notes_import.semantic` preserves
+  the existing keyword-only import behavior for non-desktop clients.
+- Global instructions are addressed by eight opaque IDs for the recognized
+  loader candidates only. The backend resolves these IDs beneath the user's
+  home directory, reports active/shadowed precedence using the loader's same
+  non-empty-content rule, rejects symlinked files or parent directories and
+  non-regular files, and performs atomic mode-0600 writes. Cached model contexts
+  are marked dirty after Save and refreshed only on new/load/fork activation.
+- The renderer persists Knowledge as a route but mounts it only after backend
+  readiness, preventing startup RPC failures from becoming sticky error state.
+  Instruction-file retries repeat the selected file read, not only the list.
 
 ## Deployment
 

@@ -55,7 +55,7 @@ Keep the app to four main areas:
 
 1. **Task** — sessions, transcript, composer, todos, tools, approvals, and file preview.
 2. **Automation** — cron jobs.
-3. **Knowledge** — memories, notes, Dream, and skills.
+3. **Knowledge** — skills, memories, notes, Dream, and global instructions.
 4. **Settings** — model, agent behavior, trust, MCP, authentication, and diagnostics.
 
 The main content canvas spans the full window. The sidebar is a floating pane
@@ -521,10 +521,16 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     while its existing empty-store and store-error scenarios exercise the
     corresponding Automation states.
 
-- [ ] **DESK-017 — Build Knowledge**
+- [x] **DESK-017 — Build Knowledge**
   - Memory search/create/edit/delete.
   - Notes folder import plus keyword and semantic test search.
   - Dream/consolidation action with progress.
+  - Fixed-ID global instruction files with precedence status, atomic Save/revert,
+    file/parent symlink rejection, non-empty loader precedence, selected-file
+    retry, and dirty-navigation confirmation. Renderer APIs never receive native
+    folder paths or instruction paths. Restored Knowledge waits for backend
+    readiness; desktop note imports opt into semantic embeddings without changing
+    the optional RPC field's legacy default.
 
 - [x] **DESK-018 — Build Skills and MCP screens**
   - Read-only local skills list and detail.

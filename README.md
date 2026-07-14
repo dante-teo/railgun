@@ -665,7 +665,9 @@ commands (`session_new`, `session_list`, `session_load`, `session_save`,
 `session_transcript`), interactive
 `approval_request`/`approval_response` and
 `clarification_request`/`clarification_response` pairs, and config/MCP, cron,
-memory, notes, and skills management commands. Active transcripts checkpoint
+memory, notes, Dream, fixed-ID instruction-file, and skills management commands.
+`notes_import` remains keyword-only when its optional `semantic` field is omitted;
+desktop imports explicitly send `semantic: true`. Active transcripts checkpoint
 after completed or aborted runs; enhanced `get_state` reports session identity
 and persistence status. MCP responses expose environment key presence but never
 secret values. See [ADR 0032](docs/adr/0032-versioned-desktop-rpc.md) for the
@@ -737,7 +739,9 @@ The sidebar's search action opens a keyboard-accessible task palette over the
 newest-first saved-session list. Filtering matches preview, model, or session ID
 without changing backend order; selecting a result explicitly resumes its safe
 text transcript and persisted todos. Relaunch restores only the last valid
-Task, Automation, Knowledge, or Settings area, never an active session.
+Task, Automation, Knowledge, or Settings area, never an active session. A
+restored Knowledge route waits for backend readiness before issuing store
+requests.
 
 Automation lists scheduled prompts in backend file order and supports create,
 edit, and confirmed delete operations while a task is running. Schedules use
@@ -774,13 +778,13 @@ change, compaction, backend restart, or New Task. Configuration reads are
 reduced in Electron main to a bounded display-safe snapshot; raw configuration,
 unknown keys, and provider-only model fields do not cross preload.
 
-Knowledge is a restorable read-only route containing Skills only; DESK-017
-memory, notes, and dream management are not represented by placeholders. Skill
-search matches names and descriptions, detail reads remain independent of
-configuration mutations, and instruction bodies use the same sanitized
-Markdown and HTTP(S)-only link boundary as completed chat messages. Skill
-source paths never cross preload, and the detail status distinguishes skills
-available to model invocation from those requiring explicit user invocation.
+Knowledge includes a read-only Skills destination alongside its memory, notes,
+Dream, and global-instruction management. Skill search matches names and
+descriptions, detail reads remain independent of configuration mutations, and
+instruction bodies use the same sanitized Markdown and HTTP(S)-only link
+boundary as completed chat messages. Skill source paths never cross preload,
+and the detail status distinguishes skills available to model invocation from
+those requiring explicit user invocation.
 
 Desktop Settings is a restorable full-page route rather than a card inside the
 Task shell. Its sidebar contains General, Agent, Trust, Provider, MCP, and
@@ -796,6 +800,15 @@ removed keys are deleted. Successful changes refresh authoritative redacted
 data and affect new backend sessions, not the currently running session. Saves
 are explicit per section, the UI prompts before discarding dirty edits, and
 unknown configuration keys remain backend-owned and preserved.
+
+Desktop Knowledge is a restorable full-page route with Skills, Memories, Notes,
+and Instructions. Memories expose bounded search and CRUD plus idle-only Dream
+progress. Notes use a native folder picker and explicitly request semantic
+embeddings; the renderer receives only import counts, source basenames, and
+bounded snippets. Instructions expose eight fixed file IDs rather than paths,
+skip empty files when reporting loader precedence, and confirm before discarding
+dirty Markdown. Save/revert supports empty content, rejects symlinked files and
+parent directories, and affects only newly created, loaded, or forked tasks.
 
 The desktop transcript fills the main canvas behind its floating toolbar and
 composer. Its native scrollbar is hidden in favor of a centered dash indicator

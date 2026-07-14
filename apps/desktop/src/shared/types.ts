@@ -31,6 +31,8 @@ import type {
   SkillDetailSchema,
   McpServerSchema,
   McpServerUpsertSchema,
+  MemorySchema, MemoryMutationSchema, NoteResultSchema, NoteImportResultSchema, NoteSearchModeSchema,
+  DreamSummarySchema, DreamProgressSchema, InstructionFileSummarySchema, InstructionFileSchema, InstructionFileIdSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -67,8 +69,32 @@ export type SkillSummary = z.infer<typeof SkillSummarySchema>;
 export type SkillDetail = z.infer<typeof SkillDetailSchema>;
 export type McpServer = z.infer<typeof McpServerSchema>;
 export type McpServerUpsert = z.infer<typeof McpServerUpsertSchema>;
+export type Memory = z.infer<typeof MemorySchema>;
+export type MemoryMutation = z.infer<typeof MemoryMutationSchema>;
+export type NoteResult = z.infer<typeof NoteResultSchema>;
+export type NoteImportResult = z.infer<typeof NoteImportResultSchema>;
+export type NoteSearchMode = z.infer<typeof NoteSearchModeSchema>;
+export type DreamSummary = z.infer<typeof DreamSummarySchema>;
+export type DreamProgress = z.infer<typeof DreamProgressSchema>;
+export type InstructionFileSummary = z.infer<typeof InstructionFileSummarySchema>;
+export type InstructionFile = z.infer<typeof InstructionFileSchema>;
+export type InstructionFileId = z.infer<typeof InstructionFileIdSchema>;
 
-export interface RailgunDesktopApi {
+export interface KnowledgeDesktopApi {
+  listMemories: (query?: string) => Promise<readonly Memory[]>;
+  createMemory: (value: MemoryMutation) => Promise<Memory>;
+  updateMemory: (id: string, value: MemoryMutation) => Promise<Memory>;
+  deleteMemory: (id: string) => Promise<void>;
+  importNotes: () => Promise<NoteImportResult>;
+  searchNotes: (query: string, mode: NoteSearchMode) => Promise<readonly NoteResult[]>;
+  runDream: () => Promise<DreamSummary>;
+  onDreamProgress: (listener: (progress: DreamProgress) => void) => () => void;
+  listInstructionFiles: () => Promise<readonly InstructionFileSummary[]>;
+  getInstructionFile: (id: InstructionFileId) => Promise<InstructionFile>;
+  updateInstructionFile: (id: InstructionFileId, content: string) => Promise<InstructionFile>;
+}
+
+export interface RailgunDesktopApi extends KnowledgeDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
   restartBackend: () => Promise<BackendSnapshot>;
   onBackendSnapshot: (listener: (snapshot: BackendSnapshot) => void) => () => void;
@@ -154,4 +180,15 @@ export const DESKTOP_IPC = {
   interactionRequest: "agent:interaction-request",
   respondToApproval: "agent:approval-response",
   respondToClarification: "agent:clarification-response",
+  listMemories: "knowledge:memories-list",
+  createMemory: "knowledge:memory-create",
+  updateMemory: "knowledge:memory-update",
+  deleteMemory: "knowledge:memory-delete",
+  importNotes: "knowledge:notes-import",
+  searchNotes: "knowledge:notes-search",
+  runDream: "knowledge:dream-run",
+  dreamProgress: "knowledge:dream-progress",
+  listInstructionFiles: "knowledge:instructions-list",
+  getInstructionFile: "knowledge:instruction-get",
+  updateInstructionFile: "knowledge:instruction-update",
 } as const;

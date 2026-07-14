@@ -48,6 +48,7 @@ export const App = (): React.JSX.Element => {
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const activityLayoutMode = useRef<InspectorLayoutMode | undefined>(undefined);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
+  const knowledgeDirty = useRef(false);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
   const hasActivity = chat.state.activity.todos.length > 0
@@ -60,6 +61,9 @@ export const App = (): React.JSX.Element => {
   }, []);
 
   const selectArea = (next: AppArea): void => {
+    if (area === "knowledge" && next !== "knowledge" && knowledgeDirty.current
+      && !window.confirm("Discard your unsaved instruction changes?")) return;
+    if (next !== "knowledge") knowledgeDirty.current = false;
     setArea(next);
     try { writeStoredArea(window.localStorage, next); }
     catch { /* Navigation remains usable when storage is unavailable. */ }
@@ -242,7 +246,20 @@ export const App = (): React.JSX.Element => {
     onRetryBackend={restartBackend}
     onSelectScenario={selectMockScenario}
   />;
-  if (area === "knowledge") return <KnowledgePage onBack={() => selectArea("chat")} />;
+  if (area === "knowledge") {
+    if (snapshot.phase === "starting") return <main className="loading-shell">
+      <LoadingState title="Starting Railgun…" description="Knowledge will open when the backend is ready." />
+    </main>;
+    if (snapshot.phase !== "ready") return <main className="loading-shell">
+      <ErrorState title="Knowledge is unavailable" description={snapshot.error ?? "The backend is not ready."}>
+        {RETRYABLE_PHASES.has(snapshot.phase) ? <Button onClick={() => void restartBackend()}>Retry</Button> : null}
+      </ErrorState>
+    </main>;
+    return <KnowledgePage
+      onBack={() => selectArea("chat")}
+      onDirtyChange={dirty => { knowledgeDirty.current = dirty; }}
+    />;
+  }
 
   const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>

@@ -66,6 +66,7 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
       return { ...base, type, message: nonEmpty(value.message, "message") };
     case "abort": case "get_state": case "get_messages": case "get_available_models": case "compact":
     case "session_list": case "session_save": case "config_get": case "mcp_list": case "skills_list":
+    case "dream_run": case "instruction_files_list":
       return { ...base, type };
     case "set_model": return { ...base, type, modelId: nonEmpty(value.modelId, "modelId") };
     case "set_auto_compaction": {
@@ -149,6 +150,11 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     case "notes_search": {
       if (value.mode !== undefined && value.mode !== "keyword" && value.mode !== "semantic") throw new Error("invalid command: mode must be keyword or semantic");
       return { ...base, type, query: nonEmpty(value.query, "query"), ...(value.mode === undefined ? {} : { mode: value.mode }), ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }) };
+    }
+    case "instruction_file_get": return { ...base, type, fileId: nonEmpty(value.fileId, "fileId") };
+    case "instruction_file_update": {
+      if (typeof value.content !== "string") throw new Error("invalid command: content must be a string");
+      return { ...base, type, fileId: nonEmpty(value.fileId, "fileId"), content: value.content };
     }
     case "skill_get": return { ...base, type, name: nonEmpty(value.name, "name") };
     default: throw new Error(`unknown command: ${type}`);

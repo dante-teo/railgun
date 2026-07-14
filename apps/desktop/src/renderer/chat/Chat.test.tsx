@@ -92,6 +92,17 @@ const makeApi = (overrides: Partial<RailgunDesktopApi> = {}) => {
   let listener: ((event: DesktopAgentEvent) => void) | undefined;
   let interactionListener: ((request: import("../../shared/types").DesktopInteractionRequest) => void) | undefined;
   const api: RailgunDesktopApi = {
+    listMemories: async () => [],
+    createMemory: async value => ({ id: "memory", ...value, createdAt: 1 }),
+    updateMemory: async (id, value) => ({ id, ...value, createdAt: 1 }),
+    deleteMemory: async () => undefined,
+    importNotes: async () => ({ cancelled: true }),
+    searchNotes: async () => [],
+    runDream: async () => ({ status: "skipped", beforeCount: 0, afterCount: 0 }),
+    onDreamProgress: () => () => undefined,
+    listInstructionFiles: async () => [],
+    getInstructionFile: async () => { throw new Error("unused"); },
+    updateInstructionFile: async () => { throw new Error("unused"); },
     getBackendSnapshot: async () => ready,
     restartBackend: async () => ready,
     onBackendSnapshot: () => () => undefined,

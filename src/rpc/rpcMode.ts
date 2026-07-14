@@ -22,6 +22,8 @@ import type { RpcStoreDependencies } from "./storeHandlers.js";
 import { createRpcSessionHandler } from "./sessionHandlers.js";
 import { RPC_PROTOCOL_CAPABILITIES, RPC_PROTOCOL_VERSION } from "./types.js";
 import type { RpcCommand } from "./types.js";
+import { runDreamSession } from "../dream/dreamJob.js";
+import type { InstructionFileService } from "../instructions/instructionFiles.js";
 
 export interface RpcModeOptions {
   readonly session: DevinSession;
@@ -41,6 +43,8 @@ export interface RpcModeOptions {
   readonly now?: () => Date;
   readonly interactionTimeoutMs?: number;
   readonly resolveModelRuntime?: (modelId: string) => Promise<DevinSession>;
+  readonly instructionFiles?: InstructionFileService;
+  readonly runDream?: typeof runDreamSession;
 }
 
 const MANAGEMENT_COMMANDS = new Set<string>([
@@ -48,14 +52,19 @@ const MANAGEMENT_COMMANDS = new Set<string>([
   "cron_list", "cron_add", "cron_update", "cron_remove",
   "memory_list", "memory_search", "memory_create", "memory_update", "memory_delete",
   "notes_import", "notes_search", "skills_list", "skill_get",
+  "instruction_files_list", "instruction_file_get", "instruction_file_update",
 ]);
 
 const SESSION_COMMANDS = new Set<string>([
   "session_new", "session_list", "session_load", "session_save", "session_branch", "session_fork", "session_recent_messages", "session_transcript",
 ]);
+const MUTATING_MANAGEMENT_COMMANDS = new Set<string>([
+  "config_update", "mcp_upsert", "mcp_remove", "cron_add", "cron_update", "cron_remove",
+  "memory_create", "memory_update", "memory_delete", "notes_import", "instruction_file_update",
+]);
 
 const V1_ONLY_COMMANDS = new Set<string>([
-  "approval_response", "clarification_response", ...SESSION_COMMANDS, ...MANAGEMENT_COMMANDS,
+  "approval_response", "clarification_response", "dream_run", ...SESSION_COMMANDS, ...MANAGEMENT_COMMANDS,
 ]);
 
 const errorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -87,9 +96,10 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
   const approvals = new Set<string>();
   const modelRuntimes = new Map<string, DevinSession>([[session.model.id, session]]);
   const pendingModelRuntimes = new Map<string, Promise<DevinSession>>();
+  const contextDirtyModels = new Set<string>();
 
   const prepareModelRuntime = async (modelId: string): Promise<void> => {
-    if (modelRuntimes.has(modelId)) return;
+    if (modelRuntimes.has(modelId) && !contextDirtyModels.has(modelId)) return;
     let pending = pendingModelRuntimes.get(modelId);
     if (pending === undefined) {
       pending = (options.resolveModelRuntime ?? (async (requiredModelId: string) => {
@@ -109,6 +119,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
         throw new Error(`Resolved model runtime mismatch: expected ${modelId}, received ${runtime.model.id}`);
       }
       modelRuntimes.set(modelId, runtime);
+      contextDirtyModels.delete(modelId);
     } finally {
       pendingModelRuntimes.delete(modelId);
     }
@@ -160,6 +171,8 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
     ...(options.saveJobs === undefined ? {} : { saveJobs: options.saveJobs }),
     ...(options.loadSkills === undefined ? {} : { loadSkills: options.loadSkills }),
     ...(options.embedText === undefined ? {} : { embedText: options.embedText }),
+    ...(options.instructionFiles === undefined ? {} : { instructionFiles: options.instructionFiles }),
+    onInstructionsUpdated: () => { for (const modelId of modelRuntimes.keys()) contextDirtyModels.add(modelId); },
     randomId: newId,
   });
 
@@ -323,6 +336,20 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
     }
     if (command.type === "set_auto_compaction") { respond(command.type, id); return; }
 
+    if (command.type === "dream_run") {
+      if (run.current !== null) { respond(command.type, id, undefined, "cannot run Dream while agent is running"); return; }
+      if (sessionHandler.busy) { respond(command.type, id, undefined, "cannot run Dream while another task operation is active"); return; }
+      if (options.memoryStore === undefined) { respond(command.type, id, undefined, "memory store is unavailable"); return; }
+      void track(sessionHandler.runExclusive("run Dream", async selected => {
+        const runtime = requireModelRuntime(selected.model);
+        return (options.runDream ?? runDreamSession)(
+          options.memoryStore!, session.devin, runtime.model, () => undefined,
+          progress => writeObject({ type: "dream_progress", ...progress }),
+        );
+      }).then(data => respond(command.type, id, data)).catch(error => respond(command.type, id, undefined, errorMessage(error))));
+      return;
+    }
+
     if (SESSION_COMMANDS.has(command.type)) {
       void track(sessionHandler.handle(command as Parameters<typeof sessionHandler.handle>[0])
         .then(data => {
@@ -334,7 +361,11 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
     }
 
     if (MANAGEMENT_COMMANDS.has(command.type)) {
-      void track(storeHandler(command as Parameters<typeof storeHandler>[0])
+      const handleStore = () => storeHandler(command as Parameters<typeof storeHandler>[0]);
+      const operation = MUTATING_MANAGEMENT_COMMANDS.has(command.type)
+        ? sessionHandler.runExclusive(`run ${command.type}`, handleStore)
+        : handleStore();
+      void track(operation
         .then(data => respond(command.type, id, data))
         .catch(error => respond(command.type, id, undefined, errorMessage(error))));
       return;

@@ -8,12 +8,15 @@ import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { EmbedFn, NoteStore } from "../persistence/noteStore.js";
 import { loadSkills } from "../skills.js";
 import type { RpcCommand } from "./types.js";
+import { createInstructionFileService, parseInstructionFileId } from "../instructions/instructionFiles.js";
+import type { InstructionFileService } from "../instructions/instructionFiles.js";
 
 type ManagementCommand = Extract<RpcCommand,
   { type: "config_get" | "config_update" | "mcp_list" | "mcp_upsert" | "mcp_remove" |
     "cron_list" | "cron_add" | "cron_update" | "cron_remove" |
     "memory_list" | "memory_search" | "memory_create" | "memory_update" | "memory_delete" |
-    "notes_import" | "notes_search" | "skills_list" | "skill_get" }>;
+    "notes_import" | "notes_search" | "skills_list" | "skill_get" |
+    "instruction_files_list" | "instruction_file_get" | "instruction_file_update" }>;
 
 export interface RpcStoreDependencies {
   readonly memoryStore?: MemoryStore;
@@ -26,6 +29,8 @@ export interface RpcStoreDependencies {
   readonly loadSkills?: typeof loadSkills;
   readonly embedText?: EmbedFn;
   readonly randomId?: () => string;
+  readonly instructionFiles?: InstructionFileService;
+  readonly onInstructionsUpdated?: () => void;
 }
 
 const cleanConfig = (config: AppConfig): AppConfig => {
@@ -63,6 +68,7 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
   const writeJobs = dependencies.saveJobs ?? (jobs => saveJobs(jobs));
   const skills = dependencies.loadSkills ?? loadSkills;
   const newId = dependencies.randomId ?? randomUUID;
+  const instructionFiles = dependencies.instructionFiles ?? createInstructionFileService();
 
   const mutateConfig = async (transform: (current: Readonly<AppConfig>) => AppConfig): Promise<AppConfig> => {
     const updated = await persistConfig(transform);
@@ -180,7 +186,7 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
       }
       case "notes_import": {
         const store = requireNotes(dependencies.noteStore);
-        if (command.semantic) {
+        if (command.semantic === true) {
           if (dependencies.embedText === undefined) throw new Error("semantic note embedding is unavailable");
           return { imported: await store.importFolderWithEmbeddings(command.folderPath, dependencies.embedText) };
         }
@@ -193,6 +199,13 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
           return { notes: store.searchSemantic(await dependencies.embedText(command.query, "query"), command.limit) };
         }
         return { notes: store.search(command.query, command.limit) };
+      }
+      case "instruction_files_list": return { files: await instructionFiles.list() };
+      case "instruction_file_get": return { file: await instructionFiles.get(parseInstructionFileId(command.fileId)) };
+      case "instruction_file_update": {
+        const file = await instructionFiles.update(parseInstructionFileId(command.fileId), command.content);
+        dependencies.onInstructionsUpdated?.();
+        return { file };
       }
       case "skills_list": return { skills: [...skills().values()].map(skill => ({ name: skill.name, description: skill.description, disableModelInvocation: skill.disableModelInvocation })) };
       case "skill_get": {

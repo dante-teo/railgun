@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, session, shell } from "electron";
 import { resolve } from "node:path";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
 import { createInteractionBroker } from "./interactionBroker";
@@ -46,6 +46,9 @@ import {
   McpServerNameSchema,
   McpServerListSchema,
   McpServerUpsertSchema,
+  MemoryIdSchema, MemoryMutationSchema, MemoryListSchema, MemorySchema, KnowledgeQuerySchema,
+  NoteImportResultSchema, NoteResultListSchema, NoteSearchModeSchema, DreamSummarySchema, DreamProgressSchema,
+  InstructionFileIdSchema, InstructionFileListSchema, InstructionFileSchema, InstructionContentSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
@@ -58,6 +61,7 @@ import { createSettingsService } from "./settingsService";
 import { createAuthenticationCoordinator, createAuthenticationService } from "./authenticationService";
 import { createCronService } from "./cronService";
 import { createManagementService } from "./managementService";
+import { createKnowledgeService } from "./knowledgeService";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -138,6 +142,13 @@ const fileService = createFileService(app.getPath("home"), {
   },
   reveal: path => shell.showItemInFolder(path),
 });
+const knowledgeService = createKnowledgeService(
+  (command, validate) => supervisor.call(command, validate),
+  async () => {
+    const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    return result.canceled ? undefined : result.filePaths[0];
+  },
+);
 
 const senderContext = {
   windows: railgunWindows,
@@ -150,6 +161,7 @@ interface RendererPushPayloads {
   [DESKTOP_IPC.agentEvent]: DesktopAgentEvent;
   [DESKTOP_IPC.interactionRequest]: import("../shared/types").DesktopInteractionRequest;
   [DESKTOP_IPC.sessionSnapshot]: SessionSnapshot;
+  [DESKTOP_IPC.dreamProgress]: import("../shared/types").DreamProgress;
 }
 
 const sendToRailgunWindows = <Channel extends keyof RendererPushPayloads>(
@@ -350,6 +362,49 @@ const registerIpc = (): void => {
     assertAuthorizedIpcSender(event, senderContext);
     return McpServerListSchema.parse(await managementService.removeMcpServer(McpServerNameSchema.parse(value)));
   });
+  ipcMain.handle(DESKTOP_IPC.listMemories, async (event, query: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    const validQuery = query === undefined ? undefined : KnowledgeQuerySchema.parse(query);
+    return MemoryListSchema.parse(await knowledgeService.listMemories(validQuery));
+  });
+  ipcMain.handle(DESKTOP_IPC.createMemory, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return MemorySchema.parse(await mutationQueue.run(() => knowledgeService.createMemory(MemoryMutationSchema.parse(value))));
+  });
+  ipcMain.handle(DESKTOP_IPC.updateMemory, async (event, id: unknown, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return MemorySchema.parse(await mutationQueue.run(() => knowledgeService.updateMemory(MemoryIdSchema.parse(id), MemoryMutationSchema.parse(value))));
+  });
+  ipcMain.handle(DESKTOP_IPC.deleteMemory, async (event, id: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    await mutationQueue.run(() => knowledgeService.deleteMemory(MemoryIdSchema.parse(id)));
+  });
+  ipcMain.handle(DESKTOP_IPC.importNotes, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return NoteImportResultSchema.parse(await mutationQueue.run(() => knowledgeService.importNotes()));
+  });
+  ipcMain.handle(DESKTOP_IPC.searchNotes, async (event, query: unknown, mode: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return NoteResultListSchema.parse(await knowledgeService.searchNotes(KnowledgeQuerySchema.parse(query), NoteSearchModeSchema.parse(mode)));
+  });
+  ipcMain.handle(DESKTOP_IPC.runDream, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return DreamSummarySchema.parse(await mutationQueue.run(() => knowledgeService.runDream()));
+  });
+  ipcMain.handle(DESKTOP_IPC.listInstructionFiles, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return InstructionFileListSchema.parse(await knowledgeService.listInstructionFiles());
+  });
+  ipcMain.handle(DESKTOP_IPC.getInstructionFile, async (event, id: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return InstructionFileSchema.parse(await knowledgeService.getInstructionFile(InstructionFileIdSchema.parse(id)));
+  });
+  ipcMain.handle(DESKTOP_IPC.updateInstructionFile, async (event, id: unknown, content: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return InstructionFileSchema.parse(await mutationQueue.run(() => knowledgeService.updateInstructionFile(
+      InstructionFileIdSchema.parse(id), InstructionContentSchema.parse(content),
+    )));
+  });
 };
 
 const createWindow = (initialCommand?: AppCommand): BrowserWindow => {
@@ -401,6 +456,8 @@ const createWindow = (initialCommand?: AppCommand): BrowserWindow => {
 registerIpc();
 supervisor.subscribe(broadcastSnapshot);
 supervisor.subscribeBackendEvents((value) => {
+  const progress = DreamProgressSchema.safeParse(value);
+  if (progress.success) sendToRailgunWindows(DESKTOP_IPC.dreamProgress, progress.data);
   interactionBroker.receiveBackendEvent(value);
   const event = toDesktopAgentEvent(value);
   if (event === undefined) return;

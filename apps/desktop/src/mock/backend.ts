@@ -102,7 +102,6 @@ let cronJobs: MockCronJob[] = [
   { id: "mock-cron-review", schedule: "*/30 8-17 * * MON-FRI", prompt: "Review active work and flag blockers", lastRun: 1_752_500_000_000, requiredOutputs: ["/tmp/private-contract"] },
 ];
 let nextCronJob = 1;
-
 const mockSkills = [
   { name: "desktop-testing", description: "Test desktop flows with deterministic fixtures.", disableModelInvocation: false, body: "# Desktop testing\n\nUse deterministic scenarios and assert renderer-safe boundaries." },
   { name: "release-checklist", description: "Review release readiness without automatic model invocation.", disableModelInvocation: true, body: "# Release checklist\n\nVerify tests, packaging, and release notes." },
@@ -116,6 +115,24 @@ const safeMockMcpServers = (): readonly Record<string, unknown>[] => Object.entr
   args: server.args,
   env: Object.keys(server.env).sort().map(key => ({ name: key, present: true })),
 }));
+let memories = [
+  { id: "memory-1", content: "Prefer concise implementation summaries", category: "preference", createdAt: 1_720_000_005 },
+  { id: "memory-2", content: "The desktop app uses Electron and React", category: "fact", createdAt: 1_720_000_004 },
+  { id: "memory-3", content: "Use pnpm for JavaScript projects", category: "preference", createdAt: 1_720_000_003 },
+  { id: "memory-4", content: "Knowledge imports Markdown and text notes", category: "fact", createdAt: 1_720_000_002 },
+  { id: "memory-5", content: "Keep renderer filesystem access restricted", category: "fact", createdAt: 1_720_000_001 },
+];
+let nextMemory = 6;
+const instructionFiles = [
+  { id: "soul", label: "~/.railgun/SOUL.md", status: "active", content: "# Soul\n\nBe clear and practical.\n" },
+  { id: "railgun-dotfile", label: "~/.railgun.md", status: "active", content: "# Global instructions\n\nUse focused changes.\n" },
+  { id: "railgun", label: "~/RAILGUN.md", status: "missing", content: "" },
+  { id: "agents-upper", label: "~/AGENTS.md", status: "shadowed", content: "# Agent instructions\n" },
+  { id: "agents-lower", label: "~/agents.md", status: "missing", content: "" },
+  { id: "claude-upper", label: "~/CLAUDE.md", status: "missing", content: "" },
+  { id: "claude-lower", label: "~/claude.md", status: "missing", content: "" },
+  { id: "cursor-rules", label: "~/.cursorrules", status: "missing", content: "" },
+];
 let writingFrame = false;
 interface QueuedFrame {
   readonly line: string;
@@ -216,7 +233,7 @@ if (scenario.behavior === "authentication-required") {
       const sendHandshake = (): void => respond(type, command.id, {
         data: {
           version: 1,
-          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "notes", "skills"],
+          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "notes", "dream", "instructions", "skills"],
         },
       });
       setTimeout(sendHandshake, scenario.behavior === "delayed-startup" ? 600 : 5);
@@ -489,6 +506,60 @@ if (scenario.behavior === "authentication-required") {
       if (!cronJobs.some(job => job.id === command.jobId)) { respond(type, command.id, { error: `cron job not found: ${String(command.jobId)}` }); return; }
       cronJobs = cronJobs.filter(job => job.id !== command.jobId);
       respond(type, command.id);
+      return;
+    }
+    if (type === "memory_list" || type === "memory_search") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: `mock store error: ${type}` }); return; }
+      const query = typeof command.query === "string" ? command.query.toLocaleLowerCase() : "";
+      const result = scenario.behavior === "empty-stores" ? [] : memories.filter(memory => memory.content.toLocaleLowerCase().includes(query)).slice(0, 100);
+      respond(type, command.id, { data: { memories: result } }); return;
+    }
+    if (type === "memory_create") {
+      const memory = { id: `memory-${String(nextMemory++)}`, content: command.content, category: command.category, createdAt: Date.now() / 1000 };
+      memories = [memory as typeof memories[number], ...memories]; respond(type, command.id, { data: { memory } }); return;
+    }
+    if (type === "memory_update") {
+      const index = memories.findIndex(memory => memory.id === command.memoryId);
+      if (index < 0) { respond(type, command.id, { error: "memory not found" }); return; }
+      const patch = command.patch as Record<string, unknown>;
+      memories[index] = { ...memories[index]!, ...patch } as typeof memories[number];
+      respond(type, command.id, { data: { memory: memories[index] } }); return;
+    }
+    if (type === "memory_delete") {
+      memories = memories.filter(memory => memory.id !== command.memoryId); respond(type, command.id); return;
+    }
+    if (type === "notes_import") { respond(type, command.id, { data: { imported: 4 } }); return; }
+    if (type === "notes_search") {
+      const notes = scenario.behavior === "empty-stores" ? [] : [
+        command.mode === "semantic"
+          ? { id: 1, sourcePath: "/redacted/mock/knowledge.md", content: "A semantic result about the imported knowledge base.", distance: 0.12 }
+          : { id: 1, sourcePath: "/redacted/mock/knowledge.md", snippet: "A keyword result from the imported knowledge base." },
+      ];
+      respond(type, command.id, { data: { notes } }); return;
+    }
+    if (type === "dream_run") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot run Dream while agent is running" }); return; }
+      const beforeCount = memories.length;
+      if (beforeCount < 5) {
+        writeFragmented({ type: "dream_progress", stage: "skipped", memoryCount: beforeCount });
+        respond(type, command.id, { data: { status: "skipped", beforeCount, afterCount: beforeCount } }); return;
+      }
+      writeFragmented({ type: "dream_progress", stage: "reviewing", memoryCount: beforeCount });
+      setTimeout(() => writeFragmented({ type: "dream_progress", stage: "consolidating", memoryCount: beforeCount }), 25);
+      setTimeout(() => writeFragmented({ type: "dream_progress", stage: "promoting", memoryCount: beforeCount }), 50);
+      setTimeout(() => { writeFragmented({ type: "dream_progress", stage: "complete", memoryCount: memories.length }); respond(type, command.id, { data: { status: "completed", beforeCount, afterCount: memories.length } }); }, 75);
+      return;
+    }
+    if (type === "instruction_files_list") { respond(type, command.id, { data: { files: instructionFiles.map(({ content: _content, ...file }) => file) } }); return; }
+    if (type === "instruction_file_get") {
+      const file = instructionFiles.find(item => item.id === command.fileId);
+      if (file === undefined) respond(type, command.id, { error: "unknown instruction file id" }); else respond(type, command.id, { data: { file } });
+      return;
+    }
+    if (type === "instruction_file_update") {
+      const file = instructionFiles.find(item => item.id === command.fileId);
+      if (file === undefined) respond(type, command.id, { error: "unknown instruction file id" });
+      else { file.content = String(command.content ?? ""); file.status = "active"; respond(type, command.id, { data: { file } }); }
       return;
     }
     const emptyStoreData: Record<string, unknown> = {

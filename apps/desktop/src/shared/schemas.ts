@@ -254,6 +254,54 @@ export const ExternalUrlSchema = z.string().max(2_048).transform((value, context
 });
 export const EmptyResponseSchema = z.undefined();
 
+export const KNOWLEDGE_LIMITS = Object.freeze({ content: 100_000, category: 100, snippet: 2_000, results: 100 });
+export const MemoryIdSchema = z.string().trim().min(1).max(256);
+export const MemoryContentSchema = z.string().trim().min(1).max(KNOWLEDGE_LIMITS.content);
+export const MemoryCategorySchema = z.string().trim().min(1).max(KNOWLEDGE_LIMITS.category);
+export const MemorySchema = z.strictObject({
+  id: MemoryIdSchema,
+  content: MemoryContentSchema,
+  category: MemoryCategorySchema,
+  createdAt: z.number().finite(),
+});
+export const MemoryListSchema = z.array(MemorySchema).max(KNOWLEDGE_LIMITS.results).readonly();
+export const MemoryMutationSchema = z.strictObject({ content: MemoryContentSchema, category: MemoryCategorySchema });
+export const KnowledgeQuerySchema = z.string().trim().min(1).max(10_000);
+export const NoteSearchModeSchema = z.enum(["keyword", "semantic"]);
+export const NoteResultSchema = z.strictObject({
+  id: z.number().int().positive(),
+  sourceName: z.string().min(1).max(255),
+  snippet: z.string().max(KNOWLEDGE_LIMITS.snippet),
+  distance: z.number().finite().optional(),
+});
+export const NoteResultListSchema = z.array(NoteResultSchema).max(20).readonly();
+export const NoteImportResultSchema = z.discriminatedUnion("cancelled", [
+  z.strictObject({ cancelled: z.literal(true) }),
+  z.strictObject({ cancelled: z.literal(false), imported: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }),
+]);
+export const DreamSummarySchema = z.strictObject({
+  status: z.enum(["completed", "skipped"]),
+  beforeCount: z.number().int().nonnegative(),
+  afterCount: z.number().int().nonnegative(),
+});
+export const DreamProgressSchema = z.strictObject({
+  type: z.literal("dream_progress"),
+  stage: z.enum(["reviewing", "consolidating", "promoting", "skipped", "complete"]),
+  memoryCount: z.number().int().nonnegative(),
+});
+export const InstructionFileIdSchema = z.enum([
+  "soul", "railgun-dotfile", "railgun", "agents-upper", "agents-lower",
+  "claude-upper", "claude-lower", "cursor-rules",
+]);
+export const InstructionFileSummarySchema = z.strictObject({
+  id: InstructionFileIdSchema,
+  label: z.string().min(1).max(100),
+  status: z.enum(["missing", "active", "shadowed"]),
+});
+export const InstructionFileListSchema = z.array(InstructionFileSummarySchema).length(8).readonly();
+export const InstructionFileSchema = InstructionFileSummarySchema.extend({ content: z.string().max(1_000_000) });
+export const InstructionContentSchema = z.string().max(1_000_000);
+
 export const SessionIdSchema = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.id);
 export const PersistenceMessageIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sessionModel = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.model);

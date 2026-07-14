@@ -81,6 +81,19 @@ const fileApi = {
   previewFile: async () => ({ kind: "text" as const, text: "" }),
   revealFile: async () => undefined,
 };
+const knowledgeApi = {
+  listMemories: async () => [],
+  createMemory: async (value: { content: string; category: string }) => ({ id: "memory", ...value, createdAt: 1 }),
+  updateMemory: async (id: string, value: { content: string; category: string }) => ({ id, ...value, createdAt: 1 }),
+  deleteMemory: async () => undefined,
+  importNotes: async () => ({ cancelled: true as const }),
+  searchNotes: async () => [],
+  runDream: async () => ({ status: "skipped" as const, beforeCount: 0, afterCount: 0 }),
+  onDreamProgress: () => () => undefined,
+  listInstructionFiles: async () => [],
+  getInstructionFile: async () => { throw new Error("unused"); },
+  updateInstructionFile: async () => { throw new Error("unused"); },
+};
 
 describe("BackendStatus", () => {
   it.each([
@@ -125,6 +138,45 @@ describe("desktop shell", () => {
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "obsolete" }) })).toBe("chat");
   });
 
+  it("waits for backend readiness before mounting restored Knowledge", async () => {
+    window.localStorage.setItem("railgun.desktop.route", JSON.stringify({ version: 1, area: "knowledge" }));
+    let backendListener: ((next: BackendSnapshot) => void) | undefined;
+    const listSkills = vi.fn(async () => []);
+    const api: RailgunDesktopApi = {
+      ...knowledgeApi,
+      getBackendSnapshot: async () => snapshot("starting"),
+      restartBackend: async () => snapshot("starting"),
+      onBackendSnapshot: listener => { backendListener = listener; return () => undefined; },
+      listMockScenarios: async () => [],
+      selectMockScenario: async () => snapshot("ready"),
+      sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
+      abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
+      ...fileApi,
+      startNewChat: async () => desktopSession,
+      ...sessionApi,
+      ...controlApi,
+      listSkills,
+      onAgentEvent: () => () => undefined,
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
+      onAppCommand: () => () => undefined,
+    };
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
+
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Starting Railgun…" })).toBeTruthy();
+    expect(listSkills).not.toHaveBeenCalled();
+
+    act(() => backendListener?.(snapshot("ready")));
+
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
+    await waitFor(() => expect(listSkills).toHaveBeenCalled());
+  });
+
   it("lists, filters, and resumes a rich saved session without rendering provider internals", async () => {
     const rich = {
       id: "rich", startedAt: "2026-07-14T08:45:00.000Z", model: "mock-model", messageCount: 3, running: false,
@@ -143,6 +195,7 @@ describe("desktop shell", () => {
       .mockResolvedValue({ ...rich, messageCount: 2, transcript: rich.transcript.slice(0, 2) });
     const forkSession = vi.fn(async () => ({ ...rich, id: "rich-fork" }));
     const api: RailgunDesktopApi = {
+      ...knowledgeApi,
       getBackendSnapshot: async () => snapshot("ready"), restartBackend: async () => snapshot("starting"), onBackendSnapshot: () => () => undefined,
       listMockScenarios: async () => [], selectMockScenario: async () => snapshot("ready"),
       sendPrompt: async () => undefined, steerPrompt: async () => undefined, followUpPrompt: async () => undefined, abortPrompt: async () => undefined,
@@ -210,6 +263,7 @@ describe("desktop shell", () => {
     const abortPrompt = vi.fn(async () => undefined);
     const startNewChat = vi.fn(async () => desktopSession);
     const api: RailgunDesktopApi = {
+      ...knowledgeApi,
       getBackendSnapshot: async () => snapshot("ready"),
       restartBackend: async () => snapshot("starting"),
       onBackendSnapshot: () => () => undefined,
@@ -319,6 +373,7 @@ describe("desktop shell", () => {
   it("retries a failed backend from the shell", async () => {
     const restartBackend = vi.fn(async () => snapshot("starting"));
     const api: RailgunDesktopApi = {
+      ...knowledgeApi,
       getBackendSnapshot: async () => snapshot("failed"),
       restartBackend,
       onBackendSnapshot: () => () => undefined,
@@ -355,6 +410,7 @@ describe("desktop shell", () => {
     let appCommandListener: ((command: import("../shared/types").AppCommand) => void) | undefined;
     const restartBackend = vi.fn(async () => snapshot("starting"));
     const api: RailgunDesktopApi = {
+      ...knowledgeApi,
       getBackendSnapshot: async () => snapshot("ready"),
       restartBackend,
       onBackendSnapshot: () => () => undefined,
@@ -411,6 +467,7 @@ describe("desktop shell", () => {
 
   it("shows a boundary error when the initial backend snapshot rejects", async () => {
     const api: RailgunDesktopApi = {
+      ...knowledgeApi,
       getBackendSnapshot: async () => { throw new Error("Snapshot validation failed"); },
       restartBackend: async () => snapshot("starting"),
       onBackendSnapshot: () => () => undefined,
