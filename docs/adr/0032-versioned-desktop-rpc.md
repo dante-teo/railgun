@@ -14,7 +14,8 @@ RPC connections begin in legacy mode. A client opts into protocol v1 by sending 
 
 Protocol v1 adds:
 
-- persistent active-session metadata and session list/load/save/branch/fork/recent-message commands;
+- persistent active-session metadata and session list/load/save/branch/fork,
+  recent-message, and bounded transcript-page commands;
 - request-ID-correlated approval and clarification events/responses;
 - config and secret-redacted MCP management;
 - cron, memory, note import/search, and skill-read commands.
@@ -44,17 +45,31 @@ An initialized connection allocates an unsaved session immediately. A valid comp
 
 Session mutations, model changes, and compaction share one ordered session-operation queue. Compaction therefore checkpoints the session it started against before a queued load/new/fork can activate another transcript. Each activated model is resolved to its full provider metadata and model-specific system prompt before session activation. Changing the model of a saved or checkpoint-error transcript derives a new unsaved session ID with copied history and todos, preserving the immutable metadata of the original saved session; changing an empty unsaved session updates it in place. Legacy `set_model` behavior remains unchanged.
 
+`session_load` remains response-compatible and includes full provider history by
+default. Bounded-frame clients request `includeMessages: false`, then retrieve
+the active session through `session_transcript` pages. That projection removes
+thinking, tool calls, tool results, and provider-only fields before transport,
+caps each textual message and page by serialized UTF-8 size, and requires the
+requested session ID to match the active session. Cursor pagination prevents a
+large persisted history or a single oversized provider payload from exceeding
+Electron's JSONL frame limit.
+
 MCP secrets never cross JSONL: reads expose command, arguments, and environment key presence only. MCP environment upserts retain omitted keys and delete keys assigned `null`. Generic config patches reject `mcpServers`; both config and cron continue to use their existing atomic writers.
 
-Desktop chat controls reuse the existing `get_available_models`, `get_state`,
+Desktop task controls reuse the existing `get_available_models`, `get_state`,
 `set_model`, `config_get`, `config_update`, and `compact` commands rather than
 adding parallel backend commands. Electron main is the orchestration boundary:
 it validates and reduces those responses to display-safe metadata, serializes
 mutations, and keeps raw configuration out of the renderer. A persisted model
-choice switches the active chat before writing the default so write failure can
+choice switches the active task before writing the default so write failure can
 be returned as a recoverable partial outcome. The generic config update treats
 `activeMoaPreset: null` as narrow deletion; advisor patches remain shallow
 object replacement, preserving unrelated top-level unknown fields.
+
+After a desktop model mutation succeeds, Electron main reads and broadcasts a
+new authoritative session snapshot. This is required because changing the model
+of a saved session forks its identity; renderer title, checkpoint state,
+transcript metadata, and active session selection must move together.
 
 `turn_end` may add provider-reported input/output totals. This is an additive
 event field: existing required fields and legacy RPC behavior are unchanged.

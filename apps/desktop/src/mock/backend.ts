@@ -1,9 +1,74 @@
 import { createInterface } from "node:readline";
+import { createRpcTranscriptPage } from "../../../../src/rpc/sessionTranscript.js";
 import { getMockScenario } from "./scenarios";
 
 const scenario = getMockScenario(process.argv[2] ?? "ready-idle");
 let messageCount = 0;
 let activeModel = "mock-model";
+interface MockSession {
+  readonly id: string;
+  readonly startedAt: string;
+  readonly startedAtLocal: string;
+  model: string;
+  messages: unknown[];
+  todos: unknown[];
+  persistence: "unsaved" | "saved" | "error";
+  checkpointError?: string;
+}
+const savedSessions: MockSession[] = [
+  {
+    id: "mock-session-rich-history", startedAt: "2026-07-14T08:45:00.000Z", startedAtLocal: "7/14/2026, 4:45:00 PM", model: "mock-model", persistence: "saved",
+    messages: [
+      { role: "user", content: "Build a rich session history for desktop QA" },
+      { role: "assistant", content: [{ type: "thinking", thinking: "This private reasoning must never render", thinkingSignature: "mock-private-signature" }, { type: "text", text: "# Desktop QA plan\n\nI’ll exercise **session restoration**, Markdown, todos, and scrolling.\n\n- Resume the saved session\n- Verify the toolbar title\n- Confirm private tool data is absent" }] },
+      { role: "user", content: "Include a code example and a status table" },
+      { role: "assistant", content: [{ type: "toolCall", id: "rich-tool-1", name: "read_file", arguments: { path: "/private/mock/path", token: "must-not-cross-boundary" } }] },
+      { role: "tool", toolCallId: "rich-tool-1", content: "sensitive raw provider payload", isError: false },
+      { role: "assistant", content: [{ type: "text", text: "Here is the renderer check:\n\n```ts\nconst restored = transcript.every(message => message.text.length > 0);\n```\n\n| Area | Expected |\n| --- | --- |\n| Transcript | Rich text restored |\n| Tools | Hidden |\n| Todos | Visible |" }] },
+      { role: "user", content: "What edge cases should I click through?" },
+      { role: "assistant", content: [{ type: "text", text: "Try filtering by `rich`, `mock-model`, and the full session ID. Then switch sessions, start a new chat, and return here. Also resize the sidebar and inspector to stress the layout." }] },
+      { role: "user", content: "Add enough content to verify transcript scrolling." },
+      { role: "assistant", content: [{ type: "text", text: "Scroll verification paragraph one: restored messages retain their original order.\n\nParagraph two: the transcript should begin near the latest message while remaining keyboard accessible.\n\nParagraph three: checkpoint status should read Saved immediately after resume.\n\nParagraph four: no thinking signatures, tool arguments, or tool-result payloads should appear anywhere in the renderer." }] },
+    ],
+    todos: [
+      { id: "rich-done", content: "Restore textual conversation history", status: "completed" },
+      { id: "rich-active", content: "Inspect the rich transcript visually", status: "in_progress" },
+      { id: "rich-next", content: "Test filtering and session switching", status: "pending" },
+      { id: "rich-cancelled", content: "Render raw tool payloads", status: "cancelled" },
+    ],
+  },
+  {
+    id: "mock-session-recent", startedAt: "2026-07-14T08:30:00.000Z", startedAtLocal: "7/14/2026, 4:30:00 PM", model: "mock-model", persistence: "saved",
+    messages: [
+      { role: "user", content: "Polish the desktop session navigator" },
+      { role: "assistant", content: [{ type: "thinking", thinking: "private mock thought", thinkingSignature: "secret" }, { type: "toolCall", id: "call-1", name: "read_file", arguments: { path: "secret" } }, { type: "text", text: "The navigator is ready to review." }] },
+      { role: "tool", toolCallId: "call-1", content: "raw tool output must stay private", isError: false },
+    ],
+    todos: [{ id: "mock-todo", content: "Verify restored session UI", status: "in_progress" }],
+  },
+  {
+    id: "mock-session-older", startedAt: "2026-07-13T05:15:00.000Z", startedAtLocal: "7/13/2026, 1:15:00 PM", model: "mock-reference", persistence: "saved",
+    messages: [{ role: "user", content: "Audit keyboard navigation" }, { role: "assistant", content: [{ type: "text", text: "Keyboard navigation is covered." }] }], todos: [],
+  },
+];
+let nextSession = 1;
+let activeSession: MockSession = {
+  id: "mock-session", startedAt: "2026-07-14T09:00:00.000Z", startedAtLocal: "7/14/2026, 5:00:00 PM",
+  model: "mock-model", messages: [], todos: [], persistence: "unsaved",
+};
+const syncSessionState = (): void => { messageCount = activeSession.messages.length; activeModel = activeSession.model; };
+const firstUserPreview = (session: MockSession): string => {
+  const message = session.messages.find(value => typeof value === "object" && value !== null && (value as Record<string, unknown>).role === "user") as Record<string, unknown> | undefined;
+  return typeof message?.content === "string" ? message.content.slice(0, 500) : "";
+};
+const checkpointMockTurn = (assistantText: string): void => {
+  activeSession.messages.push({ role: "assistant", content: [{ type: "text", text: assistantText }] });
+  activeSession.persistence = scenario.behavior === "store-error" ? "error" : "saved";
+  if (activeSession.persistence === "error") activeSession.checkpointError = "mock checkpoint write failed";
+  else delete activeSession.checkpointError;
+  messageCount = activeSession.messages.length;
+  if (!savedSessions.some(session => session.id === activeSession.id)) savedSessions.unshift(activeSession);
+};
 let config: Record<string, unknown> = {
   model: "mock-model",
   defaultProjectTrust: "ask",
@@ -133,10 +198,12 @@ if (scenario.behavior === "authentication-required") {
             running: activePrompt !== undefined,
             model: activeModel,
             messageCount,
-            todos: [],
+            todos: activeSession.todos,
             protocolVersion: 1,
-            sessionId: "mock-session",
-            persistence: "unsaved",
+            sessionId: activeSession.id,
+            startedAt: activeSession.startedAt,
+            persistence: activeSession.persistence,
+            ...(activeSession.checkpointError === undefined ? {} : { checkpointError: activeSession.checkpointError }),
           },
         });
         if (scenario.behavior === "disconnect-after-ready") {
@@ -144,6 +211,61 @@ if (scenario.behavior === "authentication-required") {
         }
       };
       setTimeout(sendState, scenario.behavior === "delayed-startup" ? 600 : 15);
+      return;
+    }
+    if (type === "get_messages") {
+      respond(type, command.id, { data: { messages: activeSession.messages } });
+      return;
+    }
+    if (type === "session_list") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: session_list" }); return; }
+      const sessions = scenario.behavior === "empty-stores" ? [] : savedSessions.map(session => ({
+        id: session.id, model: session.model, startedAtLocal: session.startedAtLocal,
+        messageCount: session.messages.length, firstUserPreview: firstUserPreview(session),
+      }));
+      setTimeout(() => respond(type, command.id, { data: { sessions } }), 25);
+      return;
+    }
+    if (type === "session_new") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot create a new session while agent is running" }); return; }
+      const id = `mock-new-${String(nextSession++)}`;
+      activeSession = { id, startedAt: new Date(Date.UTC(2026, 6, 14, 10, nextSession)).toISOString(), startedAtLocal: "7/14/2026, 6:00:00 PM", model: "mock-model", messages: [], todos: [], persistence: "unsaved" };
+      syncSessionState();
+      setTimeout(() => respond(type, command.id, { data: { sessionId: id } }), 40);
+      return;
+    }
+    if (type === "session_load") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot load a session while agent is running" }); return; }
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: session_load" }); return; }
+      if (command.includeMessages !== undefined && typeof command.includeMessages !== "boolean") {
+        respond(type, command.id, { error: "invalid command: includeMessages must be a boolean" });
+        return;
+      }
+      const selected = savedSessions.find(session => session.id === command.sessionId);
+      if (selected === undefined) { respond(type, command.id, { error: `session not found: ${String(command.sessionId)}` }); return; }
+      activeSession = { ...selected, messages: [...selected.messages], todos: [...selected.todos] };
+      syncSessionState();
+      setTimeout(() => respond(type, command.id, {
+        data: {
+          sessionId: selected.id,
+          ...(command.includeMessages === false ? {} : { messages: activeSession.messages }),
+        },
+      }), 60);
+      return;
+    }
+    if (type === "session_transcript") {
+      if (command.sessionId !== activeSession.id) { respond(type, command.id, { error: "requested transcript does not match the active session" }); return; }
+      if (command.cursor !== undefined && (!Number.isInteger(command.cursor) || (command.cursor as number) < 0)) {
+        respond(type, command.id, { error: "invalid command: cursor must be a non-negative integer" });
+        return;
+      }
+      if (command.limit !== undefined && (!Number.isInteger(command.limit) || (command.limit as number) < 1 || (command.limit as number) > 100)) {
+        respond(type, command.id, { error: "invalid command: limit must be an integer between 1 and 100" });
+        return;
+      }
+      const cursor = command.cursor as number | undefined;
+      const limit = command.limit as number | undefined;
+      respond(type, command.id, { data: createRpcTranscriptPage(activeSession.id, activeSession.messages, cursor, limit) });
       return;
     }
     if (type === "get_available_models") {
@@ -160,7 +282,24 @@ if (scenario.behavior === "authentication-required") {
     if (type === "set_model") {
       if (activePrompt !== undefined) respond(type, command.id, { error: "cannot change model while agent is running" });
       else if (command.modelId !== "mock-model" && command.modelId !== "mock-reference") respond(type, command.id, { error: "unknown model" });
-      else { activeModel = command.modelId; respond(type, command.id); }
+      else if (command.modelId === activeSession.model) respond(type, command.id);
+      else {
+        const model = command.modelId;
+        activeSession = activeSession.persistence === "saved"
+          ? {
+            ...activeSession,
+            id: `mock-model-fork-${String(nextSession++)}`,
+            startedAt: new Date().toISOString(),
+            startedAtLocal: new Date().toLocaleString(),
+            model,
+            messages: [...activeSession.messages],
+            todos: [...activeSession.todos],
+            persistence: "unsaved",
+          }
+          : { ...activeSession, model };
+        syncSessionState();
+        respond(type, command.id);
+      }
       return;
     }
     if (type === "config_update") {
@@ -182,7 +321,7 @@ if (scenario.behavior === "authentication-required") {
       return;
     }
     const emptyStoreData: Record<string, unknown> = {
-      session_list: { sessions: [] }, memory_list: { memories: [] }, memory_search: { memories: [] },
+      memory_list: { memories: [] }, memory_search: { memories: [] },
       notes_search: { notes: [] }, cron_list: { jobs: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
     };
     if (type in emptyStoreData) {
@@ -196,7 +335,9 @@ if (scenario.behavior === "authentication-required") {
         return;
       }
       const text = typeof command.message === "string" ? command.message : "";
-      messageCount += 2;
+      activeSession.messages.push({ role: "user", content: text });
+      messageCount = activeSession.messages.length + 1;
+      activeSession.persistence = "unsaved";
       const prompt: ActivePrompt = { id: command.id, timers: new Set(), steering: [], followUp: [] };
       activePrompt = prompt;
       if (scenario.behavior === "approval" || scenario.behavior === "clarification" || scenario.behavior === "clarification-choice" || scenario.behavior === "clarification-free-text") {
@@ -239,6 +380,7 @@ if (scenario.behavior === "authentication-required") {
           prompt.timers.delete(responseTimer);
           if (activePrompt !== prompt) return;
           activePrompt = undefined;
+          checkpointMockTurn("Activity sequence complete.");
           respond(type, command.id);
         }, 180);
         prompt.timers.add(responseTimer);
@@ -273,6 +415,7 @@ if (scenario.behavior === "authentication-required") {
         prompt.timers.delete(responseTimer);
         if (activePrompt !== prompt) return;
         activePrompt = undefined;
+        checkpointMockTurn(`Mock response received ${text}.`);
         respond(type, command.id);
       }, scenario.behavior === "cancellation" ? 5_000 : 140);
       prompt.timers.add(responseTimer);
@@ -308,6 +451,9 @@ if (scenario.behavior === "authentication-required") {
       }
       activeInteraction = undefined;
       activePrompt = undefined;
+      checkpointMockTurn(type === "approval_response" && command.approved !== true
+        ? "The mock shell command was denied."
+        : "The mock interaction was resolved.");
       respond(type, command.id);
       writeFragmented({ type: "agent_end", messages: [] });
       if (type === "approval_response" && command.approved !== true) respond("prompt", interaction.promptId, { error: "shell command denied" });
@@ -326,6 +472,7 @@ if (scenario.behavior === "authentication-required") {
         }
         writeFragmented({ type: "queue_update", steering: [], followUp: [] });
         writeFragmented({ type: "agent_end", messages: [] });
+        checkpointMockTurn("The mock request was stopped.");
         respond("prompt", prompt.id);
       }
       respond(type, command.id);

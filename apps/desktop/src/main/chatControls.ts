@@ -163,7 +163,7 @@ export const createChatControlsService = (backend: ChatControlsBackend) => {
       return ControlMutationResultSchema.parse({
         controls: await get(),
         persistence: "partial",
-        warning: `This chat changed to ${selectedModelId}, but the default was not saved: ${error instanceof Error ? error.message : String(error)}`,
+        warning: `This task changed to ${selectedModelId}, but the default was not saved: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
   });

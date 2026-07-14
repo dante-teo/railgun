@@ -108,9 +108,11 @@ the same model; text entry is reserved for free-form answers and preset names.
   native `details`/`summary` disclosures and pair every semantic color with a
   textual Running, Completed, Error, or Interrupted label. Advisor `nit`,
   `concern`, and `blocker` rows use success, warning, and danger tokens. Todos
-  and current-run subagents appear only in the existing resizable inspector;
-  its section header stays sticky, todo progress is textual, and status glyphs
-  are supplemental. These surfaces retain Reduce Transparency, Increase
+  and current-run subagents appear only in the non-resizable floating inspector;
+  it reserves transcript space at wide widths and becomes an overlay without
+  changing the user's visibility choice when space is constrained. Its section
+  header stays sticky, todo progress is textual, and status glyphs are
+  supplemental. These surfaces retain Reduce Transparency, Increase
   Contrast, and Reduce Motion behavior through the existing semantic tokens.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission or
@@ -135,7 +137,7 @@ the same model; text entry is reserved for free-form answers and preset names.
 - The desktop composer gives message entry its own full-width row. Its quiet
   footer shows the active model, one combined Agent settings trigger, exact
   context usage, and Send/Stop without turning every action into a separate
-  glass pill. The searchable model dialog provides explicit `This chat` and
+  glass pill. The searchable model dialog provides explicit `This task` and
   `Make default` choices. Agent settings contains MoA, advisor, advisor model,
   and manual Compact controls; portalled select menus stack above the dialog.
   Dialogs omit a decorative close control by default and use explicit trailing
@@ -145,7 +147,7 @@ the same model; text entry is reserved for free-form answers and preset names.
   Compact is disabled during runs/control mutations and for empty history.
   Context usage is the latest provider-reported input plus output total against
   the active model's context window and reads `Not measured yet` after model
-  changes, compaction, restart, or New Chat until another provider turn reports
+  changes, compaction, restart, or New Task until another provider turn reports
   usage. Loading and mutation failures stay inline and retryable.
 
 ## UI states

@@ -21,6 +21,14 @@ const positiveLimit = (value: unknown): number | undefined => {
   return value as number;
 };
 
+const nonNegativeCursor = (value: unknown): number | undefined => {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error("invalid command: cursor must be a non-negative integer");
+  }
+  return value as number;
+};
+
 const stringArray = (value: unknown, field: string): readonly string[] => {
   if (!Array.isArray(value) || value.some(item => typeof item !== "string")) {
     throw new Error(`invalid command: ${field} must be an array of strings`);
@@ -62,7 +70,17 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     }
     case "clarification_response": return { ...base, type, requestId: nonEmpty(value.requestId, "requestId"), answer: nonEmpty(value.answer, "answer") };
     case "session_new": return { ...base, type, ...(value.modelId === undefined ? {} : { modelId: nonEmpty(value.modelId, "modelId") }) };
-    case "session_load": return { ...base, type, sessionId: nonEmpty(value.sessionId, "sessionId") };
+    case "session_load": {
+      if (value.includeMessages !== undefined && typeof value.includeMessages !== "boolean") {
+        throw new Error("invalid command: includeMessages must be a boolean");
+      }
+      return {
+        ...base,
+        type,
+        sessionId: nonEmpty(value.sessionId, "sessionId"),
+        ...(value.includeMessages === undefined ? {} : { includeMessages: value.includeMessages }),
+      };
+    }
     case "session_branch": {
       if (!Number.isInteger(value.messageId) || (value.messageId as number) < 1) throw new Error("invalid command: messageId must be a positive integer");
       if (value.summarize !== undefined && typeof value.summarize !== "boolean") throw new Error("invalid command: summarize must be a boolean");
@@ -70,6 +88,13 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     }
     case "session_fork": return { ...base, type, ...(value.sessionId === undefined ? {} : { sessionId: nonEmpty(value.sessionId, "sessionId") }) };
     case "session_recent_messages": return { ...base, type, ...(value.sessionId === undefined ? {} : { sessionId: nonEmpty(value.sessionId, "sessionId") }), ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }) };
+    case "session_transcript": return {
+      ...base,
+      type,
+      sessionId: nonEmpty(value.sessionId, "sessionId"),
+      ...(nonNegativeCursor(value.cursor) === undefined ? {} : { cursor: nonNegativeCursor(value.cursor)! }),
+      ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }),
+    };
     case "config_update": return { ...base, type, patch: patch(value.patch) };
     case "mcp_upsert": {
       const envRaw = value.env === undefined ? undefined : patch(value.env, "env");

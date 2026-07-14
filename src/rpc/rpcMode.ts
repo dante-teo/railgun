@@ -51,7 +51,7 @@ const MANAGEMENT_COMMANDS = new Set<string>([
 ]);
 
 const SESSION_COMMANDS = new Set<string>([
-  "session_new", "session_list", "session_load", "session_save", "session_branch", "session_fork", "session_recent_messages",
+  "session_new", "session_list", "session_load", "session_save", "session_branch", "session_fork", "session_recent_messages", "session_transcript",
 ]);
 
 const V1_ONLY_COMMANDS = new Set<string>([

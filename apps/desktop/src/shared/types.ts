@@ -14,6 +14,11 @@ import type {
   DesktopModelMetadataSchema,
   MoAPresetSummarySchema,
   AdvisorControlSchema,
+  SessionSummarySchema,
+  SessionSnapshotSchema,
+  CheckpointStatusSchema,
+  RestoredTranscriptMessageSchema,
+  RestoredTodoSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -33,6 +38,11 @@ export type DesktopModelMetadata = z.infer<typeof DesktopModelMetadataSchema>;
 export type MoAPresetSummary = z.infer<typeof MoAPresetSummarySchema>;
 export type AdvisorControl = z.infer<typeof AdvisorControlSchema>;
 export type ContextUsageEvent = Extract<DesktopAgentEvent, { type: "context-usage" }>;
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
+export type CheckpointStatus = z.infer<typeof CheckpointStatusSchema>;
+export type RestoredTranscriptMessage = z.infer<typeof RestoredTranscriptMessageSchema>;
+export type RestoredTodo = z.infer<typeof RestoredTodoSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -45,7 +55,10 @@ export interface RailgunDesktopApi {
   followUpPrompt: (message: string) => Promise<void>;
   abortPrompt: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
-  startNewChat: () => Promise<BackendSnapshot>;
+  startNewChat: () => Promise<SessionSnapshot>;
+  listSessions: () => Promise<readonly SessionSummary[]>;
+  resumeSession: (sessionId: string) => Promise<SessionSnapshot>;
+  onSessionSnapshot: (listener: (snapshot: SessionSnapshot) => void) => () => void;
   getChatControls: () => Promise<ChatControlsSnapshot>;
   setChatModel: (modelId: string, persistence: ModelPersistenceMode) => Promise<ControlMutationResult>;
   updateAgentControls: (update: AgentControlUpdate) => Promise<ControlMutationResult>;
@@ -69,6 +82,9 @@ export const DESKTOP_IPC = {
   abortPrompt: "agent:abort",
   openExternal: "shell:open-external",
   startNewChat: "agent:new-chat",
+  listSessions: "sessions:list",
+  resumeSession: "sessions:resume",
+  sessionSnapshot: "sessions:snapshot",
   getChatControls: "agent:get-chat-controls",
   setChatModel: "agent:set-chat-model",
   updateAgentControls: "agent:update-controls",

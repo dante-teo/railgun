@@ -30,6 +30,18 @@ export const DESKTOP_CONTROL_LIMITS = Object.freeze({
   warning: 2_000,
 });
 
+export const DESKTOP_SESSION_LIMITS = Object.freeze({
+  sessions: 500,
+  messages: 2_000,
+  todos: 256,
+  id: 256,
+  model: 256,
+  preview: 500,
+  messageText: 100_000,
+  todoText: 2_000,
+  checkpointError: 2_000,
+});
+
 const boundedActivityString = (limit: number) => z.string().max(limit);
 const activityId = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.id).min(1);
 const modelName = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.model).min(1);
@@ -92,6 +104,43 @@ export const ExternalUrlSchema = z.string().max(2_048).transform((value, context
   }
 });
 export const EmptyResponseSchema = z.undefined();
+
+export const SessionIdSchema = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.id);
+const sessionModel = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.model);
+export const SessionSummarySchema = z.strictObject({
+  id: SessionIdSchema,
+  model: sessionModel,
+  startedAtLocal: z.string().trim().min(1).max(500),
+  messageCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  firstUserPreview: z.string().max(DESKTOP_SESSION_LIMITS.preview),
+});
+export const SessionSummaryListSchema = z.array(SessionSummarySchema).max(DESKTOP_SESSION_LIMITS.sessions).readonly();
+
+export const RestoredTranscriptMessageSchema = z.strictObject({
+  role: z.enum(["user", "assistant"]),
+  text: z.string().min(1).max(DESKTOP_SESSION_LIMITS.messageText),
+});
+export const RestoredTodoSchema = z.strictObject({
+  id: z.string().min(1).max(DESKTOP_SESSION_LIMITS.id),
+  content: z.string().min(1).max(DESKTOP_SESSION_LIMITS.todoText),
+  status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
+});
+export const CheckpointStatusSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("pending") }),
+  z.strictObject({ state: z.literal("saved") }),
+  z.strictObject({ state: z.literal("unsaved") }),
+  z.strictObject({ state: z.literal("error"), detail: z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.checkpointError) }),
+]);
+export const SessionSnapshotSchema = z.strictObject({
+  id: SessionIdSchema,
+  startedAt: z.string().datetime(),
+  model: sessionModel,
+  messageCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  running: z.boolean(),
+  checkpoint: CheckpointStatusSchema,
+  transcript: z.array(RestoredTranscriptMessageSchema).max(DESKTOP_SESSION_LIMITS.messages).readonly(),
+  todos: z.array(RestoredTodoSchema).max(DESKTOP_SESSION_LIMITS.todos).readonly(),
+});
 
 export const ChatModelIdSchema = z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.modelId);
 const controlPresetName = z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.presetName);

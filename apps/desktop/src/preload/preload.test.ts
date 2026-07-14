@@ -38,14 +38,17 @@ describe("preload desktop bridge", () => {
       "getBackendSnapshot",
       "getChatControls",
       "listMockScenarios",
+      "listSessions",
       "onAgentEvent",
       "onAppCommand",
       "onBackendSnapshot",
       "onInteractionRequest",
+      "onSessionSnapshot",
       "openExternal",
       "respondToApproval",
       "respondToClarification",
       "restartBackend",
+      "resumeSession",
       "selectMockScenario",
       "sendPrompt",
       "setChatModel",
@@ -146,15 +149,23 @@ describe("preload desktop bridge", () => {
     expect(removeListener).toHaveBeenCalledWith(DESKTOP_IPC.interactionRequest, handler);
   });
 
-  it("starts a new backend chat and validates the reset snapshot", async () => {
+  it("starts and resumes desktop sessions with validated snapshots", async () => {
     const api = createDesktopApi({ invoke, on, removeListener });
-    invoke.mockResolvedValueOnce({ ...snapshot, phase: "starting", transportLog: [] });
+    const session = { id: "session-1", startedAt: "2026-07-14T09:00:00.000Z", model: "mock", messageCount: 0, running: false, checkpoint: { state: "unsaved" }, transcript: [], todos: [] };
+    invoke.mockResolvedValueOnce(session);
 
-    await expect(api.startNewChat()).resolves.toMatchObject({ phase: "starting" });
+    await expect(api.startNewChat()).resolves.toEqual(session);
     expect(invoke).toHaveBeenCalledWith(DESKTOP_IPC.startNewChat);
 
     invoke.mockResolvedValueOnce({ ...snapshot, history: [] });
     await expect(api.startNewChat()).rejects.toThrow();
+
+    invoke.mockResolvedValueOnce([{ id: "session-1", model: "mock", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Hello" }]);
+    await expect(api.listSessions()).resolves.toHaveLength(1);
+    invoke.mockResolvedValueOnce(session);
+    await expect(api.resumeSession("session-1")).resolves.toEqual(session);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.resumeSession, "session-1");
+    await expect(api.resumeSession(" ")).rejects.toThrow();
   });
 
   it("withholds invalid events and removes the exact listener", () => {

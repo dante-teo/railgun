@@ -46,8 +46,8 @@ export const commandFromKeyboardEvent = (
 };
 
 export const createCommandRegistry = (actions: CommandActions): readonly RendererCommand[] => [
-  { id: "new-chat", label: "New Chat", shortcut: "⌘N", enabled: true, execute: actions.newChat },
-  { id: "show-chat", label: "Chat", shortcut: "⌘1", enabled: true, execute: actions.showChat },
+  { id: "new-chat", label: "New Task", shortcut: "⌘N", enabled: true, execute: actions.newChat },
+  { id: "show-chat", label: "Task", shortcut: "⌘1", enabled: true, execute: actions.showChat },
   { id: "show-settings", label: "Settings", shortcut: "⌘,", enabled: true, execute: actions.showSettings },
   { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "⌃⌘S", enabled: true, execute: actions.toggleSidebar },
   { id: "retry-backend", label: "Retry Backend", enabled: actions.canRetryBackend, execute: actions.retryBackend },

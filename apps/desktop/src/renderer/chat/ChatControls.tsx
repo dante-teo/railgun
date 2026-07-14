@@ -81,7 +81,7 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
         {current?.name ?? controls.activeModelId}<ChevronDown aria-hidden="true" />
       </Button></DialogTrigger>
       <DialogContent className="model-dialog">
-        <DialogHeader><DialogTitle>Choose a model</DialogTitle><DialogDescription>Select for this chat or save it as the default.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Choose a model</DialogTitle><DialogDescription>Select for this task or save it as the default.</DialogDescription></DialogHeader>
         <Input
           autoFocus
           aria-label="Search models"
@@ -120,7 +120,7 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
         </div>
         {error === undefined ? null : <p className="control-error" role="alert">{error}</p>}
         <DialogFooter className="model-actions">
-          <Button type="button" variant="tonal" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This chat</Button>
+          <Button type="button" variant="tonal" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This task</Button>
           <Button type="button" disabled={disabled || !selectedIsVisible} onClick={() => void apply("default")}>Make default</Button>
         </DialogFooter>
       </DialogContent>
@@ -204,7 +204,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
       const next = await window.railgunDesktop.getChatControls();
       if (mounted.current) setControls(next);
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause, "Unable to load chat controls"));
+      if (mounted.current) setError(errorMessage(cause, "Unable to load task controls"));
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -214,7 +214,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
     mounted.current = true;
     void load();
     return () => { mounted.current = false; };
-  }, [load]);
+  }, [load, resetKey]);
 
   useEffect(() => { setUsage(undefined); }, [resetKey]);
   useEffect(() => {
@@ -237,7 +237,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
       if (result.warning !== undefined) setError(result.warning);
       return true;
     } catch (cause) {
-      if (mounted.current) setError(errorMessage(cause, "Unable to update chat controls"));
+      if (mounted.current) setError(errorMessage(cause, "Unable to update task controls"));
       return false;
     } finally {
       if (mounted.current) setMutating(false);
@@ -250,7 +250,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
   </div>;
 
   const disabled = !available || running || mutating;
-  return <div className="chat-controls" aria-label="Chat controls">
+  return <div className="chat-controls" aria-label="Task controls">
     <ModelDialog
       controls={controls}
       disabled={disabled}

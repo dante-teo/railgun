@@ -15,6 +15,7 @@ export const buttonVariants = cva(
         // Compatibility alias: liquid glass is applied only by toolbar context styles.
         glass: "ui-button-tonal",
         ghost: "ui-button-ghost",
+        sidebarIcon: "ui-button-sidebar-icon",
         destructive: "ui-button-destructive",
         capsule: "ui-button-capsule",
       },
@@ -22,6 +23,7 @@ export const buttonVariants = cva(
         default: "ui-button-md",
         sm: "ui-button-sm",
         icon: "ui-button-icon",
+        compactIcon: "ui-button-compact-icon",
       },
     },
     defaultVariants: { variant: "primary", size: "default" },

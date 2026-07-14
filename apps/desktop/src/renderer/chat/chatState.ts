@@ -1,4 +1,4 @@
-import type { DesktopAgentEvent, DesktopInteractionRequest } from "../../shared/types";
+import type { DesktopAgentEvent, DesktopInteractionRequest, RestoredTodo, RestoredTranscriptMessage } from "../../shared/types";
 import { activityReducer, initialActivityState } from "./activityState";
 import type { ActivityState } from "./activityState";
 
@@ -97,7 +97,8 @@ export type ChatAction =
   | { readonly type: "interaction-resolved"; readonly id: string }
   | { readonly type: "interaction-failed"; readonly id: string; readonly error: string }
   | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" | "context-usage" | "context-reset" }> }
-  | { readonly type: "reset" };
+  | { readonly type: "reset" }
+  | { readonly type: "hydrate"; readonly messages: readonly RestoredTranscriptMessage[]; readonly todos: readonly RestoredTodo[] };
 
 const finishLastAssistant = (
   messages: readonly TranscriptMessage[],
@@ -313,6 +314,19 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         interactions: state.interactions.map(prompt => prompt.id === action.id
           ? { ...prompt, submitting: false, error: action.error }
           : prompt),
+      };
+    case "hydrate":
+      return {
+        ...initialChatState,
+        messages: action.messages.map((message, index) => ({
+          id: `restored-${String(index + 1)}`,
+          role: message.role,
+          text: message.text,
+          status: "complete",
+          order: index + 1,
+        })),
+        activity: { ...initialActivityState, todos: action.todos },
+        nextOrder: action.messages.length + 1,
       };
     case "reset":
       return initialChatState;

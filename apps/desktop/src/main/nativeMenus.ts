@@ -10,7 +10,7 @@ export const buildApplicationMenuTemplate = (
 ): MenuItemConstructorOptions[] => {
   const command = (value: AppCommand): (() => void) => () => sendCommand(value);
   const viewItems: MenuItemConstructorOptions[] = [
-    { label: "Chat", accelerator: "CmdOrCtrl+1", click: command("show-chat") },
+    { label: "Task", accelerator: "CmdOrCtrl+1", click: command("show-chat") },
     { label: "Settings", accelerator: "CmdOrCtrl+,", click: command("show-settings") },
     { type: "separator" },
     { label: "Toggle Sidebar", accelerator: "Control+CmdOrCtrl+S", click: command("toggle-sidebar") },
@@ -29,7 +29,7 @@ export const buildApplicationMenuTemplate = (
     {
       label: "File",
       submenu: [
-        { label: "New Chat", accelerator: "CmdOrCtrl+N", click: command("new-chat") },
+        { label: "New Task", accelerator: "CmdOrCtrl+N", click: command("new-chat") },
         { type: "separator" },
         { label: "Command Palette…", accelerator: "CmdOrCtrl+K", click: command("command-palette") },
         { type: "separator" },

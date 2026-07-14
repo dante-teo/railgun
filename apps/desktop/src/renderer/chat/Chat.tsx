@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { Bot, Send, Square } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
-import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest } from "../../shared/types";
+import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest, SessionSnapshot } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/input";
 import { EmptyState } from "../components/ui/state";
@@ -131,6 +131,20 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     }
   };
 
+  const stopAndWait = async (): Promise<boolean> => {
+    if (!await stop()) return false;
+    if (!stateRef.current.running) return true;
+    return new Promise(resolve => {
+      const deadline = Date.now() + 5_000;
+      const check = (): void => {
+        if (!stateRef.current.running) resolve(true);
+        else if (Date.now() >= deadline) resolve(false);
+        else window.setTimeout(check, 25);
+      };
+      check();
+    });
+  };
+
   const setInteractionAnswer = (id: string, answer: string): void => {
     dispatch({ type: "interaction-answer", id, answer });
   };
@@ -161,7 +175,13 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     dispatch({ type: "reset" });
   };
 
-  return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, reset, setInteractionAnswer, respondToApproval, respondToClarification };
+  const hydrate = (snapshot: SessionSnapshot): void => {
+    deltaBuffer.current?.clear();
+    setDraft("");
+    dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos });
+  };
+
+  return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, stopAndWait, reset, hydrate, setInteractionAnswer, respondToApproval, respondToClarification };
 };
 
 export type ChatController = ReturnType<typeof useChatController>;

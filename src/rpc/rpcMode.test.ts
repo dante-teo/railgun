@@ -202,7 +202,11 @@ describe("runRpcMode", () => {
     const store = fakeSessionStore();
     vi.mocked(store.loadSession).mockReturnValue({
       id: "saved", model: "loaded-model", startedAt: "2026-01-01T00:00:00.000Z",
-      messages: [{ role: "user", content: "old" }, { role: "assistant", content: [{ type: "text", text: "answer" }] }],
+      messages: [
+        { role: "user", content: "old" },
+        { role: "assistant", content: [{ type: "toolCall", id: "private", name: "shell", arguments: { secret: "x".repeat(100_000) } }, { type: "text", text: "answer" }] },
+        { role: "tool", toolCallId: "private", content: "y".repeat(100_000), isError: false },
+      ],
       todos: [],
     });
     const loadedRuntime: DevinSession = {
@@ -218,8 +222,14 @@ describe("runRpcMode", () => {
     const runPromise = runRpcMode(rpcOptions);
 
     send(stdin, { id: "init", type: "initialize", version: 1 });
-    send(stdin, { id: "load", type: "session_load", sessionId: "saved" });
-    await waitForLine(getLines, line => line["id"] === "load");
+    send(stdin, { id: "load", type: "session_load", sessionId: "saved", includeMessages: false });
+    const load = await waitForLine(getLines, line => line["id"] === "load");
+    expect(load).toMatchObject({ success: true, data: { sessionId: "saved" } });
+    expect(JSON.stringify(load)).not.toContain("messages");
+    send(stdin, { id: "transcript", type: "session_transcript", sessionId: "saved", cursor: 0, limit: 100 });
+    const transcript = await waitForLine(getLines, line => line["id"] === "transcript");
+    expect(transcript).toMatchObject({ data: { sessionId: "saved", messages: [{ role: "user", text: "old" }, { role: "assistant", text: "answer" }] } });
+    expect(JSON.stringify(transcript)).not.toMatch(/secret|private|yyyy/u);
     send(stdin, { id: "prompt", type: "prompt", message: "continue" });
     await waitForLine(getLines, line => line["id"] === "prompt");
     stdin.push(null);

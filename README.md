@@ -668,7 +668,8 @@ protocol v1 before the first run:
 
 The handshake returns `version` and `capabilities`. V1 adds persistent session
 commands (`session_new`, `session_list`, `session_load`, `session_save`,
-`session_branch`, `session_fork`, `session_recent_messages`), interactive
+`session_branch`, `session_fork`, `session_recent_messages`,
+`session_transcript`), interactive
 `approval_request`/`approval_response` and
 `clarification_request`/`clarification_response` pairs, and config/MCP, cron,
 memory, notes, and skills management commands. Active transcripts checkpoint
@@ -686,6 +687,15 @@ model metadata and model-specific prompt before it becomes active. Changing
 the model of a persisted session creates a new unsaved session identity with a
 copy of the active transcript and todos; it never rewrites the saved session's
 immutable model metadata.
+
+`session_load` retains its existing full-history response by default. Clients
+that do not need provider history can send `includeMessages: false` and then
+page through `session_transcript` with `sessionId`, an optional zero-based
+`cursor`, and an optional `limit` from 1 to 100. Transcript pages contain only
+bounded textual user/assistant messages plus an optional `nextCursor`; thinking,
+tool calls, arguments, results, and other provider-only fields are removed
+before JSONL serialization. This is the required restoration path for bounded-
+frame clients such as the desktop app.
 
 `--approve` and `--no-approve` are incompatible with `--mode rpc` and produce a
 usage error.
@@ -709,29 +719,36 @@ pnpm dev
 pnpm dev:mock
 ```
 
-`pnpm dev:mock` opens the same desktop chat shell as real mode, backed by the
+`pnpm dev:mock` opens the same desktop task shell as real mode, backed by the
 deterministic JSONL child instead of the Devin provider. Mock behavior belongs
 in `apps/desktop/src/mock/scenarios.ts`, not renderer fixtures; scenario and
 transport controls live under Settings diagnostics rather than replacing the
-product UI. New Chat restarts the supervised backend before clearing the
-transcript, so the next prompt has empty RPC history in both modes. Aborting a
+product UI. New Task calls `session_new` without restarting the supervised
+backend; backend restart remains an explicit recovery action. Aborting a
 mock prompt cancels all remaining scheduled output and settles its pending RPC
 response before another prompt can start.
 
-The desktop mock also includes approval, choice clarification, free-text
-clarification, cancellation, and disconnection scenarios. Approval and
+The sidebar's search action opens a keyboard-accessible task palette over the
+newest-first saved-session list. Filtering matches preview, model, or session ID
+without changing backend order; selecting a result explicitly resumes its safe
+text transcript and persisted todos. Relaunch restores only the last valid Task
+or Settings area, never an active session.
+
+The desktop mock also includes ordered saved tasks (including a rich Markdown,
+todo, and scrolling fixture), empty/error stores, approval, choice clarification,
+free-text clarification, cancellation, and disconnection scenarios. Approval and
 clarification prompts are rendered inline; the ordinary composer is locked while
 they are open, Stop remains available, and prompt responses are correlated by
 opaque renderer IDs. Backend request IDs never cross the preload boundary, and
 hardline-blocked shell commands remain backend-owned with no desktop bypass.
 
-The composer footer keeps chat configuration compact: the model trigger opens a
-searchable picker with session-only (`This chat`) and persisted (`Make default`)
+The composer footer keeps task configuration compact: the model trigger opens a
+searchable picker with session-only (`This task`) and persisted (`Make default`)
 choices, while Agent settings contains the persisted MoA preset, advisor toggle
 and model, and manual Compact action. Compact is unavailable during a run or for
 empty history. The context label is based on the latest exact provider-reported
 input plus output tokens—not a renderer estimate—and resets after a model
-change, compaction, backend restart, or New Chat. Configuration reads are
+change, compaction, backend restart, or New Task. Configuration reads are
 reduced in Electron main to a bounded display-safe snapshot; raw configuration,
 unknown keys, and provider-only model fields do not cross preload.
 
@@ -744,18 +761,23 @@ the reading position after any user-driven scroll away, and resumes following
 when returned to the bottom. Operation errors stay visible below the toolbar and
 follow the sidebar inset instead of adding a new layout row.
 
+When todos exist, the top-right toggle controls a non-resizable floating card.
+At wide widths it reserves transcript space and wraps its content up to the
+available height; at constrained widths the same visible card becomes an
+overlay instead of disappearing or leaving an empty pane behind it.
+
 The real desktop backend never opens browser OAuth implicitly. If its cached
 credential is missing or rejected, run `pnpm start login` in Terminal and use
 Retry. If `DEVIN_TOKEN` is rejected, update or unset it in the environment that
 launches the app and relaunch Railgun; a cached login cannot override that
 environment credential.
 
-The native desktop shell supports `⌘N` for New Chat, `⌘K` for the command
-palette, `⌘1` for Chat, `⌘,` for Settings, and `⌃⌘S` to toggle the sidebar.
+The native desktop shell supports `⌘N` for New Task, `⌘K` for the command
+palette, `⌘1` for Task, `⌘,` for Settings, and `⌃⌘S` to toggle the sidebar.
 The sidebar can be resized by dragging its separator or with the arrow, Home,
 and End keys while the separator is focused; double-click resets its width.
-Pane widths persist locally across launches, while sidebar visibility remains
-session-only. Standard macOS Control-only editing keys are left untouched.
+The sidebar width persists locally across launches, while sidebar visibility
+remains session-only. Standard macOS Control-only editing keys are left untouched.
 Native context menus expose only applicable Undo/Redo, Cut/Copy/Paste, and
 Select All actions.
 

@@ -47,7 +47,7 @@ describe("chat toolbar controls", () => {
     fireEvent.change(search, { target: { value: "vision" } });
     expect(screen.getByRole("option", { name: /Beta Vision/u })).toBeTruthy();
     fireEvent.keyDown(search, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: "This chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "This task" }));
     await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b", "chat"));
   });
 
@@ -58,7 +58,7 @@ describe("chat toolbar controls", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "vision" } });
 
-    expect(screen.getByRole("button", { name: "This chat" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "This task" })).toHaveProperty("disabled", true);
     expect(setChatModel).not.toHaveBeenCalled();
   });
 

@@ -15,7 +15,7 @@ The Hermes desktop app in `tmp_reference/apps/desktop` is a UX reference only. W
 
 | Reference desktop area | Existing Railgun capability | Desktop implementation |
 | --- | --- | --- |
-| Chat | Agent session and streaming events | Streaming transcript and composer |
+| Task | Agent session and streaming events | Streaming transcript and composer |
 | Tool activity | Typed tool start/end events | Running, success, and error rows |
 | Todos | Todo tool and persisted todo state | Sticky plan panel |
 | Shell approval | Manual/smart/off approval system | Inline allow/deny prompt |
@@ -54,7 +54,7 @@ The reference also has product areas Railgun does not have. They are outside thi
 
 Keep the app to four main areas:
 
-1. **Chat** — sessions, transcript, composer, todos, tools, approvals, and file preview.
+1. **Task** — sessions, transcript, composer, todos, tools, approvals, and file preview.
 2. **Automation** — cron jobs.
 3. **Knowledge** — memories, notes, Dream, and skills.
 4. **Settings** — model, agent behavior, trust, MCP, authentication, and diagnostics.
@@ -66,7 +66,7 @@ the main pane read as one uninterrupted surface:
 ```text
 ┌──────────────────── full-window content canvas ────────────────────┐
 │  ╭─ floating sidebar ─╮  titlebar / toolbar                       │
-│  │ New chat           │                                           │
+│  │ New task           │                                           │
 │  │ Sessions           │  transcript          optional inspector   │
 │  │ Automation         │                                           │
 │  │ Knowledge          │  composer                                 │
@@ -114,7 +114,7 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   width while the toolbar material remains full-window. The optional inspector
   uses the same infrastructure but is omitted from the DOM and accessibility
   tree until a feature supplies real content.
-- Chat uses one full-height overlay grid cell for toolbar, transcript, operation
+- Task uses one full-height overlay grid cell for toolbar, transcript, operation
   errors, and composer. Error banners sit below the toolbar fade and follow the
   sidebar inset. The native transcript scrollbar is hidden in favor of one
   centered dash rail that is hidden without overflow, grows from four dashes to
@@ -211,9 +211,9 @@ exposes only `getChatControls`, `setChatModel`, `updateAgentControls`, and
 `compactContext`, validating arguments and results on both sides of IPC.
 
 Model changes are session-only unless the user explicitly selects `Make
-default`. That path changes the active chat first and then atomically persists
+default`. That path changes the active task first and then atomically persists
 the configured model; persistence failure returns a partial result explaining
-that the chat changed but the default did not. MoA and advisor updates persist
+that the task changed but the default did not. MoA and advisor updates persist
 for subsequent runs and do not alter work already in progress. Selecting MoA
 Off uses the generic config patch's narrow `activeMoaPreset: null` deletion
 semantics, while advisor updates replace only the advisor object and preserve
@@ -223,7 +223,7 @@ Provider `turn_end` events may include exact input/output usage totals. Main
 reduces those totals and automatic compaction lifecycle events into bounded
 desktop context events. The renderer never estimates tokens: it displays the
 latest exact total against the active model's context window, then clears that
-measurement after model changes, compaction, backend restart, or New Chat.
+measurement after model changes, compaction, backend restart, or New Task.
 Manual Compact remains available inside Agent settings, is disabled during a
 run/control mutation or for empty history, and refreshes authoritative controls
 after successful completion.
@@ -257,9 +257,9 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Apply a complete production fuse policy with ASAR integrity and ASAR-only
     loading. `RunAsNode` is deliberately retained because DESK-001's packaged
     real and mock JSONL backends use Electron's embedded Node runtime.
-  - Replace the mock-first diagnostic screen with the desktop chat shell. Both
-    modes use the same prompt/abort/new-chat transport and reduced renderer
-    event stream. New Chat restarts the supervised child so the RPC history is
+  - Replace the mock-first diagnostic screen with the desktop task shell. Both
+    modes use the same prompt/abort/new-task transport and reduced renderer
+    event stream. At this milestone New Task restarted the supervised child so the RPC history was
     actually empty; mock scenarios remain under Settings diagnostics.
 
 - [x] **DESK-003 — Add desktop RPC support**
@@ -303,7 +303,7 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     macOS application shortcuts require Command, preserving Control-only text
     editing keys.
 
-### Chat
+### Task
 
 - [x] **DESK-007 — Build transcript and composer**
   - Stream assistant text efficiently.
@@ -329,13 +329,13 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     with stopping are ignored without clearing the draft.
   - Initial-command, queued-command, abort, and disconnect failures retain
     recoverable user state: Retry never duplicates the initial user message,
-    rejected queue drafts remain editable, stale failures after New Chat are
+    rejected queue drafts remain editable, stale failures after New Task are
     ignored, and partial assistant output is finalized.
 
 - [x] **DESK-008 — Render agent activity**
   - Tool running/success/error rows use native accessible disclosures with recursively redacted, pretty-formatted input/output capped at 8,000 characters per field. Redaction covers secret-bearing object keys, Bearer/token-shaped credentials, and unstructured assignments such as `PASSWORD=`, `DEVIN_TOKEN=`, and `api_key:`.
-  - Successful todo completions replace the sticky inspector snapshot without duplicating transcript rows; todo loading, textual status, completion count, and current-run subagents share the optional resizable inspector.
-  - MoA references/aggregation, severity-labelled advisor notes, and tool activity share one chronological transcript; stop, disconnect, run end, and New Chat settle or clear run-scoped work.
+  - Successful todo completions replace the sticky inspector snapshot without duplicating transcript rows; todo loading, textual status, completion count, and current-run subagents share the optional non-resizable floating inspector, which becomes an overlay at constrained widths without being unmounted.
+  - MoA references/aggregation, severity-labelled advisor notes, and tool activity share one chronological transcript; stop, disconnect, run end, and New Task settle or clear run-scoped work.
   - The main-process event boundary bounds all renderer-facing strings, parses advisory XML without forwarding it, validates normalized todos, and rejects malformed activity. RPC-created sessions activate the configured MoA preset and enabled advisor.
   - Tool-call IDs correlate only an in-flight invocation: settled IDs may be reused by later turns without suppressing their rows. Failed initial/backend runs retain the danger-styled Retry/Restart presentation.
   - The `agent-activity` mock covers parallel success/error tools, todo loading/update, MoA, advisor, and subagent events while cancellation and disconnection scenarios remain available. Mock integration tests use a persistent buffered line reader so fragmented or coalesced stdout frames are never discarded between assertions.
@@ -353,8 +353,8 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 - [x] **DESK-010 — Add model and context controls**
   - The composer's quiet footer exposes a searchable, keyboard-accessible model
-    picker with explicit `This chat` and `Make default` choices. Default
-    persistence happens after the active-chat switch, so write failure can
+    picker with explicit `This task` and `Make default` choices. Default
+    persistence happens after the active-task switch, so write failure can
     report a partial result without losing the successful session change.
   - One Agent settings dialog contains the persisted MoA preset, advisor toggle,
     advisor model, and manual Compact action. Mutations are disabled while a run
@@ -362,7 +362,7 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     history and clears measured usage only after success.
   - Context status uses the latest exact provider-reported input and output token
     totals against the selected model's context window. It returns to `Not
-    measured yet` after model changes, compaction, backend restart, or New Chat.
+    measured yet` after model changes, compaction, backend restart, or New Task.
   - Main and preload expose only bounded control snapshots and fixed validated
     operations. Raw configuration and unknown configuration keys never cross
     into the renderer; MoA Off removes `activeMoaPreset`, advisor replacement
@@ -372,9 +372,35 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 ### Sessions and projects
 
-- [ ] **DESK-011 — Build persistent session navigation**
-  - New chat, newest-first session list, filter, resume, and checkpoint status.
+- [x] **DESK-011 — Build persistent session navigation**
+  - New task, newest-first session list, filter, resume, and checkpoint status.
   - Restore the last valid route after relaunch.
+  - Completed contract:
+    - Main combines `session_list`, `session_new`, `session_load`, `get_state`,
+      and the byte-bounded, paginated `session_transcript` projection behind
+      strict desktop schemas. Only textual user/assistant history and normalized
+      todos cross the renderer boundary; thinking, tool calls, arguments,
+      results, and raw provider fields do not. Desktop requests a metadata-only
+      load, so even provider histories larger than a JSONL frame restore safely
+      while legacy RPC clients retain the existing full-history response.
+    - The sidebar preserves backend newest-first ordering and opens a dedicated
+      task-search palette from its top-right action. The palette filters locally
+      by preview/model/session ID and exposes loading, empty, no-match, retryable
+      error, active, and operation-disabled states. Active runs settle before a
+      new or resumed session is activated, and failed switches retain the
+      current renderer state.
+    - New Task uses `session_new` without restarting the backend. New/resume and
+      prompt settlement and model changes broadcast authoritative snapshots so
+      transcript, todos, controls, active session identity, checkpoint status,
+      and the saved-session list stay synchronized.
+    - The toolbar uses the first user preview with bounded fallbacks and exposes
+      pending, saved, unsaved, and accessible checkpoint-failure detail states.
+      Only the versioned Task/Settings area record is restored after relaunch;
+      malformed, obsolete, and unknown values fall back to Task.
+    - The deterministic mock includes ordered populated sessions, a long rich
+      history fixture with Markdown and every todo state, delayed new/load/list
+      operations, empty/error stores, cancellation, disconnection, and
+      checkpoint state transitions.
 
 - [ ] **DESK-012 — Add branch and fork**
   - Branch from a message, with optional summary.
@@ -431,8 +457,8 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 ## Delivery order
 
 1. **Foundation:** DESK-001 to DESK-004.
-2. **Usable desktop chat:** DESK-005 to DESK-011 and DESK-013.
+2. **Usable desktop task:** DESK-005 to DESK-011 and DESK-013.
 3. **Full existing-feature coverage:** DESK-012 and DESK-014 to DESK-018.
 4. **Release quality:** DESK-019 to DESK-021.
 
-The first usable milestone is complete when a user can launch the app, sign in, select and trust a project folder, chat with streaming tools/todos, answer approvals and clarifications, stop a run, and resume the saved session after relaunch.
+The first usable milestone is complete when a user can launch the app, sign in, select and trust a project folder, work with streaming tools/todos, answer approvals and clarifications, stop a run, and resume the saved task after relaunch.

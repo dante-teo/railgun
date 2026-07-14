@@ -4,10 +4,11 @@ import type { SessionStore } from "../persistence/sessionStore.js";
 import { createTodoStore } from "../tools/todo.js";
 import type { TodoStore } from "../tools/todo.js";
 import type { RpcCommand, RpcPersistenceStatus } from "./types.js";
+import { createRpcTranscriptPage } from "./sessionTranscript.js";
 
 type SessionCommand = Extract<RpcCommand, { type:
   "session_new" | "session_list" | "session_load" | "session_save" |
-  "session_branch" | "session_fork" | "session_recent_messages" }>;
+  "session_branch" | "session_fork" | "session_recent_messages" | "session_transcript" }>;
 
 export interface RpcActiveSession {
   readonly id: string;
@@ -103,7 +104,10 @@ export const createRpcSessionHandler = (options: {
         if (persisted === undefined) throw new Error(`session not found: ${command.sessionId}`);
         await options.prepareModel?.(persisted.model);
         activate(persisted);
-        return { sessionId: persisted.id, messages: persisted.messages };
+        return {
+          sessionId: persisted.id,
+          ...(command.includeMessages === false ? {} : { messages: persisted.messages }),
+        };
       }
       case "session_save":
         guardIdle("save a session");
@@ -146,6 +150,11 @@ export const createRpcSessionHandler = (options: {
             ? []
             : store.getRecentMessages(sessionId, command.limit),
         };
+      }
+      case "session_transcript": {
+        const selected = requireActive();
+        if (command.sessionId !== selected.id) throw new Error("requested transcript does not match the active session");
+        return createRpcTranscriptPage(selected.id, selected.history, command.cursor, command.limit);
       }
     }
   };

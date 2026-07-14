@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CirclePlus, MessageSquare, Settings, TerminalSquare } from "lucide-react";
+import { Bot, Search, Settings, SlidersHorizontal, SquarePen, TerminalSquare } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
-import type { AppCommand, BackendSnapshot, MockScenario } from "../shared/types";
+import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader } from "./components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
@@ -13,7 +13,9 @@ import { ActivityInspector, Composer, Transcript, useChatController } from "./ch
 import { ChatToolbarControls } from "./chat/ChatControls";
 import { BackendStatus, PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
 import { errorMessage } from "./lib/utils";
-export { BackendStatus } from "./backendStatus";
+import { readStoredArea, writeStoredArea } from "./routeStorage";
+import type { AppArea } from "./routeStorage";
+import { TaskPalette } from "./tasks/TaskPalette";
 
 interface MockPanelProps {
   readonly snapshot: BackendSnapshot;
@@ -55,16 +57,41 @@ export const MockPanel = ({ snapshot, scenarios, onSelect }: MockPanelProps): Re
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
   const [scenarios, setScenarios] = useState<readonly MockScenario[]>([]);
-  const [area, setArea] = useState<"chat" | "settings">("chat");
+  const [area, setArea] = useState<AppArea>(() => readStoredArea(window.localStorage));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string>();
   const [operationError, setOperationError] = useState<string>();
   const [controlsResetKey, setControlsResetKey] = useState(0);
+  const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string>();
+  const [taskPaletteOpen, setTaskPaletteOpen] = useState(false);
+  const [activeSession, setActiveSession] = useState<SessionSnapshot>();
+  const [sessionOperation, setSessionOperation] = useState(false);
+  const [todoPaneVisible, setTodoPaneVisible] = useState(true);
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
+  const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
+  const hasActivity = chat.state.activity.todos.length > 0
+    || chat.state.activity.subagents.length > 0
+    || chat.state.activity.todoLoading;
+
+  const selectArea = (next: AppArea): void => {
+    setArea(next);
+    try { writeStoredArea(window.localStorage, next); }
+    catch { /* Navigation remains usable when storage is unavailable. */ }
+  };
+
+  const loadSessions = async (): Promise<void> => {
+    setSessionsLoading(true);
+    setSessionsError(undefined);
+    try { setSessions(await window.railgunDesktop.listSessions()); }
+    catch (error) { setSessionsError(errorMessage(error, "Unable to load sessions")); }
+    finally { setSessionsLoading(false); }
+  };
 
   useEffect(() => {
     if (snapshot !== undefined && snapshot.phase !== "ready") setControlsResetKey(key => key + 1);
@@ -81,8 +108,19 @@ export const App = (): React.JSX.Element => {
       (error: unknown) => { if (active) setOperationError(errorMessage(error, "Unable to load diagnostics")); },
     );
     const unsubscribeSnapshot = window.railgunDesktop.onBackendSnapshot(setSnapshot);
-    return () => { active = false; unsubscribeSnapshot(); };
+    const unsubscribeSession = window.railgunDesktop.onSessionSnapshot((next) => {
+      setActiveSession(next);
+      chat.hydrate(next);
+      setControlsResetKey(key => key + 1);
+      void loadSessions();
+    });
+    return () => { active = false; unsubscribeSnapshot(); unsubscribeSession(); };
   }, []);
+
+  useEffect(() => {
+    if (snapshot?.phase === "ready") void loadSessions();
+    else if (snapshot !== undefined) { setSessions([]); setSessionsLoading(false); }
+  }, [snapshot?.phase]);
 
   useEffect(() => window.railgunDesktop.onAppCommand((command) => appCommandHandler.current(command)), []);
 
@@ -98,18 +136,37 @@ export const App = (): React.JSX.Element => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const startNewChat = async (): Promise<void> => {
-    if (running && !await chat.stop()) return;
+  const startNewTask = async (): Promise<void> => {
+    if (sessionOperation) return;
+    setSessionOperation(true);
+    if (running && !await chat.stopAndWait()) { setSessionOperation(false); return; }
     try {
       setOperationError(undefined);
-      const nextSnapshot = await window.railgunDesktop.startNewChat();
-      setSnapshot(nextSnapshot);
-      chat.reset();
+      const nextSession = await window.railgunDesktop.startNewChat();
+      setActiveSession(nextSession);
+      chat.hydrate(nextSession);
       setControlsResetKey(key => key + 1);
-      setArea("chat");
+      selectArea("chat");
+      await loadSessions();
     } catch (error) {
-      setOperationError(errorMessage(error, "Unable to start a new chat"));
-    }
+      setOperationError(errorMessage(error, "Unable to start a new task"));
+    } finally { setSessionOperation(false); }
+  };
+
+  const resumeSession = async (sessionId: string): Promise<void> => {
+    if (sessionOperation || sessionId === activeSession?.id) return;
+    setSessionOperation(true);
+    if (running && !await chat.stopAndWait()) { setSessionOperation(false); return; }
+    try {
+      setOperationError(undefined);
+      const nextSession = await window.railgunDesktop.resumeSession(sessionId);
+      setActiveSession(nextSession);
+      chat.hydrate(nextSession);
+      setControlsResetKey(key => key + 1);
+      selectArea("chat");
+    } catch (error) {
+      setOperationError(errorMessage(error, "Unable to resume the session"));
+    } finally { setSessionOperation(false); }
   };
 
   const restartBackend = async (): Promise<void> => {
@@ -134,10 +191,14 @@ export const App = (): React.JSX.Element => {
     paletteRestoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPaletteOpen(true);
   };
+  const openTaskPalette = (): void => {
+    taskPaletteRestoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setTaskPaletteOpen(true);
+  };
   const commands = createCommandRegistry({
-    newChat: () => { void startNewChat(); },
-    showChat: () => setArea("chat"),
-    showSettings: () => setArea("settings"),
+    newChat: () => { void startNewTask(); },
+    showChat: () => selectArea("chat"),
+    showSettings: () => selectArea("settings"),
     toggleSidebar: () => setSidebarCollapsed((collapsed) => !collapsed),
     retryBackend: () => { void restartBackend(); },
     stopResponse: () => { void chat.stop(); },
@@ -164,16 +225,44 @@ export const App = (): React.JSX.Element => {
 
   const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
-        <Button className="new-chat" variant="tonal" onClick={() => void startNewChat()}><CirclePlus aria-hidden="true" />New chat</Button>
-        <nav aria-label="Main navigation">
-          <Button variant="ghost" className={area === "chat" ? "active" : ""} aria-current={area === "chat" ? "page" : undefined} onClick={() => setArea("chat")}><MessageSquare aria-hidden="true" />Chat</Button>
-          <Button variant="ghost" className={area === "settings" ? "active" : ""} aria-current={area === "settings" ? "page" : undefined} onClick={() => setArea("settings")}><Settings aria-hidden="true" />Settings</Button>
-        </nav>
+        <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
+        <section className="session-navigation" aria-label="Tasks">
+          <div className="session-list">
+            {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
+              : sessions.length === 0 ? <p>No saved tasks</p>
+                : sessions.map(session => <button
+                    type="button"
+                    className={`session-row ${activeSession?.id === session.id ? "active" : ""}`}
+                    aria-current={activeSession?.id === session.id ? "true" : undefined}
+                    disabled={sessionOperation}
+                    key={session.id}
+                    onClick={() => void resumeSession(session.id)}
+                  ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>)}
+          </div>
+        </section>
+        <div className="sidebar-divider" aria-hidden="true" />
+        <Button variant="ghost" className={`sidebar-action sidebar-settings${area === "settings" ? " active" : ""}`} aria-current={area === "settings" ? "page" : undefined} onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
         <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
       </>;
+  const toolbarActions = area === "chat" ? <div className="content-toolbar-actions">
+    <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
+    <Button
+      type="button"
+      variant="sidebarIcon"
+      size="icon"
+      className="todo-pane-toggle"
+      aria-label={hasActivity && todoPaneVisible ? "Hide Todos" : "Show Todos"}
+      aria-pressed={hasActivity && todoPaneVisible}
+      disabled={!hasActivity}
+      title={hasActivity && todoPaneVisible ? "Hide Todos" : "Show Todos"}
+      onClick={() => setTodoPaneVisible(visible => !visible)}
+    ><SlidersHorizontal aria-hidden="true" /></Button>
+  </div> : undefined;
   const content = area === "chat" ? (
         <section className="chat-surface">
-          <header className="content-toolbar"><div className="content-toolbar-title"><h1>New chat</h1><p>{snapshot.mode === "mock" ? "Mock backend" : "Devin provider"}</p></div></header>
+          <header className="content-toolbar">
+            <div className="content-toolbar-title"><h1>{activeSession?.transcript.find(message => message.role === "user")?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
+          </header>
           {operationError === undefined ? null : <div className="shell-error" role="alert">{operationError}</div>}
           <Transcript controller={chat} snapshot={snapshot} onRestart={restartBackend} />
           <Composer
@@ -198,10 +287,12 @@ export const App = (): React.JSX.Element => {
     <>
       <ShellLayout
         sidebar={sidebar}
+        sidebarAction={<Button type="button" variant="sidebarIcon" size="compactIcon" className="task-search-button" aria-label="Search tasks" disabled={sessionOperation} onClick={openTaskPalette}><Search aria-hidden="true" /></Button>}
+        collapsedSidebarAction={<Button type="button" variant="sidebarIcon" size="icon" aria-label="New Task" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" /></Button>}
         main={content}
-        inspector={chat.state.activity.todos.length > 0 || chat.state.activity.subagents.length > 0 || chat.state.activity.todoLoading
-          ? <ActivityInspector activity={chat.state.activity} />
-          : undefined}
+        mainAction={toolbarActions}
+        inspector={hasActivity ? <ActivityInspector activity={chat.state.activity} /> : undefined}
+        inspectorVisible={todoPaneVisible}
         sidebarVisible={!sidebarCollapsed}
         onSidebarVisibilityChange={(visible) => setSidebarCollapsed(!visible)}
       />
@@ -210,6 +301,18 @@ export const App = (): React.JSX.Element => {
         commands={commands}
         restoreFocusTo={paletteRestoreFocus.current}
         onOpenChange={setPaletteOpen}
+      />
+      <TaskPalette
+        open={taskPaletteOpen}
+        sessions={sessions}
+        activeSessionId={activeSession?.id}
+        loading={sessionsLoading}
+        error={sessionsError}
+        disabled={sessionOperation}
+        restoreFocusTo={taskPaletteRestoreFocus.current}
+        onOpenChange={setTaskPaletteOpen}
+        onRetry={() => { void loadSessions(); }}
+        onSelect={(sessionId) => { void resumeSession(sessionId); }}
       />
     </>
   );

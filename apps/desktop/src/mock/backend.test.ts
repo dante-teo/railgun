@@ -69,7 +69,7 @@ describe("mock backend process", () => {
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ type: "agent_end" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "prompt-1", success: true });
       send(child, { id: "state-2", type: "get_state" });
-      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "state-2", data: { messageCount: 2 } });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "state-2", data: { messageCount: 2, persistence: "saved" } });
 
       send(child, { id: "unknown-1", type: "future_command" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({
@@ -80,6 +80,45 @@ describe("mock backend process", () => {
     } finally {
       child.kill();
     }
+  });
+
+  it("keeps populated rich session navigation aligned with desktop restoration", async () => {
+    const child = startMock("ready-idle");
+    try {
+      send(child, { id: "list", type: "session_list" });
+      const list = JSON.parse((await nextLine(child)).line) as { data: { sessions: Array<{ id: string }> } };
+      expect(list.data.sessions[0]?.id).toBe("mock-session-rich-history");
+      expect(list.data.sessions).toHaveLength(3);
+
+      send(child, { id: "load", type: "session_load", sessionId: "mock-session-rich-history", includeMessages: false });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "load", success: true, data: { sessionId: "mock-session-rich-history" } });
+      send(child, { id: "state", type: "get_state" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { sessionId: "mock-session-rich-history", persistence: "saved", todos: expect.arrayContaining([expect.objectContaining({ status: "in_progress" })]) } });
+      send(child, { id: "transcript", type: "session_transcript", sessionId: "mock-session-rich-history", cursor: 0, limit: 100 });
+      const transcript = JSON.parse((await nextLine(child)).line) as { data: { messages: unknown[] } };
+      expect(transcript.data.messages.length).toBeGreaterThanOrEqual(6);
+      expect(JSON.stringify(transcript)).not.toMatch(/must-not-cross-boundary|sensitive raw provider payload/u);
+
+      send(child, { id: "model", type: "set_model", modelId: "mock-reference" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "model", success: true });
+      send(child, { id: "fork-state", type: "get_state" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({
+        data: { sessionId: expect.not.stringMatching(/^mock-session-rich-history$/u), model: "mock-reference", persistence: "unsaved" },
+      });
+    } finally { child.kill(); }
+  });
+
+  it("keeps empty and error session-store scenarios aligned", async () => {
+    const empty = startMock("empty-stores");
+    try {
+      send(empty, { id: "list-empty", type: "session_list" });
+      expect(JSON.parse((await nextLine(empty)).line)).toMatchObject({ id: "list-empty", success: true, data: { sessions: [] } });
+    } finally { empty.kill(); }
+    const failed = startMock("store-error");
+    try {
+      send(failed, { id: "list-error", type: "session_list" });
+      expect(JSON.parse((await nextLine(failed)).line)).toMatchObject({ id: "list-error", success: false, error: "mock store error: session_list" });
+    } finally { failed.kill(); }
   });
 
   it("delays startup responses", async () => {

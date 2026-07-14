@@ -57,7 +57,7 @@ describe("desktop activity styles", () => {
     expect(ordinaryButtons.every(rules => !rules.includes("backdrop-filter"))).toBe(true);
     expect(css).not.toContain(".ui-button-glass");
     expect(css).not.toMatch(/\.ui-button-group \.ui-button\s*\{[^}]*border-radius/u);
-    expect(css).toMatch(/nav \.ui-button\s*\{[^}]*color:\s*var\(--color-text\)/u);
+    expect(css).toMatch(/\.sidebar-action\s*\{[^}]*color:\s*var\(--color-text\)/u);
     expect(contrastRatio(hslToken("color-tonal-action"), hslToken("material-tonal-action"))).toBeGreaterThanOrEqual(4.5);
     expect(css).toMatch(/prefers-color-scheme:\s*dark[\s\S]*--material-tonal-action-hover:\s*hsl\(154 12% 28%\)[\s\S]*--material-tonal-action-active:\s*hsl\(154 12% 31%\)/u);
   });
@@ -68,6 +68,12 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.ui-card\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
     expect(css).not.toMatch(/\.ui-card\s*\{[^}]*backdrop-filter/u);
     expect(css).toMatch(/\.composer\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
+    expect(css).toMatch(/\.shell-inspector\s*\{[^}]*width:\s*var\(--inspector-width\)[^}]*display:\s*flex[^}]*align-items:\s*flex-start[^}]*padding:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\) var\(--space-4\) var\(--space-2\) 0[^}]*border:\s*0[^}]*background:\s*transparent/u);
+    expect(css).toMatch(/\.activity-inspector\s*\{[^}]*width:\s*100%[^}]*max-height:\s*100%[^}]*overflow:\s*auto[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-radius:\s*var\(--radius-xl\)[^}]*background:\s*var\(--material-content\)[^}]*box-shadow:\s*var\(--shadow-popover\)/u);
+    expect(css).toMatch(/\.activity-inspector\s*\{[^}]*pointer-events:\s*auto/u);
+    const inspector = css.match(/\.activity-inspector\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
+    expect(inspector).not.toMatch(/(?:^|;)\s*height\s*:/u);
+    expect(css).toMatch(/\.activity-inspector li:last-child\s*\{[^}]*border-bottom:\s*0/u);
   });
 
   it("uses dense dialog and anchored popover recipes with a blurred seamless toolbar", () => {
@@ -86,11 +92,23 @@ describe("desktop activity styles", () => {
     const title = css.match(/\.content-toolbar-title\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
     expect(title).not.toContain("position: absolute");
     expect(title).toContain("margin-left: var(--toolbar-content-left)");
-    expect(css).toMatch(/\.content-toolbar-actions \.ui-button, \.sidebar-collapsed \.sidebar-toggle\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
-    expect(css).toMatch(/\.content-toolbar-actions \.ui-button:not\(:disabled\):hover\s*\{[^}]*transform:\s*translateY\(-1px\) scale\(1\.025\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control-hover\)/u);
-    expect(css).toMatch(/\.sidebar-collapsed \.sidebar-toggle:not\(:disabled\):hover\s*\{[^}]*transform:\s*translateY\(-50%\) scale\(1\.04\)/u);
-    expect(css).toMatch(/\.desktop-shell:not\(\.sidebar-collapsed\) \.sidebar-toggle\s*\{[^}]*border-color:\s*transparent[^}]*color:\s*var\(--color-text\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
-    expect(css).toMatch(/\.desktop-shell:not\(\.sidebar-collapsed\) \.sidebar-toggle:not\(:disabled\):hover\s*\{[^}]*border-color:\s*transparent[^}]*background:\s*var\(--material-sidebar-control-hover\)[^}]*transform:\s*translateY\(-50%\) scale\(1\.04\)[^}]*box-shadow:\s*var\(--shadow-sidebar-control-hover\)/u);
+    expect(css).toMatch(/\.content-toolbar-actions \.ui-button\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
+    expect(css).toMatch(/\.content-toolbar-actions \.ui-button:not\(:disabled\):hover\s*\{[^}]*transform:\s*none[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)/u);
+    expect(css).not.toContain("--shadow-toolbar-control-hover");
+    expect(css).toMatch(/\.content-toolbar-actions\s*\{[^}]*z-index:\s*var\(--layer-titlebar-control\)[^}]*-webkit-app-region:\s*no-drag/u);
+    expect(css).toMatch(/\.todo-pane-toggle\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--material-toolbar-control-hover\)/u);
+    expect(css).toMatch(/\.ui-button-compact-icon\s*\{[^}]*width:\s*1\.5rem[^}]*height:\s*1\.5rem[^}]*border-radius:\s*var\(--radius-xs\)/u);
+    expect(css).toMatch(/\.ui-button-sidebar-icon\s*\{[^}]*color:\s*var\(--color-text-secondary\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
+    expect(css).toMatch(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
+    expect(css).toMatch(/\.collapsed-sidebar-controls\s*\{[^}]*left:\s*var\(--sidebar-toggle-left\)[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
+    expect(css).toMatch(/\.collapsed-sidebar-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
+    expect(css).toMatch(/\.collapsed-sidebar-controls > \.sidebar-toggle\s*\{[^}]*border-radius:\s*var\(--radius-pill\) 0 0 var\(--radius-pill\)/u);
+    expect(css).toMatch(/\.collapsed-sidebar-action \.ui-button\s*\{[^}]*border-radius:\s*0 var\(--radius-pill\) var\(--radius-pill\) 0/u);
+    expect(css).toMatch(/\.collapsed-sidebar-controls \.ui-button:not\(:disabled\):hover\s*\{[^}]*background:\s*var\(--color-menu-hover\)/u);
+    expect(css).toMatch(/\.sidebar-action\s*\{[^}]*justify-content:\s*flex-start[^}]*width:\s*100%[^}]*min-height:\s*2\.25rem/u);
+    expect(css).toMatch(/\.sidebar-divider\s*\{[^}]*height:\s*1px[^}]*background:\s*var\(--color-border\)/u);
+    expect(css).toMatch(/\.sidebar-footer\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*1rem minmax\(0, 1fr\)/u);
+    expect(css).toMatch(/\.connection-dot\s*\{[^}]*justify-self:\s*center/u);
     expect(css).toMatch(/\.ui-dialog-content\s*\{[^}]*background:\s*var\(--material-dialog\)[^}]*box-shadow:\s*var\(--shadow-dialog\)/u);
     expect(css).toMatch(/\.ui-dialog-footer\s*\{[^}]*justify-content:\s*flex-end/u);
     expect(css).toMatch(/\.ui-popover-arrow\s*\{[^}]*fill:\s*var\(--material-popover\)/u);
@@ -118,6 +136,13 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.chat-surface > \.composer-wrap\s*\{[^}]*grid-area:\s*1 \/ 1[^}]*align-self:\s*end/u);
     expect(css).toMatch(/\.composer-wrap\s*\{[^}]*padding:[^;]*var\(--space-2\)/u);
     expect(css).toMatch(/\.composer-hint\s*\{[^}]*margin:\s*-1px auto 0[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-top:\s*0[^}]*border-radius:\s*0 0 var\(--radius-sm\) var\(--radius-sm\)[^}]*background:\s*var\(--material-content\)/u);
+  });
+
+  it("turns the todo card into an overlay before the transcript becomes cramped", () => {
+    expect(css).toMatch(/\.desktop-shell\.inspector-overlay \.shell-inspector\s*\{[^}]*position:\s*absolute[^}]*top:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\)[^}]*right:\s*var\(--space-4\)[^}]*height:\s*auto[^}]*max-height:\s*calc\(100% - var\(--titlebar-height\) - var\(--space-2\) - var\(--space-4\)\)[^}]*overflow:\s*visible[^}]*padding:\s*0[^}]*pointer-events:\s*none/u);
+    expect(css).toMatch(/\.desktop-shell\.inspector-overlay \.shell-inspector \.activity-inspector\s*\{[^}]*max-height:\s*inherit/u);
+    expect(css).not.toContain("@media (max-width: 76rem)");
+    expect(css).not.toContain("@media (max-width: 60rem)");
   });
 
   it("stacks portalled selects above dialogs", () => {

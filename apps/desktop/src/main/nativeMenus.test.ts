@@ -21,13 +21,13 @@ describe("native application menu", () => {
     const send = vi.fn();
     const items = flatten(buildApplicationMenuTemplate(false, send));
     expect(items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "New Chat", accelerator: "CmdOrCtrl+N" }),
+      expect.objectContaining({ label: "New Task", accelerator: "CmdOrCtrl+N" }),
       expect.objectContaining({ label: "Command Palette…", accelerator: "CmdOrCtrl+K" }),
-      expect.objectContaining({ label: "Chat", accelerator: "CmdOrCtrl+1" }),
+      expect.objectContaining({ label: "Task", accelerator: "CmdOrCtrl+1" }),
       expect.objectContaining({ label: "Settings", accelerator: "CmdOrCtrl+," }),
       expect.objectContaining({ label: "Toggle Sidebar", accelerator: "Control+CmdOrCtrl+S" }),
     ]));
-    const newChat = items.find((item) => item.label === "New Chat");
+    const newChat = items.find((item) => item.label === "New Task");
     (newChat?.click as (() => void) | undefined)?.();
     expect(send).toHaveBeenCalledWith("new-chat");
   });

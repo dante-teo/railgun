@@ -2,8 +2,11 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { App, BackendStatus, MockPanel } from "./App";
+import { App, MockPanel } from "./App";
 import type { BackendPhase, BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../shared/types";
+import { BackendStatus } from "./backendStatus";
+import { readStoredArea } from "./routeStorage";
+import { filterSessions } from "./tasks/filterSessions";
 
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
 Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
@@ -27,6 +30,15 @@ const chatControls = {
   activeModelId: "mock-model", defaultModelId: null, messageCount: 0,
   moaPresets: [], activeMoaPreset: null, advisor: { enabled: false, modelId: null }, contextWindow: 100_000,
 } as const;
+const desktopSession = {
+  id: "mock-new", startedAt: "2026-07-14T09:00:00.000Z", model: "mock-model", messageCount: 0,
+  running: false, checkpoint: { state: "unsaved" as const }, transcript: [], todos: [],
+};
+const sessionApi = {
+  listSessions: async () => [],
+  resumeSession: async () => desktopSession,
+  onSessionSnapshot: () => () => undefined,
+};
 const unusedControlMutation = async () => ({ controls: chatControls, persistence: "session-only" as const });
 const controlApi = {
   getChatControls: async () => chatControls,
@@ -88,11 +100,72 @@ describe("MockPanel", () => {
 });
 
 describe("desktop shell", () => {
+  it("filters sessions without reordering and validates versioned route restoration", () => {
+    const sessions = [
+      { id: "new", model: "Model A", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Newest chat" },
+      { id: "old", model: "Model B", startedAtLocal: "yesterday", messageCount: 4, firstUserPreview: "Older chat" },
+    ];
+    expect(filterSessions(sessions, "model")).toEqual(sessions);
+    expect(filterSessions(sessions, "OLD")).toEqual([sessions[1]]);
+    expect(filterSessions(sessions, "missing")).toEqual([]);
+    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "settings" }) })).toBe("settings");
+    expect(readStoredArea({ getItem: () => "not json" })).toBe("chat");
+    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 0, area: "settings" }) })).toBe("chat");
+    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "obsolete" }) })).toBe("chat");
+  });
+
+  it("lists, filters, and resumes a rich saved session without rendering provider internals", async () => {
+    const rich = {
+      id: "rich", startedAt: "2026-07-14T08:45:00.000Z", model: "mock-model", messageCount: 3, running: false,
+      checkpoint: { state: "saved" as const },
+      transcript: [{ role: "user" as const, text: "Rich history QA" }, { role: "assistant" as const, text: "Visible restored answer" }],
+      todos: [{ id: "todo", content: "Inspect restored todos", status: "in_progress" as const }],
+    };
+    const resumeSession = vi.fn(async () => rich);
+    const api: RailgunDesktopApi = {
+      getBackendSnapshot: async () => snapshot("ready"), restartBackend: async () => snapshot("starting"), onBackendSnapshot: () => () => undefined,
+      listMockScenarios: async () => [], selectMockScenario: async () => snapshot("ready"),
+      sendPrompt: async () => undefined, steerPrompt: async () => undefined, followUpPrompt: async () => undefined, abortPrompt: async () => undefined,
+      openExternal: async () => undefined, startNewChat: async () => desktopSession,
+      listSessions: async () => [
+        { id: "rich", model: "mock-model", startedAtLocal: "today", messageCount: 3, firstUserPreview: "Rich history QA" },
+        { id: "older", model: "other", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Older chat" },
+      ],
+      resumeSession, onSessionSnapshot: () => () => undefined, ...controlApi,
+      onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
+    };
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
+    render(<App />);
+    const searchTasks = await screen.findByRole("button", { name: "Search tasks" });
+    expect(searchTasks.className).toContain("task-search-button");
+    expect(searchTasks.className).toContain("ui-button-sidebar-icon");
+    expect(searchTasks.className).toContain("ui-button-compact-icon");
+    expect(await screen.findByRole("button", { name: /Rich history QA/u })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Search tasks" })).toBeNull();
+    fireEvent.click(searchTasks);
+    expect(await screen.findByRole("heading", { name: "Find a Task" })).toBeTruthy();
+    const taskSearchInput = screen.getByRole("textbox", { name: "Search tasks" });
+    await waitFor(() => expect(document.activeElement).toBe(taskSearchInput));
+    fireEvent.change(taskSearchInput, { target: { value: "other" } });
+    expect(screen.queryByRole("option", { name: /Rich history QA/u })).toBeNull();
+    fireEvent.change(taskSearchInput, { target: { value: "missing" } });
+    expect(screen.getByText("No matching tasks")).toBeTruthy();
+    fireEvent.change(taskSearchInput, { target: { value: "rich" } });
+    fireEvent.keyDown(taskSearchInput, { key: "Enter" });
+    await waitFor(() => expect(resumeSession).toHaveBeenCalledWith("rich"));
+    expect(await screen.findByRole("heading", { name: "Rich history QA" })).toBeTruthy();
+    expect(screen.getByText("Visible restored answer")).toBeTruthy();
+    expect(screen.getByText("Inspect restored todos")).toBeTruthy();
+    expect(screen.getByText("Saved")).toBeTruthy();
+    expect(screen.queryByText(/provider internals/u)).toBeNull();
+  });
+
   it("uses the product chat UI in mock mode and streams validated replies", async () => {
     const agentListeners = new Set<(event: DesktopAgentEvent) => void>();
     const sendPrompt = vi.fn(async () => undefined);
     const abortPrompt = vi.fn(async () => undefined);
-    const startNewChat = vi.fn(async () => snapshot("starting"));
+    const startNewChat = vi.fn(async () => desktopSession);
     const api: RailgunDesktopApi = {
       getBackendSnapshot: async () => snapshot("ready"),
       restartBackend: async () => snapshot("starting"),
@@ -105,6 +178,7 @@ describe("desktop shell", () => {
       abortPrompt,
       openExternal: async () => undefined,
       startNewChat,
+      ...sessionApi,
       ...controlApi,
       onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
       respondToApproval: async () => undefined,
@@ -123,8 +197,19 @@ describe("desktop shell", () => {
     const expandSidebar = screen.getByRole("button", { name: "Expand sidebar" });
     expect(expandSidebar.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector(".desktop-shell")?.classList.contains("sidebar-collapsed")).toBe(true);
+    const collapsedNewTask = screen.getByRole("button", { name: "New Task" });
+    expect(collapsedNewTask.className).toContain("ui-button-icon");
+    expect(collapsedNewTask.className).toContain("ui-button-sidebar-icon");
+    expect(collapsedNewTask.closest(".collapsed-sidebar-controls")).toBe(expandSidebar.closest(".collapsed-sidebar-controls"));
+    expect(collapsedNewTask.querySelector(".lucide-square-pen")).not.toBeNull();
     fireEvent.click(expandSidebar);
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+    const newTask = screen.getByRole("button", { name: "New Task" });
+    const settings = screen.getByRole("button", { name: "Settings" });
+    expect(newTask.className).toContain("sidebar-action");
+    expect(settings.className).toContain("sidebar-action");
+    expect(settings.previousElementSibling?.classList.contains("sidebar-divider")).toBe(true);
+    expect(document.querySelector(".sidebar-footer")?.previousElementSibling).toBe(settings);
     fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun" }), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("hello"));
@@ -141,14 +226,26 @@ describe("desktop shell", () => {
     act(() => agentListeners.forEach(listener => listener({ type: "tool-start", id: "todo", name: "todo" })));
     act(() => agentListeners.forEach(listener => listener({ type: "tool-end", id: "todo", name: "todo", failed: false, todos: [{ id: "done", content: "Desktop activity", status: "completed" }] })));
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
-    expect(screen.getByRole("separator", { name: "Resize inspector" })).toBeTruthy();
+    expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
+    const hideTodos = screen.getByRole("button", { name: "Hide Todos" });
+    expect(hideTodos.getAttribute("aria-pressed")).toBe("true");
+    expect(hideTodos.querySelector(".lucide-sliders-horizontal")).not.toBeNull();
+    expect(hideTodos.closest(".content-toolbar")).toBeNull();
+    fireEvent.click(hideTodos);
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
+    expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
+    const showTodos = screen.getByRole("button", { name: "Show Todos" });
+    expect(showTodos.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(showTodos);
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
+    expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Secure desktop boundary")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    expect(screen.queryByRole("button", { name: "Chat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "New Task" }));
     await waitFor(() => expect(startNewChat).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("heading", { name: "Starting Railgun" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "What are we building?" })).toBeTruthy();
     expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
   });
 
@@ -165,7 +262,8 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
-      startNewChat: async () => snapshot("starting"),
+      startNewChat: async () => desktopSession,
+      ...sessionApi,
       ...controlApi,
       onAgentEvent: () => () => undefined,
       respondToApproval: async () => undefined,
@@ -199,7 +297,8 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
-      startNewChat: async () => snapshot("starting"),
+      startNewChat: async () => desktopSession,
+      ...sessionApi,
       ...controlApi,
       onAgentEvent: () => () => undefined,
       respondToApproval: async () => undefined,
@@ -210,15 +309,15 @@ describe("desktop shell", () => {
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
 
     render(<App />);
-    const newChat = await screen.findByRole("button", { name: "New chat" });
+    const newChat = await screen.findByRole("button", { name: "New Task" });
     newChat.focus();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(await screen.findByRole("heading", { name: "Command Palette" })).toBeTruthy();
     const search = screen.getByRole("textbox", { name: "Search commands" });
     await waitFor(() => expect(document.activeElement).toBe(search));
-    await waitFor(() => expect(screen.getByRole("option", { name: /^New Chat/u }).getAttribute("aria-selected")).toBe("true"));
+    await waitFor(() => expect(screen.getByRole("option", { name: /^New Task/u }).getAttribute("aria-selected")).toBe("true"));
     fireEvent.keyDown(search, { key: "ArrowDown" });
-    expect(screen.getByRole("option", { name: /^Chat/u }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("option", { name: /^Task/u }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.change(search, { target: { value: "retry" } });
     const retry = screen.getByRole("option", { name: "Retry Backend" });
@@ -238,7 +337,7 @@ describe("desktop shell", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
 
     act(() => appCommandListener?.("show-chat"));
-    expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "New Task" })).toBeTruthy();
   });
 
   it("shows a boundary error when the initial backend snapshot rejects", async () => {
@@ -253,7 +352,8 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
-      startNewChat: async () => snapshot("starting"),
+      startNewChat: async () => desktopSession,
+      ...sessionApi,
       ...controlApi,
       onAgentEvent: () => () => undefined,
       respondToApproval: async () => undefined,

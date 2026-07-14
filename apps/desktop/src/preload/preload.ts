@@ -16,6 +16,9 @@ import {
   MockScenarioListSchema,
   ModelPersistenceModeSchema,
   PromptTextSchema,
+  SessionIdSchema,
+  SessionSnapshotSchema,
+  SessionSummaryListSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, RailgunDesktopApi } from "../shared/types";
@@ -88,9 +91,23 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
         await transport.invoke(DESKTOP_IPC.openExternal, ExternalUrlSchema.parse(url)),
       );
     },
-    startNewChat: async () => BackendSnapshotSchema.parse(
+    startNewChat: async () => SessionSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.startNewChat),
     ),
+    listSessions: async () => SessionSummaryListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.listSessions),
+    ),
+    resumeSession: async (sessionId) => SessionSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.resumeSession, SessionIdSchema.parse(sessionId)),
+    ),
+    onSessionSnapshot: (listener) => {
+      const handler = (_event: unknown, payload: unknown): void => {
+        const result = SessionSnapshotSchema.safeParse(payload);
+        if (result.success) listener(result.data);
+      };
+      transport.on(DESKTOP_IPC.sessionSnapshot, handler);
+      return () => transport.removeListener(DESKTOP_IPC.sessionSnapshot, handler);
+    },
     getChatControls: async () => ChatControlsSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.getChatControls),
     ),

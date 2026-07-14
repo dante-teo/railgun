@@ -13,6 +13,9 @@ import {
   ModelPersistenceModeSchema,
   AgentControlUpdateSchema,
   ControlMutationResultSchema,
+  SessionSnapshotSchema,
+  SessionSummaryListSchema,
+  DESKTOP_SESSION_LIMITS,
 } from "./schemas";
 
 const validSnapshot = {
@@ -87,10 +90,21 @@ describe("desktop boundary schemas", () => {
     expect(ModelPersistenceModeSchema.parse("default")).toBe("default");
     expect(AgentControlUpdateSchema.parse({ moaPreset: null })).toEqual({ moaPreset: null });
     expect(AgentControlUpdateSchema.parse({ advisor: { enabled: true, modelId: "ref-a" } })).toBeTruthy();
-    expect(ControlMutationResultSchema.parse({ controls, persistence: "partial", warning: "Chat changed; default was not saved." })).toBeTruthy();
+    expect(ControlMutationResultSchema.parse({ controls, persistence: "partial", warning: "Task changed; default was not saved." })).toBeTruthy();
     expect(() => ChatControlsSnapshotSchema.parse({ ...controls, config: { secret: "no" } })).toThrow();
     expect(() => ChatControlsSnapshotSchema.parse({ ...controls, models: Array.from({ length: 257 }, (_, index) => ({ ...controls.models[0], id: `m-${index}` })) })).toThrow();
     expect(() => AgentControlUpdateSchema.parse({})).toThrow();
     expect(() => AgentControlUpdateSchema.parse({ advisor: { enabled: true, modelId: null } })).toThrow();
+  });
+
+  it("accepts only bounded sanitized desktop session payloads", () => {
+    const summary = { id: "session-1", model: "model-a", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Hello" };
+    expect(SessionSummaryListSchema.parse([summary])).toEqual([summary]);
+    const session = { id: "session-1", startedAt: "2026-07-14T08:00:00.000Z", model: "model-a", messageCount: 2, running: false, checkpoint: { state: "saved" }, transcript: [{ role: "user", text: "Hello" }], todos: [] };
+    expect(SessionSnapshotSchema.parse(session)).toEqual(session);
+    expect(() => SessionSnapshotSchema.parse({ ...session, rawMessages: [{ role: "tool", content: "secret" }] })).toThrow();
+    expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "tool", text: "secret" }] })).toThrow();
+    expect(() => SessionSummaryListSchema.parse(Array.from({ length: DESKTOP_SESSION_LIMITS.sessions + 1 }, () => summary))).toThrow();
+    expect(() => SessionSnapshotSchema.parse({ ...session, checkpoint: { state: "error", detail: "x".repeat(DESKTOP_SESSION_LIMITS.checkpointError + 1) } })).toThrow();
   });
 });

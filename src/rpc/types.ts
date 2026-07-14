@@ -34,11 +34,12 @@ export type RpcCommand =
   | { id?: string; type: "clarification_response"; requestId: string; answer: string }
   | { id?: string; type: "session_new"; modelId?: string }
   | { id?: string; type: "session_list" }
-  | { id?: string; type: "session_load"; sessionId: string }
+  | { id?: string; type: "session_load"; sessionId: string; includeMessages?: boolean }
   | { id?: string; type: "session_save" }
   | { id?: string; type: "session_branch"; messageId: number; summarize?: boolean }
   | { id?: string; type: "session_fork"; sessionId?: string }
   | { id?: string; type: "session_recent_messages"; sessionId?: string; limit?: number }
+  | { id?: string; type: "session_transcript"; sessionId: string; cursor?: number; limit?: number }
   | { id?: string; type: "config_get" }
   | { id?: string; type: "config_update"; patch: Record<string, unknown> }
   | { id?: string; type: "mcp_list" }

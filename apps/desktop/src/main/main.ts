@@ -27,11 +27,15 @@ import {
   MockScenarioListSchema,
   ModelPersistenceModeSchema,
   PromptTextSchema,
+  SessionIdSchema,
+  SessionSnapshotSchema,
+  SessionSummaryListSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
-import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent } from "../shared/types";
+import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
 import { openExternalFromRenderer } from "./externalLinks";
 import { createChatControlsService } from "./chatControls";
+import { createSessionService } from "./sessionService";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -75,6 +79,7 @@ const supervisor = new BackendSupervisor({
   ...(backendMode === "mock" ? { initialScenarioId: "ready-idle" } : {}),
 });
 const chatControls = createChatControlsService(supervisor);
+const sessionService = createSessionService((command, validate) => supervisor.call(command, validate));
 
 const senderContext = {
   windows: railgunWindows,
@@ -86,6 +91,7 @@ interface RendererPushPayloads {
   [DESKTOP_IPC.backendSnapshot]: BackendSnapshot;
   [DESKTOP_IPC.agentEvent]: DesktopAgentEvent;
   [DESKTOP_IPC.interactionRequest]: import("../shared/types").DesktopInteractionRequest;
+  [DESKTOP_IPC.sessionSnapshot]: SessionSnapshot;
 }
 
 const sendToRailgunWindows = <Channel extends keyof RendererPushPayloads>(
@@ -105,6 +111,10 @@ const interactionBroker = createInteractionBroker({
 const broadcastSnapshot = (snapshot: BackendSnapshot): void => {
   if (snapshot.phase !== "ready") interactionBroker.settle();
   sendToRailgunWindows(DESKTOP_IPC.backendSnapshot, BackendSnapshotSchema.parse(snapshot));
+};
+
+const broadcastSessionSnapshot = (snapshot: SessionSnapshot): void => {
+  sendToRailgunWindows(DESKTOP_IPC.sessionSnapshot, SessionSnapshotSchema.parse(snapshot));
 };
 
 const registerIpc = (): void => {
@@ -130,6 +140,7 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.sendPrompt, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
     await supervisor.call({ type: "prompt", message: PromptTextSchema.parse(value) });
+    broadcastSessionSnapshot(await sessionService.snapshot());
   });
   ipcMain.handle(DESKTOP_IPC.steerPrompt, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
@@ -157,9 +168,21 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.openExternal, async (event, value: unknown) => {
     await openExternalFromRenderer(event, value, senderContext, url => shell.openExternal(url));
   });
-  ipcMain.handle(DESKTOP_IPC.startNewChat, (event) => {
+  ipcMain.handle(DESKTOP_IPC.startNewChat, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
-    return BackendSnapshotSchema.parse(supervisor.start());
+    const result = await sessionService.create();
+    broadcastSessionSnapshot(result);
+    return SessionSnapshotSchema.parse(result);
+  });
+  ipcMain.handle(DESKTOP_IPC.listSessions, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return SessionSummaryListSchema.parse(await sessionService.list());
+  });
+  ipcMain.handle(DESKTOP_IPC.resumeSession, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    const result = await sessionService.resume(SessionIdSchema.parse(value));
+    broadcastSessionSnapshot(result);
+    return SessionSnapshotSchema.parse(result);
   });
   ipcMain.handle(DESKTOP_IPC.getChatControls, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
@@ -167,7 +190,9 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.setChatModel, async (event, modelId: unknown, persistence: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
-    return chatControls.setModel(ChatModelIdSchema.parse(modelId), ModelPersistenceModeSchema.parse(persistence));
+    const result = await chatControls.setModel(ChatModelIdSchema.parse(modelId), ModelPersistenceModeSchema.parse(persistence));
+    broadcastSessionSnapshot(await sessionService.snapshot());
+    return result;
   });
   ipcMain.handle(DESKTOP_IPC.updateAgentControls, async (event, update: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
