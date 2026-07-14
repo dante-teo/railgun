@@ -70,7 +70,11 @@ mutation acknowledgements. This keeps worst-case JSON escaping below the
 supervisor's 64 KiB frame ceiling without exposing runtime fields or changing
 the cron persistence format.
 
-MCP secrets never cross JSONL: reads expose command, arguments, and environment key presence only. MCP environment upserts retain omitted keys and delete keys assigned `null`. Generic config patches reject `mcpServers`; both config and cron continue to use their existing atomic writers.
+MCP secrets never cross JSONL: reads expose command, arguments, and environment
+key presence only. MCP environment upserts retain omitted keys, replace keys
+assigned any string (including the empty string), and delete keys assigned
+`null`. Generic config patches reject `mcpServers`; both config and cron
+continue to use their existing atomic writers.
 
 Desktop task controls reuse the existing `get_available_models`, `get_state`,
 `set_model`, `config_get`, `config_update`, and `compact` commands rather than

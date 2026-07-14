@@ -70,6 +70,11 @@ const controlApi = {
   createCronJob: async (input: { schedule: string; prompt: string }) => ({ id: "cron", summary: "Every day", ...input }),
   updateCronJob: async (id: string, input: { schedule: string; prompt: string }) => ({ id, summary: "Every day", ...input }),
   deleteCronJob: async () => undefined,
+  listSkills: async () => [],
+  getSkill: async (name: string) => ({ name, description: "Test", disableModelInvocation: false, body: "# Test" }),
+  listMcpServers: async () => [],
+  upsertMcpServer: async () => [],
+  removeMcpServer: async () => [],
 };
 const fileApi = {
   listFiles: async () => ({ entries: [] }),
@@ -114,6 +119,7 @@ describe("desktop shell", () => {
     expect(filterSessions(sessions, "missing")).toEqual([]);
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "settings" }) })).toBe("settings");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "automation" }) })).toBe("automation");
+    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "knowledge" }) })).toBe("knowledge");
     expect(readStoredArea({ getItem: () => "not json" })).toBe("chat");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 0, area: "settings" }) })).toBe("chat");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "obsolete" }) })).toBe("chat");
@@ -247,6 +253,8 @@ describe("desktop shell", () => {
     const settings = screen.getByRole("button", { name: "Settings" });
     expect(newTask.className).toContain("sidebar-action");
     expect(automation.className).toContain("sidebar-action");
+    const knowledge = screen.getByRole("button", { name: "Knowledge" });
+    expect(knowledge.className).toContain("sidebar-action");
     expect(settings.className).toContain("sidebar-action");
     expect(automation.previousElementSibling?.classList.contains("sidebar-divider")).toBe(true);
     expect(document.querySelector(".sidebar-footer")?.previousElementSibling).toBe(settings);
@@ -295,6 +303,10 @@ describe("desktop shell", () => {
     expect(screen.queryByRole("button", { name: "Open Files" })).toBeNull();
     fireEvent.click(collapseFiles);
     expect(screen.queryByRole("complementary", { name: "Files workspace" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge" }));
+    expect(await screen.findByRole("heading", { name: "Knowledge" })).toBeTruthy();
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeTruthy();

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bot, CircleUserRound, Search, ShieldCheck, SlidersHorizontal, Stethoscope } from "lucide-react";
+import { ArrowLeft, Bot, CircleUserRound, Search, Server, ShieldCheck, SlidersHorizontal, Stethoscope } from "lucide-react";
 import type { BackendSnapshot, MockScenario, SettingsSection, SettingsSnapshot, SettingsUpdate } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { errorMessage } from "../lib/utils";
+import { McpSettingsPanel } from "./McpSettingsPanel";
 
 interface SettingsPageProps {
   readonly backend: BackendSnapshot;
@@ -20,6 +21,7 @@ const sections = [
   { id: "agent", label: "Agent", icon: Bot },
   { id: "trust", label: "Trust", icon: ShieldCheck },
   { id: "provider", label: "Provider", icon: CircleUserRound },
+  { id: "mcp", label: "MCP", icon: Server },
   { id: "diagnostics", label: "Diagnostics", icon: Stethoscope },
 ] as const;
 
@@ -31,6 +33,7 @@ const searchRows = [
   { section: "trust", id: "approval-mode", label: "Approval mode", description: "Manual, smart review, or off" },
   { section: "trust", id: "reviewer-model", label: "Smart-review model", description: "Model that reviews tool approvals" },
   { section: "provider", id: "devin-provider", label: "Devin provider", description: "Credential source, sign in, and sign out" },
+  { section: "mcp", id: "mcp-servers", label: "MCP servers", description: "Commands, arguments, and saved environment secrets" },
   { section: "diagnostics", id: "backend-health", label: "Backend health", description: "Connection status, retry, and redacted diagnostics" },
 ] as const satisfies readonly { section: SettingsSection; id: string; label: string; description: string }[];
 
@@ -132,7 +135,7 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onSaved
     <section className="settings-detail" aria-label="Settings detail">
       <div className="settings-detail-scroll">
         <div className="settings-column">
-          <header className="settings-heading"><h1>{sections.find(section => section.id === selected)?.label}</h1><p>{selected === "general" ? "Defaults for new tasks." : selected === "agent" ? "Configure collaboration for the next run." : selected === "trust" ? "Choose how Railgun approves tool use." : selected === "provider" ? "Manage the Devin provider and authentication." : "Inspect the local backend connection."}</p></header>
+          <header className="settings-heading"><h1>{sections.find(section => section.id === selected)?.label}</h1><p>{selected === "general" ? "Defaults for new tasks." : selected === "agent" ? "Configure collaboration for the next run." : selected === "trust" ? "Choose how Railgun approves tool use." : selected === "provider" ? "Manage the Devin provider and authentication." : selected === "mcp" ? "Manage Model Context Protocol servers." : "Inspect the local backend connection."}</p></header>
           {loadingError !== undefined ? <div className="settings-load-state" role="alert"><p>{loadingError}</p><Button size="sm" onClick={() => void load()}>Retry</Button></div> : settings === undefined ? <div className="settings-skeleton" role="status" aria-label="Loading settings"><i /><i /><i /></div> : <>
             {selected === "general" && activeDraft?.section === "general" ? <div className="settings-group">
               <label className="settings-row" id="setting-default-model" tabIndex={-1}><span><strong>Default model</strong><small>Used for new tasks. The current task is unchanged.</small></span><select value={activeDraft.defaultModelId ?? ""} disabled={busy} onChange={event => updateDraft({ ...activeDraft, defaultModelId: event.target.value || null })}><option value="">Automatic</option>{settings.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
@@ -147,6 +150,7 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onSaved
               <label className="settings-row" id="setting-reviewer-model" tabIndex={-1}><span><strong>Smart-review model</strong><small>Required when smart approval is selected.</small></span><select value={activeDraft.reviewerModelId ?? ""} disabled={busy || activeDraft.approvalMode !== "smart"} aria-invalid={activeDraft.approvalMode === "smart" && activeDraft.reviewerModelId === null} onChange={event => updateDraft({ ...activeDraft, reviewerModelId: event.target.value || null })}><option value="">Choose model</option>{settings.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
             </div> : null}
             {selected === "provider" ? <div className="settings-group"><div className="settings-row" id="setting-devin-provider" tabIndex={-1}><span><strong>Devin provider</strong><small>{settings.provider.message}</small><span className={`provider-status ${settings.provider.state}`}>{settings.provider.state.replaceAll("-", " ")}</span></span><div className="settings-inline">{settings.provider.state === "sign-in-required" || settings.provider.state === "unavailable" ? <Button disabled={busy || backend.mode === "mock"} onClick={() => void authenticate("in")}>{authOperation === "signing-in" ? "Signing in…" : "Sign In"}</Button> : <Button variant="destructive" disabled={busy || backend.mode === "mock"} onClick={() => setConfirmSignOut(true)}>{authOperation === "signing-out" ? "Signing out…" : "Sign Out"}</Button>}</div></div></div> : null}
+            {selected === "mcp" ? <McpSettingsPanel /> : null}
             {selected === "diagnostics" ? <div className="settings-group"><div className="settings-row" id="setting-backend-health" tabIndex={-1}><span><strong>Backend health</strong><small>{backend.error ?? (backend.phase === "ready" ? "Backend is healthy." : "Backend is not ready.")}</small><span className={`provider-status ${backend.phase}`}>{backend.phase.replaceAll("-", " ")}</span></span><Button disabled={authOperation !== undefined || backend.phase === "starting"} onClick={() => void onRetryBackend()}>Retry</Button></div>{backend.diagnostics.length > 0 ? <details className="settings-diagnostics"><summary>Redacted diagnostics</summary><ol>{backend.diagnostics.slice(-20).map((entry, index) => <li key={index}>{entry}</li>)}</ol></details> : null}{backend.mode === "mock" ? <label className="settings-row"><span><strong>Mock scenario</strong><small>Restart with a deterministic desktop scenario.</small></span><select value={backend.scenarioId} onChange={event => void onSelectScenario(event.target.value)}>{scenarios.map(scenario => <option key={scenario.id} value={scenario.id}>{scenario.label}</option>)}</select></label> : null}</div> : null}
             {operationError === undefined ? null : <p className="settings-operation-error" role="alert">{operationError}</p>}
             {activeDraft === undefined ? null : <footer className="settings-save"><span role="status">{saved ? "Saved" : dirty ? "Unsaved changes" : "No changes"}</span><Button disabled={!dirty || busy || (activeDraft.section === "agent" && activeDraft.advisor.enabled && activeDraft.advisor.modelId === null) || (activeDraft.section === "trust" && activeDraft.approvalMode === "smart" && activeDraft.reviewerModelId === null)} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button></footer>}

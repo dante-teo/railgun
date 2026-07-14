@@ -29,6 +29,12 @@ import {
   CronJobInputSchema,
   CronJobListSchema,
   CronJobSchema,
+  SkillNameSchema,
+  SkillSummaryListSchema,
+  SkillDetailSchema,
+  McpServerNameSchema,
+  McpServerListSchema,
+  McpServerUpsertSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, RailgunDesktopApi } from "../shared/types";
@@ -184,6 +190,21 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     ),
     signOutDevin: async () => SettingsSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.signOutDevin),
+    ),
+    listSkills: async () => SkillSummaryListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.listSkills),
+    ),
+    getSkill: async (name) => SkillDetailSchema.parse(
+      await transport.invoke(DESKTOP_IPC.getSkill, SkillNameSchema.parse(name)),
+    ),
+    listMcpServers: async () => McpServerListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.listMcpServers),
+    ),
+    upsertMcpServer: async (server) => McpServerListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.upsertMcpServer, McpServerUpsertSchema.parse(server)),
+    ),
+    removeMcpServer: async (name) => McpServerListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.removeMcpServer, McpServerNameSchema.parse(name)),
     ),
     onAgentEvent: (listener) => {
       const handler = (_event: unknown, payload: unknown): void => {

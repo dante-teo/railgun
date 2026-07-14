@@ -84,6 +84,82 @@ export const CronJobSchema = z.strictObject({
 });
 export const CronJobListSchema = z.array(CronJobSchema).max(DESKTOP_CRON_LIMITS.jobs).readonly();
 
+export const DESKTOP_KNOWLEDGE_LIMITS = Object.freeze({
+  skills: 500,
+  skillName: 64,
+  skillDescription: 1_024,
+  skillBody: 200_000,
+  mcpServers: 256,
+  mcpName: 128,
+  mcpCommand: 2_048,
+  mcpArgs: 256,
+  mcpArgument: 8_000,
+  mcpEnv: 256,
+  mcpEnvKey: 256,
+  mcpEnvValue: 32_000,
+  mcpPayload: 500_000,
+});
+
+export const SkillNameSchema = z.string().regex(/^[a-z0-9-]{1,64}$/u);
+export const SkillSummarySchema = z.strictObject({
+  name: SkillNameSchema,
+  description: z.string().trim().min(1).max(DESKTOP_KNOWLEDGE_LIMITS.skillDescription),
+  disableModelInvocation: z.boolean(),
+});
+export const SkillSummaryListSchema = z.array(SkillSummarySchema)
+  .max(DESKTOP_KNOWLEDGE_LIMITS.skills).readonly();
+export const SkillDetailSchema = SkillSummarySchema.extend({
+  body: z.string().max(DESKTOP_KNOWLEDGE_LIMITS.skillBody),
+}).strict();
+
+export const McpServerNameSchema = z.string().trim().min(1).max(DESKTOP_KNOWLEDGE_LIMITS.mcpName);
+const mcpCommand = z.string().trim().min(1).max(DESKTOP_KNOWLEDGE_LIMITS.mcpCommand);
+const mcpArgument = z.string().max(DESKTOP_KNOWLEDGE_LIMITS.mcpArgument);
+const mcpEnvKey = z.string().trim().min(1).max(DESKTOP_KNOWLEDGE_LIMITS.mcpEnvKey);
+export const McpEnvironmentPresenceSchema = z.strictObject({
+  name: mcpEnvKey,
+  present: z.literal(true),
+});
+export const McpServerSchema = z.strictObject({
+  name: McpServerNameSchema,
+  command: mcpCommand,
+  args: z.array(mcpArgument).max(DESKTOP_KNOWLEDGE_LIMITS.mcpArgs).readonly(),
+  env: z.array(McpEnvironmentPresenceSchema).max(DESKTOP_KNOWLEDGE_LIMITS.mcpEnv).readonly(),
+}).superRefine((server, context) => {
+  const size = server.name.length + server.command.length
+    + server.args.reduce((total, argument) => total + argument.length, 0)
+    + server.env.reduce((total, entry) => total + entry.name.length, 0);
+  if (size > DESKTOP_KNOWLEDGE_LIMITS.mcpPayload) context.addIssue({ code: "custom", message: "MCP server payload is too large" });
+});
+export const McpServerListSchema = z.array(McpServerSchema)
+  .max(DESKTOP_KNOWLEDGE_LIMITS.mcpServers).readonly()
+  .superRefine((servers, context) => {
+    const size = servers.reduce((total, server) => total + server.name.length + server.command.length
+      + server.args.reduce((argsTotal, argument) => argsTotal + argument.length, 0)
+      + server.env.reduce((envTotal, entry) => envTotal + entry.name.length, 0), 0);
+    if (size > DESKTOP_KNOWLEDGE_LIMITS.mcpPayload) context.addIssue({ code: "custom", message: "MCP server payload is too large" });
+  });
+const McpEnvironmentMutationSchema = z.strictObject({
+  name: mcpEnvKey,
+  value: z.string().max(DESKTOP_KNOWLEDGE_LIMITS.mcpEnvValue).nullable(),
+});
+export const McpServerUpsertSchema = z.strictObject({
+  name: McpServerNameSchema,
+  command: mcpCommand,
+  args: z.array(mcpArgument).max(DESKTOP_KNOWLEDGE_LIMITS.mcpArgs),
+  env: z.array(McpEnvironmentMutationSchema).max(DESKTOP_KNOWLEDGE_LIMITS.mcpEnv),
+}).superRefine((value, context) => {
+  const names = new Set<string>();
+  value.env.forEach((entry, index) => {
+    if (names.has(entry.name)) context.addIssue({ code: "custom", path: ["env", index, "name"], message: "Environment keys must be unique" });
+    names.add(entry.name);
+  });
+  const size = value.name.length + value.command.length
+    + value.args.reduce((total, argument) => total + argument.length, 0)
+    + value.env.reduce((total, entry) => total + entry.name.length + (entry.value?.length ?? 0), 0);
+  if (size > DESKTOP_KNOWLEDGE_LIMITS.mcpPayload) context.addIssue({ code: "custom", message: "MCP server payload is too large" });
+});
+
 export const FileNameSchema = z.string()
   .min(1)
   .max(DESKTOP_FILE_LIMITS.segment)
@@ -278,7 +354,7 @@ export const ControlMutationResultSchema = z.strictObject({
   warning: z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.warning).optional(),
 });
 
-export const SettingsSectionSchema = z.enum(["general", "agent", "trust", "provider", "diagnostics"]);
+export const SettingsSectionSchema = z.enum(["general", "agent", "trust", "provider", "mcp", "diagnostics"]);
 export const SettingsSnapshotSchema = z.strictObject({
   models: z.array(DesktopModelMetadataSchema).max(DESKTOP_CONTROL_LIMITS.models).readonly(),
   moaPresets: z.array(MoAPresetSummarySchema).max(DESKTOP_CONTROL_LIMITS.presets).readonly(),

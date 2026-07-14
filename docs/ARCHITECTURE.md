@@ -391,9 +391,17 @@ This document records the intended system architecture for Railgun. Keep it curr
    to the titlebar, while the hidden pane becomes inert and is removed from the
    accessibility tree. Its visibility remains session-only, while the validated,
    versioned sidebar width persists in renderer-local storage. A separate
-   versioned route record restores only Task, Automation, or Settings and never
+   versioned route record restores only Task, Automation, Knowledge, or Settings and never
    implicitly resumes a session; malformed, obsolete, and unknown values fall
-   back to Task.
+   back to Task. Knowledge projects bounded skill summaries and sanitized
+   Markdown detail without source paths. Settings MCP management projects only
+   path-redacted commands, ordered arguments, and environment key presence.
+   Add-mode duplicate-name validation prevents an upsert from attaching an
+   existing server's retained secrets to a different command. Existing secret
+   values remain main/backend-owned: omitted rows retain them, explicitly
+   edited strings (including empty strings) replace them, and `null` removes
+   them. MCP writes share the configuration mutation queue and refresh the
+   authoritative redacted list after success.
    The layout reserves the live sidebar width as a real flex item, keeping the
    main pane and toolbar out from under the floating material. The optional,
    non-resizable activity side-car is not rendered or exposed to accessibility

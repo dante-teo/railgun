@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, CalendarClock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import { BookOpen, Bot, CalendarClock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
@@ -20,6 +20,7 @@ import { FileBrowser } from "./files/FileBrowser";
 import type { InspectorLayoutMode } from "./shell/inspectorLayout";
 import { SettingsPage } from "./settings/SettingsPage";
 import { AutomationPage } from "./automation/AutomationPage";
+import { KnowledgePage } from "./knowledge/KnowledgePage";
 
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
@@ -241,6 +242,7 @@ export const App = (): React.JSX.Element => {
     onRetryBackend={restartBackend}
     onSelectScenario={selectMockScenario}
   />;
+  if (area === "knowledge") return <KnowledgePage onBack={() => selectArea("chat")} />;
 
   const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
@@ -266,6 +268,7 @@ export const App = (): React.JSX.Element => {
                   </DropdownMenu>)}
           </div>
         </section>
+        <Button variant="ghost" className="sidebar-action sidebar-knowledge" onClick={() => selectArea("knowledge")}><BookOpen aria-hidden="true" />Knowledge</Button>
         <div className="sidebar-divider" aria-hidden="true" />
         <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><CalendarClock aria-hidden="true" />Automation</Button>
         <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>

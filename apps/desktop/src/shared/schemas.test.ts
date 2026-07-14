@@ -23,6 +23,11 @@ import {
   CronJobInputSchema,
   CronJobListSchema,
   DESKTOP_CRON_LIMITS,
+  DESKTOP_KNOWLEDGE_LIMITS,
+  SkillSummaryListSchema,
+  SkillDetailSchema,
+  McpServerListSchema,
+  McpServerUpsertSchema,
 } from "./schemas";
 
 const validSnapshot = {
@@ -146,5 +151,26 @@ describe("desktop boundary schemas", () => {
     expect(() => CronJobListSchema.parse([{ ...job, summary: "x".repeat(DESKTOP_CRON_LIMITS.summary + 1) }])).toThrow();
     const worstCasePage = JSON.stringify({ type: "response", command: "cron_list", success: true, data: { jobs: [{ ...job, prompt: "\0".repeat(DESKTOP_CRON_LIMITS.prompt) }] } });
     expect(worstCasePage.length).toBeLessThan(64 * 1_024);
+  });
+
+  it("bounds skills and rejects path or secret-bearing management responses", () => {
+    const skill = { name: "desktop-testing", description: "Desktop tests", disableModelInvocation: false } as const;
+    expect(SkillSummaryListSchema.parse([skill])).toEqual([skill]);
+    expect(SkillDetailSchema.parse({ ...skill, body: "# Safe" })).toBeTruthy();
+    expect(() => SkillSummaryListSchema.parse(Array.from({ length: DESKTOP_KNOWLEDGE_LIMITS.skills + 1 }, () => skill))).toThrow();
+    expect(() => SkillDetailSchema.parse({ ...skill, body: "ok", path: "/private/skill.md" })).toThrow();
+    const server = { name: "docs", command: "server", args: ["--stdio"], env: [{ name: "TOKEN", present: true }] } as const;
+    expect(McpServerListSchema.parse([server])).toEqual([server]);
+    expect(() => McpServerListSchema.parse([{ ...server, env: [{ name: "TOKEN", present: true, value: "secret" }] }])).toThrow();
+    expect(() => McpServerListSchema.parse([{ ...server, path: "/private/server" }])).toThrow();
+  });
+
+  it("validates strict MCP drafts and unique environment keys", () => {
+    expect(McpServerUpsertSchema.parse({ name: "docs", command: "node", args: ["server.js"], env: [{ name: "TOKEN", value: null }] })).toBeTruthy();
+    expect(() => McpServerUpsertSchema.parse({ name: "", command: "node", args: [], env: [] })).toThrow();
+    expect(() => McpServerUpsertSchema.parse({ name: "docs", command: "", args: [], env: [] })).toThrow();
+    expect(() => McpServerUpsertSchema.parse({ name: "docs", command: "node", args: [], env: [{ name: "TOKEN", value: "a" }, { name: "TOKEN", value: "b" }] })).toThrow(/unique/u);
+    expect(() => McpServerUpsertSchema.parse({ name: "docs", command: "node", args: [], env: [], rawConfig: {} })).toThrow();
+    expect(() => McpServerUpsertSchema.parse({ name: "docs", command: "node", args: Array.from({ length: 64 }, () => "x".repeat(8_000)), env: [] })).toThrow(/too large/u);
   });
 });

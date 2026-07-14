@@ -27,6 +27,10 @@ import type {
   SettingsUpdateSchema,
   CronJobSchema,
   CronJobInputSchema,
+  SkillSummarySchema,
+  SkillDetailSchema,
+  McpServerSchema,
+  McpServerUpsertSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -59,6 +63,10 @@ export type SettingsSnapshot = z.infer<typeof SettingsSnapshotSchema>;
 export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
 export type CronJob = z.infer<typeof CronJobSchema>;
 export type CronJobInput = z.infer<typeof CronJobInputSchema>;
+export type SkillSummary = z.infer<typeof SkillSummarySchema>;
+export type SkillDetail = z.infer<typeof SkillDetailSchema>;
+export type McpServer = z.infer<typeof McpServerSchema>;
+export type McpServerUpsert = z.infer<typeof McpServerUpsertSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -92,6 +100,11 @@ export interface RailgunDesktopApi {
   deleteCronJob: (id: string) => Promise<void>;
   signInDevin: () => Promise<SettingsSnapshot>;
   signOutDevin: () => Promise<SettingsSnapshot>;
+  listSkills: () => Promise<readonly SkillSummary[]>;
+  getSkill: (name: string) => Promise<SkillDetail>;
+  listMcpServers: () => Promise<readonly McpServer[]>;
+  upsertMcpServer: (server: McpServerUpsert) => Promise<readonly McpServer[]>;
+  removeMcpServer: (name: string) => Promise<readonly McpServer[]>;
   onAgentEvent: (listener: (event: DesktopAgentEvent) => void) => () => void;
   respondToApproval: (id: string, approved: boolean) => Promise<void>;
   respondToClarification: (id: string, answer: string) => Promise<void>;
@@ -131,6 +144,11 @@ export const DESKTOP_IPC = {
   createCronJob: "cron:create",
   updateCronJob: "cron:update",
   deleteCronJob: "cron:delete",
+  listSkills: "knowledge:list-skills",
+  getSkill: "knowledge:get-skill",
+  listMcpServers: "settings:list-mcp-servers",
+  upsertMcpServer: "settings:upsert-mcp-server",
+  removeMcpServer: "settings:remove-mcp-server",
   agentEvent: "agent:event",
   appCommand: "app:command",
   interactionRequest: "agent:interaction-request",

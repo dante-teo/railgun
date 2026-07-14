@@ -102,6 +102,20 @@ let cronJobs: MockCronJob[] = [
   { id: "mock-cron-review", schedule: "*/30 8-17 * * MON-FRI", prompt: "Review active work and flag blockers", lastRun: 1_752_500_000_000, requiredOutputs: ["/tmp/private-contract"] },
 ];
 let nextCronJob = 1;
+
+const mockSkills = [
+  { name: "desktop-testing", description: "Test desktop flows with deterministic fixtures.", disableModelInvocation: false, body: "# Desktop testing\n\nUse deterministic scenarios and assert renderer-safe boundaries." },
+  { name: "release-checklist", description: "Review release readiness without automatic model invocation.", disableModelInvocation: true, body: "# Release checklist\n\nVerify tests, packaging, and release notes." },
+];
+let mockMcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }> = {
+  docs: { command: "/opt/railgun/bin/docs-server", args: ["--stdio", "--format", "markdown"], env: { DOCS_TOKEN: "mock-stored-secret", REGION: "us-east-1" } },
+};
+const safeMockMcpServers = (): readonly Record<string, unknown>[] => Object.entries(mockMcpServers).map(([name, server]) => ({
+  name,
+  command: server.command,
+  args: server.args,
+  env: Object.keys(server.env).sort().map(key => ({ name: key, present: true })),
+}));
 let writingFrame = false;
 interface QueuedFrame {
   readonly line: string;
@@ -377,6 +391,45 @@ if (scenario.behavior === "authentication-required") {
       respond(type, command.id, { data: { config } });
       return;
     }
+    if (type === "skills_list") {
+      if (scenario.behavior === "store-error") respond(type, command.id, { error: "mock store error: skills_list" });
+      else respond(type, command.id, { data: { skills: scenario.behavior === "empty-stores" ? [] : mockSkills.map(({ body: _body, ...skill }) => skill) } });
+      return;
+    }
+    if (type === "skill_get") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: skill_get" }); return; }
+      const skill = scenario.behavior === "empty-stores" ? undefined : mockSkills.find(item => item.name === command.name);
+      if (skill === undefined) respond(type, command.id, { error: `skill not found: ${String(command.name)}` });
+      else respond(type, command.id, { data: { skill } });
+      return;
+    }
+    if (type === "mcp_list") {
+      if (scenario.behavior === "store-error") respond(type, command.id, { error: "mock store error: mcp_list" });
+      else respond(type, command.id, { data: { servers: scenario.behavior === "empty-stores" ? [] : safeMockMcpServers() } });
+      return;
+    }
+    if (type === "mcp_upsert") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: mcp_upsert" }); return; }
+      if (typeof command.name !== "string" || typeof command.command !== "string") { respond(type, command.id, { error: "invalid MCP server" }); return; }
+      const previous = mockMcpServers[command.name];
+      const env = { ...(previous?.env ?? {}) };
+      if (typeof command.env === "object" && command.env !== null && !Array.isArray(command.env)) {
+        for (const [key, value] of Object.entries(command.env as Record<string, unknown>)) {
+          if (value === null) delete env[key];
+          else if (typeof value === "string") env[key] = value;
+        }
+      }
+      mockMcpServers[command.name] = { command: command.command, args: Array.isArray(command.args) ? command.args.filter((arg): arg is string => typeof arg === "string") : previous?.args ?? [], env };
+      respond(type, command.id, { data: { server: safeMockMcpServers().find(server => server.name === command.name) } });
+      return;
+    }
+    if (type === "mcp_remove") {
+      if (scenario.behavior === "store-error") { respond(type, command.id, { error: "mock store error: mcp_remove" }); return; }
+      if (typeof command.name !== "string" || mockMcpServers[command.name] === undefined) { respond(type, command.id, { error: `MCP server not found: ${String(command.name)}` }); return; }
+      delete mockMcpServers[command.name];
+      respond(type, command.id);
+      return;
+    }
     if (type === "compact") {
       if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot compact while agent is running" }); return; }
       if (messageCount === 0) { respond(type, command.id, { error: "cannot compact empty history" }); return; }
@@ -440,7 +493,7 @@ if (scenario.behavior === "authentication-required") {
     }
     const emptyStoreData: Record<string, unknown> = {
       memory_list: { memories: [] }, memory_search: { memories: [] },
-      notes_search: { notes: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
+      notes_search: { notes: [] }, cron_list: { jobs: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
     };
     if (type in emptyStoreData) {
       if (scenario.behavior === "store-error") respond(type, command.id, { error: `mock store error: ${type}` });

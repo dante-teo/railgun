@@ -42,10 +42,13 @@ describe("preload desktop bridge", () => {
       "getBackendSnapshot",
       "getChatControls",
       "getSettings",
+      "getSkill",
       "listCronJobs",
       "listFiles",
+      "listMcpServers",
       "listMockScenarios",
       "listSessions",
+      "listSkills",
       "onAgentEvent",
       "onAppCommand",
       "onBackendSnapshot",
@@ -53,6 +56,7 @@ describe("preload desktop bridge", () => {
       "onSessionSnapshot",
       "openExternal",
       "previewFile",
+      "removeMcpServer",
       "respondToApproval",
       "respondToClarification",
       "restartBackend",
@@ -68,9 +72,30 @@ describe("preload desktop bridge", () => {
       "updateAgentControls",
       "updateCronJob",
       "updateSettings",
+      "upsertMcpServer",
     ]);
     expect(exposed).not.toHaveProperty("invoke");
     expect(exposed).not.toHaveProperty("ipcRenderer");
+  });
+
+  it("validates fixed Skills and MCP operations without accepting secrets", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const skill = { name: "testing", description: "Test safely", disableModelInvocation: false } as const;
+    invoke.mockResolvedValueOnce([skill]);
+    await expect(api.listSkills()).resolves.toEqual([skill]);
+    invoke.mockResolvedValueOnce({ ...skill, body: "# Testing" });
+    await expect(api.getSkill("testing")).resolves.toMatchObject({ body: "# Testing" });
+    await expect(api.getSkill("../secret")).rejects.toThrow();
+
+    const server = { name: "docs", command: "server", args: ["--stdio"], env: [{ name: "TOKEN", present: true as const }] };
+    invoke.mockResolvedValueOnce([server]);
+    await expect(api.listMcpServers()).resolves.toEqual([server]);
+    invoke.mockResolvedValueOnce([server]);
+    await expect(api.upsertMcpServer({ name: "docs", command: "server", args: [], env: [] })).resolves.toEqual([server]);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.upsertMcpServer, { name: "docs", command: "server", args: [], env: [] });
+    await expect(api.upsertMcpServer({ name: "docs", command: "server", args: [], env: [{ name: "TOKEN", value: "one" }, { name: "TOKEN", value: "two" }] })).rejects.toThrow();
+    invoke.mockResolvedValueOnce([{ ...server, env: [{ name: "TOKEN", present: true, value: "secret" }] }]);
+    await expect(api.removeMcpServer("docs")).rejects.toThrow();
   });
 
   it("validates chat control arguments and results on fixed channels", async () => {

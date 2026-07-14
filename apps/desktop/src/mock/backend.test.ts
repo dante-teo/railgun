@@ -181,6 +181,29 @@ describe("mock backend process", () => {
     } finally { failed.kill(); }
   });
 
+  it("supports populated Skills and secret-safe MCP CRUD", async () => {
+    const child = startMock("ready-idle");
+    try {
+      send(child, { id: "skills", type: "skills_list" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { skills: expect.arrayContaining([expect.objectContaining({ name: "desktop-testing" })]) } });
+      send(child, { id: "skill", type: "skill_get", name: "desktop-testing" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { skill: { body: expect.stringContaining("Desktop testing") } } });
+      send(child, { id: "mcp-list", type: "mcp_list" });
+      const initial = JSON.parse((await nextLine(child)).line);
+      expect(initial).toMatchObject({ data: { servers: [{ name: "docs", env: expect.arrayContaining([{ name: "DOCS_TOKEN", present: true }]) }] } });
+      expect(JSON.stringify(initial)).not.toContain("mock-stored-secret");
+
+      send(child, { id: "mcp-edit", type: "mcp_upsert", name: "docs", command: "/opt/railgun/bin/docs-server", args: ["--stdio"], env: { DOCS_TOKEN: null, NEW_TOKEN: "replacement-secret" } });
+      const edit = JSON.parse((await nextLine(child)).line);
+      expect(edit).toMatchObject({ success: true, data: { server: { env: expect.arrayContaining([{ name: "NEW_TOKEN", present: true }]) } } });
+      expect(JSON.stringify(edit)).not.toContain("replacement-secret");
+      send(child, { id: "mcp-remove", type: "mcp_remove", name: "docs" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ success: true });
+      send(child, { id: "mcp-after", type: "mcp_list" });
+       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { servers: [] } });
+     } finally { child.kill(); }
+  });
+
   it("delays startup responses", async () => {
     const child = startMock("delayed-startup");
     const startedAt = Date.now();

@@ -737,7 +737,7 @@ The sidebar's search action opens a keyboard-accessible task palette over the
 newest-first saved-session list. Filtering matches preview, model, or session ID
 without changing backend order; selecting a result explicitly resumes its safe
 text transcript and persisted todos. Relaunch restores only the last valid
-Task, Automation, or Settings area, never an active session.
+Task, Automation, Knowledge, or Settings area, never an active session.
 
 Automation lists scheduled prompts in backend file order and supports create,
 edit, and confirmed delete operations while a task is running. Schedules use
@@ -774,15 +774,28 @@ change, compaction, backend restart, or New Task. Configuration reads are
 reduced in Electron main to a bounded display-safe snapshot; raw configuration,
 unknown keys, and provider-only model fields do not cross preload.
 
+Knowledge is a restorable read-only route containing Skills only; DESK-017
+memory, notes, and dream management are not represented by placeholders. Skill
+search matches names and descriptions, detail reads remain independent of
+configuration mutations, and instruction bodies use the same sanitized
+Markdown and HTTP(S)-only link boundary as completed chat messages. Skill
+source paths never cross preload, and the detail status distinguishes skills
+available to model invocation from those requiring explicit user invocation.
+
 Desktop Settings is a restorable full-page route rather than a card inside the
-Task shell. Its sidebar contains General, Agent, Trust, Provider, and
+Task shell. Its sidebar contains General, Agent, Trust, Provider, MCP, and
 Diagnostics. Search matches section names, labels, and descriptions, then moves
 focus to the selected row. General persists the default model and operation
 timeout; Agent persists the default MoA preset and advisor; Trust persists the
-approval mode and smart-review model. Saves are explicit per section, the UI
-prompts before discarding dirty edits, and changes apply only to new tasks or
-the next run.
-Unknown configuration keys remain backend-owned and preserved.
+approval mode and smart-review model. MCP lists path-redacted commands, ordered
+arguments, and environment key presence while stored values appear only as
+`Saved secret`. Existing server names are immutable, and Add rejects duplicate
+names instead of upserting over an existing server. Unchanged secrets are
+retained, edited values—including an intentional empty string—replace them, and
+removed keys are deleted. Successful changes refresh authoritative redacted
+data and affect new backend sessions, not the currently running session. Saves
+are explicit per section, the UI prompts before discarding dirty edits, and
+unknown configuration keys remain backend-owned and preserved.
 
 The desktop transcript fills the main canvas behind its floating toolbar and
 composer. Its native scrollbar is hidden in favor of a centered dash indicator

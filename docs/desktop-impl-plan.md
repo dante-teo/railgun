@@ -526,10 +526,30 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Notes folder import plus keyword and semantic test search.
   - Dream/consolidation action with progress.
 
-- [ ] **DESK-018 — Build Skills and MCP screens**
+- [x] **DESK-018 — Build Skills and MCP screens**
   - Read-only local skills list and detail.
   - Add/edit/remove MCP stdio server configuration.
   - Mask MCP environment secrets and explain that changes apply to new sessions.
+
+  Renderer security contract: Electron main projects bounded skill summaries and
+  bodies without source paths, and the renderer displays skill Markdown through
+  the existing HTML-skipping sanitizer and HTTP(S)-only link boundary. MCP
+  snapshots contain only server names, a path-redacted command, ordered
+  arguments, and environment key names with `present: true`; stored values,
+  configuration paths, raw configuration, and generic IPC never cross preload.
+
+  Secret-retention contract: existing names are immutable in the edit UI, and
+  Add rejects a trimmed name that already exists so it cannot overwrite a
+  server or transfer that server's retained secrets to another command.
+  Unchanged saved environment rows are omitted from `mcp_upsert`; editing a
+  value sends the new string, including an intentional empty string; and
+  explicit removals carry `null`. Remove-then-readd of the same key normalizes
+  to one replacement rather than conflicting delete/set entries. Path-redacted
+  commands that remain unchanged are resolved back to their authoritative
+  main-process value before mutation. MCP mutations share the configuration
+  mutation queue, keep failed dialogs open, and refresh the authoritative
+  redacted list after success. Changes configure new backend sessions and do
+  not reconfigure the currently running backend session.
 
 ### Verification and release
 

@@ -40,6 +40,12 @@ import {
   CronJobInputSchema,
   CronJobListSchema,
   CronJobSchema,
+  SkillNameSchema,
+  SkillSummaryListSchema,
+  SkillDetailSchema,
+  McpServerNameSchema,
+  McpServerListSchema,
+  McpServerUpsertSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
@@ -51,6 +57,7 @@ import { createMutationQueue } from "./mutationQueue";
 import { createSettingsService } from "./settingsService";
 import { createAuthenticationCoordinator, createAuthenticationService } from "./authenticationService";
 import { createCronService } from "./cronService";
+import { createManagementService } from "./managementService";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -96,6 +103,7 @@ const supervisor = new BackendSupervisor({
 const mutationQueue = createMutationQueue();
 const chatControls = createChatControlsService(supervisor, mutationQueue);
 const settingsService = createSettingsService(supervisor, chatControls, mutationQueue);
+const managementService = createManagementService(supervisor, mutationQueue);
 const waitForBackendReady = (action: "login" | "logout"): Promise<void> => new Promise((resolveReady, rejectReady) => {
   let unsubscribe = (): void => undefined;
   const timeout = setTimeout(() => {
@@ -321,6 +329,26 @@ const registerIpc = (): void => {
     assertAuthorizedIpcSender(event, senderContext);
     if (backendMode === "mock") throw new Error("Devin sign-out is unavailable in mock mode");
     return SettingsSnapshotSchema.parse(await authenticationCoordinator.mutate("logout"));
+  });
+  ipcMain.handle(DESKTOP_IPC.listSkills, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return SkillSummaryListSchema.parse(await managementService.listSkills());
+  });
+  ipcMain.handle(DESKTOP_IPC.getSkill, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return SkillDetailSchema.parse(await managementService.getSkill(SkillNameSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.listMcpServers, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return McpServerListSchema.parse(await managementService.listMcpServers());
+  });
+  ipcMain.handle(DESKTOP_IPC.upsertMcpServer, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return McpServerListSchema.parse(await managementService.upsertMcpServer(McpServerUpsertSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.removeMcpServer, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return McpServerListSchema.parse(await managementService.removeMcpServer(McpServerNameSchema.parse(value)));
   });
 };
 
