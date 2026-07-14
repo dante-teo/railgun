@@ -159,18 +159,29 @@ the same model; text entry is reserved for free-form answers and preset names.
   usage. Loading and mutation failures stay inline and retryable.
 
 - Desktop Settings replaces the Task shell while open and restores the same
-  active task on Back. Its softly tinted sidebar contains General, Agent, Trust,
-  Provider, and Diagnostics; the detail canvas uses opaque inset groups,
-  hairline separators, compact native-proportioned controls, and explicit
-  section-level Save actions. Search includes setting descriptions and moves
-  focus to the result row. Navigation confirms before discarding dirty edits,
-  and live backend/run refreshes preserve those drafts.
+  active task on Back. Its softly tinted sidebar groups General, Agent, and
+  Trust under Railgun; Memories, Notes, Instructions, and Skills under
+  Knowledge; Provider and MCP under Connections; and Diagnostics under System.
+  Knowledge is not a separate top-level area or tab strip. Every destination
+  uses the same page heading, opaque inset groups, hairline row separators,
+  spacing, and compact controls as General and Trust. Search includes setting
+  descriptions and moves focus to the result row. Navigation—including native
+  Task and New Task commands—confirms before discarding dirty edits. Confirmed
+  instruction discards clear the editor and unload guard. Knowledge store views
+  mount only after backend readiness; live backend/run refreshes preserve other
+  drafts.
 - Settings owns persisted defaults, not active work. Default-model changes apply
   to new tasks; agent and trust changes apply to the next run. Mutations are
   disabled during a run or authentication operation. Provider sign-in/out uses
   explicit confirmation and explains that cached logout cannot override
   `DEVIN_TOKEN`. Diagnostics show bounded redacted backend details and mock
   scenario controls only in mock mode.
+
+- Topbar actions and left/right pane controls share a 40px minimum height and
+  the traffic-light centerline. They are flat bordered controls without drop
+  shadows, raised gradients, backdrop blur, or active-scale effects. The inset
+  left sidebar is the only app glass surface tinted by the active theme;
+  popovers and other translucent materials remain neutral.
 
 ## UI states
 

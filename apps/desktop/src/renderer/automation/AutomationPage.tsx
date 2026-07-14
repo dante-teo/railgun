@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, Pencil, Plus, Trash2 } from "lucide-react";
+import { Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { parseCronSchedule } from "../../shared/cron";
 import { DESKTOP_CRON_LIMITS } from "../../shared/schemas";
 import type { BackendPhase, CronJob, CronJobInput } from "../../shared/types";
@@ -45,7 +45,7 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
       const next = await window.railgunDesktop.listCronJobs();
       if (generation === loadGeneration.current) setJobs(next);
     } catch (error) {
-      if (generation === loadGeneration.current) setLoadError(errorMessage(error, "Unable to load automations"));
+      if (generation === loadGeneration.current) setLoadError(errorMessage(error, "Unable to load scheduled jobs"));
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
@@ -81,7 +81,7 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
         : current.map(job => job.id === saved.id ? saved : job));
       setEditor(undefined);
     } catch (error) {
-      setMutationError(errorMessage(error, editor.job === undefined ? "Unable to create automation" : "Unable to update automation"));
+      setMutationError(errorMessage(error, editor.job === undefined ? "Unable to create scheduled job" : "Unable to update scheduled job"));
       void load();
     } finally { setBusy(false); }
   };
@@ -97,7 +97,7 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
       setJobs(current => current.filter(job => job.id !== deleting.id));
       setDeleting(undefined);
     } catch (error) {
-      setMutationError(errorMessage(error, "Unable to delete automation"));
+      setMutationError(errorMessage(error, "Unable to delete scheduled job"));
       void load();
     } finally { setBusy(false); }
   };
@@ -113,16 +113,16 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
 
   return <section className="automation-page">
     <header className="content-toolbar automation-toolbar">
-      <div className="content-toolbar-title"><h1>Automation</h1><p>Scheduled prompts run in your local timezone.</p></div>
-      <Button className="automation-create" variant="tonal" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" />Create</Button>
+      <div className="content-toolbar-title"><h1>Scheduled</h1><p>Scheduled prompts run in your local timezone.</p></div>
+      <div className="content-toolbar-actions"><Button className="automation-create" size="sm" variant="ghost" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" />Create</Button></div>
     </header>
     <div className="automation-scroll">
-      {!ready ? <ErrorState title="Automation is unavailable" description="Reconnect Railgun to view or change scheduled prompts." />
-        : loading ? <LoadingState title="Loading automations…" description="Reading scheduled prompts from Railgun." />
-          : loadError !== undefined ? <div className="automation-state"><ErrorState title="Unable to load automations" description={loadError} /><Button variant="tonal" onClick={() => void load()}>Retry</Button></div>
-            : jobs.length === 0 ? <EmptyState title="No automations yet" description="Create a scheduled prompt to let Railgun handle recurring work." />
+      {!ready ? <ErrorState title="Scheduled jobs are unavailable" description="Reconnect Railgun to view or change scheduled prompts." />
+        : loading ? <LoadingState title="Loading scheduled jobs…" description="Reading scheduled prompts from Railgun." />
+          : loadError !== undefined ? <div className="automation-state"><ErrorState title="Unable to load scheduled jobs" description={loadError} /><Button variant="tonal" onClick={() => void load()}>Retry</Button></div>
+            : jobs.length === 0 ? <EmptyState title="No scheduled jobs yet" description="Create a scheduled prompt to let Railgun handle recurring work." />
               : <ol className="automation-list">{jobs.map(job => <li className="automation-row" key={job.id}>
-                <span className="automation-icon" aria-hidden="true"><CalendarClock /></span>
+                <span className="automation-icon" aria-hidden="true"><Clock /></span>
                 <div className="automation-copy"><strong>{job.prompt}</strong><span>{job.summary}</span><code>{job.schedule}</code></div>
                 <div className="automation-row-actions">
                   <Button variant="ghost" size="icon" aria-label={`Edit ${job.prompt}`} disabled={!ready || busy} onClick={() => openEditor(job)}><Pencil aria-hidden="true" /></Button>
@@ -133,9 +133,9 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
 
     <Dialog open={editor !== undefined} onOpenChange={open => { if (!open && !busy) { setEditor(undefined); setMutationError(undefined); } }}>
       <DialogContent className="automation-dialog">
-        <DialogHeader><DialogTitle>{editor?.job === undefined ? "Create automation" : "Edit automation"}</DialogTitle><DialogDescription>Use a local-time, five-field cron expression.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{editor?.job === undefined ? "Create scheduled job" : "Edit scheduled job"}</DialogTitle><DialogDescription>Use a local-time, five-field cron expression.</DialogDescription></DialogHeader>
         <label className="automation-field"><span>Prompt</span><Textarea aria-label="Prompt" maxLength={DESKTOP_CRON_LIMITS.prompt} value={editor?.prompt ?? ""} disabled={busy} aria-invalid={editor !== undefined && !promptValid} onChange={event => setEditor(current => current === undefined ? current : { ...current, prompt: event.target.value })} /></label>
-        <label className="automation-field"><span>Schedule</span><Input aria-label="Schedule" maxLength={DESKTOP_CRON_LIMITS.schedule} placeholder="0 9 * * 1-5" value={editor?.schedule ?? ""} disabled={busy} aria-invalid={editor !== undefined && !scheduleResult.valid} onChange={event => setEditor(current => current === undefined ? current : { ...current, schedule: event.target.value })} /></label>
+        <label className="automation-field"><span>Schedule</span><Input className="automation-schedule-input" aria-label="Schedule" maxLength={DESKTOP_CRON_LIMITS.schedule} placeholder="0 9 * * 1-5" value={editor?.schedule ?? ""} disabled={busy} aria-invalid={editor !== undefined && !scheduleResult.valid} onChange={event => setEditor(current => current === undefined ? current : { ...current, schedule: event.target.value })} /></label>
         <div className={`automation-preview ${scheduleResult.valid ? "valid" : "invalid"}`} aria-live="polite">{scheduleResult.valid ? scheduleResult.summary : scheduleResult.error}</div>
         {mutationError === undefined ? null : <p className="automation-error" role="alert">{mutationError}</p>}
         <DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setEditor(undefined)}>Cancel</Button><Button variant="tonal" disabled={!ready || busy || !editorValid} onClick={() => void save()}>{busy ? "Saving…" : editor?.job === undefined ? "Create" : "Save"}</Button></DialogFooter>
@@ -144,7 +144,7 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
 
     <Dialog open={deleting !== undefined} onOpenChange={open => { if (!open && !busy) { setDeleting(undefined); setMutationError(undefined); } }}>
       <DialogContent className="automation-dialog">
-        <DialogHeader><DialogTitle>Delete automation?</DialogTitle><DialogDescription>This permanently removes “{deleting?.prompt}”.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Delete scheduled job?</DialogTitle><DialogDescription>This permanently removes “{deleting?.prompt}”.</DialogDescription></DialogHeader>
         {mutationError === undefined ? null : <p className="automation-error" role="alert">{mutationError}</p>}
         <DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setDeleting(undefined)}>Cancel</Button><Button variant="destructive" disabled={!ready || busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete"}</Button></DialogFooter>
       </DialogContent>

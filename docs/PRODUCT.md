@@ -615,11 +615,12 @@ protocol failures, and unrelated errors fail immediately.
   `moaPreset` is not provided. Full suite (49 files / 601 tests) passes;
   `pnpm typecheck` clean.
 
-## Desktop Knowledge
+## Desktop Knowledge settings
 
-The restorable Knowledge area provides Skills, Memories, Notes, and
-Instructions. Skills are read-only, searchable by name or description, and show
-sanitized Markdown detail without exposing source paths.
+The Knowledge group in Settings provides Skills, Memories, Notes, and
+Instructions as ordinary grouped Settings destinations rather than a separate
+restorable area or tab strip. Skills are read-only, searchable by name or
+description, and show sanitized Markdown detail without exposing source paths.
 Memories support content search and focused CRUD, plus Dream eligibility and
 progress. Notes import top-level Markdown/text chunks through a native folder
 picker with semantic embeddings and expose keyword/semantic test search without
@@ -631,7 +632,9 @@ an explicit Markdown Save/revert flow. File and parent-directory symlinks are
 rejected before writes.
 Unsaved instruction edits are confirmed before leaving; saved changes apply to
 newly created, loaded, or forked tasks, never the currently active task prompt.
-When Knowledge is restored at launch, it waits for backend readiness before
-loading data; failed selected-file reads can be retried in place.
+Knowledge views wait for backend readiness before loading data; failed
+selected-file reads can be retried in place. Unsaved instruction state also
+guards Task and New Task commands delivered through keyboard shortcuts or the
+native application menu.
 
 ## Open Questions

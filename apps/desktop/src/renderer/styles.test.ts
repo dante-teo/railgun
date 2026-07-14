@@ -67,6 +67,9 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/prefers-color-scheme:\s*dark[\s\S]*--material-toolbar:\s*linear-gradient\(to bottom,\s*hsl\(0 0% 0% \/ 0\.8[0-9]?\)[^;]*transparent 85%\)/u);
     expect(css).toMatch(/\.ui-card\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
     expect(css).not.toMatch(/\.ui-card\s*\{[^}]*backdrop-filter/u);
+    expect(css).toMatch(/--material-popover:\s*hsl\(0 0% 100% \/ 0\.78\)/u);
+    expect(css).toMatch(/prefers-color-scheme:\s*dark[\s\S]*--material-popover:\s*hsl\(0 0% 12% \/ 0\.72\)/u);
+    expect(css).toMatch(/--material-sidebar:\s*hsl\(154 /u);
     expect(css).toMatch(/\.composer\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
     expect(css).toMatch(/\.shell-inspector\s*\{[^}]*width:\s*var\(--inspector-width\)[^}]*min-width:\s*var\(--inspector-width\)[^}]*height:\s*100%[^}]*display:\s*flex[^}]*padding:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\) var\(--space-4\) var\(--space-2\) 0[^}]*background:\s*transparent/u);
     expect(css).toMatch(/\.shell-workspace\s*\{[^}]*width:\s*var\(--workspace-width\)[^}]*min-width:\s*var\(--workspace-width\)[^}]*border-left:\s*1px solid var\(--color-border-strong\)/u);
@@ -94,29 +97,68 @@ describe("desktop activity styles", () => {
     const title = css.match(/\.content-toolbar-title\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
     expect(title).not.toContain("position: absolute");
     expect(title).toContain("margin-left: var(--toolbar-content-left)");
-    expect(css).toMatch(/\.content-toolbar-actions \.ui-button\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
-    expect(css).toMatch(/\.content-toolbar-actions \.ui-button:not\(:disabled\):hover\s*\{[^}]*transform:\s*none[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)/u);
+    expect(css).toMatch(/\.content-toolbar-actions \.ui-button\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
+    expect(css).toMatch(/\.content-toolbar-actions \.ui-button:not\(:disabled\):hover\s*\{[^}]*transform:\s*none[^}]*box-shadow:\s*none/u);
     expect(css).not.toContain("--shadow-toolbar-control-hover");
     expect(css).toMatch(/\.content-toolbar-actions\s*\{[^}]*z-index:\s*var\(--layer-titlebar-control\)[^}]*-webkit-app-region:\s*no-drag/u);
-    expect(css).toMatch(/\.todo-pane-toggle\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--material-toolbar-control-hover\)/u);
-    expect(css).toMatch(/\.right-pane-controls\s*\{[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
+    expect(css).toMatch(/\.todo-pane-toggle\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--color-surface-control-active\)/u);
+    expect(css).toMatch(/\.right-pane-controls\s*\{[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
     expect(css).toMatch(/\.right-pane-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.ui-button-compact-icon\s*\{[^}]*width:\s*1\.5rem[^}]*height:\s*1\.5rem[^}]*border-radius:\s*var\(--radius-xs\)/u);
     expect(css).toMatch(/\.ui-button-sidebar-icon\s*\{[^}]*color:\s*var\(--color-text-secondary\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
     expect(css).toMatch(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
-    expect(css).toMatch(/\.collapsed-sidebar-controls\s*\{[^}]*left:\s*var\(--sidebar-toggle-left\)[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--material-toolbar-control\)[^}]*box-shadow:\s*var\(--shadow-toolbar-control\)[^}]*backdrop-filter:\s*var\(--material-blur-control\)/u);
+    expect(css).toMatch(/\.collapsed-sidebar-controls\s*\{[^}]*left:\s*var\(--sidebar-toggle-left\)[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls > \.sidebar-toggle\s*\{[^}]*border-radius:\s*var\(--radius-pill\) 0 0 var\(--radius-pill\)/u);
     expect(css).toMatch(/\.collapsed-sidebar-action \.ui-button\s*\{[^}]*border-radius:\s*0 var\(--radius-pill\) var\(--radius-pill\) 0/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls \.ui-button:not\(:disabled\):hover\s*\{[^}]*background:\s*var\(--color-menu-hover\)/u);
     expect(css).toMatch(/\.sidebar-action\s*\{[^}]*justify-content:\s*flex-start[^}]*width:\s*100%[^}]*min-height:\s*2\.25rem/u);
-    expect(css).toMatch(/\.sidebar-divider\s*\{[^}]*height:\s*1px[^}]*background:\s*var\(--color-border\)/u);
     expect(css).toMatch(/\.sidebar-footer\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*1rem minmax\(0, 1fr\)/u);
     expect(css).toMatch(/\.connection-dot\s*\{[^}]*justify-self:\s*center/u);
     expect(css).toMatch(/\.ui-dialog-content\s*\{[^}]*background:\s*var\(--material-dialog\)[^}]*box-shadow:\s*var\(--shadow-dialog\)/u);
     expect(css).toMatch(/\.ui-dialog-footer\s*\{[^}]*justify-content:\s*flex-end/u);
     expect(css).toMatch(/\.ui-popover-arrow\s*\{[^}]*fill:\s*var\(--material-popover\)/u);
     expect(css).toContain("transform-origin: var(--radix-dropdown-menu-content-transform-origin)");
+  });
+
+  it("keeps Settings focus and helper treatments contained", () => {
+    expect(css).not.toMatch(/\.settings-row:focus\s*\{/u);
+    expect(css).toMatch(/\.mcp-form\s*\{[^}]*margin:\s*-6px[^}]*overflow:\s*auto[^}]*padding:\s*6px/u);
+    expect(css).toMatch(/\.automation-preview\s*\{[^}]*margin-top:\s*var\(--space-2\)[^}]*padding:\s*var\(--space-1\) 0 0/u);
+    expect(css).toMatch(/\.automation-field\s*\{[^}]*margin-top:\s*var\(--space-4\)/u);
+    expect(css).toMatch(/\.automation-schedule-input\s*\{[^}]*font-family:\s*var\(--font-mono\)/u);
+    expect(css).toMatch(/\.ui-field:disabled\s*\{[^}]*cursor:\s*not-allowed[^}]*opacity:\s*0\.52/u);
+  });
+
+  it("aligns forty-pixel titlebar controls to the traffic-light centerline", () => {
+    expect(css).toContain("--titlebar-control-height: 2.5rem");
+    expect(css).toMatch(/--titlebar-control-center-y:\s*calc\(var\(--traffic-light-top\) \+ \(var\(--traffic-light-size\) \/ 2\)\)/u);
+    expect(css).toMatch(/\.sidebar-toggle\s*\{[^}]*width:\s*var\(--titlebar-control-height\)[^}]*min-height:\s*var\(--titlebar-control-height\)[^}]*height:\s*var\(--titlebar-control-height\)/u);
+    expect(css).toMatch(/\.content-toolbar-actions > \.ui-button\s*\{[^}]*min-height:\s*var\(--titlebar-control-height\)/u);
+    expect(css).toMatch(/\.right-pane-controls\s*\{[^}]*height:\s*var\(--titlebar-control-height\)/u);
+    expect(css).toMatch(/\.files-header-actions \.ui-button\s*\{[^}]*min-height:\s*var\(--titlebar-control-height\)/u);
+  });
+
+  it("keeps titlebar controls flat", () => {
+    expect(css).toMatch(/\.content-toolbar-actions \.ui-button\s*\{[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
+    expect(css).toMatch(/\.content-toolbar-actions \.ui-button:not\(:disabled\):active\s*\{[^}]*transform:\s*none[^}]*box-shadow:\s*none/u);
+    expect(css).toMatch(/\.right-pane-controls\s*\{[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
+    expect(css).toMatch(/\.collapsed-sidebar-controls\s*\{[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
+    expect(css).not.toContain("--shadow-toolbar-control:");
+    expect(css).not.toContain("--material-toolbar-control:");
+  });
+
+  it("uses current design tokens throughout Knowledge settings", () => {
+    expect(css).not.toContain("var(--border)");
+    expect(css).not.toContain("var(--input)");
+    expect(css).not.toContain("var(--card)");
+    expect(css).not.toContain("var(--muted-foreground)");
+    expect(css).toMatch(/\.knowledge-controls\s*\{[^}]*margin-bottom:\s*var\(--space-4\)/u);
+    expect(css).not.toContain(".knowledge-list li > div:last-child");
+    expect(css).toMatch(/\.knowledge-row-actions\s*\{[^}]*display:\s*flex[^}]*gap:\s*var\(--space-1\)/u);
+    expect(css).toMatch(
+      /\.knowledge-search-row input,\s*\.notes-search input,\s*\.knowledge-modal input,\s*\.knowledge-modal textarea\s*\{[^}]*min-height:\s*var\(--control-height\)/u,
+    );
   });
 
   it("preserves accessibility fallbacks for transparency, contrast, and motion", () => {

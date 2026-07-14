@@ -51,12 +51,12 @@ The reference also has product areas Railgun does not have. They are outside thi
 
 ## Product layout
 
-Keep the app to four main areas:
+Keep the app to three main areas:
 
 1. **Task** — sessions, transcript, composer, todos, tools, approvals, and file preview.
-2. **Automation** — cron jobs.
-3. **Knowledge** — skills, memories, notes, Dream, and global instructions.
-4. **Settings** — model, agent behavior, trust, MCP, authentication, and diagnostics.
+2. **Scheduled** — cron jobs.
+3. **Settings** — model, agent behavior, trust, Knowledge (skills, memories,
+   notes, Dream, and global instructions), MCP, authentication, and diagnostics.
 
 The main content canvas spans the full window. The sidebar is a floating pane
 over that canvas rather than a separate grid column, so the area around it and
@@ -66,10 +66,9 @@ the main pane read as one uninterrupted surface:
 ┌────────────────────── full-window content canvas ──────────────────────┐
 │  ╭─ floating sidebar ─╮  titlebar / toolbar                           │
 │  │ New task           │                                               │
+│  │ Scheduled          │                                               │
 │  │ Sessions           │  transcript    activity side-car │ Files pane │
-│  │ Automation         │                                               │
-│  │ Knowledge          │  composer                                    │
-│  │ Settings           │                                               │
+│  │ Settings           │  composer                                    │
 │  ╰────────────────────╯                                               │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -78,8 +77,9 @@ the main pane read as one uninterrupted surface:
 
 The app should look native to macOS 26, using Liquid Glass deliberately rather than applying blur everywhere.
 
-- Use glass selectively where it communicates hierarchy: the floating sidebar,
-  toolbar, anchored popovers, dialogs, and sheets. Keep the effect subtle;
+- Use glass selectively where it communicates hierarchy. The floating sidebar
+  is the only surface tinted by the active theme; anchored popovers, dialogs,
+  and sheets may remain neutrally translucent. Keep the effect subtle;
   transparency, tint, blur, borders, and depth should support the content rather
   than become decoration of their own.
 - Keep transcripts, code, forms, cards, the composer, prompts, and long lists on
@@ -105,8 +105,8 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   width; no sidebar edge may create a toolbar color seam. When Files is open,
   the fade stops at the right workspace divider.
 - One labelled `PanelLeft` control collapses and restores the sidebar. It is a
-  ghost button at the sidebar's top-right while expanded and a circular glass
-  button beside the traffic lights while collapsed. Collapse state is
+  flat 40px control aligned to the traffic-light centerline in both expanded
+  and collapsed states, without shadow, blur, or raised active motion. Collapse state is
   session-only; the hidden sidebar is inert and removed from the accessibility
   tree.
 - Sidebar width is clamped, pointer- and keyboard-resizable, and stored in a
@@ -467,7 +467,8 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 - [x] **DESK-015 — Build Settings**
   - Settings is a restorable full-page split route with General, Agent, Trust,
-    Provider, and Diagnostics destinations. Back restores the active Task state.
+    Knowledge (Memories, Notes, Instructions, Skills), Provider, MCP, and
+    Diagnostics destinations. Back restores the active Task state.
   - Search indexes section names, labels, and descriptions and focuses the
     selected setting. Dirty section changes require confirmation before Back,
     section, or search-result navigation.
@@ -485,10 +486,10 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     compression, and Reduce Motion/Transparency and Increase Contrast fallbacks
     follow the desktop Liquid Glass design system.
 
-- [x] **DESK-016 — Build Automation**
+- [x] **DESK-016 — Build Scheduled**
   - List, create, edit, and delete cron jobs.
   - Validate five-field cron schedules and show a readable summary.
-  - The versioned desktop route now restores Automation alongside Task and
+  - The versioned desktop route now restores Scheduled alongside Task and
     Settings. Switching areas keeps the active Task controller and session
     intact; selecting the active task returns directly to its existing state.
   - A fixed preload/main boundary exposes only list, create, update, and delete
@@ -509,7 +510,7 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     Desktop list calls use backward-compatible, editable-only pagination with
     one job per frame; mutation calls request compact job-ID acknowledgements.
     Legacy RPC callers retain their original unpaginated/full-job responses.
-  - The Automation UI preserves backend file order and covers loading, empty,
+  - The Scheduled UI preserves backend file order and covers loading, empty,
     disconnected, retryable load-error, and mutation-error states. Actions and
     submission are disabled while disconnected, invalid, or busy; pause,
     history, daemon, runtime metadata, and required-output controls stay out of
@@ -519,18 +520,22 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     the underlying list while preserving their retry dialog and error.
   - The deterministic mock supplies ordered cron fixtures and stateful CRUD,
     while its existing empty-store and store-error scenarios exercise the
-    corresponding Automation states.
+    corresponding Scheduled states.
 
 - [x] **DESK-017 — Build Knowledge**
+  - Knowledge is a grouped section of Settings, not a standalone route or tab
+    strip. Legacy Knowledge route records migrate to Settings.
   - Memory search/create/edit/delete.
   - Notes folder import plus keyword and semantic test search.
   - Dream/consolidation action with progress.
   - Fixed-ID global instruction files with precedence status, atomic Save/revert,
     file/parent symlink rejection, non-empty loader precedence, selected-file
     retry, and dirty-navigation confirmation. Renderer APIs never receive native
-    folder paths or instruction paths. Restored Knowledge waits for backend
-    readiness; desktop note imports opt into semantic embeddings without changing
-    the optional RPC field's legacy default.
+    folder paths or instruction paths. Knowledge views mount only after backend
+    readiness. Dirty state guards Settings navigation plus native/keyboard Task
+    and New Task commands; confirmed discards reset the editor and unload guard.
+    Desktop note imports opt into semantic embeddings without changing the
+    optional RPC field's legacy default.
 
 - [x] **DESK-018 — Build Skills and MCP screens**
   - Read-only local skills list and detail.

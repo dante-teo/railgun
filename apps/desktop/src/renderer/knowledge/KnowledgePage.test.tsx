@@ -27,6 +27,26 @@ const api = (): KnowledgeDesktopApi => ({
 });
 
 describe("Knowledge page", () => {
+  it("embeds a controlled destination without tabs or standalone navigation", async () => {
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: { ...api(), listSkills: async () => [], getSkill: vi.fn() } as unknown as RailgunDesktopApi });
+    render(<KnowledgePage embedded destination="skills" />);
+    expect(screen.queryByRole("button", { name: "Back to Railgun" })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Knowledge destinations" })).toBeNull();
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
+  });
+
+  it("does not render an empty Notes results group", async () => {
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api() });
+    const { container } = render(<KnowledgePage embedded destination="notes" />);
+
+    expect(container.querySelector(".knowledge-list")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search notes" }), { target: { value: "missing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByText("No note chunks matched.")).toBeTruthy();
+    expect(container.querySelector(".knowledge-list")).toBeNull();
+  });
+
   it("shows Dream eligibility from the full memory list", async () => {
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api() });
     render(<KnowledgePage onBack={() => undefined} onDirtyChange={() => undefined} />);

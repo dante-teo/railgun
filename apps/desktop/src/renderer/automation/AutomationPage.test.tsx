@@ -28,21 +28,24 @@ const installApi = (overrides: Partial<CronApi> = {}): CronApi => {
   return api;
 };
 
-describe("Automation page", () => {
+describe("Scheduled page", () => {
   it("renders disconnected, loading, empty, and retryable error states", async () => {
     const disconnected = installApi();
     const view = render(<AutomationPage backendPhase="disconnected" />);
-    expect(screen.getByRole("heading", { name: "Automation is unavailable" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("heading", { name: "Scheduled jobs are unavailable" })).toBeTruthy();
+    const create = screen.getByRole("button", { name: "Create" });
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    expect(create.closest(".content-toolbar-actions")).not.toBeNull();
+    expect(create.className).toContain("ui-button-sm");
     expect(disconnected.listCronJobs).not.toHaveBeenCalled();
     view.unmount();
 
     let resolve!: (jobs: readonly CronJob[]) => void;
     installApi({ listCronJobs: vi.fn(() => new Promise<readonly CronJob[]>(value => { resolve = value; })) });
     const loading = render(<AutomationPage backendPhase="ready" />);
-    expect(await screen.findByRole("heading", { name: "Loading automations…" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Loading scheduled jobs…" })).toBeTruthy();
     resolve([]);
-    expect(await screen.findByRole("heading", { name: "No automations yet" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No scheduled jobs yet" })).toBeTruthy();
     loading.unmount();
 
     const listCronJobs = vi.fn().mockRejectedValueOnce(new Error("store failed")).mockResolvedValueOnce([]);
@@ -50,7 +53,7 @@ describe("Automation page", () => {
     render(<AutomationPage backendPhase="ready" />);
     expect(await screen.findByText("store failed")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByRole("heading", { name: "No automations yet" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No scheduled jobs yet" })).toBeTruthy();
     expect(listCronJobs).toHaveBeenCalledTimes(2);
   });
 
@@ -63,9 +66,11 @@ describe("Automation page", () => {
     render(<AutomationPage backendPhase="ready" />);
     expect(await screen.findByText("Plan the day")).toBeTruthy();
     expect(screen.getByText("0 9 * * 1-5")).toBeTruthy();
+    expect(screen.getByText("Plan the day").closest("li")?.querySelector(".lucide-clock")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     const createButton = screen.getByRole("button", { name: "Create" });
+    expect(screen.getByRole("textbox", { name: "Schedule" }).classList.contains("automation-schedule-input")).toBe(true);
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "  Check releases  " } });
     fireEvent.change(screen.getByRole("textbox", { name: "Schedule" }), { target: { value: "0 0 9 * * *" } });
@@ -80,15 +85,15 @@ describe("Automation page", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Schedule" }), { target: { value: "0 10 * * 1-5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("update failed")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Edit automation" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Edit scheduled job" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateCronJob).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Plan the day" }));
-    expect(screen.getByRole("dialog", { name: "Delete automation?" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Delete scheduled job?" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(await screen.findByText("delete failed")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Delete automation?" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Delete scheduled job?" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteCronJob).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Plan the day")).toBeNull();
@@ -104,7 +109,7 @@ describe("Automation page", () => {
     await waitFor(() => expect(listCronJobs).toHaveBeenCalledOnce());
     view.rerender(<AutomationPage backendPhase="disconnected" />);
     view.rerender(<AutomationPage backendPhase="ready" />);
-    expect(await screen.findByRole("heading", { name: "No automations yet" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No scheduled jobs yet" })).toBeTruthy();
     await act(async () => { resolveFirst([job]); });
     expect(screen.queryByText("Plan the day")).toBeNull();
   });
@@ -114,7 +119,7 @@ describe("Automation page", () => {
     const listCronJobs = vi.fn(() => new Promise<readonly CronJob[]>(resolve => { resolveList = resolve; }));
     installApi({ listCronJobs });
     render(<AutomationPage backendPhase="ready" />);
-    expect(await screen.findByRole("heading", { name: "Loading automations…" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Loading scheduled jobs…" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "New automation" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Schedule" }), { target: { value: "0 10 * * *" } });

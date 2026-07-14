@@ -1,13 +1,14 @@
-export type AppArea = "chat" | "automation" | "knowledge" | "settings";
+export type AppArea = "chat" | "automation" | "settings";
 
 const ROUTE_STORAGE_KEY = "railgun.desktop.route";
 
 export const readStoredArea = (storage: Pick<Storage, "getItem">): AppArea => {
   try {
     const parsed: unknown = JSON.parse(storage.getItem(ROUTE_STORAGE_KEY) ?? "null");
-    return typeof parsed === "object" && parsed !== null && (parsed as Record<string, unknown>).version === 1
-      && (["chat", "automation", "knowledge", "settings"] as const).includes((parsed as Record<string, unknown>).area as AppArea)
-      ? (parsed as { area: AppArea }).area : "chat";
+    if (typeof parsed !== "object" || parsed === null || (parsed as Record<string, unknown>).version !== 1) return "chat";
+    const area = (parsed as Record<string, unknown>).area;
+    if (area === "knowledge") return "settings";
+    return (["chat", "automation", "settings"] as const).includes(area as AppArea) ? area as AppArea : "chat";
   } catch { return "chat"; }
 };
 

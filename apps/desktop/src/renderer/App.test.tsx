@@ -132,13 +132,13 @@ describe("desktop shell", () => {
     expect(filterSessions(sessions, "missing")).toEqual([]);
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "settings" }) })).toBe("settings");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "automation" }) })).toBe("automation");
-    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "knowledge" }) })).toBe("knowledge");
+    expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "knowledge" }) })).toBe("settings");
     expect(readStoredArea({ getItem: () => "not json" })).toBe("chat");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 0, area: "settings" }) })).toBe("chat");
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "obsolete" }) })).toBe("chat");
   });
 
-  it("waits for backend readiness before mounting restored Knowledge", async () => {
+  it("migrates the retired Knowledge route into Settings", async () => {
     window.localStorage.setItem("railgun.desktop.route", JSON.stringify({ version: 1, area: "knowledge" }));
     let backendListener: ((next: BackendSnapshot) => void) | undefined;
     const listSkills = vi.fn(async () => []);
@@ -168,13 +168,14 @@ describe("desktop shell", () => {
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
 
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Starting Railgun…" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeTruthy();
     expect(listSkills).not.toHaveBeenCalled();
 
     act(() => backendListener?.(snapshot("ready")));
-
-    expect(await screen.findByText("No skills installed")).toBeTruthy();
-    await waitFor(() => expect(listSkills).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "General" })).toBeTruthy());
+    expect(listSkills).not.toHaveBeenCalled();
   });
 
   it("lists, filters, and resumes a rich saved session without rendering provider internals", async () => {
@@ -232,8 +233,8 @@ describe("desktop shell", () => {
     expect(screen.getByText("Inspect restored todos")).toBeTruthy();
     expect(screen.getByText("Saved")).toBeTruthy();
     expect(screen.queryByText(/provider internals/u)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Automation" }));
-    expect(await screen.findByRole("heading", { name: "Automation" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
+    expect(await screen.findByRole("heading", { name: "Scheduled" })).toBeTruthy();
     expect(window.localStorage.getItem("railgun.desktop.route")).toContain("automation");
     fireEvent.click(screen.getByRole("button", { name: /Rich history QA/u }));
     expect(await screen.findByText("Visible restored answer")).toBeTruthy();
@@ -303,14 +304,14 @@ describe("desktop shell", () => {
     fireEvent.click(expandSidebar);
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
     const newTask = screen.getByRole("button", { name: "New Task" });
-    const automation = screen.getByRole("button", { name: "Automation" });
+    const scheduled = screen.getByRole("button", { name: "Scheduled" });
     const settings = screen.getByRole("button", { name: "Settings" });
     expect(newTask.className).toContain("sidebar-action");
-    expect(automation.className).toContain("sidebar-action");
-    const knowledge = screen.getByRole("button", { name: "Knowledge" });
-    expect(knowledge.className).toContain("sidebar-action");
+    expect(scheduled.className).toContain("sidebar-action");
+    expect(scheduled.querySelector(".lucide-clock")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Knowledge" })).toBeNull();
     expect(settings.className).toContain("sidebar-action");
-    expect(automation.previousElementSibling?.classList.contains("sidebar-divider")).toBe(true);
+    expect(scheduled.previousElementSibling).toBe(newTask);
     expect(document.querySelector(".sidebar-footer")?.previousElementSibling).toBe(settings);
     fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun" }), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -357,13 +358,16 @@ describe("desktop shell", () => {
     expect(screen.queryByRole("button", { name: "Open Files" })).toBeNull();
     fireEvent.click(collapseFiles);
     expect(screen.queryByRole("complementary", { name: "Files workspace" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Knowledge" }));
-    expect(await screen.findByRole("heading", { name: "Knowledge" })).toBeTruthy();
-    expect(await screen.findByText("No skills installed")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Railgun" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Connections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "System" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
+    expect(screen.queryByRole("navigation", { name: "Knowledge destinations" })).toBeNull();
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New Task" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back to Railgun" }));
     expect(await screen.findByText("Mock response")).toBeTruthy();
@@ -409,6 +413,7 @@ describe("desktop shell", () => {
   it("coordinates keyboard and native commands through the accessible palette", async () => {
     let appCommandListener: ((command: import("../shared/types").AppCommand) => void) | undefined;
     const restartBackend = vi.fn(async () => snapshot("starting"));
+    const startNewChat = vi.fn(async () => desktopSession);
     const api: RailgunDesktopApi = {
       ...knowledgeApi,
       getBackendSnapshot: async () => snapshot("ready"),
@@ -422,7 +427,7 @@ describe("desktop shell", () => {
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
       ...fileApi,
-      startNewChat: async () => desktopSession,
+      startNewChat,
       ...sessionApi,
       ...controlApi,
       onAgentEvent: () => () => undefined,
@@ -430,6 +435,9 @@ describe("desktop shell", () => {
       respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined,
       onAppCommand: (listener) => { appCommandListener = listener; return () => undefined; },
+      listInstructionFiles: async () => [{ id: "soul", label: "~/.railgun/SOUL.md", status: "active" }],
+      getInstructionFile: async () => ({ id: "soul", label: "~/.railgun/SOUL.md", status: "active", content: "Original" }),
+      updateInstructionFile: async () => ({ id: "soul", label: "~/.railgun/SOUL.md", status: "active", content: "Saved" }),
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
 
@@ -461,7 +469,18 @@ describe("desktop shell", () => {
     fireEvent.keyDown(nativeSearch, { key: "Enter" });
     expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Instructions" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown instructions" }), { target: { value: "Changed" } });
+
     act(() => appCommandListener?.("show-chat"));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    act(() => appCommandListener?.("new-chat"));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
+    expect(startNewChat).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Discard Changes" }));
+    await waitFor(() => expect(startNewChat).toHaveBeenCalledOnce());
     expect(await screen.findByRole("heading", { name: "New Task" })).toBeTruthy();
   });
 

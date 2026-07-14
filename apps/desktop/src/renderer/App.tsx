@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, CalendarClock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import { Bot, Clock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
@@ -20,7 +20,6 @@ import { FileBrowser } from "./files/FileBrowser";
 import type { InspectorLayoutMode } from "./shell/inspectorLayout";
 import { SettingsPage } from "./settings/SettingsPage";
 import { AutomationPage } from "./automation/AutomationPage";
-import { KnowledgePage } from "./knowledge/KnowledgePage";
 
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
@@ -43,12 +42,13 @@ export const App = (): React.JSX.Element => {
   const [branchSummarize, setBranchSummarize] = useState(false);
   const [branchSubmitting, setBranchSubmitting] = useState(false);
   const [branchError, setBranchError] = useState<string>();
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [pendingSettingsExit, setPendingSettingsExit] = useState<(() => void) | undefined>();
   const [contextSessionId, setContextSessionId] = useState<string>();
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const activityLayoutMode = useRef<InspectorLayoutMode | undefined>(undefined);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
-  const knowledgeDirty = useRef(false);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
   const hasActivity = chat.state.activity.todos.length > 0
@@ -61,12 +61,16 @@ export const App = (): React.JSX.Element => {
   }, []);
 
   const selectArea = (next: AppArea): void => {
-    if (area === "knowledge" && next !== "knowledge" && knowledgeDirty.current
-      && !window.confirm("Discard your unsaved instruction changes?")) return;
-    if (next !== "knowledge") knowledgeDirty.current = false;
     setArea(next);
     try { writeStoredArea(window.localStorage, next); }
     catch { /* Navigation remains usable when storage is unavailable. */ }
+  };
+  const guardSettingsExit = (action: () => void): void => {
+    if (area === "settings" && settingsDirty) setPendingSettingsExit(() => action);
+    else action();
+  };
+  const requestArea = (next: AppArea): void => {
+    if (next !== area) guardSettingsExit(() => selectArea(next));
   };
 
   const loadSessions = async (): Promise<void> => {
@@ -139,6 +143,7 @@ export const App = (): React.JSX.Element => {
       setOperationError(errorMessage(error, "Unable to start a new task"));
     } finally { setSessionOperation(false); }
   };
+  const requestNewTask = (): void => guardSettingsExit(() => { void startNewTask(); });
 
   const resumeSession = async (sessionId: string): Promise<void> => {
     if (sessionOperation) return;
@@ -210,9 +215,9 @@ export const App = (): React.JSX.Element => {
     setTaskPaletteOpen(true);
   };
   const commands = createCommandRegistry({
-    newChat: () => { void startNewTask(); },
-    showChat: () => selectArea("chat"),
-    showSettings: () => selectArea("settings"),
+    newChat: requestNewTask,
+    showChat: () => requestArea("chat"),
+    showSettings: () => requestArea("settings"),
     toggleSidebar: () => setSidebarCollapsed((collapsed) => !collapsed),
     retryBackend: () => { void restartBackend(); },
     stopResponse: () => { void chat.stop(); },
@@ -237,33 +242,31 @@ export const App = (): React.JSX.Element => {
     </main>
   );
 
-  if (area === "settings") return <SettingsPage
-    backend={snapshot}
-    agentRunning={running}
-    scenarios={scenarios}
-    onBack={() => selectArea("chat")}
-    onSaved={() => setControlsResetKey(key => key + 1)}
-    onRetryBackend={restartBackend}
-    onSelectScenario={selectMockScenario}
-  />;
-  if (area === "knowledge") {
-    if (snapshot.phase === "starting") return <main className="loading-shell">
-      <LoadingState title="Starting Railgun…" description="Knowledge will open when the backend is ready." />
-    </main>;
-    if (snapshot.phase !== "ready") return <main className="loading-shell">
-      <ErrorState title="Knowledge is unavailable" description={snapshot.error ?? "The backend is not ready."}>
-        {RETRYABLE_PHASES.has(snapshot.phase) ? <Button onClick={() => void restartBackend()}>Retry</Button> : null}
-      </ErrorState>
-    </main>;
-    return <KnowledgePage
-      onBack={() => selectArea("chat")}
-      onDirtyChange={dirty => { knowledgeDirty.current = dirty; }}
-    />;
-  }
-
+  if (area === "settings") return <>
+    <SettingsPage
+      backend={snapshot}
+      agentRunning={running}
+      scenarios={scenarios}
+      onBack={() => { setSettingsDirty(false); selectArea("chat"); }}
+      onDirtyChange={setSettingsDirty}
+      onSaved={() => setControlsResetKey(key => key + 1)}
+      onRetryBackend={restartBackend}
+      onSelectScenario={selectMockScenario}
+    />
+    <Dialog open={pendingSettingsExit !== undefined} onOpenChange={open => { if (!open) setPendingSettingsExit(undefined); }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Discard unsaved changes?</DialogTitle><DialogDescription>Your instruction edits have not been saved.</DialogDescription></DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" autoFocus onClick={() => setPendingSettingsExit(undefined)}>Cancel</Button>
+          <Button variant="destructive" onClick={() => { const action = pendingSettingsExit; setPendingSettingsExit(undefined); setSettingsDirty(false); action?.(); }}>Discard Changes</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>;
   const sidebar = <>
         <div className="brand"><span className="brand-mark"><Bot /></span><span>Railgun</span></div>
         <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
+        <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><Clock aria-hidden="true" />Scheduled</Button>
         <section className="session-navigation" aria-label="Tasks">
           <div className="session-list">
             {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
@@ -285,9 +288,6 @@ export const App = (): React.JSX.Element => {
                   </DropdownMenu>)}
           </div>
         </section>
-        <Button variant="ghost" className="sidebar-action sidebar-knowledge" onClick={() => selectArea("knowledge")}><BookOpen aria-hidden="true" />Knowledge</Button>
-        <div className="sidebar-divider" aria-hidden="true" />
-        <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><CalendarClock aria-hidden="true" />Automation</Button>
         <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
         <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
       </>;

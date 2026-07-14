@@ -738,12 +738,13 @@ response before another prompt can start.
 The sidebar's search action opens a keyboard-accessible task palette over the
 newest-first saved-session list. Filtering matches preview, model, or session ID
 without changing backend order; selecting a result explicitly resumes its safe
-text transcript and persisted todos. Relaunch restores only the last valid
-Task, Automation, Knowledge, or Settings area, never an active session. A
-restored Knowledge route waits for backend readiness before issuing store
-requests.
+text transcript and persisted todos. The sidebar places **Scheduled** directly
+below **New Task** and keeps Knowledge inside Settings. Relaunch restores only
+the last valid Task, Scheduled, or Settings area, never an active session.
+Legacy Knowledge route records migrate to Settings. Knowledge destinations wait
+for backend readiness before issuing store requests.
 
-Automation lists scheduled prompts in backend file order and supports create,
+Scheduled lists prompts in backend file order and supports create,
 edit, and confirmed delete operations while a task is running. Schedules use
 standard five-field cron syntax in the machine's local timezone and display a
 live readable description. Job IDs remain backend-generated; runtime history,
@@ -916,5 +917,5 @@ something the code enforces. See
 
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) — what this project is and why
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, data flow, integrations
-- [`docs/DESIGN.md`](docs/DESIGN.md) — CLI interaction model
+- [`docs/DESIGN.md`](docs/DESIGN.md) — interaction and visual design contracts
 - [`docs/adr/`](docs/adr/) — architectural decision records

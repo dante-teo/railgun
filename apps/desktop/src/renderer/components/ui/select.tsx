@@ -1,5 +1,5 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { forwardRef } from "react";
 import type * as React from "react";
 import { cn } from "../../lib/utils";
@@ -10,7 +10,7 @@ export const SelectValue = SelectPrimitive.Value;
 export const SelectTrigger = forwardRef<React.ComponentRef<typeof SelectPrimitive.Trigger>, React.ComponentProps<typeof SelectPrimitive.Trigger>>(
   ({ className, children, ...props }, ref) => (
     <SelectPrimitive.Trigger ref={ref} className={cn("ui-field ui-select-trigger", className)} {...props}>
-      {children}
+      {children}<SelectPrimitive.Icon asChild><ChevronDown className="ui-select-chevron" aria-hidden="true" /></SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   ),
 );

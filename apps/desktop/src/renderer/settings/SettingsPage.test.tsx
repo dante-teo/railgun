@@ -29,9 +29,22 @@ describe("SettingsPage", () => {
       updateSettings,
       signInDevin: async () => snapshot,
       signOutDevin: async () => snapshot,
+      listSkills: async () => [],
+      getSkill: async () => { throw new Error("unused"); },
     } as unknown as RailgunDesktopApi });
-    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
     await screen.findByText("Default model");
+    expect(screen.getByRole("heading", { name: "Railgun" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Knowledge" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Connections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "System" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
+    expect(screen.queryByRole("navigation", { name: "Knowledge destinations" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Skills", level: 1 })).toBeTruthy();
+    expect(screen.getByText("Browse reusable instruction packages available to Railgun.")).toBeTruthy();
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
 
     const search = screen.getByRole("searchbox", { name: "Search settings" });
     fireEvent.change(search, { target: { value: "reviews tool approvals" } });
@@ -58,7 +71,7 @@ describe("SettingsPage", () => {
       signInDevin: async () => snapshot,
       signOutDevin,
     } as unknown as RailgunDesktopApi });
-    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Provider" }));
     fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
     expect(screen.getByText(/removes only Railgun’s cached credential/u)).toBeTruthy();
@@ -84,7 +97,7 @@ describe("SettingsPage", () => {
       signInDevin: async () => current,
       signOutDevin: async () => current,
     } as unknown as RailgunDesktopApi });
-    const callbacks = { onBack: vi.fn(), onSaved: vi.fn(), onRetryBackend: vi.fn(), onSelectScenario: vi.fn() };
+    const callbacks = { onBack: vi.fn(), onDirtyChange: vi.fn(), onSaved: vi.fn(), onRetryBackend: vi.fn(), onSelectScenario: vi.fn() };
     const { rerender } = render(<SettingsPage backend={authenticationRequired} agentRunning scenarios={[]} {...callbacks} />);
 
     const model = await screen.findByRole("combobox", { name: /Default model/u });
@@ -97,7 +110,97 @@ describe("SettingsPage", () => {
     await waitFor(() => expect(getSettings).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("Cached credential")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "General" }));
-    expect((screen.getByRole("combobox", { name: /Default model/u }) as HTMLSelectElement).disabled).toBe(false);
+    const defaultModel = screen.getByRole("combobox", { name: /Default model/u });
+    expect((defaultModel as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(defaultModel);
     expect(screen.getByRole("option", { name: "Model A" })).toBeTruthy();
+  });
+
+  it("waits for backend readiness before mounting Knowledge", async () => {
+    const listSkills = vi.fn(async () => []);
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => snapshot,
+      updateSettings: async () => snapshot,
+      signInDevin: async () => snapshot,
+      signOutDevin: async () => snapshot,
+      listSkills,
+      getSkill: async () => { throw new Error("unused"); },
+    } as unknown as RailgunDesktopApi });
+    const callbacks = { onBack: vi.fn(), onDirtyChange: vi.fn(), onSaved: vi.fn(), onRetryBackend: vi.fn(), onSelectScenario: vi.fn() };
+    const starting = { ...backend, phase: "starting" as const };
+    const { rerender } = render(<SettingsPage backend={starting} agentRunning={false} scenarios={[]} {...callbacks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
+    expect(screen.getByText("Starting Railgun")).toBeTruthy();
+    expect(listSkills).not.toHaveBeenCalled();
+
+    rerender(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} {...callbacks} />);
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
+    expect(listSkills).toHaveBeenCalledOnce();
+  });
+
+  it("clears the instruction unload guard after a confirmed discard", async () => {
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => snapshot,
+      updateSettings: async () => snapshot,
+      signInDevin: async () => snapshot,
+      signOutDevin: async () => snapshot,
+      listInstructionFiles: async () => [{ id: "soul", label: "~/.railgun/SOUL.md", status: "active" }],
+      getInstructionFile: async () => ({ id: "soul", label: "~/.railgun/SOUL.md", status: "active", content: "Original" }),
+      updateInstructionFile: async () => ({ id: "soul", label: "~/.railgun/SOUL.md", status: "active", content: "Saved" }),
+      listSkills: async () => [],
+      getSkill: async () => { throw new Error("unused"); },
+    } as unknown as RailgunDesktopApi });
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Instructions" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown instructions" }), { target: { value: "Changed" } });
+    const dirtyUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirtyUnload);
+    expect(dirtyUnload.defaultPrevented).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard Changes" }));
+    expect(await screen.findByText("No skills installed")).toBeTruthy();
+    const cleanUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(cleanUnload);
+    expect(cleanUnload.defaultPrevented).toBe(false);
+  });
+
+  it("allows valid IDs that match the retired select placeholders", async () => {
+    const collisionSnapshot: SettingsSnapshot = {
+      ...snapshot,
+      models: [
+        { ...snapshot.models[0]!, id: "__automatic__", name: "Automatic model ID" },
+        { ...snapshot.models[0]!, id: "__choose__", name: "Choose model ID" },
+      ],
+      moaPresets: [{ name: "__off__", referenceModels: ["__automatic__"], aggregatorModel: "__choose__" }],
+    };
+    const updateSettings = vi.fn(async () => collisionSnapshot);
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => collisionSnapshot,
+      updateSettings,
+      signInDevin: async () => collisionSnapshot,
+      signOutDevin: async () => collisionSnapshot,
+    } as unknown as RailgunDesktopApi });
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("combobox", { name: "Default model" }));
+    fireEvent.click(screen.getByRole("option", { name: "Automatic model ID" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ defaultModelId: "__automatic__" })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Mixture of Agents preset" }));
+    fireEvent.click(screen.getByRole("option", { name: "__off__" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ moaPreset: "__off__" })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Trust" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Smart" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Smart-review model" }));
+    fireEvent.click(screen.getByRole("option", { name: "Choose model ID" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ reviewerModelId: "__choose__" })));
   });
 });

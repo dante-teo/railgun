@@ -391,12 +391,15 @@ This document records the intended system architecture for Railgun. Keep it curr
    to the titlebar, while the hidden pane becomes inert and is removed from the
    accessibility tree. Its visibility remains session-only, while the validated,
    versioned sidebar width persists in renderer-local storage. A separate
-   versioned route record restores only Task, Automation, Knowledge, or Settings and never
-   implicitly resumes a session; malformed, obsolete, and unknown values fall
-   back to Task. Knowledge combines bounded, path-redacted Skills, Memories,
-   Notes, Dream, and fixed-ID global-instruction operations; skill and
-   instruction Markdown remain sanitized or plain-text edited as appropriate.
-   Settings MCP management projects only
+   versioned route record restores only Task, Scheduled, or Settings and never
+   implicitly resumes a session; legacy Knowledge records migrate to Settings,
+   while malformed, obsolete, and unknown values fall back to Task. Settings
+   groups bounded, path-redacted Skills, Memories, Notes, Dream, and fixed-ID
+   global-instruction operations under Knowledge. These views do not mount
+   until the backend is ready; dirty instruction state is reported to the app
+   shell so keyboard and native navigation cannot bypass discard confirmation.
+   Skill and instruction Markdown remain sanitized or plain-text edited as
+   appropriate. Settings MCP management projects only
    path-redacted commands, ordered arguments, and environment key presence.
    Add-mode duplicate-name validation prevents an upsert from attaching an
    existing server's retained secrets to a different command. Existing secret
