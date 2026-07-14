@@ -44,8 +44,10 @@ import type { AcpModeOptions } from "./acp/acpMode.js";
 import { runDreamSession } from "./dream/dreamJob.js";
 import { loadJobs, saveJobs } from "./cron/jobs.js";
 import { loadSkills } from "./skills.js";
+import { installDaemon, uninstallDaemon, statusDaemon, formatStatus } from "./cron/daemon.js";
+import type { DaemonStatus } from "./cron/daemon.js";
 
-export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
+export const USAGE = "Usage: railgun [--cwd|-C <dir>] [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] [--approve|-a] [--no-approve|-na] | railgun login | railgun logout | railgun config | railgun cron [install|uninstall|status] | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
 
 export type CliMode =
   | { kind: "fresh"; approve?: boolean; noApprove?: boolean }
@@ -56,6 +58,9 @@ export type CliMode =
   | { kind: "logout" }
   | { kind: "config" }
   | { kind: "cron" }
+  | { kind: "cron-install" }
+  | { kind: "cron-uninstall" }
+  | { kind: "cron-status" }
   | { kind: "rpc" }
   | { kind: "acp" }
   | { kind: "import-notes"; folder: string }
@@ -87,6 +92,9 @@ export interface CliDependencies {
   stdout: (line: string) => void;
   stderr: (line: string) => void;
   runCronScheduler: (devin: DevinProvider, model: DevinModel, systemPrompt: readonly string[], config: AppConfig, signal: AbortSignal) => Promise<void>;
+  runCronInstall: () => void;
+  runCronUninstall: () => void;
+  runCronStatus: () => DaemonStatus;
 }
 
 export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: string } => {
@@ -128,9 +136,13 @@ export const parseCliArgs = (args: readonly string[]): { mode: CliMode; cwd?: st
       if (approve || noApprove) throw new CliUsageError();
       return { kind: "config" };
     }
-    if (flag === "cron" && rest.length === 0) {
+    if (flag === "cron") {
       if (approve || noApprove) throw new CliUsageError();
-      return { kind: "cron" };
+      if (rest.length === 0) return { kind: "cron" };
+      if (rest.length === 1 && rest[0] === "install") return { kind: "cron-install" };
+      if (rest.length === 1 && rest[0] === "uninstall") return { kind: "cron-uninstall" };
+      if (rest.length === 1 && rest[0] === "status") return { kind: "cron-status" };
+      throw new CliUsageError();
     }
     if (flag === "import-notes" && rest.length === 1) {
       if (approve || noApprove) throw new CliUsageError();
@@ -193,6 +205,9 @@ const defaultDependencies: CliDependencies = {
   stderr: console.error,
   runCronScheduler: (devin, model, systemPrompt, config, signal) =>
     startScheduler(devin, model, systemPrompt, config, { signal }),
+  runCronInstall: () => installDaemon(),
+  runCronUninstall: () => uninstallDaemon(),
+  runCronStatus: () => statusDaemon(),
 };
 
 const resolveSessionTrust = async (
@@ -455,6 +470,21 @@ export const dispatchCli = async (mode: CliMode, dependencies: CliDependencies =
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);
     }
+    return;
+  }
+
+  if (mode.kind === "cron-install") {
+    dependencies.runCronInstall();
+    return;
+  }
+
+  if (mode.kind === "cron-uninstall") {
+    dependencies.runCronUninstall();
+    return;
+  }
+
+  if (mode.kind === "cron-status") {
+    dependencies.stdout(formatStatus(dependencies.runCronStatus()));
     return;
   }
 

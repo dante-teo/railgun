@@ -12,6 +12,7 @@ import type { ProjectTrustStore, TrustChoice, TrustDecision } from "./trust.js";
 import { DevinApiError, type DevinProvider, type DevinModel } from "widevin";
 import { embedText } from "./persistence/embedder.js";
 import { AuthenticationRequiredError, CredentialRejectedError } from "./auth.js";
+import type { DaemonStatus } from "./cron/daemon.js";
 
 vi.mock("./persistence/embedder.js", () => ({
   embedText: vi.fn(async () => new Float32Array(384).fill(0.5)),
@@ -102,6 +103,9 @@ const dependencies = (store = fakeStore()): CliDependencies => ({
   stdout: vi.fn(),
   stderr: vi.fn(),
   runCronScheduler: vi.fn(async () => {}),
+  runCronInstall: vi.fn(() => {}),
+  runCronUninstall: vi.fn(() => {}),
+  runCronStatus: vi.fn((): DaemonStatus => ({ installed: false, running: false, platform: "darwin", serviceFile: "/tmp/fake.plist", detail: "" })),
 });
 
 describe("parseCliArgs", () => {
@@ -387,6 +391,67 @@ describe("dispatchCli — cron mode", () => {
     expect(calledPrompt).toBe(fakeSession.systemPrompt);
     expect(calledConfig).toEqual(config);
     expect(calledSignal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe("parseCliArgs — cron daemon subcommands", () => {
+  it.each([
+    [["cron", "install"],   { kind: "cron-install" }],
+    [["cron", "uninstall"], { kind: "cron-uninstall" }],
+    [["cron", "status"],    { kind: "cron-status" }],
+  ] as const)("parses %j", (args, expected) => {
+    expect(parseCliArgs([...args])).toEqual({ mode: expected });
+  });
+
+  it("rejects cron install with --approve flag", () => {
+    expect(() => parseCliArgs(["cron", "install", "--approve"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects cron install with extra argument", () => {
+    expect(() => parseCliArgs(["cron", "install", "extra"])).toThrow(/Usage: railgun/);
+  });
+
+  it("rejects cron with unknown subcommand", () => {
+    expect(() => parseCliArgs(["cron", "bogus"])).toThrow(/Usage: railgun/);
+  });
+});
+
+describe("dispatchCli — cron daemon subcommands", () => {
+  it("install: calls runCronInstall, no Devin session or store opened", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "cron-install" }, deps);
+    expect(deps.runCronInstall).toHaveBeenCalledOnce();
+    expect(deps.initSession).not.toHaveBeenCalled();
+    expect(deps.initFreshSession).not.toHaveBeenCalled();
+    expect(deps.createStore).not.toHaveBeenCalled();
+  });
+
+  it("uninstall: calls runCronUninstall, no Devin session or store opened", async () => {
+    const deps = dependencies();
+    await dispatchCli({ kind: "cron-uninstall" }, deps);
+    expect(deps.runCronUninstall).toHaveBeenCalledOnce();
+    expect(deps.initSession).not.toHaveBeenCalled();
+    expect(deps.initFreshSession).not.toHaveBeenCalled();
+    expect(deps.createStore).not.toHaveBeenCalled();
+  });
+
+  it("status: calls runCronStatus, prints formatStatus output, no Devin session or store opened", async () => {
+    const deps = dependencies();
+    const fakeStatus: DaemonStatus = { installed: true, running: true, platform: "darwin", serviceFile: "/fake.plist", detail: "PID=42" };
+    vi.mocked(deps.runCronStatus).mockReturnValue(fakeStatus);
+    await dispatchCli({ kind: "cron-status" }, deps);
+    expect(deps.runCronStatus).toHaveBeenCalledOnce();
+    expect(deps.stdout).toHaveBeenCalledWith(expect.stringContaining("macOS (launchd)"));
+    expect(deps.stdout).toHaveBeenCalledWith(expect.stringContaining("PID=42"));
+    expect(deps.initSession).not.toHaveBeenCalled();
+    expect(deps.initFreshSession).not.toHaveBeenCalled();
+    expect(deps.createStore).not.toHaveBeenCalled();
+  });
+
+  it("install: propagates errors from runCronInstall", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.runCronInstall).mockImplementation(() => { throw new Error("launchctl failed"); });
+    await expect(dispatchCli({ kind: "cron-install" }, deps)).rejects.toThrow("launchctl failed");
   });
 });
 

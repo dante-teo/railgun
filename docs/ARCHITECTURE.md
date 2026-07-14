@@ -19,8 +19,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 - Supported surfaces: terminal REPL, one-shot CLI output, JSONL RPC over stdio,
   ACP over stdio, and the private Electron desktop scaffold
 - Package boundary: one publishable Node.js CLI package plus one private
-  Electron workspace, managed by pnpm with one lockfile; no daemon or socket
-  service
+  Electron workspace, managed by pnpm with one lockfile; `railgun cron install` (requires a globally installed `railgun` binary — not supported from a repo checkout; macOS and Linux only) can register an OS-managed launchd/systemd daemon for persistent background scheduling
 
 ## Components
 
@@ -102,7 +101,7 @@ This document records the intended system architecture for Railgun. Keep it curr
 | Project context loader (`src/agent/projectContext.ts`) | Discovers and loads a project's context file (`.railgun.md`/`RAILGUN.md` walking to the git root, falling back to `AGENTS.md`/`agents.md`, `CLAUDE.md`/`claude.md`, `.cursorrules` in cwd only — first readable non-empty file wins, with case-variant aliases exhausted per directory before walking up or moving to the next candidate group), plus `~/.railgun/SOUL.md` as persistent identity; truncates with a 70/30 head/tail split at 20 000 chars, then scans the retained head and tail independently for injection via `scanForThreats` (blocked files produce a `[BLOCKED: ...]` placeholder that does not fall through to the next candidate); exports `loadProjectContext(cwd)` and `loadSoulIdentity()` | Solo project |
 
 | Dream job (`src/dream/dreamJob.ts`) | `runDreamSession(memoryStore, devin, model, log?)` runs a bounded 30-step agent session whose sole available toolset is `"dream"` plus `"file"`. It loads all stored memories via `memoryStore.all()`, skips if fewer than 5 exist, reads current `SOUL.md` content via `loadSoulIdentity()`, and feeds both to the agent as a structured user message. The `DREAM_SYSTEM_PROMPT` instructs the agent to (Phase 1) consolidate memories via `memory_consolidate` and (Phase 2) promote stable `"preference"` memories to `~/.railgun/SOUL.md` via `write_file`, deleting promoted entries from the store. Triggered by `railgun dream` (CLI) or `/dream` (REPL slash command). | Solo project |
-| Cron scheduler (`src/cron/jobs.ts`, `src/cron/scheduler.ts`) | `CronJob` type, `CronJobsError` (matches `ConfigError` pattern), `loadJobs`/`saveJobs` (disk I/O with `write-file-atomic`), `validateJob` (type-guarded shape validation), and `isDue` (uses `cron-parser`'s `CronExpressionParser.parse().prev()` to find the last scheduled time before `now`, returns `true` when `lastRun` is null or before that time). `startScheduler` re-reads jobs each cycle, calls `tick` (sequential due-job runner), saves back only when jobs ran, and sleeps between cycles via `Promise.withResolvers()` for abort-safe cancellation; SIGINT/SIGTERM forwarded from `dispatchCli` through an `AbortController`. Shell commands are denied in unattended runs unless `approvalMode: "off"`. Extensions are not loaded; each job gets a fresh ephemeral session with a 30-step iteration budget | Solo project |
+| Cron scheduler (`src/cron/jobs.ts`, `src/cron/scheduler.ts`) | `CronJob` type, `CronJobsError` (matches `ConfigError` pattern), `loadJobs`/`saveJobs` (disk I/O with `write-file-atomic`), `validateJob` (type-guarded shape validation), and `isDue` (uses `cron-parser`'s `CronExpressionParser.parse().prev()` to find the last scheduled time before `now`, returns `true` when `lastRun` is null or before that time). `startScheduler` re-reads jobs each cycle, calls `tick` (sequential due-job runner), saves back only when jobs ran, and sleeps between cycles via `Promise.withResolvers()` for abort-safe cancellation; SIGINT/SIGTERM forwarded from `dispatchCli` through an `AbortController`. Shell commands are denied in unattended runs unless `approvalMode: "off"`. Extensions are not loaded; each job gets a fresh ephemeral session with a 30-step iteration budget. `src/cron/daemon.ts` manages the optional OS daemon lifecycle (launchd on macOS, systemd on Linux): `installDaemon`/`uninstallDaemon`/`statusDaemon` write service files, invoke `launchctl`/`systemctl`, and expose `formatStatus` for the CLI output; `resolveRailgunBin` resolves `argv[1]` as the installed binary path. | Solo project |
 
 ## Data Flow
 
@@ -608,7 +607,7 @@ One-shot mode does not create or use checkpoints.
 
 - Railgun is a single-user local Node.js CLI, run from source with pnpm or from
   the compiled `dist/` output, plus a private macOS Electron desktop workspace.
-  It has no daemon, server, container, or remote persistence service.
+  It has no server, container, or remote persistence service; `railgun cron install` (requires a global install — not supported from a repo checkout via `pnpm start`) can register an OS-managed launchd (macOS) or systemd (Linux) daemon for persistent background scheduling. Not supported on Windows.
 - Node.js 22.19.0 or newer is required. Installation must provide a compatible
   `better-sqlite3` native binary (downloaded or built by pnpm) for the host
   platform.

@@ -48,9 +48,8 @@ desktop workspace:
 - Agent Client Protocol over stdio (`--mode acp`)
 - the macOS Electron desktop (`pnpm dev` or `pnpm dev:mock`)
 
-The Electron app is not part of the published CLI package. There is no daemon
-or socket service in this repository. Installation, scripts, dependency
-resolution, and lockfile management use pnpm.
+The Electron app is not part of the published CLI package. Installation,
+scripts, dependency resolution, and lockfile management use pnpm.
 
 ## Install
 
@@ -471,6 +470,31 @@ Behavior in cron mode:
 A missing `~/.railgun/cron/jobs.json` is treated as an empty list — the scheduler runs but never fires. The `schedule` field uses standard cron syntax (`* * * * *` — minute, hour, day-of-month, month, day-of-week); five-field expressions are supported via `cron-parser`.
 
 Jobs can now be managed without editing the file directly: the `/cron` REPL slash command (`/cron`, `/cron add`, `/cron remove`) provides quick in-session access, and the agent `cron` tool (`action: list|add|remove|update`) lets the LLM manage jobs on behalf of the user via natural language.
+
+### Background service daemon
+
+For users who want the cron scheduler to run automatically in the background without keeping a terminal open, Railgun supports registering a persistent OS daemon.
+
+> ⚠️ **Prerequisites & Limitations**:
+> - **Global Installation Required**: The daemon management commands require installing the package globally (e.g., via `pnpm add --global @dantea/railgun`). They are **not** supported when running from a repository checkout via `pnpm start`.
+> - **Supported Platforms**: The daemon commands are only supported on **macOS** and **Linux**. Windows is not supported (the commands will throw an error on unsupported platforms).
+To manage the background service, use the following subcommands:
+
+- **`railgun cron install`**: Registers and enables a persistent OS daemon (`launchd` on macOS, or a `systemd` user service on Linux). This service is configured to run `railgun cron` in the foreground at user login, automatically keeping the scheduler alive in the background without needing an active REPL session. Log output from the daemon is written to `~/.railgun/cron.log`.
+- **`railgun cron status`**: Queries the OS service manager and prints the current status of the daemon, including the host platform, the path to the generated service definition file, and whether the service is currently installed and active (running).
+- **`railgun cron uninstall`**: Stops, disables, and completely removes the generated `launchd` plist or `systemd` unit file from your system.
+
+#### Running in the foreground
+
+The standalone foreground scheduler still remains fully supported and can be run explicitly via:
+
+```sh
+# From a global installation:
+railgun cron
+
+# From a repository checkout:
+pnpm start cron
+```
 
 Any other positional argument is a usage error. `pnpm start "no flag"` prints
 the supported `login`, `logout`, `--print`, `--resume`/`-r`, and
