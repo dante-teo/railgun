@@ -19,6 +19,9 @@ import type {
   CheckpointStatusSchema,
   RestoredTranscriptMessageSchema,
   RestoredTodoSchema,
+  DirectoryEntrySchema,
+  DirectoryListingSchema,
+  FilePreviewSchema,
 } from "./schemas";
 
 export type BackendMode = z.infer<typeof BackendSnapshotSchema>["mode"];
@@ -43,6 +46,9 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 export type CheckpointStatus = z.infer<typeof CheckpointStatusSchema>;
 export type RestoredTranscriptMessage = z.infer<typeof RestoredTranscriptMessageSchema>;
 export type RestoredTodo = z.infer<typeof RestoredTodoSchema>;
+export type DirectoryEntry = z.infer<typeof DirectoryEntrySchema>;
+export type DirectoryListing = z.infer<typeof DirectoryListingSchema>;
+export type FilePreview = z.infer<typeof FilePreviewSchema>;
 
 export interface RailgunDesktopApi {
   getBackendSnapshot: () => Promise<BackendSnapshot>;
@@ -55,6 +61,9 @@ export interface RailgunDesktopApi {
   followUpPrompt: (message: string) => Promise<void>;
   abortPrompt: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  listFiles: (pathSegments: readonly string[]) => Promise<DirectoryListing>;
+  previewFile: (pathSegments: readonly string[]) => Promise<FilePreview>;
+  revealFile: (pathSegments: readonly string[]) => Promise<void>;
   startNewChat: () => Promise<SessionSnapshot>;
   listSessions: () => Promise<readonly SessionSummary[]>;
   resumeSession: (sessionId: string) => Promise<SessionSnapshot>;
@@ -83,6 +92,9 @@ export const DESKTOP_IPC = {
   followUpPrompt: "agent:follow-up",
   abortPrompt: "agent:abort",
   openExternal: "shell:open-external",
+  listFiles: "files:list",
+  previewFile: "files:preview",
+  revealFile: "files:reveal",
   startNewChat: "agent:new-chat",
   listSessions: "sessions:list",
   resumeSession: "sessions:resume",

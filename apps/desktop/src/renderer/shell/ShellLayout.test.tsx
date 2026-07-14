@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShellLayout } from "./ShellLayout";
 import { PANE_STORAGE_KEY, PANE_WIDTHS } from "./paneStorage";
 
@@ -55,27 +55,37 @@ describe("ShellLayout", () => {
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
   });
 
-  it("switches the inspector to overlay mode from actual remaining transcript width", () => {
+  it("reserves activity when wide and overlays it without reservation when constrained", () => {
     let resize: ResizeObserverCallback = () => undefined;
     Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: class {
       constructor(callback: ResizeObserverCallback) { resize = callback; }
       observe(): void { /* Driven explicitly by the test. */ }
       disconnect(): void { /* No resources in the test double. */ }
     } });
+    const onModeChange = vi.fn();
     render(<ShellLayout
       sidebar={<span>Sidebar content</span>}
       main={<span>Main content</span>}
       inspector={<span>Inspector content</span>}
+      workspace={<span>Workspace content</span>}
       sidebarVisible
       onSidebarVisibilityChange={() => undefined}
+      onInspectorLayoutModeChange={onModeChange}
     />);
     const shell = document.querySelector<HTMLElement>(".desktop-shell");
-    act(() => resize([{ contentRect: { width: 1_200 } } as ResizeObserverEntry], {} as ResizeObserver));
-    expect(shell?.classList.contains("inspector-overlay")).toBe(true);
-    expect(screen.getByRole("complementary", { name: "Inspector" })).not.toBeNull();
-    act(() => resize([{ contentRect: { width: 1_300 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
+    act(() => resize([{ contentRect: { width: 1_900 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(shell?.classList.contains("workspace-open")).toBe(true);
     expect(shell?.classList.contains("inspector-overlay")).toBe(false);
     expect(screen.getByRole("complementary", { name: "Inspector" })).not.toBeNull();
+    expect(screen.getByRole("complementary", { name: "Files workspace" })).not.toBeNull();
+    expect(shell?.querySelector(".shell-center")?.nextElementSibling?.classList.contains("shell-inspector")).toBe(true);
+    expect(onModeChange).toHaveBeenLastCalledWith("reserved");
+
+    act(() => resize([{ contentRect: { width: 1_600 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(shell?.classList.contains("inspector-overlay")).toBe(true);
+    expect(screen.getByRole("complementary", { name: "Inspector" })).not.toBeNull();
+    expect(onModeChange).toHaveBeenLastCalledWith("overlay");
   });
 
   it("restores versioned widths and falls back when storage is invalid or obsolete", () => {

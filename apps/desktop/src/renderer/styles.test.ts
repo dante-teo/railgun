@@ -68,7 +68,8 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.ui-card\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
     expect(css).not.toMatch(/\.ui-card\s*\{[^}]*backdrop-filter/u);
     expect(css).toMatch(/\.composer\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
-    expect(css).toMatch(/\.shell-inspector\s*\{[^}]*width:\s*var\(--inspector-width\)[^}]*display:\s*flex[^}]*align-items:\s*flex-start[^}]*padding:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\) var\(--space-4\) var\(--space-2\) 0[^}]*border:\s*0[^}]*background:\s*transparent/u);
+    expect(css).toMatch(/\.shell-inspector\s*\{[^}]*width:\s*var\(--inspector-width\)[^}]*min-width:\s*var\(--inspector-width\)[^}]*height:\s*100%[^}]*display:\s*flex[^}]*padding:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\) var\(--space-4\) var\(--space-2\) 0[^}]*background:\s*transparent/u);
+    expect(css).toMatch(/\.shell-workspace\s*\{[^}]*width:\s*var\(--workspace-width\)[^}]*min-width:\s*var\(--workspace-width\)[^}]*border-left:\s*1px solid var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.activity-inspector\s*\{[^}]*width:\s*100%[^}]*max-height:\s*100%[^}]*overflow:\s*auto[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-radius:\s*var\(--radius-xl\)[^}]*background:\s*var\(--material-content\)[^}]*box-shadow:\s*var\(--shadow-popover\)/u);
     expect(css).toMatch(/\.activity-inspector\s*\{[^}]*pointer-events:\s*auto/u);
     const inspector = css.match(/\.activity-inspector\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
@@ -138,9 +139,18 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.composer-hint\s*\{[^}]*margin:\s*-1px auto 0[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-top:\s*0[^}]*border-radius:\s*0 0 var\(--radius-sm\) var\(--radius-sm\)[^}]*background:\s*var\(--material-content\)/u);
   });
 
-  it("turns the todo card into an overlay before the transcript becomes cramped", () => {
-    expect(css).toMatch(/\.desktop-shell\.inspector-overlay \.shell-inspector\s*\{[^}]*position:\s*absolute[^}]*top:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\)[^}]*right:\s*var\(--space-4\)[^}]*height:\s*auto[^}]*max-height:\s*calc\(100% - var\(--titlebar-height\) - var\(--space-2\) - var\(--space-4\)\)[^}]*overflow:\s*visible[^}]*padding:\s*0[^}]*pointer-events:\s*none/u);
-    expect(css).toMatch(/\.desktop-shell\.inspector-overlay \.shell-inspector \.activity-inspector\s*\{[^}]*max-height:\s*inherit/u);
+  it("reserves the todo side-car when wide and overlays it when constrained", () => {
+    expect(css).toContain("--workspace-width: clamp(22.5rem, 42vw, 42rem)");
+    expect(css).toMatch(/\.desktop-shell\.inspector-overlay \.shell-inspector\s*\{[^}]*position:\s*absolute[^}]*right:\s*var\(--space-4\)[^}]*height:\s*auto[^}]*padding:\s*0[^}]*pointer-events:\s*none/u);
+    expect(css).toMatch(/\.desktop-shell\.inspector-overlay\.workspace-open \.shell-inspector\s*\{[^}]*right:\s*calc\(var\(--workspace-width\) \+ var\(--space-4\)\)/u);
+    expect(css).toMatch(/\.files-split\s*\{[^}]*grid-template-columns:\s*minmax\(9rem, 34%\) minmax\(0, 1fr\)/u);
+    expect(css).toMatch(/\.files-browser\s*\{[^}]*height:\s*100%[^}]*min-width:\s*0[^}]*\}/u);
+    expect(css.match(/\.files-browser\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules).not.toContain("padding-top");
+    expect(css).toMatch(/\.files-header\s*\{[^}]*padding:\s*calc\(var\(--titlebar-control-center-y\) - 0\.875rem\) var\(--space-3\) var\(--space-2\)/u);
+    expect(css).toMatch(/\.files-header-actions\s*\{[^}]*z-index:\s*var\(--layer-titlebar-control\)[^}]*top:\s*var\(--titlebar-control-center-y\)[^}]*transform:\s*translateY\(-50%\)[^}]*-webkit-app-region:\s*no-drag/u);
+    const workspace = css.match(/\.shell-workspace\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
+    expect(workspace).not.toContain("z-index");
+    expect(css).toMatch(/\.files-header h2\s*\{[^}]*font-size:\s*0\.9375rem[^}]*font-weight:\s*var\(--weight-semibold\)/u);
     expect(css).not.toContain("@media (max-width: 76rem)");
     expect(css).not.toContain("@media (max-width: 60rem)");
   });

@@ -20,6 +20,9 @@ import {
   SessionIdSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
+  DirectoryListingSchema,
+  FilePathSegmentsSchema,
+  FilePreviewSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, RailgunDesktopApi } from "../shared/types";
@@ -90,6 +93,17 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     openExternal: async (url) => {
       EmptyResponseSchema.parse(
         await transport.invoke(DESKTOP_IPC.openExternal, ExternalUrlSchema.parse(url)),
+      );
+    },
+    listFiles: async (pathSegments) => DirectoryListingSchema.parse(
+      await transport.invoke(DESKTOP_IPC.listFiles, FilePathSegmentsSchema.parse(pathSegments)),
+    ),
+    previewFile: async (pathSegments) => FilePreviewSchema.parse(
+      await transport.invoke(DESKTOP_IPC.previewFile, FilePathSegmentsSchema.parse(pathSegments)),
+    ),
+    revealFile: async (pathSegments) => {
+      EmptyResponseSchema.parse(
+        await transport.invoke(DESKTOP_IPC.revealFile, FilePathSegmentsSchema.parse(pathSegments)),
       );
     },
     startNewChat: async () => SessionSnapshotSchema.parse(

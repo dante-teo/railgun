@@ -63,15 +63,15 @@ over that canvas rather than a separate grid column, so the area around it and
 the main pane read as one uninterrupted surface:
 
 ```text
-┌──────────────────── full-window content canvas ────────────────────┐
-│  ╭─ floating sidebar ─╮  titlebar / toolbar                       │
-│  │ New task           │                                           │
-│  │ Sessions           │  transcript          optional inspector   │
-│  │ Automation         │                                           │
-│  │ Knowledge          │  composer                                 │
-│  │ Settings           │                                           │
-│  ╰────────────────────╯                                           │
-└────────────────────────────────────────────────────────────────────┘
+┌────────────────────── full-window content canvas ──────────────────────┐
+│  ╭─ floating sidebar ─╮  titlebar / toolbar                           │
+│  │ New task           │                                               │
+│  │ Sessions           │  transcript    activity side-car │ Files pane │
+│  │ Automation         │                                               │
+│  │ Knowledge          │  composer                                    │
+│  │ Settings           │                                               │
+│  ╰────────────────────╯                                               │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## macOS 26 design direction
@@ -110,9 +110,19 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   tree.
 - Sidebar width is clamped, pointer- and keyboard-resizable, and stored in a
   versioned renderer-local record. Main-pane content follows the live sidebar
-  width while the toolbar material remains full-window. The optional inspector
-  uses the same infrastructure but is omitted from the DOM and accessibility
-  tree until a feature supplies real content.
+  width while the toolbar material remains full-window. Todos and current-run
+  subagents use a responsive side-car card that reserves its width and starts
+  visible when the Task canvas remains wide. When space is constrained it
+  starts hidden, and an explicit toggle shows it as a non-width-reserving
+  floating card. It is omitted from the DOM and accessibility tree without
+  activity. Files is a visually separate, session-only right pane with a fixed responsive width
+  (`clamp(22.5rem, 42vw, 42rem)`) and a clear divider; it starts collapsed and
+  can coexist with the activity side-car.
+- While Files is closed, its open control lives in the Task toolbar. While it
+  is open, the collapse control moves into the Files header. The Files title,
+  subtitle, and actions share the toolbar's titlebar centerline and control
+  sizing; actionable controls remain above Electron's draggable titlebar hit
+  layer and explicitly opt out of window dragging.
 - Task uses one full-height overlay grid cell for toolbar, transcript, operation
   errors, and composer. Error banners sit below the toolbar fade and follow the
   sidebar inset. The native transcript scrollbar is hidden in favor of one
@@ -348,7 +358,7 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 - [x] **DESK-008 — Render agent activity**
   - Tool running/success/error rows use native accessible disclosures with recursively redacted, pretty-formatted input/output capped at 8,000 characters per field. Redaction covers secret-bearing object keys, Bearer/token-shaped credentials, and unstructured assignments such as `PASSWORD=`, `DEVIN_TOKEN=`, and `api_key:`.
-  - Successful todo completions replace the sticky inspector snapshot without duplicating transcript rows; todo loading, textual status, completion count, and current-run subagents share the optional non-resizable floating inspector, which becomes an overlay at constrained widths without being unmounted.
+  - Successful todo completions replace the sticky inspector snapshot without duplicating transcript rows; todo loading, textual status, completion count, and current-run subagents share the optional non-resizable inspector. It starts visible and reserves width on a wide Task canvas; on a constrained canvas it starts hidden and the explicit toggle shows it as a non-width-reserving overlay.
   - MoA references/aggregation, severity-labelled advisor notes, and tool activity share one chronological transcript; stop, disconnect, run end, and New Task settle or clear run-scoped work.
   - The main-process event boundary bounds all renderer-facing strings, parses advisory XML without forwarding it, validates normalized todos, and rejects malformed activity. RPC-created sessions activate the configured MoA preset and enabled advisor.
   - Tool-call IDs correlate only an in-flight invocation: settled IDs may be reused by later turns without suppressing their rows. Failed initial/backend runs retain the danger-styled Retry/Restart presentation.
@@ -425,10 +435,31 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Desktop and CLI sessions always run from the current user's home directory.
   - The behavioral contract is recorded in `docs/adr/0034-fixed-home-directory-workspace.md`.
 
-- [ ] **DESK-014 — Add safe file browsing**
+- [x] **DESK-014 — Add safe file browsing**
   - Lazy read-only tree inside the user's home directory.
   - Text/image preview and Reveal in Finder.
   - Reject traversal, symlink escape, oversized, unreadable, and binary previews safely.
+  - The main process accepts only validated relative path-segment arrays,
+    canonicalizes every operation beneath `app.getPath("home")`, caps directory
+    results at 5,000 entries, and returns only strict renderer-safe payloads.
+    The preload exposes only `listFiles(pathSegments)`,
+    `previewFile(pathSegments)`, and `revealFile(pathSegments)`—never generic
+    filesystem or IPC access.
+  - Hidden entries are always visible and folders sort first. In-home symlinks
+    remain usable; broken or escaping links appear unavailable without target
+    disclosure. A path segment rejects dot traversal and the active platform's
+    separator; valid macOS names containing a backslash remain listable and
+    selectable.
+  - Preview files are opened once without following a replaced final symlink.
+    The same handle supplies metadata and a read bounded to the 10 MiB limit
+    plus one detection byte, so file growth or replacement cannot turn the
+    preview into an unbounded allocation. Text is limited to 1 MiB and rejects
+    invalid UTF-8, NULs, and control-heavy content. PNG, JPEG, GIF, WebP, and
+    AVIF are limited to 40 megapixels before Electron serializes normalized PNG.
+  - The tree loads folders lazily, caches successful branches, refreshes only
+    on explicit request, keeps branch errors independent, and ignores stale
+    folder and preview responses. Loading, empty, unavailable, retry, text,
+    image, and Reveal in Finder states remain renderer-safe.
 
 ### Railgun management
 

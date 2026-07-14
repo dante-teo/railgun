@@ -11,7 +11,9 @@ import { filterSessions } from "./tasks/filterSessions";
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
 Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
 Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: class {
-  observe(): void {}
+  readonly callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) { this.callback = callback; }
+  observe(target: Element): void { this.callback([{ target, contentRect: { width: 1_300 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
   unobserve(): void {}
   disconnect(): void {}
 } });
@@ -52,6 +54,11 @@ const controlApi = {
   setChatModel: unusedControlMutation,
   updateAgentControls: unusedControlMutation,
   compactContext: unusedControlMutation,
+};
+const fileApi = {
+  listFiles: async () => ({ entries: [] }),
+  previewFile: async () => ({ kind: "text" as const, text: "" }),
+  revealFile: async () => undefined,
 };
 
 describe("BackendStatus", () => {
@@ -142,7 +149,7 @@ describe("desktop shell", () => {
       getBackendSnapshot: async () => snapshot("ready"), restartBackend: async () => snapshot("starting"), onBackendSnapshot: () => () => undefined,
       listMockScenarios: async () => [], selectMockScenario: async () => snapshot("ready"),
       sendPrompt: async () => undefined, steerPrompt: async () => undefined, followUpPrompt: async () => undefined, abortPrompt: async () => undefined,
-      openExternal: async () => undefined, startNewChat: async () => desktopSession,
+      openExternal: async () => undefined, ...fileApi, startNewChat: async () => desktopSession,
       listSessions: async () => [
         { id: "rich", model: "mock-model", startedAtLocal: "today", messageCount: 3, firstUserPreview: "Rich history QA" },
         { id: "older", model: "other", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Older chat" },
@@ -211,6 +218,7 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt,
       openExternal: async () => undefined,
+      ...fileApi,
       startNewChat,
       ...sessionApi,
       ...controlApi,
@@ -273,6 +281,21 @@ describe("desktop shell", () => {
     fireEvent.click(showTodos);
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
+    const openFiles = screen.getByRole("button", { name: "Open Files" });
+    expect(openFiles.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(openFiles);
+    expect(await screen.findByRole("complementary", { name: "Files workspace" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull());
+    const showOverlayTodos = screen.getByRole("button", { name: "Show Todos" });
+    expect(showOverlayTodos.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(showOverlayTodos);
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
+    expect(document.querySelector(".desktop-shell")?.classList.contains("inspector-overlay")).toBe(true);
+    const collapseFiles = screen.getByRole("button", { name: "Collapse Files" });
+    expect(collapseFiles.closest(".files-header")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Open Files" })).toBeNull();
+    fireEvent.click(collapseFiles);
+    expect(screen.queryByRole("complementary", { name: "Files workspace" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Secure desktop boundary")).toBeTruthy();
@@ -296,6 +319,7 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
+      ...fileApi,
       startNewChat: async () => desktopSession,
       ...sessionApi,
       ...controlApi,
@@ -331,6 +355,7 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
+      ...fileApi,
       startNewChat: async () => desktopSession,
       ...sessionApi,
       ...controlApi,
@@ -386,6 +411,7 @@ describe("desktop shell", () => {
       followUpPrompt: async () => undefined,
       abortPrompt: async () => undefined,
       openExternal: async () => undefined,
+      ...fileApi,
       startNewChat: async () => desktopSession,
       ...sessionApi,
       ...controlApi,

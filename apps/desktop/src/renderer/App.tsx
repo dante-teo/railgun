@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Bot, GitFork, Search, Settings, SlidersHorizontal, SquarePen, TerminalSquare } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bot, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen, TerminalSquare } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
@@ -18,6 +18,8 @@ import { errorMessage } from "./lib/utils";
 import { readStoredArea, writeStoredArea } from "./routeStorage";
 import type { AppArea } from "./routeStorage";
 import { TaskPalette } from "./tasks/TaskPalette";
+import { FileBrowser } from "./files/FileBrowser";
+import type { InspectorLayoutMode } from "./shell/inspectorLayout";
 
 interface MockPanelProps {
   readonly snapshot: BackendSnapshot;
@@ -71,7 +73,8 @@ export const App = (): React.JSX.Element => {
   const [taskPaletteOpen, setTaskPaletteOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<SessionSnapshot>();
   const [sessionOperation, setSessionOperation] = useState(false);
-  const [todoPaneVisible, setTodoPaneVisible] = useState(true);
+  const [activityPaneVisible, setActivityPaneVisible] = useState(true);
+  const [filesPaneVisible, setFilesPaneVisible] = useState(false);
   const [branchMessageId, setBranchMessageId] = useState<number>();
   const [branchSummarize, setBranchSummarize] = useState(false);
   const [branchSubmitting, setBranchSubmitting] = useState(false);
@@ -79,12 +82,18 @@ export const App = (): React.JSX.Element => {
   const [contextSessionId, setContextSessionId] = useState<string>();
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
+  const activityLayoutMode = useRef<InspectorLayoutMode | undefined>(undefined);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
   const hasActivity = chat.state.activity.todos.length > 0
     || chat.state.activity.subagents.length > 0
     || chat.state.activity.todoLoading;
+  const handleInspectorLayoutModeChange = useCallback((mode: InspectorLayoutMode): void => {
+    if (activityLayoutMode.current === mode) return;
+    activityLayoutMode.current = mode;
+    setActivityPaneVisible(mode === "reserved");
+  }, []);
 
   const selectArea = (next: AppArea): void => {
     setArea(next);
@@ -294,12 +303,22 @@ export const App = (): React.JSX.Element => {
       variant="sidebarIcon"
       size="icon"
       className="todo-pane-toggle"
-      aria-label={hasActivity && todoPaneVisible ? "Hide Todos" : "Show Todos"}
-      aria-pressed={hasActivity && todoPaneVisible}
+      aria-label={hasActivity && activityPaneVisible ? "Hide Todos" : "Show Todos"}
+      aria-pressed={hasActivity && activityPaneVisible}
       disabled={!hasActivity}
-      title={hasActivity && todoPaneVisible ? "Hide Todos" : "Show Todos"}
-      onClick={() => setTodoPaneVisible(visible => !visible)}
+      title={hasActivity && activityPaneVisible ? "Hide Todos" : "Show Todos"}
+      onClick={() => setActivityPaneVisible(visible => !visible)}
     ><SlidersHorizontal aria-hidden="true" /></Button>
+    {filesPaneVisible ? null : <Button
+      type="button"
+      variant="sidebarIcon"
+      size="icon"
+      className="files-pane-toggle"
+      aria-label="Open Files"
+      aria-pressed="false"
+      title="Open Files"
+      onClick={() => setFilesPaneVisible(true)}
+    ><PanelRightOpen aria-hidden="true" /></Button>}
   </div> : undefined;
   const content = area === "chat" ? (
         <section className="chat-surface">
@@ -341,9 +360,12 @@ export const App = (): React.JSX.Element => {
         main={content}
         mainAction={toolbarActions}
         inspector={hasActivity ? <ActivityInspector activity={chat.state.activity} /> : undefined}
-        inspectorVisible={todoPaneVisible}
+        inspectorVisible={activityPaneVisible}
+        workspace={<FileBrowser onCollapse={() => setFilesPaneVisible(false)} />}
+        workspaceVisible={filesPaneVisible}
         sidebarVisible={!sidebarCollapsed}
         onSidebarVisibilityChange={(visible) => setSidebarCollapsed(!visible)}
+        onInspectorLayoutModeChange={handleInspectorLayoutModeChange}
       />
       <CommandPalette
         open={paletteOpen}

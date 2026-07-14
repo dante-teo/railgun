@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, R
 import { PanelLeft, PanelRight } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { shouldOverlayInspector } from "./inspectorLayout";
+import type { InspectorLayoutMode } from "./inspectorLayout";
 import { clampPaneWidth, PANE_WIDTHS, readPaneWidths, writePaneWidths } from "./paneStorage";
 
 export interface ShellLayoutProps {
@@ -12,9 +13,12 @@ export interface ShellLayoutProps {
   readonly main: ReactNode;
   readonly mainAction?: ReactNode;
   readonly inspector?: ReactNode;
+  readonly workspace?: ReactNode;
   readonly sidebarVisible: boolean;
   readonly inspectorVisible?: boolean;
+  readonly workspaceVisible?: boolean;
   readonly onSidebarVisibilityChange: (visible: boolean) => void;
+  readonly onInspectorLayoutModeChange?: (mode: InspectorLayoutMode) => void;
 }
 
 interface ResizeStart {
@@ -78,22 +82,27 @@ export const ShellLayout = ({
   main,
   mainAction,
   inspector,
+  workspace,
   sidebarVisible,
   inspectorVisible = inspector !== undefined,
+  workspaceVisible = workspace !== undefined,
   onSidebarVisibilityChange,
+  onInspectorLayoutModeChange,
 }: ShellLayoutProps): React.JSX.Element => {
   const [widths, setWidths] = useState(() => readPaneWidths(window.localStorage));
   const [shellWidth, setShellWidth] = useState<number>();
   const shellRef = useRef<HTMLElement>(null);
-  const hasInspector = inspector !== undefined && inspectorVisible;
-  const inspectorOverlay = shellWidth === undefined
+  const hasWorkspace = workspace !== undefined && workspaceVisible;
+  const inspectorLayoutMode: InspectorLayoutMode | undefined = shellWidth === undefined
     ? undefined
     : shouldOverlayInspector({
       shellWidth,
       sidebarVisible,
       sidebarWidth: widths.sidebar,
       inspectorWidth: PANE_WIDTHS.inspector.default,
-    });
+      workspaceVisible: hasWorkspace,
+    }) ? "overlay" : "reserved";
+  const hasInspector = inspector !== undefined && inspectorVisible && inspectorLayoutMode !== undefined;
 
   useEffect(() => { writePaneWidths(window.localStorage, widths); }, [widths]);
   useEffect(() => {
@@ -106,6 +115,9 @@ export const ShellLayout = ({
     observer.observe(shell);
     return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    if (inspectorLayoutMode !== undefined) onInspectorLayoutModeChange?.(inspectorLayoutMode);
+  }, [inspectorLayoutMode, onInspectorLayoutModeChange]);
   const setSidebarWidth = (width: number): void =>
     setWidths((current) => ({ ...current, sidebar: width }));
   const style = {
@@ -125,7 +137,7 @@ export const ShellLayout = ({
   >{sidebarVisible ? <PanelRight aria-hidden="true" /> : <PanelLeft aria-hidden="true" />}</Button>;
 
   return (
-    <main ref={shellRef} className={`desktop-shell${sidebarVisible ? "" : " sidebar-collapsed"}${inspectorOverlay === true ? " inspector-overlay" : ""}`} style={style}>
+    <main ref={shellRef} className={`desktop-shell${sidebarVisible ? "" : " sidebar-collapsed"}${hasWorkspace ? " workspace-open" : ""}${inspectorLayoutMode === "overlay" ? " inspector-overlay" : ""}`} style={style}>
       <div className="titlebar" aria-hidden="true" />
       <aside id="app-sidebar" className="sidebar" aria-hidden={!sidebarVisible} inert={!sidebarVisible}>{sidebar}</aside>
       {sidebarVisible ? sidebarAction : null}
@@ -141,6 +153,7 @@ export const ShellLayout = ({
       <div className="sidebar-spacer" style={{ width: sidebarVisible ? "var(--sidebar-content-inset)" : 0 }} aria-hidden="true" />
       <div className="shell-center">{main}</div>
       {hasInspector ? <aside className="shell-inspector" aria-label="Inspector">{inspector}</aside> : null}
+      {hasWorkspace ? <aside className="shell-workspace" aria-label="Files workspace">{workspace}</aside> : null}
     </main>
   );
 };

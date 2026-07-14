@@ -108,12 +108,18 @@ the same model; text entry is reserved for free-form answers and preset names.
   native `details`/`summary` disclosures and pair every semantic color with a
   textual Running, Completed, Error, or Interrupted label. Advisor `nit`,
   `concern`, and `blocker` rows use success, warning, and danger tokens. Todos
-  and current-run subagents appear only in the non-resizable floating inspector;
-  it reserves transcript space at wide widths and becomes an overlay without
-  changing the user's visibility choice when space is constrained. Its section
+  and current-run subagents appear only in the non-resizable responsive inspector;
+  it reserves transcript space and starts visible at wide widths. When the
+  remaining Task canvas is constrained it starts hidden; its explicit toggle
+  shows the card as an overlay without reserving transcript width. Its section
   header stays sticky, todo progress is textual, and status glyphs are
   supplemental. These surfaces retain Reduce Transparency, Increase
   Contrast, and Reduce Motion behavior through the existing semantic tokens.
+  The separate Files pane uses an opaque split tree/preview surface with a
+  clear divider. Its header aligns to the toolbar centerline without inheriting
+  the toolbar's extra visual depth: the open action stays in the Task toolbar
+  while collapsed, and the collapse action moves into the pane header while
+  open.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission or
   backend interruption remains a danger-styled inline row with its Retry or

@@ -16,6 +16,10 @@ import {
   SessionSnapshotSchema,
   SessionSummaryListSchema,
   DESKTOP_SESSION_LIMITS,
+  DESKTOP_FILE_LIMITS,
+  DirectoryListingSchema,
+  FilePathSegmentsSchema,
+  FilePreviewSchema,
 } from "./schemas";
 
 const validSnapshot = {
@@ -110,5 +114,21 @@ describe("desktop boundary schemas", () => {
     expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "user", text: "Hello", messageId: 42, provider: { secret: true } }] })).toThrow();
     expect(() => SessionSummaryListSchema.parse(Array.from({ length: DESKTOP_SESSION_LIMITS.sessions + 1 }, () => summary))).toThrow();
     expect(() => SessionSnapshotSchema.parse({ ...session, checkpoint: { state: "error", detail: "x".repeat(DESKTOP_SESSION_LIMITS.checkpointError + 1) } })).toThrow();
+  });
+
+  it("accepts only segmented paths and bounded file-browser payloads", () => {
+    expect(FilePathSegmentsSchema.parse([])).toEqual([]);
+    expect(FilePathSegmentsSchema.parse([".config", "back\\slash"])).toEqual([".config", "back\\slash"]);
+    for (const invalid of [[".."], ["."], ["/tmp"], ["a/b"], [""]]) {
+      expect(() => FilePathSegmentsSchema.parse(invalid)).toThrow();
+    }
+    const listing = { entries: [{ name: ".hidden", kind: "file", symlink: false }] } as const;
+    expect(DirectoryListingSchema.parse(listing)).toEqual(listing);
+    expect(() => DirectoryListingSchema.parse({ entries: [{ ...listing.entries[0], path: "/secret" }] })).toThrow();
+    expect(() => DirectoryListingSchema.parse({ entries: Array.from({ length: DESKTOP_FILE_LIMITS.directoryEntries + 1 }, (_, index) => ({ name: `f${index}`, kind: "file", symlink: false })) })).toThrow();
+    expect(FilePreviewSchema.parse({ kind: "text", text: "hello" })).toEqual({ kind: "text", text: "hello" });
+    expect(FilePreviewSchema.parse({ kind: "image", dataUrl: "data:image/png;base64,iVBORw0KGgo=", width: 2, height: 3 })).toBeTruthy();
+    expect(() => FilePreviewSchema.parse({ kind: "image", dataUrl: "file:///secret", width: 2, height: 3 })).toThrow();
+    expect(() => FilePreviewSchema.parse({ kind: "image", dataUrl: "data:image/png;base64,x", width: 10_000, height: 10_000 })).toThrow();
   });
 });

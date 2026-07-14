@@ -39,6 +39,7 @@ describe("preload desktop bridge", () => {
       "forkSession",
       "getBackendSnapshot",
       "getChatControls",
+      "listFiles",
       "listMockScenarios",
       "listSessions",
       "onAgentEvent",
@@ -47,10 +48,12 @@ describe("preload desktop bridge", () => {
       "onInteractionRequest",
       "onSessionSnapshot",
       "openExternal",
+      "previewFile",
       "respondToApproval",
       "respondToClarification",
       "restartBackend",
       "resumeSession",
+      "revealFile",
       "selectMockScenario",
       "sendPrompt",
       "setChatModel",
@@ -130,6 +133,31 @@ describe("preload desktop bridge", () => {
     invoke.mockResolvedValueOnce(undefined);
     await expect(api.openExternal("https://example.com/docs")).resolves.toBeUndefined();
     expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.openExternal, "https://example.com/docs");
+  });
+
+  it("validates file paths and bounded results on fixed channels", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    invoke.mockResolvedValueOnce({ entries: [{ name: ".hidden", kind: "file", symlink: false }] });
+    await expect(api.listFiles([])).resolves.toEqual({ entries: [{ name: ".hidden", kind: "file", symlink: false }] });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.listFiles, []);
+
+    await expect(api.previewFile(["..", "secret"])).rejects.toThrow();
+    await expect(api.listFiles(["/tmp"])).rejects.toThrow();
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    invoke.mockResolvedValueOnce({ kind: "text", text: "hello" });
+    await expect(api.previewFile(["notes.txt"])).resolves.toEqual({ kind: "text", text: "hello" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.previewFile, ["notes.txt"]);
+
+    invoke.mockResolvedValueOnce({ kind: "text", text: "macOS filename" });
+    await expect(api.previewFile(["back\\slash.txt"])).resolves.toEqual({ kind: "text", text: "macOS filename" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.previewFile, ["back\\slash.txt"]);
+
+    invoke.mockResolvedValueOnce({ kind: "image", dataUrl: "file:///secret.png", width: 1, height: 1 });
+    await expect(api.previewFile(["image.png"])).rejects.toThrow();
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.revealFile(["notes.txt"])).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.revealFile, ["notes.txt"]);
   });
 
   it("exposes correlated interaction responses and withholds invalid interaction events", async () => {

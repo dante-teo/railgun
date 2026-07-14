@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, protocol, session, shell } from "electron";
 import { resolve } from "node:path";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
 import { createInteractionBroker } from "./interactionBroker";
@@ -31,12 +31,16 @@ import {
   SessionSnapshotSchema,
   PersistenceMessageIdSchema,
   SessionSummaryListSchema,
+  DirectoryListingSchema,
+  FilePathSegmentsSchema,
+  FilePreviewSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
 import { openExternalFromRenderer } from "./externalLinks";
 import { createChatControlsService } from "./chatControls";
 import { createSessionService } from "./sessionService";
+import { createFileService } from "./fileService";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -81,6 +85,15 @@ const supervisor = new BackendSupervisor({
 });
 const chatControls = createChatControlsService(supervisor);
 const sessionService = createSessionService((command, validate) => supervisor.call(command, validate));
+const fileService = createFileService(app.getPath("home"), {
+  decodeImage: (buffer) => {
+    const image = nativeImage.createFromBuffer(buffer);
+    if (image.isEmpty()) throw new Error("Image decode failed");
+    const { width, height } = image.getSize();
+    return { width, height, toDataUrl: () => image.toDataURL() };
+  },
+  reveal: path => shell.showItemInFolder(path),
+});
 
 const senderContext = {
   windows: railgunWindows,
@@ -168,6 +181,18 @@ const registerIpc = (): void => {
   });
   ipcMain.handle(DESKTOP_IPC.openExternal, async (event, value: unknown) => {
     await openExternalFromRenderer(event, value, senderContext, url => shell.openExternal(url));
+  });
+  ipcMain.handle(DESKTOP_IPC.listFiles, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return DirectoryListingSchema.parse(await fileService.list(FilePathSegmentsSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.previewFile, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return FilePreviewSchema.parse(await fileService.preview(FilePathSegmentsSchema.parse(value)));
+  });
+  ipcMain.handle(DESKTOP_IPC.revealFile, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    await fileService.reveal(FilePathSegmentsSchema.parse(value));
   });
   ipcMain.handle(DESKTOP_IPC.startNewChat, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);

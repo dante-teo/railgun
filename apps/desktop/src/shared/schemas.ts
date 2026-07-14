@@ -42,6 +42,47 @@ export const DESKTOP_SESSION_LIMITS = Object.freeze({
   checkpointError: 2_000,
 });
 
+export const DESKTOP_FILE_LIMITS = Object.freeze({
+  pathDepth: 128,
+  segment: 255,
+  directoryEntries: 5_000,
+  textBytes: 1_048_576,
+  imageBytes: 10_485_760,
+  imagePixels: 40_000_000,
+  dataUrl: 60_000_000,
+});
+
+export const FileNameSchema = z.string()
+  .min(1)
+  .max(DESKTOP_FILE_LIMITS.segment)
+  .refine(value => !value.includes("/") && !value.includes("\0"), "Expected one filesystem name");
+export const FilePathSegmentSchema = FileNameSchema
+  .refine(value => value !== "." && value !== "..", "Relative path markers are not allowed")
+  .refine(value => !value.includes("/"), "Expected one relative path segment");
+export const FilePathSegmentsSchema = z.array(FilePathSegmentSchema)
+  .max(DESKTOP_FILE_LIMITS.pathDepth)
+  .readonly();
+export const DirectoryEntrySchema = z.strictObject({
+  name: FileNameSchema,
+  kind: z.enum(["directory", "file", "unavailable"]),
+  symlink: z.boolean(),
+});
+export const DirectoryListingSchema = z.strictObject({
+  entries: z.array(DirectoryEntrySchema).max(DESKTOP_FILE_LIMITS.directoryEntries).readonly(),
+});
+export const FilePreviewSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("text"),
+    text: z.string().max(DESKTOP_FILE_LIMITS.textBytes),
+  }),
+  z.strictObject({
+    kind: z.literal("image"),
+    dataUrl: z.string().max(DESKTOP_FILE_LIMITS.dataUrl).startsWith("data:image/png;base64,"),
+    width: z.number().int().positive().max(DESKTOP_FILE_LIMITS.imagePixels),
+    height: z.number().int().positive().max(DESKTOP_FILE_LIMITS.imagePixels),
+  }).refine(value => value.width * value.height <= DESKTOP_FILE_LIMITS.imagePixels, "Image dimensions are too large"),
+]);
+
 const boundedActivityString = (limit: number) => z.string().max(limit);
 const activityId = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.id).min(1);
 const modelName = boundedActivityString(DESKTOP_ACTIVITY_LIMITS.model).min(1);
