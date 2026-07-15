@@ -6,6 +6,7 @@ import "./todo.js";
 import "./clarify.js";
 import "./memory.js";
 import "./cron.js";
+import "./railgunInspect.js";
 import "./noteSearch.js";
 import "./noteSearchSemantic.js";
 import "./noteWrite.js";

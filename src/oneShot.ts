@@ -39,7 +39,7 @@ const clarifyCallback = async (question: string, choices?: string[]): Promise<st
 
 export const runOneShot = async (question: string, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore, noteStore?: NoteStore): Promise<void> => {
   const memoriesText = memoryStore ? formatMemoriesForPrompt(memoryStore.recent(20)) : null;
-  const session = await initFreshDevinSession({ memoriesText });
+  const session = await initFreshDevinSession({ memoriesText, surface: "one-shot" });
   if (session === undefined) return;
   const { devin, model, systemPrompt } = session;
   const config = await loadConfig();
@@ -65,6 +65,7 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
       try { return { moaPreset: parseMoAPreset(presetName, raw) }; } catch { return {}; }
     })()),
     ...(isAdvisorActive(config) ? { advisor: { model: config.advisor!.model! } } : {}),
+    ...(session.runtime !== undefined ? { runtime: session.runtime } : {}),
   });
 
   const activeStops = new Map<string, (isError: boolean) => void>();

@@ -47,6 +47,7 @@ import type { DaemonStatus } from "./cron/daemon.js";
 import { createInteractiveDiagnostics, createUnavailableInteractiveDiagnostics } from "./diagnostics/interactiveDiagnostics.js";
 import type { InteractiveDiagnostics } from "./diagnostics/interactiveDiagnostics.js";
 import type { OperationStart } from "./diagnostics/types.js";
+import type { RuntimeSurface } from "./runtime.js";
 
 export const USAGE = "Usage: railgun [--print|-p <question>] [--resume|-r [session-id]] [--list-sessions] | railgun login | railgun logout | railgun config | railgun cron [install|uninstall|status] | railgun import-notes <folder> | railgun --mode rpc | railgun --mode acp | railgun dream";
 
@@ -77,8 +78,8 @@ export class CliUsageError extends Error {
 export interface CliDependencies {
   createStore: () => SessionStore;
   loadConfig: () => Promise<AppConfig>;
-  initFreshSession: (memoriesText?: string | null) => Promise<DevinSession | undefined>;
-  initSession: (requiredModelId?: string, memoriesText?: string | null) => Promise<DevinSession>;
+  initFreshSession: (memoriesText?: string | null, surface?: RuntimeSurface) => Promise<DevinSession | undefined>;
+  initSession: (requiredModelId?: string, memoriesText?: string | null, surface?: RuntimeSurface) => Promise<DevinSession>;
   runLogin: () => Promise<void>;
   runLogout: () => Promise<void>;
   runRepl: (session: DevinSession, options?: ReplPersistenceOptions, extensionRunner?: ExtensionRunner, memoryStore?: MemoryStore, noteStore?: NoteStore, diagnostics?: InteractiveDiagnostics) => Promise<void>;
@@ -156,8 +157,8 @@ export const formatSessionTable = (sessions: readonly SessionSummary[]): string 
 const defaultDependencies: CliDependencies = {
   createStore: createSessionStore,
   loadConfig,
-  initFreshSession: (memoriesText) => initFreshDevinSession({ ...(memoriesText !== undefined ? { memoriesText } : {}) }),
-  initSession: (modelId, memoriesText) => initDevinSession(modelId, memoriesText),
+  initFreshSession: (memoriesText, surface) => initFreshDevinSession({ ...(memoriesText !== undefined ? { memoriesText } : {}), ...(surface !== undefined ? { surface } : {}) }),
+  initSession: (modelId, memoriesText, surface) => initDevinSession(modelId, memoriesText, surface),
   runLogin: runLoginCommand,
   runLogout: runLogoutCommand,
   runRepl,
@@ -457,7 +458,7 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
   }
 
   if (mode.kind === "cron") {
-    const session = await dependencies.initFreshSession();
+    const session = await dependencies.initFreshSession(undefined, "cron");
     if (session === undefined) return;
     const config = await dependencies.loadConfig();
     const controller = new AbortController();
@@ -489,7 +490,8 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
   }
 
   if (mode.kind === "rpc") {
-    const session = await dependencies.initSession();
+    const surface: RuntimeSurface = process.env[DESKTOP_RPC_ENV] === "1" ? "desktop" : "rpc";
+    const session = await dependencies.initSession(undefined, undefined, surface);
     const config = await dependencies.loadConfig();
     const { runner, cleanup } = await bootstrapExtensions("rpc", config);
     try {
@@ -521,7 +523,7 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
   }
 
   if (mode.kind === "acp") {
-    const session = await dependencies.initSession();
+    const session = await dependencies.initSession(undefined, undefined, "acp");
     const config = await dependencies.loadConfig();
     const { runner, cleanup } = await bootstrapExtensions("acp", config);
     try {

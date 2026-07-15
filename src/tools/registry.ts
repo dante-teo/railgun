@@ -4,6 +4,7 @@ import type { NoteStore } from "../persistence/noteStore.js";
 import type { CommandApprovalMode } from "../security/commandApproval.js";
 import type { AdvisoryContext } from "../advisor/advisoryContext.js";
 import type { AgentEvent } from "../agent/events.js";
+import type { RuntimeContext } from "../runtime.js";
 
 export type ClarifyCallback = (question: string, choices?: string[]) => Promise<string>;
 
@@ -28,6 +29,7 @@ export interface ToolContext {
   delegationDepth?: number;
   emit?: (event: AgentEvent) => Promise<void>;
   operationTimeoutMs?: number;
+  runtime?: RuntimeContext;
 }
 
 export interface ToolRunResult {

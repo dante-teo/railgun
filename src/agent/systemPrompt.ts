@@ -1,3 +1,5 @@
+import { createRuntimeContext } from "../runtime.js";
+
 export interface SystemPromptInput {
   cwd: string;
   platform: string;
@@ -8,9 +10,29 @@ export interface SystemPromptInput {
   soulIdentity?: string | null;
   projectContext?: string | null;
   memories?: string | null;
+  runtime?: import("../runtime.js").RuntimeContext;
 }
 
 const promptData = (value: string): string => JSON.stringify(value);
+
+export const buildRailgunRuntimePrompt = (runtime: import("../runtime.js").RuntimeContext): string => [
+  "Railgun runtime:",
+  `- Surface: ${promptData(runtime.surface)}`,
+  `- Process: Railgun ${promptData(runtime.process.railgunVersion)}, pid ${runtime.process.pid}, parent pid ${runtime.process.ppid}, Node ${promptData(runtime.process.nodeVersion)}, executable ${promptData(runtime.process.execPath)}`,
+  `- Railgun home: ${promptData(runtime.home)}`,
+  `- Configuration: ${promptData(runtime.paths.config)}`,
+  `- State database: ${promptData(runtime.paths.state)}`,
+  `- Extensions: ${promptData(runtime.paths.extensions)}`,
+  `- Skills: ${promptData(runtime.paths.skills)}`,
+  `- Interactive and desktop logs: ${promptData(runtime.paths.interactiveLogs)}`,
+  `- Cron jobs: ${promptData(runtime.paths.cron)}`,
+  `- Cron logs: ${promptData(runtime.paths.cronLogs)}`,
+  `- Cron reports: ${promptData(runtime.paths.cronOutput)}`,
+  "- Model, approval, advisor, MoA, MCP/extension, SOUL.md, and project-instruction changes are captured when a session/backend starts. Raw configuration edits require valid JSON, `railgun config` validation, and a new session or backend restart before claiming they are active.",
+  "- When editing config.json with file tools, preserve unknown keys and every existing MCP entry, never display credential or MCP environment values, and write valid JSON.",
+  "- For Railgun bugs, hangs, cron/configuration/extension/MCP failures, or desktop disconnections, inspect actual state with railgun_inspect before diagnosing; do not guess or claim a change is active without validation and the required restart.",
+  "- Interactive failures: inspect interactive logs. Desktop/backend failures: inspect desktop logs and restart the backend. Cron failures: inspect daemon/job health, cron logs, and bounded run reports. Configuration, extension, and MCP failures: inspect the effective redacted configuration and relevant logs."
+].join("\n");
 
 export const buildSystemPrompt = ({
   cwd,
@@ -22,6 +44,7 @@ export const buildSystemPrompt = ({
   soulIdentity,
   projectContext,
   memories,
+  runtime,
 }: SystemPromptInput): readonly string[] => [
   [
     "You are Railgun, a general-purpose assistant inspired by Hermes Agent.",
@@ -66,6 +89,7 @@ export const buildSystemPrompt = ({
     `- OS release: ${promptData(osRelease)}`,
     `- Conversation start date: ${promptData(startDate)}`
   ].join("\n"),
+  buildRailgunRuntimePrompt(runtime ?? createRuntimeContext("interactive")),
   ...(soulIdentity
     ? [`# Persistent Identity\n\nThe following personal identity notes have been loaded from ~/.railgun/SOUL.md and should be followed:\n\n${soulIdentity}`]
     : [`# Persistent Identity\n\nNo ~/.railgun/SOUL.md file exists yet. You can create one with write_file to store persistent identity notes and preferences that should apply across all sessions.`]),

@@ -14,6 +14,7 @@ import type { NoteStore } from "../persistence/noteStore.js";
 import { createAdvisorRuntime } from "../advisor/advisor.js";
 import { normalizeAdvisoryHistory } from "../advisor/advisoryMessage.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
+import type { RuntimeContext } from "../runtime.js";
 
 export interface AgentDependencies {
   readonly devin: DevinProvider;
@@ -35,6 +36,7 @@ export interface AgentDependencies {
   readonly advisor?: { readonly model: string };
   readonly operationTimeoutMs?: number;
   readonly cron?: boolean;
+  readonly runtime?: RuntimeContext;
 }
 
 export interface AgentRunInput {
@@ -122,6 +124,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           delegationDepth: 0,
           operationTimeoutMs: dependencies.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
           ...(dependencies.cron !== undefined ? { cron: dependencies.cron } : {}),
+          ...(dependencies.runtime !== undefined ? { runtime: dependencies.runtime } : {}),
         },
       );
       if (!advisor || !("messages" in outcome)) return outcome;

@@ -79,6 +79,7 @@ export const createAcpApp = (options: AcpAppOptions): AgentApp => {
         sessionApprovals,
         ...(config.reviewerModel !== undefined ? { reviewerModel: config.reviewerModel } : {}),
         ...(extensionRunner !== undefined ? { extensionRunner } : {}),
+        ...(session.runtime !== undefined ? { runtime: session.runtime } : {}),
       });
 
       acpSession.activeRun = agentSession;

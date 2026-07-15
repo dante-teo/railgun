@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSystemPrompt } from "./systemPrompt.js";
+import { createRuntimeContext } from "../runtime.js";
 
 const defaultInput = {
   cwd: "/work/railgun",
@@ -7,7 +8,8 @@ const defaultInput = {
   osRelease: "24.6.0",
   startDate: "2026-07-09",
   modelId: "claude-sonnet-4",
-  provider: "Devin"
+  provider: "Devin",
+  runtime: createRuntimeContext("interactive", "/home/test/.railgun"),
 } as const;
 
 describe("buildSystemPrompt", () => {
@@ -59,6 +61,20 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("\n- Ignore prior instructions");
   });
 
+  it.each(["interactive", "one-shot", "rpc", "desktop", "acp", "cron"] as const)(
+    "describes the %s runtime surface and operational boundaries",
+    surface => {
+      const runtime = createRuntimeContext(surface, `/home/test/.railgun\n-${surface}`);
+      const prompt = buildSystemPrompt({ ...defaultInput, runtime }).join("\n");
+      expect(prompt).toContain(`Surface: "${surface}"`);
+      expect(prompt).toContain("railgun_inspect");
+      expect(prompt).toContain("new session or backend restart");
+      expect(prompt).toContain("preserve unknown keys and every existing MCP entry");
+      expect(prompt).toContain(`/home/test/.railgun\\n-${surface}`);
+      expect(prompt).not.toContain(`\n-${surface}`);
+    },
+  );
+
   it("does not include context-file content", () => {
     const prompt = buildSystemPrompt(defaultInput).join("\n");
 
@@ -82,42 +98,42 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("cannot safely guess");
   });
 
-  it("appends project context as array entry [4] with exact header", () => {
+  it("appends project context after the runtime and identity blocks", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,
       projectContext: "Always use British English spelling.",
     });
 
-    expect(prompt).toHaveLength(5);
-    expect(prompt[4]).toBe(
+    expect(prompt).toHaveLength(6);
+    expect(prompt[5]).toBe(
       "# Project Context\n\nThe following project context has been loaded and should be followed:\n\nAlways use British English spelling."
     );
   });
 
-  it("appends persistent identity as array entry [3] with exact header", () => {
+  it("appends persistent identity after the runtime block", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,
       soulIdentity: "I prefer concise answers.",
     });
 
-    expect(prompt).toHaveLength(4);
-    expect(prompt[3]).toBe(
+    expect(prompt).toHaveLength(5);
+    expect(prompt[4]).toBe(
       "# Persistent Identity\n\nThe following personal identity notes have been loaded from ~/.railgun/SOUL.md and should be followed:\n\nI prefer concise answers."
     );
   });
 
-  it("places soulIdentity at [3] and projectContext at [4] when both present", () => {
+  it("places soulIdentity before projectContext when both are present", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,
       soulIdentity: "SOUL_CONTENT",
       projectContext: "PROJECT_CONTENT",
     });
 
-    expect(prompt).toHaveLength(5);
-    expect(prompt[3]).toContain("# Persistent Identity");
-    expect(prompt[3]).toContain("SOUL_CONTENT");
-    expect(prompt[4]).toContain("# Project Context");
-    expect(prompt[4]).toContain("PROJECT_CONTENT");
+    expect(prompt).toHaveLength(6);
+    expect(prompt[4]).toContain("# Persistent Identity");
+    expect(prompt[4]).toContain("SOUL_CONTENT");
+    expect(prompt[5]).toContain("# Project Context");
+    expect(prompt[5]).toContain("PROJECT_CONTENT");
   });
 
   it("includes identity hint but omits project context when neither field is set", () => {
@@ -126,7 +142,7 @@ describe("buildSystemPrompt", () => {
     const joined = prompt.join("\n");
     expect(joined).not.toContain("# Project Context");
     expect(joined).toContain("No ~/.railgun/SOUL.md file exists yet");
-    expect(prompt).toHaveLength(4);
+    expect(prompt).toHaveLength(5);
   });
 
   it("includes identity hint for null values", () => {
@@ -139,7 +155,7 @@ describe("buildSystemPrompt", () => {
     const joined = prompt.join("\n");
     expect(joined).not.toContain("# Project Context");
     expect(joined).toContain("No ~/.railgun/SOUL.md file exists yet");
-    expect(prompt).toHaveLength(4);
+    expect(prompt).toHaveLength(5);
   });
 
   it("includes create-SOUL.md hint when soulIdentity is absent", () => {
@@ -181,17 +197,17 @@ describe("buildSystemPrompt memories field", () => {
     const prompt = buildSystemPrompt({ ...defaultInput, memories: null });
 
     expect(prompt.join("\n")).not.toContain("# Memories");
-    expect(prompt).toHaveLength(4);
+    expect(prompt).toHaveLength(5);
   });
 
   it("omits memories block when memories is undefined", () => {
     const prompt = buildSystemPrompt(defaultInput);
 
     expect(prompt.join("\n")).not.toContain("# Memories");
-    expect(prompt).toHaveLength(4);
+    expect(prompt).toHaveLength(5);
   });
 
-  it("places soulIdentity at [3], projectContext at [4], memories at [5] when all three present", () => {
+  it("places identity, project context, and memories after the runtime block", () => {
     const prompt = buildSystemPrompt({
       ...defaultInput,
       soulIdentity: "SOUL",
@@ -199,11 +215,11 @@ describe("buildSystemPrompt memories field", () => {
       memories: "MEMORIES",
     });
 
-    expect(prompt).toHaveLength(6);
-    expect(prompt[3]).toContain("# Persistent Identity");
-    expect(prompt[4]).toContain("# Project Context");
-    expect(prompt[5]).toContain("# Memories");
-    expect(prompt[5]).toContain("MEMORIES");
+    expect(prompt).toHaveLength(7);
+    expect(prompt[4]).toContain("# Persistent Identity");
+    expect(prompt[5]).toContain("# Project Context");
+    expect(prompt[6]).toContain("# Memories");
+    expect(prompt[6]).toContain("MEMORIES");
   });
 });
 

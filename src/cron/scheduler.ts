@@ -11,6 +11,7 @@ import { loadJobs, saveJobs, isDue } from "./jobs.js";
 import type { CronJob } from "./jobs.js";
 import { snapshotOutputs, verifyOutputs, writeRunReport } from "./artifacts.js";
 import type { OutputVerification } from "./artifacts.js";
+import { createRuntimeContext } from "../runtime.js";
 
 export interface CronJobResult {
   readonly jobId: string;
@@ -128,6 +129,7 @@ export const runCronJob = async (
     ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
     iterationBudget: () => IterationBudget.create(30),
     cron: true,
+    runtime: createRuntimeContext("cron"),
   });
 
   let text = "";

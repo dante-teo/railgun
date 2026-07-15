@@ -62,6 +62,7 @@ import { createAuthenticationCoordinator, createAuthenticationService } from "./
 import { createCronService } from "./cronService";
 import { createManagementService } from "./managementService";
 import { createKnowledgeService } from "./knowledgeService";
+import { createDesktopDiagnosticSink } from "./desktopDiagnostics";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -103,6 +104,7 @@ const supervisor = new BackendSupervisor({
   mode: backendMode,
   spawnChild: createBackendChildFactory(backendRuntime),
   ...(backendMode === "mock" ? { initialScenarioId: "ready-idle" } : {}),
+  diagnosticSink: createDesktopDiagnosticSink({ home: app.getPath("home") }),
 });
 const mutationQueue = createMutationQueue();
 const chatControls = createChatControlsService(supervisor, mutationQueue);

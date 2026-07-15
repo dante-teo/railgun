@@ -336,7 +336,8 @@ This document records the intended system architecture for Railgun. Keep it curr
    transport entries contain only frame type/correlation summaries. Prompts,
    assistant content, clarification answers, shell commands, environment values,
    and tokens are omitted, while credential-like stderr and surfaced errors are
-   redacted.
+   redacted. Stderr remains bounded in the in-memory snapshot only; it never enters
+   desktop JSONL because MCP children can emit arbitrary unlabelled data.
 4. A correlated protocol-v1 `initialize` handshake validates version and
    required capabilities before `get_state` moves the snapshot from `starting`
    to `ready`. Authentication-required is terminal until explicit restart.
@@ -492,7 +493,7 @@ compaction (`shouldCompact`/`runCompaction`, `src/agent/compaction.ts`).
 `message_update` events (since Phase 18) but still ignored by both
 consumers (reasoning display is a later phase; live tool-call feedback
 shipped in Phase 7 via `LoopCallbacks`, replaced in Phase 18 by a typed
-`AgentEvent`/`AgentSessionEvent` stream — see ADR-0012). Both paths enable the exact same toolsets (`"file"`, `"terminal"`, `"planning"`, `"clarify"`, `"extension"`, `"memory"`, `"skills"`, and `"delegation"`) — the only behavioral difference between them is how `confirmShellCommand` collects the y/n answer and how `clarifyCallback` surfaces questions to the user (Ink `useInput`/`useState` in the REPL vs. blocking `readline` on stdin in one-shot mode), and how tool activity renders (an `ink-spinner` line + scrollback vs. a stderr braille spinner via `src/spinner.ts`). They also differ in budget lifetime: the REPL has one shared 90-step budget and one shared todo store for the process lifetime, while each one-shot invocation gets a fresh 90-step budget and fresh todo store.
+`AgentEvent`/`AgentSessionEvent` stream — see ADR-0012). Both paths enable the exact same primary toolsets: file, terminal, planning, clarification, extensions, memory/notes, skills, cron, read-only web, read-only Railgun inspection, and delegation. The only behavioral difference between them is how `confirmShellCommand` collects the y/n answer and how `clarifyCallback` surfaces questions to the user (Ink `useInput`/`useState` in the REPL vs. blocking `readline` on stdin in one-shot mode), and how tool activity renders (an `ink-spinner` line + scrollback vs. a stderr braille spinner via `src/spinner.ts`). They also differ in budget lifetime: the REPL has one shared 90-step budget and one shared todo store for the process lifetime, while each one-shot invocation gets a fresh 90-step budget and fresh todo store.
 
 **ACP mode path (`railgun --mode acp`):**
 
@@ -628,6 +629,21 @@ keeps the newest 50 per job. Cron mode does not open the session database.
 - MCP server processes are spawned as ordinary child processes with the configured `command`/`args`/`env` and the caller's inherited environment. They run with the same OS privileges as Railgun. There is no sandbox or capability restriction on what an MCP server can do. Only configure servers you trust. Child processes are killed (`process.kill()`) in `try/finally` on session shutdown; a server that exits before `close()` rejects pending RPC calls rather than hanging. See `docs/adr/0014-mcp-client-support.md`.
 
 ## Observability
+
+- `RuntimeContext` carries one of six typed surfaces through session construction,
+  model-runtime rebuilds, agent/tool contexts, cron execution, and delegated agent
+  loops. `buildSystemPrompt` serializes it into the `Railgun runtime` block.
+- The default `railgun` toolset registers `railgun_inspect`, which reads only fixed
+  Railgun-owned paths and bounds state, log, report, and serialized output.
+  Effective configuration is validated before recursive credential-key,
+  MCP-environment, and credential-bearing MCP-argument redaction. Unlabelled
+  positional secrets are not inferable; MCP credentials belong in `env`.
+- Electron main persists the supervisor's already-redacted and truncated structured
+  transport/lifecycle summaries as private per-launch desktop JSONL. Backend stderr
+  stays in the bounded in-memory UI because MCP output is untrusted. Sink setup and
+  writes are best-effort. A latest symlink, seven-day retention, and a 100 MiB cap
+  apply; raw RPC frames and payloads never cross the persistence boundary. See
+  `docs/OPERATIONAL_DIAGNOSTICS.md`.
 
 - Human-readable startup status, selected model, the first committed full
   session ID, and top-level failures are written to stderr. One-shot answer

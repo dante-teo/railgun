@@ -4,6 +4,7 @@ import { registry } from "./index.js";
 import "./delegate.js";
 import type { ToolContext } from "./registry.js";
 import type { AgentEvent } from "../agent/events.js";
+import { createRuntimeContext } from "../runtime.js";
 
 // ---------------------------------------------------------------------------
 // Shared test helpers
@@ -114,6 +115,17 @@ describe("delegate_task", () => {
     expect(toolNames).not.toContain("delegate_task");
     expect(toolNames).toContain("web_search");
     expect(toolNames).toContain("web_fetch");
+    expect(toolNames).toContain("railgun_inspect");
+  });
+
+  it("retains the parent's runtime surface in delegated prompts and tool context", async () => {
+    const devin = fakeProvider([textRound("child done")]);
+    const runtime = createRuntimeContext("desktop", "/tmp/delegated-railgun");
+    await registry.run("delegate_task", { goal: "inspect" }, makeContext({ devin, runtime }));
+    const systemPrompt = devin.streamChatRequests[0]?.systemPrompt;
+    expect(systemPrompt).toBeDefined();
+    expect(systemPrompt?.join("\n")).toContain('Surface: "desktop"');
+    expect(systemPrompt?.join("\n")).toContain('Railgun home: "/tmp/delegated-railgun"');
   });
 
   it("5. orchestrator child at depth 0 gets 'delegation' toolset", async () => {

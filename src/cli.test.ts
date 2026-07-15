@@ -344,7 +344,7 @@ describe("dispatchCli", () => {
     const store = fakeStore();
     const deps = dependencies(store);
     await dispatchCli({ kind: "rpc" }, deps);
-    expect(deps.initSession).toHaveBeenCalledOnce();
+    expect(deps.initSession).toHaveBeenCalledWith(undefined, undefined, "rpc");
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.runRpc).toHaveBeenCalledWith(expect.objectContaining({
       session: fakeSession,
@@ -361,7 +361,7 @@ describe("dispatchCli", () => {
   it("dispatches acp mode: initializes session and calls runAcp without opening the store", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "acp" }, deps);
-    expect(deps.initSession).toHaveBeenCalledOnce();
+    expect(deps.initSession).toHaveBeenCalledWith(undefined, undefined, "acp");
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.runAcp).toHaveBeenCalledWith(expect.objectContaining({
       session: fakeSession,
@@ -411,7 +411,7 @@ describe("dispatchCli — cron mode", () => {
   it("calls initFreshSession and runCronScheduler", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "cron" }, deps);
-    expect(deps.initFreshSession).toHaveBeenCalledOnce();
+    expect(deps.initFreshSession).toHaveBeenCalledWith(undefined, "cron");
     expect(deps.runCronScheduler).toHaveBeenCalledOnce();
   });
 

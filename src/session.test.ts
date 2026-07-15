@@ -135,6 +135,13 @@ describe("initDevinSession", () => {
 });
 
 describe("initFreshDevinSession", () => {
+  it("retains the requested runtime surface", async () => {
+    mockBootstrap([model("configured")]);
+    const { initFreshDevinSession } = await import("./session.js");
+    const session = await initFreshDevinSession({ config: { model: "configured" }, surface: "one-shot" });
+    expect(session?.runtime?.surface).toBe("one-shot");
+  });
+
   it("uses Devin's first returned model when config.model is null", async () => {
     mockBootstrap([model("provider-first"), model("second")]);
     const { initFreshDevinSession } = await import("./session.js");
@@ -216,11 +223,12 @@ describe("buildSessionCore", () => {
       streamChat: async function* () { yield { type: "done" as const, reason: "stop" as const }; },
     } satisfies DevinProvider;
 
-    const session = await buildSessionCore(devin, model("core-model"));
+    const session = await buildSessionCore(devin, model("core-model"), undefined, "desktop");
 
     expect(session.model.id).toBe("core-model");
     expect(session.devin).toBe(devin);
     expect(Array.isArray(session.systemPrompt)).toBe(true);
+    expect(session.runtime?.surface).toBe("desktop");
     expect(console.error).not.toHaveBeenCalled();
   });
 });

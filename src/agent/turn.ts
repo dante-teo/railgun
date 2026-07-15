@@ -19,6 +19,8 @@ import { PRIMARY_TOOLSETS } from "../tools/toolsets.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
 import { initialProgressState, planToolCalls, recordToolResults } from "./progress.js";
 import type { ProgressState } from "./progress.js";
+import type { RuntimeContext } from "../runtime.js";
+import { createRuntimeContext } from "../runtime.js";
 
 export type TurnOutcome =
   | { ok: true; messages: readonly DevinMessage[]; assistantText: string; stopReason?: "iteration_limit" }
@@ -56,6 +58,7 @@ export interface RunTurnOptions {
   enabledToolsets?: readonly string[];
   operationTimeoutMs?: number;
   cron?: boolean;
+  runtime?: RuntimeContext;
 }
 
 const pushMessage = async (
@@ -380,6 +383,7 @@ export const runTurn = async (
     delegationDepth: options?.delegationDepth ?? 0,
     emit: doEmit,
     operationTimeoutMs: options?.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
+    runtime: options?.runtime ?? createRuntimeContext("interactive"),
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;

@@ -5,6 +5,9 @@ import type { AgentEvent } from "../agent/events.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { runTurn } from "../agent/turn.js";
 import { DEFAULT_TOOLSETS } from "./toolsets.js";
+import { buildRailgunRuntimePrompt } from "../agent/systemPrompt.js";
+import type { RuntimeContext } from "../runtime.js";
+import { createRuntimeContext } from "../runtime.js";
 
 const CHILD_SYSTEM_PROMPT: readonly string[] = [
   "You are a focused subagent. Complete the task described below, then give a concise summary of what you did and found. Do not ask clarifying questions — work with what you have.",
@@ -33,6 +36,7 @@ async function runOneChild(
   parentDepth: number,
   parentSignal: AbortSignal,
   operationTimeoutMs: number | undefined,
+  runtime: RuntimeContext,
 ): Promise<string> {
   const childDepth = parentDepth + 1;
 
@@ -49,7 +53,7 @@ async function runOneChild(
 
   try {
     const outcome = await runTurn(
-      devin, model, contextWindow, CHILD_SYSTEM_PROMPT,
+      devin, model, contextWindow, [...CHILD_SYSTEM_PROMPT, buildRailgunRuntimePrompt(runtime)],
       [],
       userText,
       childBudget,
@@ -64,6 +68,7 @@ async function runOneChild(
         contextWindow,
         delegationDepth: childDepth,
         ...(operationTimeoutMs !== undefined ? { operationTimeoutMs } : {}),
+        runtime,
       },
     );
 
@@ -86,6 +91,7 @@ async function runBatched(
   parentSignal: AbortSignal,
   emit: ((event: AgentEvent) => Promise<void>) | undefined,
   operationTimeoutMs: number | undefined,
+  runtime: RuntimeContext,
 ): Promise<string[]> {
   const results: string[] = new Array(jobs.length);
   const count = jobs.length;
@@ -103,6 +109,7 @@ async function runBatched(
           parentDepth,
           parentSignal,
           operationTimeoutMs,
+          runtime,
         );
         await emit?.({ type: "subagent_end", goal: job.goal, index: globalIndex, result });
         results[globalIndex] = result;
@@ -197,7 +204,7 @@ registry.register({
         }));
 
     const results = await runBatched(
-      jobs, devin, model, contextWindow, parentDepth, parentSignal, context.emit, context.operationTimeoutMs,
+      jobs, devin, model, contextWindow, parentDepth, parentSignal, context.emit, context.operationTimeoutMs, context.runtime ?? createRuntimeContext("interactive"),
     );
 
     const payload = jobs.map((job, i) => ({ task: job.goal, result: results[i] }));

@@ -96,6 +96,35 @@ oldest-first to a 100 MiB total cap. Non-interactive modes create no interactive
 See [Interactive diagnostics](docs/INTERACTIVE_DIAGNOSTICS.md) for the exact JSONL
 schema, privacy boundary, phase rules, and watchdog lifecycle.
 
+### Operational inspection
+
+Every conversational surface—interactive, one-shot, RPC, desktop, ACP, and cron—
+receives a `Railgun runtime` context and the read-only `railgun_inspect` tool. When
+asked about a Railgun failure, the agent can inspect runtime paths and versions,
+effective redacted configuration, cron daemon/job health, bounded interactive,
+cron, or desktop log tails, and bounded per-job cron reports. The tool resolves
+only Railgun-owned paths beneath `~/.railgun`. Configuration inspection redacts
+credential-like keys, every MCP environment value, and credential-bearing MCP
+argument forms such as `--token value`, `--api-key=value`, Bearer, and
+Authorization values. See [Operational diagnostics](docs/OPERATIONAL_DIAGNOSTICS.md).
+
+Direct edits to `~/.railgun/config.json` remain supported through the normal file
+tools. Preserve unknown keys and existing MCP entries, do not print secrets, write
+valid JSON, and run `railgun config` afterward. That command prints the effective
+configuration without redaction, so keep its output local. Model, approval,
+advisor, MoA, MCP/extension, identity, and instruction changes apply to a new session; the
+desktop and other long-lived backends must be restarted before they use them.
+
+Electron main writes redacted, truncated lifecycle and structured transport
+summaries shown in the desktop UI to `~/.railgun/logs/desktop-<timestamp>-<pid>.jsonl`.
+`desktop-latest.jsonl` points to the current launch. These private local logs use
+the same seven-day and 100 MiB retention boundary as interactive diagnostics and
+exclude RPC payloads, prompts, tool arguments/results, environment variables, and
+credentials. Backend stderr remains visible only in the bounded in-memory desktop
+diagnostics view and is never persisted because MCP processes may write arbitrary
+user or credential data there. If private log storage cannot be initialized, the
+desktop continues without persisted diagnostics.
+
 ```sh
 pnpm start
 ```

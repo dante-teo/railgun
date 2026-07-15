@@ -6,12 +6,15 @@ import type { AppConfig } from "./config.js";
 import { buildSystemPrompt } from "./agent/systemPrompt.js";
 import { loadProjectContext, loadSoulIdentity } from "./agent/projectContext.js";
 import { runModelChooser } from "./repl/ModelChooser.js";
+import { createRuntimeContext } from "./runtime.js";
+import type { RuntimeContext, RuntimeSurface } from "./runtime.js";
 export { TOKEN_PATH } from "./sessionPath.js";
 
 export interface DevinSession {
   devin: DevinProvider;
   model: DevinModel;
   systemPrompt: readonly string[];
+  runtime?: RuntimeContext;
 }
 
 const padDatePart = (value: number): string => String(value).padStart(2, "0");
@@ -19,13 +22,14 @@ const padDatePart = (value: number): string => String(value).padStart(2, "0");
 export const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 
-export const buildSessionCore = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null): Promise<DevinSession> => {
+export const buildSessionCore = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null, surface: RuntimeSurface = "interactive"): Promise<DevinSession> => {
   const cwd = process.cwd();
   const [projectContext, soulIdentity] = await Promise.all([
     loadProjectContext(cwd),
     loadSoulIdentity(),
   ]);
 
+  const runtime = createRuntimeContext(surface);
   const systemPrompt = buildSystemPrompt({
     cwd,
     platform: platform(),
@@ -36,20 +40,21 @@ export const buildSessionCore = async (devin: DevinProvider, model: DevinModel, 
     projectContext,
     soulIdentity,
     memories: memoriesText ?? null,
+    runtime,
   });
 
-  return { devin, model, systemPrompt };
+  return { devin, model, systemPrompt, runtime };
 };
 
-const buildSession = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null): Promise<DevinSession> => {
+const buildSession = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null, surface: RuntimeSurface = "interactive"): Promise<DevinSession> => {
   console.error(`Using model: ${model.id}`);
-  return buildSessionCore(devin, model, memoriesText);
+  return buildSessionCore(devin, model, memoriesText, surface);
 };
 
 const availableIds = (models: readonly DevinModel[]): string =>
   models.map(candidate => candidate.id).join(", ") || "none";
 
-export const initDevinSession = async (requiredModelId?: string, memoriesText?: string | null): Promise<DevinSession> => {
+export const initDevinSession = async (requiredModelId?: string, memoriesText?: string | null, surface: RuntimeSurface = "interactive"): Promise<DevinSession> => {
   const { devin } = await createAuthenticatedProvider();
   const models = await devin.listModels();
   const model = requiredModelId === undefined
@@ -59,7 +64,7 @@ export const initDevinSession = async (requiredModelId?: string, memoriesText?: 
     throw new Error(`Saved model "${requiredModelId}" is unavailable. Available models: ${availableIds(models)}.`);
   }
   if (!model) throw new Error("Devin returned no available models");
-  return buildSession(devin, model, memoriesText);
+  return buildSession(devin, model, memoriesText, surface);
 };
 
 export interface FreshSessionOptions {
@@ -68,6 +73,7 @@ export interface FreshSessionOptions {
   readonly selectModel?: (models: readonly DevinModel[], unavailableId: string) => Promise<string | undefined>;
   readonly persistModel?: (modelId: string) => Promise<void>;
   readonly memoriesText?: string | null;
+  readonly surface?: RuntimeSurface;
 }
 
 export const initFreshDevinSession = async (
@@ -79,10 +85,10 @@ export const initFreshDevinSession = async (
   if (models.length === 0) throw new Error("Devin returned no available models");
 
   const configured = config.model;
-  if (configured === null) return buildSession(devin, models[0]!, options.memoriesText);
+  if (configured === null) return buildSession(devin, models[0]!, options.memoriesText, options.surface);
 
   const exact = models.find(candidate => candidate.id === configured);
-  if (exact) return buildSession(devin, exact, options.memoriesText);
+  if (exact) return buildSession(devin, exact, options.memoriesText, options.surface);
 
   const interactive = options.interactive ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
   if (!interactive) {
@@ -97,5 +103,5 @@ export const initFreshDevinSession = async (
   const selected = models.find(candidate => candidate.id === selectedId);
   if (!selected) throw new Error(`The selected model "${selectedId}" is unavailable.`);
   await (options.persistModel ?? setConfiguredModel)(selected.id);
-  return buildSession(devin, selected, options.memoriesText);
+  return buildSession(devin, selected, options.memoriesText, options.surface);
 };

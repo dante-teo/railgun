@@ -131,16 +131,18 @@ describe("BackendSupervisor", () => {
 
   it("redacts and truncates diagnostics and records only safe frame summaries", async () => {
     const child = new FakeChild();
+    const persisted: Array<{ category: string; direction?: string; text: string }> = [];
     const supervisor = new BackendSupervisor({
       mode: "real",
       spawnChild: () => child,
       maxLogTextLength: 120,
+      diagnosticSink: { path: "/tmp/test.jsonl", write: record => persisted.push(record) },
     });
     supervisor.start();
     makeReady(child, 1);
     const call = supervisor.call({ type: "prompt", message: "private user prompt" });
     child.stdin.read();
-    child.stderr.write(`DEVIN_TOKEN=super-secret Bearer another-secret ${"x".repeat(100)}\n`);
+    child.stderr.write(`bare-unlabelled-credential private MCP payload DEVIN_TOKEN=super-secret Bearer another-secret ${"x".repeat(100)}\n`);
     child.stdout.write(`${JSON.stringify({ type: "approval_request", command: "curl secret.example" })}\n`);
     child.stdout.write(`${JSON.stringify({
       id: "desktop-rpc-1", type: "response", command: "prompt", success: false,
@@ -161,6 +163,14 @@ describe("BackendSupervisor", () => {
     expect(serialized).not.toContain("curl secret.example");
     expect(serialized).not.toContain("leaked");
     expect(supervisor.getSnapshot().diagnostics.every(text => text.length <= 120)).toBe(true);
+    const persistedText = JSON.stringify(persisted);
+    expect(persistedText).not.toContain("private user prompt");
+    expect(persistedText).not.toContain("super-secret");
+    expect(persistedText).not.toContain("another-secret");
+    expect(persistedText).not.toContain("bare-unlabelled-credential");
+    expect(persistedText).not.toContain("private MCP payload");
+    expect(persistedText).not.toContain("curl secret.example");
+    expect(persisted.some(record => record.direction === "stderr")).toBe(false);
     supervisor.shutdown();
   });
 

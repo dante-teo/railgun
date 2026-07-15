@@ -492,7 +492,7 @@ const ChatApp = ({
       setBusy(true);
       void (async () => {
       try {
-          const rebuilt = await buildSessionCore(activeSession.devin, chosen);
+          const rebuilt = await buildSessionCore(activeSession.devin, chosen, undefined, activeSession.runtime?.surface ?? "interactive");
           if (persist) await setConfiguredModel(chosen.id);
           setActiveSession(rebuilt);
           setLines(previous => [...previous, { kind: "assistant", text: persist
@@ -596,7 +596,7 @@ const ChatApp = ({
               setLines(previous => [...previous, { kind: "error", text: result.message }]);
             } else {
               try {
-                const rebuilt = await buildSessionCore(activeSession.devin, result.model);
+                const rebuilt = await buildSessionCore(activeSession.devin, result.model, undefined, activeSession.runtime?.surface ?? "interactive");
                 if (result.persist) await setConfiguredModel(result.model.id);
                 setActiveSession(rebuilt);
                 setLines(previous => [...previous, { kind: "assistant", text: result.persist
@@ -622,7 +622,7 @@ const ChatApp = ({
               onSelect: async index => {
                 const model = models[index];
                 if (!model) return;
-                const rebuilt = await buildSessionCore(activeSession.devin, model);
+                const rebuilt = await buildSessionCore(activeSession.devin, model, undefined, activeSession.runtime?.surface ?? "interactive");
                 await setConfiguredModel(model.id);
                 setActiveSession(rebuilt);
                 setLines(previous => [...previous, { kind: "assistant", text: `Primary model changed to ${model.id}.` }]);
@@ -901,6 +901,7 @@ const ChatApp = ({
       ...(noteStore ? { noteStore } : {}),
       ...(activeMoaPreset !== null ? { moaPreset: activeMoaPreset } : {}),
       ...(advisorModel ? { advisor: { model: advisorModel } } : {}),
+      ...(activeSession.runtime !== undefined ? { runtime: activeSession.runtime } : {}),
     });
     const diagnosticBridge = createAgentDiagnosticsBridge(diagnostics.observer, {
       model: activeSession.model.id,

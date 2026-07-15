@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolve } from "node:path";
 import type { BackendMode, BackendSnapshot, MockScenarioId, TransportLogEntry } from "../shared/types";
+import type { DesktopDiagnosticSink } from "./desktopDiagnostics";
 
 export interface BackendChild {
   readonly stdin: NodeJS.WritableStream & {
@@ -46,6 +47,7 @@ export interface BackendSupervisorOptions {
   readonly maxBufferLength?: number;
   readonly maxLogTextLength?: number;
   readonly terminationGraceMs?: number;
+  readonly diagnosticSink?: DesktopDiagnosticSink;
 }
 
 export type BackendRpcCommand = Readonly<{ type: string; [key: string]: unknown }>;
@@ -88,6 +90,7 @@ export class BackendSupervisor {
   readonly #maxBufferLength: number;
   readonly #maxLogTextLength: number;
   readonly #terminationGraceMs: number;
+  readonly #diagnosticSink: DesktopDiagnosticSink | undefined;
   readonly #listeners = new Set<(snapshot: BackendSnapshot) => void>();
   readonly #backendEventListeners = new Set<(event: unknown) => void>();
   readonly #pendingCalls = new Map<string, {
@@ -112,6 +115,7 @@ export class BackendSupervisor {
     this.#maxBufferLength = options.maxBufferLength ?? 128 * 1024;
     this.#maxLogTextLength = options.maxLogTextLength ?? 2_000;
     this.#terminationGraceMs = options.terminationGraceMs ?? 1_000;
+    this.#diagnosticSink = options.diagnosticSink;
     this.#snapshot = {
       mode: options.mode,
       phase: "starting",
@@ -175,7 +179,7 @@ export class BackendSupervisor {
       phase: "starting",
       ...(scenarioId === undefined ? {} : { scenarioId }),
       diagnostics: [],
-      transportLog: [{ direction: "system", text: "Starting backend" }],
+      transportLog: [this.#safeEntry("system", "Starting backend", "lifecycle")],
     };
     this.#emit();
 
@@ -255,7 +259,7 @@ export class BackendSupervisor {
         ...(this.#snapshot.phase === "authentication-required" ? {} : { error: `Backend exited with ${detail}` }),
         transportLog: appendBounded(
           this.#snapshot.transportLog,
-          { direction: "system", text: `Backend exited with ${detail}` },
+          this.#safeEntry("system", `Backend exited with ${detail}`, "lifecycle"),
           this.#maxTransportEntries,
         ),
       };
@@ -292,13 +296,22 @@ export class BackendSupervisor {
       ...this.#snapshot,
       phase: "disconnected",
       error: "Backend stopped",
-      transportLog: appendBounded(this.#snapshot.transportLog, { direction: "system", text: "Backend stopped" }, this.#maxTransportEntries),
+      transportLog: appendBounded(this.#snapshot.transportLog, this.#safeEntry("system", "Backend stopped", "lifecycle"), this.#maxTransportEntries),
     };
     this.#emit();
     return this.#snapshot;
   }
 
   shutdown(): void {
+    this.#snapshot = {
+      ...this.#snapshot,
+      transportLog: appendBounded(
+        this.#snapshot.transportLog,
+        this.#safeEntry("system", "Desktop supervisor shutting down", "lifecycle"),
+        this.#maxTransportEntries,
+      ),
+    };
+    this.#emit();
     ++this.#generation;
     this.#clearReadinessTimer();
     this.#stopActiveChild();
@@ -411,7 +424,7 @@ export class BackendSupervisor {
       ...this.#snapshot,
       transportLog: appendBounded(
         this.#snapshot.transportLog,
-        { direction: "stdin", text: this.#summarizeJsonLine(line) },
+        this.#safeEntry("stdin", this.#summarizeJsonLine(line)),
         this.#maxTransportEntries,
       ),
     };
@@ -432,7 +445,7 @@ export class BackendSupervisor {
       error: safeMessage,
       transportLog: appendBounded(
         this.#snapshot.transportLog,
-        { direction: "system", text: safeMessage },
+        this.#safeEntry("system", safeMessage),
         this.#maxTransportEntries,
       ),
     };
@@ -501,10 +514,16 @@ export class BackendSupervisor {
       ...this.#snapshot,
       transportLog: appendBounded(
         this.#snapshot.transportLog,
-        { direction, text: this.#safeText(text) },
+        this.#safeEntry(direction, text),
         this.#maxTransportEntries,
       ),
     };
+  }
+
+  #safeEntry(direction: TransportLogEntry["direction"], text: string, category: "transport" | "lifecycle" = "transport"): TransportLogEntry {
+    const entry = { direction, text: this.#safeText(text) };
+    this.#diagnosticSink?.write({ category, ...entry });
+    return entry;
   }
 
   #emit(): void {
