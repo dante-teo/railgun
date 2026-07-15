@@ -234,6 +234,29 @@ describe("BackendSupervisor", () => {
     expect(bufferSupervisor.getSnapshot().error).toContain("buffer exceeded");
   });
 
+  it("delivers a frame split across chunks larger than the old 128 KiB buffer ceiling to event listeners", () => {
+    const child = new FakeChild();
+    const supervisor = new BackendSupervisor({ mode: "real", spawnChild: () => child });
+    supervisor.start();
+    makeReady(child, 1);
+    // A non-response event routes directly to subscribeBackendEvents listeners —
+    // proving the large split frame was parsed and dispatched, not silently dropped.
+    const received: unknown[] = [];
+    supervisor.subscribeBackendEvents(event => received.push(event));
+    // Build a JSONL line larger than the old 128 KiB maxBufferLength default.
+    const bigContent = "x".repeat(200 * 1024);
+    const event = { type: "agent_event", content: bigContent };
+    const payload = JSON.stringify(event);
+    // Split exactly at the midpoint — no newline in the first chunk.
+    const mid = Math.floor(payload.length / 2);
+    child.stdout.write(payload.slice(0, mid));
+    expect(received).toHaveLength(0); // not yet — newline not delivered
+    child.stdout.write(payload.slice(mid) + "\n");
+    expect(received).toHaveLength(1);
+    expect((received[0] as typeof event).content).toBe(bigContent);
+    expect(supervisor.getSnapshot().phase).toBe("ready");
+  });
+
   it("terminates children and ignores stale events after a restart", () => {
     const first = new FakeChild();
     const second = new FakeChild();

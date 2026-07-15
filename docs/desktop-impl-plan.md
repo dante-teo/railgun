@@ -502,8 +502,9 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     `cron-parser` and `cronstrue`: whitespace is normalized, exactly five
     local-time fields are required, semantic ranges are parsed, and a live
     readable summary is shown. Backend RPC validation remains authoritative.
-    Desktop prompts are capped at 8,000 characters so even worst-case JSON
-    escaping fits beneath the supervised 64 KiB transport-frame limit.
+    Desktop prompts are capped at 8,000 characters to keep cron payloads
+    compact and UI input predictable; this is a product-level discipline, not a
+    transport constraint.
   - Cron mutations use the desktop's shared mutation queue and the existing
     `cron_add`, `cron_update`, and `cron_remove` RPC commands without changing
     persistence. Backward-compatible optional response controls keep legacy

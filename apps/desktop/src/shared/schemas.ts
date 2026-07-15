@@ -58,7 +58,7 @@ export const DESKTOP_CRON_LIMITS = Object.freeze({
   id: 256,
   schedule: 256,
   summary: 1_000,
-  // One maximally JSON-escaped prompt plus its response envelope must remain below 64 KiB.
+  // Caps cron prompts to keep payloads compact and UI input predictable (product discipline, not a transport constraint).
   prompt: 8_000,
 });
 

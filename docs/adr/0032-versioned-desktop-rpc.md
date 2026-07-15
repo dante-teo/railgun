@@ -75,6 +75,8 @@ job per page, caps accepted prompts at 8,000 characters, and uses compact
 mutation acknowledgements. This keeps worst-case JSON escaping below the
 supervisor's 64 KiB frame ceiling without exposing runtime fields or changing
 the cron persistence format.
+The frame ceiling was subsequently raised to 4 MiB (see ADR 0037); the
+8,000-character prompt cap is retained as a product-level discipline.
 
 MCP secrets never cross JSONL: reads expose command, arguments, and environment
 key presence only. MCP environment upserts retain omitted keys, replace keys

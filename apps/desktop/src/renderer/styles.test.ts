@@ -179,6 +179,8 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.transcript-scroll-indicator span\s*\{[^}]*background:\s*var\(--color-transcript-dash-muted\)/u);
     expect(css).toMatch(/\.transcript-scroll-indicator span\.active\s*\{[^}]*background:\s*var\(--color-transcript-dash-active\)/u);
     expect(css).toMatch(/\.transcript > \.os-scrollbar\s*\{[^}]*display:\s*none/u);
+    expect(css).toMatch(/\.transcript \[data-overlayscrollbars-viewport\]\s*\{[^}]*scrollbar-width:\s*none/u);
+    expect(css).toMatch(/\.transcript \[data-overlayscrollbars-viewport\]::-webkit-scrollbar\s*\{[^}]*display:\s*none/u);
     expect(css).toMatch(/\.chat-surface > \.composer-wrap\s*\{[^}]*grid-area:\s*1 \/ 1[^}]*align-self:\s*end/u);
     expect(css).toMatch(/\.composer-wrap\s*\{[^}]*padding:[^;]*var\(--space-2\)/u);
     expect(css).toMatch(/\.composer-hint\s*\{[^}]*margin:\s*-1px auto 0[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-top:\s*0[^}]*border-radius:\s*0 0 var\(--radius-sm\) var\(--radius-sm\)[^}]*background:\s*var\(--material-content\)/u);

@@ -111,8 +111,8 @@ export class BackendSupervisor {
     this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 15_000;
     this.#maxDiagnostics = options.maxDiagnostics ?? 20;
     this.#maxTransportEntries = options.maxTransportEntries ?? 80;
-    this.#maxFrameLength = options.maxFrameLength ?? 64 * 1024;
-    this.#maxBufferLength = options.maxBufferLength ?? 128 * 1024;
+    this.#maxFrameLength = options.maxFrameLength ?? 4 * 1024 * 1024;
+    this.#maxBufferLength = options.maxBufferLength ?? 8 * 1024 * 1024;
     this.#maxLogTextLength = options.maxLogTextLength ?? 2_000;
     this.#terminationGraceMs = options.terminationGraceMs ?? 1_000;
     this.#diagnosticSink = options.diagnosticSink;
