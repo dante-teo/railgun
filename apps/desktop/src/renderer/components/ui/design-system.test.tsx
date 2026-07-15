@@ -80,7 +80,7 @@ describe("fields and menus", () => {
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     const item = await screen.findByRole("menuitem", { name: "Open details" });
-    expect(document.querySelector(".ui-popover-arrow")).toBeTruthy();
+    expect(document.querySelector(".ui-popover-arrow")).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(item));
     fireEvent.keyDown(item, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledOnce();

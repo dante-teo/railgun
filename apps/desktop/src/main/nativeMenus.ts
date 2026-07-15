@@ -71,3 +71,18 @@ export const installContextMenu = (window: BrowserWindow): void => {
     if (template.length > 0) Menu.buildFromTemplate(template).popup({ window });
   });
 };
+
+export const buildSessionContextMenu = (
+  _sessionId: string,
+  window: BrowserWindow,
+  buildFromTemplate: typeof Menu.buildFromTemplate = Menu.buildFromTemplate.bind(Menu),
+): Promise<"fork" | null> => {
+  const { promise, resolve } = Promise.withResolvers<"fork" | null>();
+  let resolved = false;
+  const settle = (value: "fork" | null): void => { if (!resolved) { resolved = true; resolve(value); } };
+  const menu = buildFromTemplate([
+    { label: "Fork task", click: () => settle("fork") },
+  ]);
+  menu.popup({ window, callback: () => settle(null) });
+  return promise;
+};

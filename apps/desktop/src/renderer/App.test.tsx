@@ -46,6 +46,7 @@ const sessionApi = {
   resumeSession: async () => desktopSession,
   branchSession: async () => desktopSession,
   forkSession: async () => desktopSession,
+  showSessionContextMenu: vi.fn(async () => null as "fork" | null),
   onSessionSnapshot: () => () => undefined,
 };
 const unusedControlMutation = async () => ({ controls: chatControls, persistence: "session-only" as const });
@@ -195,6 +196,7 @@ describe("desktop shell", () => {
       .mockRejectedValueOnce(new Error("mock branch failed"))
       .mockResolvedValue({ ...rich, messageCount: 2, transcript: rich.transcript.slice(0, 2) });
     const forkSession = vi.fn(async () => ({ ...rich, id: "rich-fork" }));
+    const showSessionContextMenu = vi.fn(async (_id: string) => "fork" as "fork" | null);
     const api: RailgunDesktopApi = {
       ...knowledgeApi,
       getBackendSnapshot: async () => snapshot("ready"), restartBackend: async () => snapshot("starting"), onBackendSnapshot: () => () => undefined,
@@ -205,17 +207,15 @@ describe("desktop shell", () => {
         { id: "rich", model: "mock-model", startedAtLocal: "today", messageCount: 3, firstUserPreview: "Rich history QA" },
         { id: "older", model: "other", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Older chat" },
       ],
-      resumeSession, branchSession, forkSession, onSessionSnapshot: () => () => undefined, ...controlApi,
+      resumeSession, branchSession, forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, ...controlApi,
       onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
     render(<App />);
     const searchTasks = await screen.findByRole("button", { name: "Search tasks" });
-    const brandMark = document.querySelector<HTMLImageElement>(".brand-mark");
-    expect(brandMark?.getAttribute("src")).toBe("./brand/railgun-icon.png");
-    expect(brandMark?.getAttribute("alt")).toBe("");
-    expect(document.querySelector(".brand .lucide-bot")).toBeNull();
+    expect(document.querySelector(".brand-mark")).toBeNull();
+    expect(document.querySelector(".brand span")?.textContent).toBe("Railgun");
     expect(searchTasks.className).toContain("task-search-button");
     expect(searchTasks.className).toContain("ui-button-sidebar-icon");
     expect(searchTasks.className).toContain("ui-button-compact-icon");
@@ -258,8 +258,43 @@ describe("desktop shell", () => {
 
     const richRow = screen.getByRole("button", { name: /Rich history QA/u });
     fireEvent.contextMenu(richRow);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Fork task" }));
+    await waitFor(() => expect(showSessionContextMenu).toHaveBeenCalledWith("rich"));
     await waitFor(() => expect(forkSession).toHaveBeenCalledWith("rich"));
+  });
+
+  it("opens the native session context menu via keyboard and forks on selection", async () => {
+    const forkSession = vi.fn(async () => desktopSession);
+    const showSessionContextMenu = vi.fn(async (_id: string) => "fork" as "fork" | null);
+    const api: RailgunDesktopApi = {
+      ...knowledgeApi,
+      getBackendSnapshot: async () => snapshot("ready"), restartBackend: async () => snapshot("starting"), onBackendSnapshot: () => () => undefined,
+      listMockScenarios: async () => [], selectMockScenario: async () => snapshot("ready"),
+      sendPrompt: async () => undefined, steerPrompt: async () => undefined, followUpPrompt: async () => undefined, abortPrompt: async () => undefined,
+      openExternal: async () => undefined, ...fileApi, startNewChat: async () => desktopSession,
+      listSessions: async () => [
+        { id: "kbd-test", model: "mock-model", startedAtLocal: "today", messageCount: 1, firstUserPreview: "Keyboard test session" },
+      ],
+      resumeSession: async () => desktopSession, branchSession: async () => desktopSession,
+      forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, ...controlApi,
+      onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
+    };
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
+    render(<App />);
+    const row = await screen.findByRole("button", { name: /Keyboard test session/u });
+
+    // ContextMenu key
+    fireEvent.keyDown(row, { key: "ContextMenu" });
+    await waitFor(() => expect(showSessionContextMenu).toHaveBeenCalledWith("kbd-test"));
+    await waitFor(() => expect(forkSession).toHaveBeenCalledWith("kbd-test"));
+
+    showSessionContextMenu.mockClear();
+    forkSession.mockClear();
+
+    // Shift+F10
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    await waitFor(() => expect(showSessionContextMenu).toHaveBeenCalledWith("kbd-test"));
+    await waitFor(() => expect(forkSession).toHaveBeenCalledWith("kbd-test"));
   });
 
   it("uses the product chat UI in mock mode and streams validated replies", async () => {
@@ -315,8 +350,9 @@ describe("desktop shell", () => {
     expect(scheduled.querySelector(".lucide-clock")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Knowledge" })).toBeNull();
     expect(settings.className).toContain("sidebar-action");
-    expect(scheduled.previousElementSibling).toBe(newTask);
-    expect(document.querySelector(".sidebar-footer")?.previousElementSibling).toBe(settings);
+    expect(newTask.closest(".sidebar-pinned-top")).not.toBeNull();
+    expect(scheduled.closest(".sidebar-scroll")).not.toBeNull();
+    expect(document.querySelector(".sidebar-footer")?.closest(".sidebar-bottom")).not.toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun" }), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("hello"));

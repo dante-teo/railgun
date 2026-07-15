@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clock, GitFork, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import { Clock, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./components/ui/dropdown-menu";
 import { ErrorState, LoadingState } from "./components/ui/state";
 import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
@@ -26,6 +25,7 @@ export const App = (): React.JSX.Element => {
   const [scenarios, setScenarios] = useState<readonly MockScenario[]>([]);
   const [area, setArea] = useState<AppArea>(() => readStoredArea(window.localStorage));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarScrolled, setSidebarScrolled] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string>();
   const [operationError, setOperationError] = useState<string>();
@@ -44,7 +44,6 @@ export const App = (): React.JSX.Element => {
   const [branchError, setBranchError] = useState<string>();
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [pendingSettingsExit, setPendingSettingsExit] = useState<(() => void) | undefined>();
-  const [contextSessionId, setContextSessionId] = useState<string>();
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const activityLayoutMode = useRef<InspectorLayoutMode | undefined>(undefined);
@@ -188,6 +187,18 @@ export const App = (): React.JSX.Element => {
     } finally { setSessionOperation(false); }
   };
 
+  const openSessionContextMenu = useCallback((sessionId: string): void => {
+    if (sessionOperation) return;
+    void (async () => {
+      try {
+        const action = await window.railgunDesktop.showSessionContextMenu(sessionId);
+        if (action === "fork") await forkSession(sessionId);
+      } catch (error) {
+        setOperationError(errorMessage(error, "Unable to open session menu"));
+      }
+    })();
+  }, [forkSession, sessionOperation]);
+
   const restartBackend = async (): Promise<void> => {
     try {
       setOperationError(undefined);
@@ -264,32 +275,44 @@ export const App = (): React.JSX.Element => {
     </Dialog>
   </>;
   const sidebar = <>
-        <div className="brand"><img className="brand-mark" src="./brand/railgun-icon.png" alt="" /><span>Railgun</span></div>
-        <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
-        <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><Clock aria-hidden="true" />Scheduled</Button>
-        <section className="session-navigation" aria-label="Tasks">
-          <div className="session-list">
-            {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
-              : sessions.length === 0 ? <p>No saved tasks</p>
-                : sessions.map(session => <DropdownMenu open={contextSessionId === session.id} onOpenChange={open => setContextSessionId(open ? session.id : undefined)} key={session.id}>
-                    <div className="session-row-context">
+        <div className="sidebar-pinned-top">
+          <div className="brand"><span>Railgun</span></div>
+          <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
+        </div>
+        <div className={`sidebar-top-divider${sidebarScrolled ? " visible" : ""}`} aria-hidden="true" />
+        <div
+          className="sidebar-scroll"
+          onScroll={e => {
+            const next = (e.currentTarget as HTMLDivElement).scrollTop > 0;
+            setSidebarScrolled(prev => prev === next ? prev : next);
+          }}
+        >
+          <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><Clock aria-hidden="true" />Scheduled</Button>
+          <section className="session-navigation" aria-label="Tasks">
+            <p className="sidebar-list-heading">Tasks</p>
+            <div className="session-list">
+              {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
+                : sessions.length === 0 ? <p>No saved tasks</p>
+                  : sessions.map(session => (
                       <button
+                        key={session.id}
                         type="button"
                         className={`session-row ${activeSession?.id === session.id ? "active" : ""}`}
                         aria-current={activeSession?.id === session.id ? "true" : undefined}
                         disabled={sessionOperation}
-                        onContextMenu={event => { event.preventDefault(); if (!sessionOperation) setContextSessionId(session.id); }}
-                        onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); setContextSessionId(session.id); } }}
+                        onContextMenu={event => { event.preventDefault(); openSessionContextMenu(session.id); }}
+                        onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); openSessionContextMenu(session.id); } }}
                         onClick={() => void resumeSession(session.id)}
                       ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
-                      <DropdownMenuTrigger asChild><span className="session-context-anchor" aria-hidden="true" /></DropdownMenuTrigger>
-                    </div>
-                    <DropdownMenuContent align="start"><DropdownMenuItem disabled={sessionOperation} onSelect={() => void forkSession(session.id)}><GitFork aria-hidden="true" />Fork task</DropdownMenuItem></DropdownMenuContent>
-                  </DropdownMenu>)}
-          </div>
-        </section>
-        <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
-        <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
+                    ))}
+            </div>
+          </section>
+        </div>
+        <div className="sidebar-bottom-divider" aria-hidden="true" />
+        <div className="sidebar-bottom">
+          <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
+          <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
+        </div>
       </>;
   const todoPaneToggle = <Button
       type="button"

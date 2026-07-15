@@ -125,6 +125,7 @@ const makeApi = (overrides: Partial<RailgunDesktopApi> = {}) => {
     resumeSession: async () => ({ id: "mock", startedAt: "2026-07-14T09:00:00.000Z", model: "mock-model", messageCount: 0, running: false, checkpoint: { state: "unsaved" }, transcript: [], todos: [] }),
     branchSession: async () => ({ id: "mock", startedAt: "2026-07-14T09:00:00.000Z", model: "mock-model", messageCount: 0, running: false, checkpoint: { state: "unsaved" }, transcript: [], todos: [] }),
     forkSession: async () => ({ id: "mock", startedAt: "2026-07-14T09:00:00.000Z", model: "mock-model", messageCount: 0, running: false, checkpoint: { state: "unsaved" }, transcript: [], todos: [] }),
+    showSessionContextMenu: async () => null,
     onSessionSnapshot: () => () => undefined,
     getChatControls: async () => ({ models: [], activeModelId: "mock-model", defaultModelId: null, messageCount: 0, moaPresets: [], activeMoaPreset: null, advisor: { enabled: false, modelId: null }, contextWindow: null }),
     setChatModel: async () => { throw new Error("unused"); },

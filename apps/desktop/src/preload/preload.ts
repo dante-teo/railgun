@@ -18,6 +18,7 @@ import {
   PromptTextSchema,
   PersistenceMessageIdSchema,
   SessionIdSchema,
+  SessionContextMenuResultSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
   DirectoryListingSchema,
@@ -139,6 +140,9 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     },
     forkSession: async (sessionId) => SessionSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.forkSession, SessionIdSchema.parse(sessionId)),
+    ),
+    showSessionContextMenu: async (sessionId) => SessionContextMenuResultSchema.parse(
+      await transport.invoke(DESKTOP_IPC.showSessionContextMenu, SessionIdSchema.parse(sessionId)),
     ),
     onSessionSnapshot: (listener) => {
       const handler = (_event: unknown, payload: unknown): void => {

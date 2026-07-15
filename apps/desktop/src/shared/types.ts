@@ -113,6 +113,7 @@ export interface RailgunDesktopApi extends KnowledgeDesktopApi {
   resumeSession: (sessionId: string) => Promise<SessionSnapshot>;
   branchSession: (messageId: number, summarize: boolean) => Promise<SessionSnapshot>;
   forkSession: (sessionId: string) => Promise<SessionSnapshot>;
+  showSessionContextMenu: (sessionId: string) => Promise<"fork" | null>;
   onSessionSnapshot: (listener: (snapshot: SessionSnapshot) => void) => () => void;
   getChatControls: () => Promise<ChatControlsSnapshot>;
   setChatModel: (modelId: string, persistence: ModelPersistenceMode) => Promise<ControlMutationResult>;
@@ -157,6 +158,7 @@ export const DESKTOP_IPC = {
   resumeSession: "sessions:resume",
   branchSession: "sessions:branch",
   forkSession: "sessions:fork",
+  showSessionContextMenu: "sessions:context-menu",
   sessionSnapshot: "sessions:snapshot",
   getChatControls: "agent:get-chat-controls",
   setChatModel: "agent:set-chat-model",

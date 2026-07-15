@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ContextMenuParams, MenuItemConstructorOptions } from "electron";
-import { buildApplicationMenuTemplate, buildContextMenuTemplate } from "./nativeMenus";
+import type { BrowserWindow, ContextMenuParams, MenuItemConstructorOptions } from "electron";
+import { buildApplicationMenuTemplate, buildContextMenuTemplate, buildSessionContextMenu } from "./nativeMenus";
 
 const flatten = (template: readonly MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
   template.flatMap((item) => [item, ...(Array.isArray(item.submenu) ? flatten(item.submenu) : [])]);
@@ -61,5 +61,31 @@ describe("native context menu", () => {
     expect(buildContextMenuTemplate({ isEditable: false, selectionText: "selected", editFlags: editFlags() })
       .map((item) => item.role)).toEqual(["copy", "selectAll"]);
     expect(buildContextMenuTemplate({ isEditable: false, selectionText: "", editFlags: editFlags() })).toEqual([]);
+  });
+});
+
+describe("session context menu", () => {
+  it("resolves fork when the fork item is clicked", async () => {
+    const window = {} as BrowserWindow;
+    const popup = vi.fn();
+    const menu = { popup };
+    let template: MenuItemConstructorOptions[] = [];
+    const buildFromTemplate = vi.fn((items: MenuItemConstructorOptions[]) => { template = items; return menu; });
+    const promise = buildSessionContextMenu("sess-1", window, buildFromTemplate as never);
+    const forkItem = template.find((i) => i.label === "Fork task");
+    forkItem?.click?.({} as never, window, {} as never);
+    expect(await promise).toBe("fork");
+    expect(popup).toHaveBeenCalledWith(expect.objectContaining({ window }));
+  });
+
+  it("resolves null when the menu closes without selection", async () => {
+    const window = {} as BrowserWindow;
+    let closeCallback: (() => void) | undefined;
+    const popup = vi.fn(({ callback }: { callback?: () => void }) => { closeCallback = callback; });
+    const menu = { popup };
+    const buildFromTemplate = vi.fn(() => menu);
+    const promise = buildSessionContextMenu("sess-1", window, buildFromTemplate as never);
+    closeCallback?.();
+    expect(await promise).toBeNull();
   });
 });

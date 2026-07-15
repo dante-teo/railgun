@@ -12,7 +12,6 @@ export const DropdownMenuContent = forwardRef<React.ComponentRef<typeof Dropdown
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content ref={ref} className={cn("ui-popover ui-dropdown-content", className)} sideOffset={sideOffset} {...props}>
         {children}
-        <DropdownMenuPrimitive.Arrow className="ui-popover-arrow" width={14} height={7} />
       </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   ),

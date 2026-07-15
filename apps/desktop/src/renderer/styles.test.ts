@@ -6,7 +6,7 @@ const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");
 type Hsl = readonly [hue: number, saturation: number, lightness: number];
 type Rgb = readonly [red: number, green: number, blue: number];
 
-const darkScheme = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{(?<rules>[\s\S]*?)\n  \}\n\}/u)?.groups?.rules ?? "";
+const darkScheme = css.match(/@media \(prefers-color-scheme: dark\) \{[^{]*:root \{(?<rules>[\s\S]*?)\n  \}\n/u)?.groups?.rules ?? "";
 const hslToken = (name: string): Hsl => {
   const match = darkScheme.match(new RegExp(`--${name}:\\s*hsl\\((\\d+) (\\d+)% (\\d+)%\\)`, "u"));
   if (match === null) throw new Error(`Missing dark color token: ${name}`);
@@ -67,7 +67,7 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/prefers-color-scheme:\s*dark[\s\S]*--material-toolbar:\s*linear-gradient\(to bottom,\s*hsl\(0 0% 0% \/ 0\.8[0-9]?\)[^;]*transparent 85%\)/u);
     expect(css).toMatch(/\.ui-card\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
     expect(css).not.toMatch(/\.ui-card\s*\{[^}]*backdrop-filter/u);
-    expect(css).toMatch(/--material-popover:\s*hsl\(0 0% 100% \/ 0\.78\)/u);
+    expect(css).toMatch(/--material-popover:\s*hsl\(154 12% 94% \/ 0\.38\)/u);
     expect(css).toMatch(/prefers-color-scheme:\s*dark[\s\S]*--material-popover:\s*hsl\(0 0% 12% \/ 0\.72\)/u);
     expect(css).toMatch(/--material-sidebar:\s*hsl\(154 /u);
     expect(css).toMatch(/\.composer\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
@@ -113,12 +113,23 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.collapsed-sidebar-action \.ui-button\s*\{[^}]*border-radius:\s*0 var\(--radius-pill\) var\(--radius-pill\) 0/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls \.ui-button:not\(:disabled\):hover\s*\{[^}]*background:\s*var\(--color-menu-hover\)/u);
     expect(css).toMatch(/\.sidebar-action\s*\{[^}]*justify-content:\s*flex-start[^}]*width:\s*100%[^}]*min-height:\s*2\.25rem/u);
-    expect(css).toMatch(/\.sidebar-footer\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*1rem minmax\(0, 1fr\)/u);
-    expect(css).toMatch(/\.connection-dot\s*\{[^}]*justify-self:\s*center/u);
+    expect(css).toMatch(/\.sidebar-footer\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/u);
+    expect(css).toMatch(/\.connection-dot\s*\{[^}]*border-radius:\s*50%/u);
     expect(css).toMatch(/\.ui-dialog-content\s*\{[^}]*background:\s*var\(--material-dialog\)[^}]*box-shadow:\s*var\(--shadow-dialog\)/u);
     expect(css).toMatch(/\.ui-dialog-footer\s*\{[^}]*justify-content:\s*flex-end/u);
-    expect(css).toMatch(/\.ui-popover-arrow\s*\{[^}]*fill:\s*var\(--material-popover\)/u);
+    expect(css).not.toContain(".ui-popover-arrow");
     expect(css).toContain("transform-origin: var(--radix-dropdown-menu-content-transform-origin)");
+  });
+
+  it("renders dropdown with translucent popover surface and no arrow", () => {
+    expect(css).toMatch(/\.ui-dropdown-content\s*\{[^}]*background:\s*var\(--material-popover\)/u);
+    expect(css).not.toContain(".ui-popover-arrow");
+  });
+
+  it("uses a visibly translucent tinted surface for select and popover in light mode", () => {
+    expect(css).toMatch(/--material-popover:\s*hsl\(154 12% 94% \/ 0\.38\)/u);
+    expect(css).not.toMatch(/--material-popover:\s*hsl\(0 0% 100% \//u);
+    expect(css).toMatch(/\.ui-select-content\s*\{[^}]*z-index:\s*var\(--layer-dialog-popover\)/u);
   });
 
   it("keeps Settings focus and helper treatments contained", () => {
@@ -211,8 +222,9 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.run-error\s*\{[^}]*var\(--color-danger\)[^}]*\}/u);
   });
 
-  it("separates the settings button from the session list with a border", () => {
-    expect(css).toMatch(/\.sidebar-settings\s*\{[^}]*border-top:/u);
+  it("separates the settings button from the session list with a full-width divider", () => {
+    expect(css).toMatch(/\.sidebar-bottom-divider\s*\{[^}]*background:\s*var\(--color-border\)[^}]*\}/u);
+    expect(css).not.toMatch(/\.sidebar-settings\s*\{[^}]*border-top:/u);
   });
 
   it("constrains the standalone knowledge page to viewport height for scrollable content", () => {
@@ -248,5 +260,12 @@ describe("desktop activity styles", () => {
 
   it("uses rounded-rect not oval for toolbar icon button hover frame", () => {
     expect(css).toMatch(/\.content-toolbar-actions\s+\.ui-button-icon\s*\{[^}]*border-radius:\s*var\(--radius-sm\)/u);
+  });
+
+  it("uses a thin styled scrollbar on the sidebar scroll zone", () => {
+    expect(css).toMatch(/\.sidebar-scroll\s*\{[^}]*scrollbar-width:\s*thin[^}]*\}/u);
+    expect(css).toMatch(/\.sidebar-scroll\s*\{[^}]*scrollbar-color:\s*var\(--color-text-tertiary\)\s*transparent[^}]*\}/u);
+    expect(css).toMatch(/\.sidebar-scroll::-webkit-scrollbar\s*\{[^}]*width:\s*4px[^}]*\}/u);
+    expect(css).toMatch(/\.sidebar-scroll::-webkit-scrollbar-thumb\s*\{[^}]*var\(--color-text-tertiary\)[^}]*\}/u);
   });
 });

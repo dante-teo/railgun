@@ -412,8 +412,12 @@ This document records the intended system architecture for Railgun. Keep it curr
    them. MCP writes share the configuration mutation queue and refresh the
    authoritative redacted list after success.
    The layout reserves the live sidebar width as a real flex item, keeping the
-   main pane and toolbar out from under the floating material. The optional,
-   non-resizable activity side-car is not rendered or exposed to accessibility
+   main pane and toolbar out from under the floating material. The sidebar itself
+   is a three-zone flex column: a pinned top rail (New Task button, app wordmark),
+   a scrollable middle zone (Scheduled, Tasks heading, session list with a 4 px
+   thin custom scrollbar), and a pinned bottom zone (Settings, connection status);
+   full-bleed horizontal dividers separate the scroll zone from both pinned zones.
+   The optional, non-resizable activity side-car is not rendered or exposed to accessibility
    APIs without real content. It starts visible and reserves its fixed width
    while the remaining Task canvas meets the readable-width threshold. When
    the sidebar, Files pane, or window size constrains that canvas, the side-car
@@ -425,8 +429,13 @@ This document records the intended system architecture for Railgun. Keep it curr
    Shared controls use Radix primitives where focus and keyboard management
    require them. Control, floating, popover, and dialog materials share translucent
    neutral-glass recipes but retain separate density, blur, and depth tokens;
+   the light-mode popover uses a tinted translucent token (`--material-popover`)
+   at reduced opacity so overlays read as glass against light backgrounds;
    dialog glass also has a theme-aware scrim and elevation recipe so it remains
-   distinct from the dimmed page. Reduce Transparency replaces every shared
+   distinct from the dimmed page. The transcript scroll position indicator uses
+   linked CSS custom properties (`--transcript-indicator-left`, `--transcript-indicator-width`,
+   `--transcript-content-left-base`) so its position and the transcript content inset
+   are always derived from the same source and cannot diverge. Reduce Transparency replaces every shared
    material with an opaque canvas fill and disables backdrop filtering;
    Increase Contrast strengthens boundaries, and Reduce Motion removes
    transitions. Barlow Variable supplies the sans contract and Departure Mono
@@ -438,9 +447,7 @@ This document records the intended system architecture for Railgun. Keep it curr
    View, and Window roles. Development-only View roles expose reload and
    DevTools. Renderer shortcut matching follows platform primary-modifier
    semantics: Command on macOS and Control elsewhere; macOS Control-only text
-   editing chords are not intercepted. Native context menus are derived only
-   from Electron's editability, selection, and edit flags and expose standard
-   edit roles—never renderer-provided templates, arbitrary links, or navigation.
+   editing chords are not intercepted. The `webContents` `context-menu` event produces native edit-role menus from Electron's editability, selection, and edit flags. Session rows in the sidebar additionally surface a native context menu (`buildSessionContextMenu` in `main/nativeMenus.ts`) via a dedicated `sessions:context-menu` IPC channel; the renderer calls it on right-click and ContextMenu/Shift+F10, and the result (`"fork" | null`) is acted on without any renderer-provided template crossing preload into the menu itself. No arbitrary navigation or injection surfaces are added.
 10. Desktop chat state is isolated from the shell in a pure renderer reducer.
     Assistant text deltas are coalesced once per animation frame and displayed
     as plain text until a reduced assistant `message_end` boundary marks the

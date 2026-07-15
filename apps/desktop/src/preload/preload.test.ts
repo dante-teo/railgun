@@ -74,6 +74,7 @@ describe("preload desktop bridge", () => {
       "selectMockScenario",
       "sendPrompt",
       "setChatModel",
+      "showSessionContextMenu",
       "signInDevin",
       "signOutDevin",
       "startNewChat",
@@ -107,6 +108,15 @@ describe("preload desktop bridge", () => {
     await expect(api.upsertMcpServer({ name: "docs", command: "server", args: [], env: [{ name: "TOKEN", value: "one" }, { name: "TOKEN", value: "two" }] })).rejects.toThrow();
     invoke.mockResolvedValueOnce([{ ...server, env: [{ name: "TOKEN", present: true, value: "secret" }] }]);
     await expect(api.removeMcpServer("docs")).rejects.toThrow();
+  });
+
+  it("forwards showSessionContextMenu to the correct IPC channel and passes result through", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    invoke.mockResolvedValueOnce("fork");
+    await expect(api.showSessionContextMenu("sess-1")).resolves.toBe("fork");
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.showSessionContextMenu, "sess-1");
+    invoke.mockResolvedValueOnce(null);
+    await expect(api.showSessionContextMenu("sess-1")).resolves.toBeNull();
   });
 
   it("validates chat control arguments and results on fixed channels", async () => {

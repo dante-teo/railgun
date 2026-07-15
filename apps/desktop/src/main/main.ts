@@ -5,7 +5,7 @@ import { createInteractionBroker } from "./interactionBroker";
 import { toDesktopAgentEvent } from "./agentBoundary";
 import type { BackendRuntime } from "./backendSupervisor";
 import { createRendererProtocolHandler, RAILGUN_RENDERER_URL } from "./rendererProtocol";
-import { buildApplicationMenuTemplate, installContextMenu } from "./nativeMenus";
+import { buildApplicationMenuTemplate, buildSessionContextMenu, installContextMenu } from "./nativeMenus";
 import { dispatchAppCommand } from "./appCommandDispatcher";
 import {
   assertAuthorizedIpcSender,
@@ -29,6 +29,7 @@ import {
   PromptTextSchema,
   SessionIdSchema,
   SessionSnapshotSchema,
+  SessionContextMenuResultSchema,
   PersistenceMessageIdSchema,
   SessionSummaryListSchema,
   DirectoryListingSchema,
@@ -288,6 +289,13 @@ const registerIpc = (): void => {
     const result = await sessionService.fork(SessionIdSchema.parse(sessionId));
     broadcastSessionSnapshot(result);
     return SessionSnapshotSchema.parse(result);
+  });
+  ipcMain.handle(DESKTOP_IPC.showSessionContextMenu, async (event, sessionId: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    const validId = SessionIdSchema.parse(sessionId);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) throw new Error("No window for sender");
+    return SessionContextMenuResultSchema.parse(await buildSessionContextMenu(validId, window));
   });
   ipcMain.handle(DESKTOP_IPC.getChatControls, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);

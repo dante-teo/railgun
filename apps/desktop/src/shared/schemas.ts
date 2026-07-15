@@ -303,6 +303,7 @@ export const InstructionFileSchema = InstructionFileSummarySchema.extend({ conte
 export const InstructionContentSchema = z.string().max(1_000_000);
 
 export const SessionIdSchema = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.id);
+export const SessionContextMenuResultSchema = z.enum(["fork"]).nullable();
 export const PersistenceMessageIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sessionModel = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.model);
 export const SessionSummarySchema = z.strictObject({
