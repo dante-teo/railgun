@@ -106,7 +106,7 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.right-pane-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.ui-button-compact-icon\s*\{[^}]*width:\s*1\.5rem[^}]*height:\s*1\.5rem[^}]*border-radius:\s*var\(--radius-xs\)/u);
     expect(css).toMatch(/\.ui-button-sidebar-icon\s*\{[^}]*color:\s*var\(--color-text-secondary\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
-    expect(css).toMatch(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*transparent[^}]*box-shadow:\s*none/u);
+    expect(css).toMatch(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls\s*\{[^}]*left:\s*var\(--sidebar-toggle-left\)[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.collapsed-sidebar-controls > \.sidebar-toggle\s*\{[^}]*border-radius:\s*var\(--radius-pill\) 0 0 var\(--radius-pill\)/u);
@@ -207,5 +207,44 @@ describe("desktop activity styles", () => {
 
   it("retains the failed-run danger presentation", () => {
     expect(css).toMatch(/\.run-error\s*\{[^}]*var\(--color-danger\)[^}]*\}/u);
+  });
+
+  it("separates the settings button from the session list with a border", () => {
+    expect(css).toMatch(/\.sidebar-settings\s*\{[^}]*border-top:/u);
+  });
+
+  it("constrains the standalone knowledge page to viewport height for scrollable content", () => {
+    expect(css).toMatch(/\.knowledge-page\s*\{[^}]*height:\s*100%/u);
+    expect(css).not.toMatch(/\.knowledge-page\s*\{[^}]*min-height:\s*100vh/u);
+  });
+
+  it("wraps note search controls in the embedded settings column", () => {
+    expect(css).toMatch(/\.knowledge-settings-content\s+\.notes-search[^{]*\{[^}]*flex-wrap:\s*wrap[^}]*align-items:\s*flex-start/u);
+    expect(css).toMatch(/\.knowledge-settings-content\s+\.knowledge-search-controls[^{]*\{[^}]*flex:\s*1 1 100%[^}]*width:\s*100%[^}]*min-width:\s*0[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto auto/u);
+  });
+
+  it("allows embedded knowledge content to shrink for scroll to work", () => {
+    expect(css).toMatch(/\.knowledge-settings-content\s*\{[^}]*min-height:\s*0/u);
+  });
+
+  it("fixes the shared settings scroll chain so all pages scroll", () => {
+    expect(css).toMatch(/\.settings-detail\s*\{[^}]*min-height:\s*0/u);
+    expect(css).toMatch(/\.settings-detail-scroll\s*\{[^}]*min-height:\s*0/u);
+  });
+
+  it("provides a visible hover background for ghost buttons", () => {
+    const ghostHover = css.match(/\.ui-button-ghost:not\(:disabled\):hover\s*\{([^}]*)\}/u)?.[1] ?? "";
+    expect(ghostHover).not.toContain("background: transparent");
+    expect(ghostHover).toContain("background:");
+  });
+
+  it("provides a visible hover background for sidebar icon buttons", () => {
+    const sidebarIconHover = css.match(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{([^}]*)\}/u)?.[1] ?? "";
+    expect(sidebarIconHover).not.toContain("background: transparent");
+    expect(sidebarIconHover).toContain("background:");
+  });
+
+  it("uses rounded-rect not oval for toolbar icon button hover frame", () => {
+    expect(css).toMatch(/\.content-toolbar-actions\s+\.ui-button-icon\s*\{[^}]*border-radius:\s*var\(--radius-sm\)/u);
   });
 });

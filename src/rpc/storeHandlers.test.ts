@@ -89,8 +89,8 @@ describe("RPC store handlers", () => {
       setConfig: () => {},
       updateConfig: vi.fn(),
       noteStore: {
-        search: vi.fn(), searchSemantic, storeVector: vi.fn(), importFolder: vi.fn(),
-        importFolderWithEmbeddings: vi.fn(), backfillEmbeddings: vi.fn(),
+        search: vi.fn(), searchSemantic, storeVector: vi.fn(), write: vi.fn(),
+        importFolder: vi.fn(), importFolderWithEmbeddings: vi.fn(), backfillEmbeddings: vi.fn(),
       },
       embedText,
     });
@@ -107,7 +107,7 @@ describe("RPC store handlers", () => {
       getConfig: () => ({ model: null }),
       setConfig: () => {},
       noteStore: {
-        search: vi.fn(), searchSemantic: vi.fn(), storeVector: vi.fn(), importFolder,
+        search: vi.fn(), searchSemantic: vi.fn(), storeVector: vi.fn(), write: vi.fn(), importFolder,
         importFolderWithEmbeddings, backfillEmbeddings: vi.fn(),
       },
       embedText,

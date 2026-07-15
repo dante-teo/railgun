@@ -35,9 +35,11 @@ stderr (which would corrupt Ink's managed TUI output).
 ### `runDreamSession` (`src/dream/dreamJob.ts`)
 
 The dream session is a bounded `createAgent` call with a 30-step
-`IterationBudget`, `enabledToolsets: ["dream", "file"]`, and no shell access
-(`confirmShellCommand: async () => false`). It receives the `DREAM_SYSTEM_PROMPT`
-instead of the normal system prompt.
+`IterationBudget`, no shell access (`confirmShellCommand: async () => false`),
+and a toolset conditional on whether a `NoteStore` is available:
+`["dream", "file", "memory"]` when note tools are present, `["dream", "file"]`
+otherwise. The system prompt is built by `buildDreamSystemPrompt(hasNoteStore)`
+at session start rather than being a static constant.
 
 Before starting the agent, `runDreamSession` calls `memoryStore.all()` — if
 fewer than 5 memories exist it exits early, since there is nothing meaningful
@@ -47,11 +49,14 @@ current `SOUL.md` content (or `null` if absent) and packages both into
 
 ### Two-phase dream system prompt
 
-`DREAM_SYSTEM_PROMPT` instructs the curator in two phases:
+`buildDreamSystemPrompt(hasNoteStore)` constructs the curator prompt in two phases:
 
 1. **Phase 1 — Consolidate**: use `memory_consolidate` to merge duplicates,
    delete stale/contradicted entries, and update vague wording. Preferences
    must never be deleted unless explicitly contradicted by a newer preference.
+   When `noteStore` is available, a third rule is added: check `note_search`
+   for any topic the user may have documented before deciding to keep, merge,
+   or delete a memory about it.
 
 2. **Phase 2 — Promote**: after consolidation, review remaining `"preference"`
    memories. Those that are stable and identity-level — describing how the user

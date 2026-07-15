@@ -9,6 +9,7 @@ import {
   buildSkillIndex,
   formatSkillsForPrompt,
   expandSkillCommand,
+  resolveSystemPrompt,
 } from "./skills.js";
 import type { SkillMeta } from "./skills.js";
 
@@ -303,13 +304,14 @@ describe("formatSkillsForPrompt", () => {
     expect(formatSkillsForPrompt(index)).toBe("");
   });
 
-  it("formats visible skills as <available_skills> XML block", () => {
+  it("formats visible skills as <available_skills> XML block with management hint", () => {
     const index = new Map<string, SkillMeta>([["formatter", makeMeta("formatter", false)]]);
     const result = formatSkillsForPrompt(index);
     expect(result).toContain("<available_skills>");
     expect(result).toContain("</available_skills>");
     expect(result).toContain('name="formatter"');
     expect(result).toContain("skill_view(name)");
+    expect(result).toContain("create, edit, or delete skills");
   });
 
   it("escapes XML-special characters in description", () => {
@@ -374,5 +376,61 @@ describe("expandSkillCommand", () => {
       const contentAfterClose = result.content.split("</skill>")[1]!;
       expect(contentAfterClose.trim()).toBe("write a commit for the auth fix");
     }
+  });
+});
+
+describe("resolveSystemPrompt", () => {
+  it("appends skills block to base prompt on each call", async () => {
+    await withTempDir(async dir => {
+      const skillDir = join(dir, "my-skill");
+      await mkdir(skillDir);
+      await writeFile(join(skillDir, "SKILL.md"), [
+        "---",
+        "name: my-skill",
+        "description: Does something useful",
+        "---",
+        "Skill body here.",
+      ].join("\n"));
+
+      const base = ["base prompt line"];
+      const resolved = resolveSystemPrompt(base, dir);
+      expect(resolved.length).toBeGreaterThan(base.length);
+      expect(resolved.join("\n")).toContain("my-skill");
+      expect(resolved.join("\n")).toContain("available_skills");
+    });
+  });
+
+  it("reflects a newly written skill on the next call without restart", async () => {
+    await withTempDir(async dir => {
+      const base = ["base prompt line"];
+
+      // First call: no skills
+      const first = resolveSystemPrompt(base, dir);
+      expect(first.join("\n")).not.toContain("available_skills");
+
+      // Agent writes a new skill mid-session
+      const skillDir = join(dir, "hot-skill");
+      await mkdir(skillDir);
+      await writeFile(join(skillDir, "SKILL.md"), [
+        "---",
+        "name: hot-skill",
+        "description: Created mid-session",
+        "---",
+        "Hot skill body.",
+      ].join("\n"));
+
+      // Second call: new skill is visible
+      const second = resolveSystemPrompt(base, dir);
+      expect(second.join("\n")).toContain("hot-skill");
+      expect(second.join("\n")).toContain("available_skills");
+    });
+  });
+
+  it("returns base prompt unchanged when no skills exist", async () => {
+    await withTempDir(async dir => {
+      const base = ["base prompt line"];
+      const resolved = resolveSystemPrompt(base, dir);
+      expect(resolved).toEqual(base);
+    });
   });
 });

@@ -148,8 +148,25 @@ export const formatSkillsForPrompt = (skills: ReadonlyMap<string, SkillMeta>): s
     ...lines,
     "</available_skills>",
     "",
-    "When a task matches one of these skills, read the full instructions by calling skill_view(name).",
+    "When a task matches one of these skills, read the full instructions by calling skill_view(name). You can create, edit, or delete skills by writing to ~/.railgun/skills/<name>/SKILL.md.",
   ].join("\n");
+};
+
+/**
+ * Returns base prompt with a freshly-loaded skills block appended.
+ * Call once per agent-session start (not at session build time) so skills
+ * created mid-session are visible on the next turn without a restart.
+ *
+ * @param base   The base system prompt array (no skills block baked in).
+ * @param dir    Skills directory to scan; defaults to SKILLS_PATH.
+ */
+export const resolveSystemPrompt = (
+  base: readonly string[],
+  dir?: string,
+): readonly string[] => {
+  const skills = loadSkills(dir);
+  const block = formatSkillsForPrompt(skills);
+  return block ? [...base, block] : base;
 };
 
 const SKILL_COMMAND_RE = /^\/skill:([a-z0-9-]+)(?:\s+(.*))?$/s;

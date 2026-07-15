@@ -6,6 +6,7 @@ import { CRON_LOGS_PATH, CRON_OUTPUT_PATH } from "../paths.js";
 import { createAgentSession } from "../agent/agentSession.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { createTodoStore } from "../tools/todo.js";
+import { resolveSystemPrompt } from "../skills.js";
 import { loadJobs, saveJobs, isDue } from "./jobs.js";
 import type { CronJob } from "./jobs.js";
 import { snapshotOutputs, verifyOutputs, writeRunReport } from "./artifacts.js";
@@ -120,7 +121,7 @@ export const runCronJob = async (
     devin,
     model: model.id,
     contextWindow: model.contextWindow,
-    systemPrompt,
+    systemPrompt: resolveSystemPrompt(systemPrompt),
     confirmShellCommand,
     todoStore: createTodoStore(),
     commandApprovalMode: approvalMode,

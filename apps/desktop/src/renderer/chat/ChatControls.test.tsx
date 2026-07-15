@@ -113,4 +113,14 @@ describe("chat toolbar controls", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Agent settings" }));
     expect(screen.getByRole("button", { name: "Compact context" })).toHaveProperty("disabled", true);
   });
+
+  it("preserves context usage across resetKey changes", async () => {
+    const bridge = makeApi();
+    const view = render(<ChatToolbarControls running={false} available resetKey={0} />);
+    await screen.findByRole("button", { name: "Choose model" });
+    act(() => bridge.emit({ type: "context-usage", inputTokens: 80_000, outputTokens: 20_000 }));
+    expect(screen.getByText(/50%/u)).toBeTruthy();
+    view.rerender(<ChatToolbarControls running={false} available resetKey={1} />);
+    expect(screen.getByText(/50%/u)).toBeTruthy();
+  });
 });

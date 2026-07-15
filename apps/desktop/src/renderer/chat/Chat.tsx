@@ -8,7 +8,7 @@ import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/input";
 import { EmptyState } from "../components/ui/state";
 import { BackendStatus } from "../backendStatus";
-import { chatReducer, initialChatState } from "./chatState";
+import { chatReducer, initialChatState, shouldShowThinking } from "./chatState";
 import type { InteractionPrompt, QueueKind } from "./chatState";
 import type { ActivityEntry, ActivityState, ActivityStatus } from "./activityState";
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -397,7 +397,7 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
                 : <Button type="button" size="sm" variant="tonal" onClick={() => void onRestart()}>Restart backend</Button>}
             </div>
           )}
-          {state.running && state.messages.at(-1)?.role !== "assistant"
+          {shouldShowThinking(state)
             ? <div className="thinking"><i /><i /><i /><span>Railgun is thinking</span></div>
             : null}
         </div>

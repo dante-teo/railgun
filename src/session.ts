@@ -6,16 +6,12 @@ import type { AppConfig } from "./config.js";
 import { buildSystemPrompt } from "./agent/systemPrompt.js";
 import { loadProjectContext, loadSoulIdentity } from "./agent/projectContext.js";
 import { runModelChooser } from "./repl/ModelChooser.js";
-import { loadSkills, formatSkillsForPrompt } from "./skills.js";
-import type { SkillMeta } from "./skills.js";
-import { setSkillIndex } from "./tools/index.js";
 export { TOKEN_PATH } from "./sessionPath.js";
 
 export interface DevinSession {
   devin: DevinProvider;
   model: DevinModel;
   systemPrompt: readonly string[];
-  skillIndex?: ReadonlyMap<string, SkillMeta>;
 }
 
 const padDatePart = (value: number): string => String(value).padStart(2, "0");
@@ -42,11 +38,7 @@ export const buildSessionCore = async (devin: DevinProvider, model: DevinModel, 
     memories: memoriesText ?? null,
   });
 
-  const skillIndex = loadSkills();
-  setSkillIndex(skillIndex);
-  const skillsBlock = formatSkillsForPrompt(skillIndex);
-  const fullPrompt = skillsBlock ? [...systemPrompt, skillsBlock] : systemPrompt;
-  return { devin, model, systemPrompt: fullPrompt, skillIndex };
+  return { devin, model, systemPrompt };
 };
 
 const buildSession = async (devin: DevinProvider, model: DevinModel, memoriesText?: string | null): Promise<DevinSession> => {

@@ -216,7 +216,6 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
     return () => { mounted.current = false; };
   }, [load, resetKey]);
 
-  useEffect(() => { setUsage(undefined); }, [resetKey]);
   useEffect(() => {
     const handle = (event: DesktopAgentEvent): void => {
       if (event.type === "context-usage") setUsage({ inputTokens: event.inputTokens, outputTokens: event.outputTokens });

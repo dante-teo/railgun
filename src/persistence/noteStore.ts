@@ -21,6 +21,7 @@ export interface NoteStore {
   search(query: string, limit?: number): readonly NoteSearchResult[];
   searchSemantic(queryVector: Float32Array, limit?: number): readonly NoteSemanticResult[];
   storeVector(noteId: number, embedding: Float32Array): void;
+  write(content: string, sourcePath?: string): NoteSearchResult;
   importFolder(folderPath: string, chunkWords?: number): number;
   importFolderWithEmbeddings(folderPath: string, embedFn: EmbedFn, chunkWords?: number): Promise<number>;
   backfillEmbeddings(embedFn: EmbedFn): Promise<number>;
@@ -144,5 +145,12 @@ export const createNoteStore = (db: Database.Database): NoteStore => {
     return rows.length;
   };
 
-  return { search, searchSemantic, storeVector, importFolder, importFolderWithEmbeddings, backfillEmbeddings };
+  const write = (content: string, sourcePath?: string): NoteSearchResult => {
+    const trimmed = content.trim();
+    if (!trimmed) throw new Error("Note content must not be empty.");
+    const { lastInsertRowid } = insertNote.run(sourcePath ?? null, trimmed, Date.now() / 1000);
+    return { id: Number(lastInsertRowid), sourcePath: sourcePath ?? null, snippet: trimmed.slice(0, 200) };
+  };
+
+  return { search, searchSemantic, storeVector, write, importFolder, importFolderWithEmbeddings, backfillEmbeddings };
 };

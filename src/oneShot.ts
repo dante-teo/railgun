@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { initFreshDevinSession } from "./session.js";
+import { resolveSystemPrompt } from "./skills.js";
 import { createAgentSession } from "./agent/agentSession.js";
 import { loadConfig, isAdvisorActive, parseMoAPreset } from "./config.js";
 import { startSpinner } from "./spinner.js";
@@ -45,7 +46,7 @@ export const runOneShot = async (question: string, extensionRunner?: ExtensionRu
   const todoStore = createTodoStore();
   const sessionApprovals = new Set<string>();
   const agentSession = createAgentSession({
-    devin, model: model.id, contextWindow: model.contextWindow, systemPrompt,
+    devin, model: model.id, contextWindow: model.contextWindow, systemPrompt: resolveSystemPrompt(systemPrompt),
     confirmShellCommand, clarifyCallback, todoStore,
     commandApprovalMode: config.approvalMode ?? "manual",
     ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),

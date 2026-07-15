@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatReducer, initialChatState, reconcileQueue } from "./chatState";
+import { chatReducer, initialChatState, reconcileQueue, shouldShowThinking } from "./chatState";
 import type { QueuedMessage } from "./chatState";
 
 const queued = (id: string, text: string): QueuedMessage => ({
@@ -113,5 +113,34 @@ describe("chat event reduction", () => {
     expect(state.interactions).toEqual([]);
     state = chatReducer(state, { type: "interaction-request", request: { type: "approval", id: "33333333-3333-4333-8333-333333333333", command: "late" } });
     expect(state.interactions).toEqual([]);
+  });
+});
+
+describe("thinking indicator predicate", () => {
+  it("shows thinking immediately after user submits (no assistant message yet)", () => {
+    const state = chatReducer(initialChatState, { type: "initial-submit", id: "u1", text: "hi" });
+    expect(shouldShowThinking(state)).toBe(true);
+  });
+
+  it("hides thinking while assistant is streaming", () => {
+    let state = chatReducer(initialChatState, { type: "initial-submit", id: "u1", text: "hi" });
+    state = chatReducer(state, { type: "assistant-delta", id: "a1", text: "hello" });
+    expect(shouldShowThinking(state)).toBe(false);
+  });
+
+  it("shows thinking again after assistant-complete while still running (post-turn work)", () => {
+    let state = chatReducer(initialChatState, { type: "initial-submit", id: "u1", text: "hi" });
+    state = chatReducer(state, { type: "assistant-delta", id: "a1", text: "hello" });
+    state = chatReducer(state, { type: "assistant-complete" });
+    expect(state.running).toBe(true);
+    expect(shouldShowThinking(state)).toBe(true);
+  });
+
+  it("hides thinking after run-end", () => {
+    let state = chatReducer(initialChatState, { type: "initial-submit", id: "u1", text: "hi" });
+    state = chatReducer(state, { type: "assistant-delta", id: "a1", text: "hello" });
+    state = chatReducer(state, { type: "assistant-complete" });
+    state = chatReducer(state, { type: "run-end" });
+    expect(shouldShowThinking(state)).toBe(false);
   });
 });

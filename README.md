@@ -223,8 +223,10 @@ session becomes durable after its first successful turn:
   - `/cron` — list all scheduled jobs.
   - `/cron add <id> <schedule> <prompt>` — create a new cron job. `<schedule>` is a 5-field cron expression (e.g. `0 9 * * *`); `<prompt>` is the remainder of the line. Validates the expression and rejects duplicate ids.
   - `/cron remove <id>` — delete a scheduled job by id.
-  - `/skill:<name> [args]` — load a discovered local skill and send its instructions, plus optional arguments, into the next agent turn.
+  - `/skill:<name> [args]` — load a discovered local skill and send its instructions, plus optional arguments, into the next agent turn. The agent can also self-manage skills: ask it to create or refine a skill and it writes to `~/.railgun/skills/<name>/SKILL.md` directly via `write_file`; ask it to delete one and it uses `run_shell_command` (subject to the normal shell approval flow). Updated skills are visible to the next agent run without restarting.
   (The agent tool can also manage jobs via natural language — ask "list my scheduled tasks" or "add a daily summary job".)
+- **Note writing**: ask the agent to "save a note" or "remember this as a note" and it calls `note_write` to store the text in the note library (`~/.railgun/state.db`). Notes saved this way are immediately searchable with `note_search`; semantic search via `note_search_semantic` requires a later `import-notes` run to backfill the missing embedding vector.
+- **Proactive recall**: before answering questions about your projects, preferences, or history, the agent proactively searches both memories (`memory_search`) and notes (`note_search` / `note_search_semantic`) rather than relying solely on what was injected at session start.
 - **Tab-completion**: type `/` to see a dropdown of matching slash
   commands as you type; press Tab to complete an unambiguous match, or
   `Esc` to dismiss the dropdown.

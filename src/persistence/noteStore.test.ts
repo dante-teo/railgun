@@ -235,3 +235,67 @@ describe("createNoteStore", () => {
     }
   });
 });
+
+describe("createNoteStore write", () => {
+  let dbDir: string;
+  let dbPath: string;
+
+  beforeEach(async () => {
+    dbDir = await mkdtemp(join(tmpdir(), "railgun-notestore-write-"));
+    dbPath = join(dbDir, "state.db");
+  });
+
+  afterEach(async () => {
+    await rm(dbDir, { recursive: true });
+  });
+
+  const openStore = () => {
+    const sessionStore = createSessionStore(dbPath);
+    const noteStore = createNoteStore(sessionStore.db);
+    return { sessionStore, noteStore };
+  };
+
+  it("stores a note and returns its id and snippet", () => {
+    const { sessionStore, noteStore } = openStore();
+    try {
+      const result = noteStore.write("This is an agent-authored note about TypeScript.");
+      expect(result.id).toBeGreaterThan(0);
+      expect(result.snippet).toContain("agent-authored note");
+      expect(result.sourcePath).toBeNull();
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("stores a note with an optional sourcePath", () => {
+    const { sessionStore, noteStore } = openStore();
+    try {
+      const result = noteStore.write("Meeting notes from today.", "agent://session-1");
+      expect(result.sourcePath).toBe("agent://session-1");
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("makes a written note immediately findable via search", () => {
+    const { sessionStore, noteStore } = openStore();
+    try {
+      noteStore.write("Railgun uses pnpm workspaces for monorepo management.");
+      const results = noteStore.search("pnpm workspaces");
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0]!.snippet).toContain("pnpm");
+    } finally {
+      sessionStore.close();
+    }
+  });
+
+  it("rejects empty content", () => {
+    const { sessionStore, noteStore } = openStore();
+    try {
+      expect(() => noteStore.write("")).toThrow();
+      expect(() => noteStore.write("   ")).toThrow();
+    } finally {
+      sessionStore.close();
+    }
+  });
+});

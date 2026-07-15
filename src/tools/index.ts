@@ -8,6 +8,7 @@ import "./memory.js";
 import "./cron.js";
 import "./noteSearch.js";
 import "./noteSearchSemantic.js";
+import "./noteWrite.js";
 import "./skillView.js";
 import "./advise.js";
 import "./delegate.js";
@@ -20,5 +21,4 @@ export type { ToolContext, ToolRunResult, RegisteredTool, ToolRegistry, ClarifyC
 export type { TodoStore } from "./todo.js";
 export type { MemoryStore } from "../persistence/memoryStore.js";
 export type { NoteStore } from "../persistence/noteStore.js";
-export { setSkillIndex } from "./skillView.js";
 export { DEFAULT_TOOLSETS, PRIMARY_TOOLSETS } from "./toolsets.js";

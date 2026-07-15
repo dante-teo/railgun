@@ -9,6 +9,7 @@ import type { ExtensionRunner } from "../extensions/runner.js";
 import type { AgentSession } from "../agent/agentSession.js";
 import { createAgentSession } from "../agent/agentSession.js";
 import { createTodoStore } from "../tools/todo.js";
+import { resolveSystemPrompt } from "../skills.js";
 import { mapToolKind } from "./toolKind.js";
 
 export interface AcpModeOptions {
@@ -67,7 +68,7 @@ export const createAcpApp = (options: AcpAppOptions): AgentApp => {
         devin: session.devin,
         model: session.model.id,
         contextWindow: session.model.contextWindow,
-        systemPrompt: session.systemPrompt,
+        systemPrompt: resolveSystemPrompt(session.systemPrompt),
         confirmShellCommand: async () => true,
         clarifyCallback: async (question) => {
           throw new Error(`clarify not supported in ACP mode — question: ${question}`);

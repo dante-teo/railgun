@@ -206,3 +206,32 @@ describe("buildSystemPrompt memories field", () => {
     expect(prompt[5]).toContain("MEMORIES");
   });
 });
+
+describe("buildSystemPrompt proactive recall", () => {
+  it("instructs proactive memory and note recall before answering", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+    expect(prompt).toContain("proactively search memories");
+    expect(prompt).toContain("note_search");
+  });
+});
+
+describe("buildSystemPrompt skill management", () => {
+  it("instructs the agent to create, edit, and delete skills", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+    expect(prompt).toContain("~/.railgun/skills/");
+    expect(prompt).toContain("SKILL.md");
+    expect(prompt).toContain("delete");
+  });
+
+  it("instructs proactive skill creation and refinement", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+    expect(prompt).toContain("creating or refining");
+  });
+});
+
+describe("buildSystemPrompt note_write", () => {
+  it("instructs the agent to use note_write to save notes on request", () => {
+    const prompt = buildSystemPrompt(defaultInput).join("\n");
+    expect(prompt).toContain("note_write");
+  });
+});

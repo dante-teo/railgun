@@ -450,8 +450,8 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
   }
   if (mode.kind === "dream") {
     const session = await dependencies.initSession();
-    await withStores(dependencies, async (_store, memoryStore) => {
-      await runDreamSession(memoryStore, session.devin, session.model);
+    await withStores(dependencies, async (_store, memoryStore, noteStore) => {
+      await runDreamSession(memoryStore, noteStore, session.devin, session.model);
     });
     return;
   }

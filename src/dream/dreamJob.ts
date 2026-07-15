@@ -1,10 +1,19 @@
 import type { DevinProvider, DevinModel } from "widevin";
 import type { Memory, MemoryStore } from "../persistence/memoryStore.js";
+import type { NoteStore } from "../persistence/noteStore.js";
 import { createAgent } from "../agent/agent.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { loadSoulIdentity, SOUL_PATH } from "../agent/projectContext.js";
 
-export const DREAM_SYSTEM_PROMPT: readonly string[] = [
+const DREAM_PHASE1_BASE_RULES = [
+  "- Never delete user preferences unless explicitly contradicted by a newer preference",
+  "- Merge facts about the same topic into one comprehensive memory",
+  "- Preserve the user's exact wording for preferences; consolidate facts freely",
+  "- After consolidation, the total memory count should be lower or equal",
+  "- Every action must have a reason",
+];
+
+export const buildDreamSystemPrompt = (hasNoteStore: boolean): readonly string[] => [
   "You are Railgun's memory curator. Your job is to consolidate stored memories and promote stable preferences into the agent's persistent identity file (SOUL.md).",
   [
     "## Phase 1 — Consolidate memories",
@@ -16,11 +25,8 @@ export const DREAM_SYSTEM_PROMPT: readonly string[] = [
     "4. Is it still relevant? → keep or delete",
     "",
     "Rules:",
-    "- Never delete user preferences unless explicitly contradicted by a newer preference",
-    "- Merge facts about the same topic into one comprehensive memory",
-    "- Preserve the user's exact wording for preferences; consolidate facts freely",
-    "- After consolidation, the total memory count should be lower or equal",
-    "- Every action must have a reason",
+    ...DREAM_PHASE1_BASE_RULES,
+    ...(hasNoteStore ? ["- Use note_search to check the user's notes for context when a memory references a topic the user may have documented. This helps you make smarter merge, keep, or delete decisions."] : []),
     "",
     "Use the memory_consolidate tool to execute your consolidation plan.",
   ].join("\n"),
@@ -40,6 +46,9 @@ export const DREAM_SYSTEM_PROMPT: readonly string[] = [
     "If SOUL.md does not exist yet and you have preferences to promote, create it with clean Markdown.",
   ].join("\n"),
 ];
+
+/** Base prompt without note tools — used by tests and as a stable export. */
+export const DREAM_SYSTEM_PROMPT: readonly string[] = buildDreamSystemPrompt(false);
 
 export const formatDreamMessage = (memories: readonly Memory[], soulContent: string | null): string => {
   const memLines = memories.map((m, i) => `${i + 1}. [id:${m.id}] [${m.category}] ${m.content}`);
@@ -62,6 +71,7 @@ export interface DreamSummary {
 
 export const runDreamSession = async (
   memoryStore: MemoryStore,
+  noteStore: NoteStore | undefined,
   devin: DevinProvider,
   model: DevinModel,
   log: (msg: string) => void = console.error,
@@ -83,11 +93,12 @@ export const runDreamSession = async (
     devin,
     model: model.id,
     contextWindow: 100_000,
-    systemPrompt: DREAM_SYSTEM_PROMPT,
+    systemPrompt: buildDreamSystemPrompt(noteStore !== undefined),
     confirmShellCommand: async () => false,
     iterationBudget: () => IterationBudget.create(30),
     memoryStore,
-    enabledToolsets: ["dream", "file"],
+    ...(noteStore !== undefined ? { noteStore } : {}),
+    enabledToolsets: noteStore !== undefined ? ["dream", "file", "memory"] : ["dream", "file"],
   });
 
   agent.subscribe(event => {

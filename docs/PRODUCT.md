@@ -91,6 +91,10 @@ stack cannot load or semantic retrieval fails, `note_search_semantic` automatica
 the safe keyword search path and returns a normal fallback result instead of a tool error.
 See `docs/adr/0027-semantic-note-search.md`.
 
+A companion `note_write` tool (also under `"memory"`) lets the agent save notes directly without importing from disk. When the user asks to record, save, or remember something as a note, the agent calls `note_write(content, title?)`, which inserts a new row into the `notes` table with an optional `source_path` label. The note is immediately searchable via `note_search` (keyword). Semantic search via `note_search_semantic` is not available for the new note until a later `import-notes` run backfills the missing embedding vector.
+
+The system prompt now instructs the agent to proactively search both memories (`memory_search`) and notes (`note_search` or `note_search_semantic`) before answering questions about the user's projects, preferences, or history — rather than relying solely on what was injected at session start.
+
 **Phase 32 (Mixture of Agents):**
 Phase 32 adds an opt-in Mixture of Agents (MoA) mode. When active, every user
 turn fans out parallel advisory calls to a configurable set of reference models
@@ -114,7 +118,9 @@ optional `referenceMaxTokens` (positive integer). New file:
 **Phase 28 (skills system):**
 Phase 28 adds a skills system that lets the agent learn new domain-specific abilities from Markdown files with YAML frontmatter. Skills live only in the user-global `~/.railgun/skills/` directory; project-local skills are not supported. A skill file is a `.md` file containing a YAML front-matter block followed by its instruction body; a skill can also be a directory containing `SKILL.md` where the directory name becomes the skill's name. Three front-matter fields are recognized: `name` (optional override, must match `/^[a-z0-9-]{1,64}$/`), `description` (required, ≤ 1024 chars, injected into the system prompt), and `disable-model-invocation` (boolean, default `false` — when `true` the skill is hidden from the model's context but still available via `/skill:<name>`).
 
-At session startup `buildSessionCore` calls `loadSkills()`, which scans `~/.railgun/skills/` synchronously, parses every valid skill file, deduplicates by name (first-found wins), and builds an index. `formatSkillsForPrompt` renders the index as an `<available_skills>` XML block appended to the system prompt; descriptions and paths are XML-attribute-escaped. The model calls `skill_view(name)` (a new `"skills"`-toolset tool) to load a skill's full instruction body on demand.
+`resolveSystemPrompt(base)` is called at agent-session creation time — in `oneShot.ts`, `rpcMode.ts`, `acpMode.ts`, `scheduler.ts`, and `repl/App.tsx` — rather than at session build time in `buildSessionCore`. It calls `loadSkills()` freshly each time, so skills created or edited during a session are visible to the next agent run without a restart. `formatSkillsForPrompt` renders the index as an `<available_skills>` XML block; descriptions and paths are XML-attribute-escaped. The model calls `skill_view(name)` to load a skill's full body on demand; `skill_view` also calls `loadSkills()` directly so it always returns the current on-disk content.
+
+The system prompt now tells the model that skill files live at `~/.railgun/skills/<name>/SKILL.md` and can be created or updated with `write_file`, and deleted with `run_shell_command`. This lets the agent self-manage its skill library within a running session: creating new skills, refining existing instruction bodies, and proposing deletions (subject to the normal shell approval flow).
 
 The `/skill:<name> [args]` REPL slash command bypasses the model for explicitly invoking a skill: the user's input is expanded into a `<skill name="..." location="...">` XML block (plus any trailing args), and the result is sent directly to the agent turn as the user message. Unknown skill names show a red error line. `/help` lists the command. See ADR-0015.
 

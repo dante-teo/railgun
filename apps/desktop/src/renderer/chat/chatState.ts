@@ -336,3 +336,14 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
       return initialChatState;
   }
 };
+
+/**
+ * True when the thinking indicator should be visible:
+ * the run is active AND the last message is not currently streaming.
+ * Hides during streaming (the text itself is the progress indicator).
+ */
+export const shouldShowThinking = (state: ChatState): boolean => {
+  if (!state.running) return false;
+  const last = state.messages.at(-1);
+  return last?.role !== "assistant" || last.status === "complete";
+};

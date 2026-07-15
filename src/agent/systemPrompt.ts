@@ -44,7 +44,9 @@ export const buildSystemPrompt = ({
     "- Respect the existing shell approval flow; shell commands may be declined by the user.",
     "- Use the clarify tool to ask the user a question when you need information you cannot safely guess, especially before irreversible actions. Offer choices when the options are clear and few.",
     "- When the user shares a personal fact, preference, or project detail they want remembered, call memory_write to save it for future sessions.",
+    "- Before answering questions about the user's projects, preferences, or history, proactively search memories (memory_search) and notes (note_search or note_search_semantic). Do not rely solely on what is in the system prompt — the user may have added new information since the session started.",
     "- For recalling the user's notes and history, try `note_search` (exact keywords) first — it is faster. If it finds nothing, or the question is about a general topic or feeling, use `note_search_semantic` instead.",
+    "- When the user asks you to save, record, or remember something as a note (distinct from a memory), use `note_write` to store it in their note library so it can be searched later.",
     "- Keep tool use focused on the user's current task.",
     ...(modelId.toLowerCase().includes("gemini") ? [
       "- Gemini: use absolute paths for file operations, execute concisely, and finish the requested action before explaining it.",
@@ -52,6 +54,8 @@ export const buildSystemPrompt = ({
     "- You can create or update ~/.railgun/SOUL.md to store persistent identity notes, preferences, and personality that should persist across all sessions and projects. Use write_file to update it when the user asks you to remember something about yourself or how they want you to behave.",
     "- You can create or update .railgun.md (or RAILGUN.md) in the project root to store project-specific context, conventions, and preferences that should be loaded at session start. This is the project-level equivalent of SOUL.md.",
     "- SOUL.md and .railgun.md are injected into the system prompt at session start. Changes take effect on the next session.",
+    "- You can create new skills by writing a markdown file to ~/.railgun/skills/<name>/SKILL.md with YAML frontmatter (name, description) and a markdown body. Edit existing skills by rewriting their file. Delete redundant or duplicate skills by removing their file with run_shell_command.",
+    "- When helping the user with a repeatable task, proactively suggest creating or refining a skill to capture the workflow. When you notice redundant or duplicate skills, consolidate or delete them.",
   ].join("\n"),
   [
     "Environment:",

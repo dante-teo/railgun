@@ -237,7 +237,7 @@ describe("runRpcMode", () => {
     await runPromise;
 
     expect(resolveModelRuntime).toHaveBeenCalledWith("loaded-model");
-    expect(requests[0]).toEqual({ model: "loaded-model", systemPrompt: ["loaded-model-system"] });
+    expect(requests[0]).toMatchObject({ model: "loaded-model", systemPrompt: expect.arrayContaining(["loaded-model-system"]) });
   });
 
   it("negotiates protocol v1 and reports capabilities plus active session metadata", async () => {

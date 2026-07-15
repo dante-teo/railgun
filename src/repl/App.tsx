@@ -37,7 +37,7 @@ import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
 import type { NoteStore } from "../persistence/noteStore.js";
 import { runDreamSession } from "../dream/dreamJob.js";
-import { expandSkillCommand } from "../skills.js";
+import { expandSkillCommand, loadSkills, resolveSystemPrompt } from "../skills.js";
 import { loadJobs, saveJobs, validateJob, CronJobsError } from "../cron/jobs.js";
 import { CRON_PATH } from "../paths.js";
 import type { AdviceSeverity } from "../advisor/advisoryContext.js";
@@ -784,7 +784,7 @@ const ChatApp = ({
           setBusy(true);
           try {
             setLines(prev => [...prev, { kind: "assistant", text: "Dreaming… reviewing and consolidating memories." }]);
-            await runDreamSession(memoryStore, activeSession.devin, activeSession.model, msg => {
+            await runDreamSession(memoryStore, noteStore, activeSession.devin, activeSession.model, msg => {
               slashOperation.progress({ progressCount: 1 });
               setLines(prev => [...prev, { kind: "assistant", text: msg }]);
             });
@@ -854,7 +854,7 @@ const ChatApp = ({
           return;
         }
         if (command.startsWith("/skill:")) {
-          const skillExpansion = expandSkillCommand(text, activeSession.skillIndex ?? new Map());
+          const skillExpansion = expandSkillCommand(text, loadSkills());
           if (skillExpansion === null) { return; }
           if (skillExpansion.kind === "error") {
             setLines(prev => [...prev, { kind: "error", text: skillExpansion.message }]);
@@ -887,7 +887,7 @@ const ChatApp = ({
       devin: activeSession.devin,
       model: activeSession.model.id,
       contextWindow: activeSession.model.contextWindow,
-      systemPrompt: activeSession.systemPrompt,
+      systemPrompt: resolveSystemPrompt(activeSession.systemPrompt),
       confirmShellCommand,
       iterationBudget: () => iterationBudgetRef.current,
       todoStore: todoStoreRef.current,

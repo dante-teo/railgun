@@ -23,6 +23,7 @@ import { createRpcSessionHandler } from "./sessionHandlers.js";
 import { RPC_PROTOCOL_CAPABILITIES, RPC_PROTOCOL_VERSION } from "./types.js";
 import type { RpcCommand } from "./types.js";
 import { runDreamSession } from "../dream/dreamJob.js";
+import { resolveSystemPrompt } from "../skills.js";
 import type { InstructionFileService } from "../instructions/instructionFiles.js";
 
 export interface RpcModeOptions {
@@ -195,7 +196,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
       devin: session.devin,
       model,
       contextWindow: modelRuntime.model.contextWindow,
-      systemPrompt: modelRuntime.systemPrompt,
+      systemPrompt: resolveSystemPrompt(modelRuntime.systemPrompt),
       confirmShellCommand: v1 ? interactions.requestApproval : async () => true,
       clarifyCallback: v1
         ? interactions.requestClarification
@@ -343,7 +344,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
       void track(sessionHandler.runExclusive("run Dream", async selected => {
         const runtime = requireModelRuntime(selected.model);
         return (options.runDream ?? runDreamSession)(
-          options.memoryStore!, session.devin, runtime.model, () => undefined,
+          options.memoryStore!, options.noteStore, session.devin, runtime.model, () => undefined,
           progress => writeObject({ type: "dream_progress", ...progress }),
         );
       }).then(data => respond(command.type, id, data)).catch(error => respond(command.type, id, undefined, errorMessage(error))));
