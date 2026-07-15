@@ -17,6 +17,7 @@ import type {
   SessionSummarySchema,
   SessionSnapshotSchema,
   CheckpointStatusSchema,
+  RestoredTranscriptEntrySchema,
   RestoredTranscriptMessageSchema,
   RestoredTodoSchema,
   DirectoryEntrySchema,
@@ -55,6 +56,7 @@ export type ContextUsageEvent = Extract<DesktopAgentEvent, { type: "context-usag
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 export type CheckpointStatus = z.infer<typeof CheckpointStatusSchema>;
+export type RestoredTranscriptEntry = z.infer<typeof RestoredTranscriptEntrySchema>;
 export type RestoredTranscriptMessage = z.infer<typeof RestoredTranscriptMessageSchema>;
 export type RestoredTodo = z.infer<typeof RestoredTodoSchema>;
 export type DirectoryEntry = z.infer<typeof DirectoryEntrySchema>;

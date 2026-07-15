@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import type { BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
-import { ActivityInspector, Composer, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController } from "./Chat";
+import { ActivityInspector, collapseCompletedTurnActivity, Composer, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController, WorkedActivityGroup } from "./Chat";
 
 const overlayHarness = vi.hoisted(() => ({
   clientHeight: 0,
@@ -161,6 +161,68 @@ const Harness = (): React.JSX.Element => {
 };
 
 describe("chat renderer", () => {
+  it("collapses successful turn activity until its final response", () => {
+    const entries = [
+      { kind: "message" as const, order: 1, message: { id: "user", role: "user" as const, text: "Fix sync", status: "complete" as const, order: 1, startedAt: 10_000 } },
+      { kind: "activity" as const, order: 2, activity: { kind: "tool" as const, id: "list", name: "list_directory", status: "success" as const, order: 2 } },
+      { kind: "activity" as const, order: 3, activity: { kind: "tool" as const, id: "read", name: "read_file", status: "error" as const, order: 3 } },
+      { kind: "message" as const, order: 4, message: { id: "assistant", role: "assistant" as const, text: "Fixed and verified.", status: "complete" as const, order: 4, completedAt: 31_000 } },
+    ];
+
+    const collapsed = collapseCompletedTurnActivity(entries, false);
+    expect(collapsed).toHaveLength(3);
+    expect(collapsed[1]).toMatchObject({ kind: "worked", durationMs: 21_000, activities: [expect.objectContaining({ name: "list_directory" }), expect.objectContaining({ name: "read_file" })] });
+    expect(collapseCompletedTurnActivity(entries, true)).toHaveLength(4);
+
+    const completedTurns = collapseCompletedTurnActivity([...entries,
+      { kind: "message" as const, order: 5, message: { id: "user-2", role: "user" as const, text: "Verify UI", status: "complete" as const, order: 5, startedAt: 40_000 } },
+      { kind: "activity" as const, order: 6, activity: { kind: "tool" as const, id: "test", name: "run_shell_command", status: "success" as const, order: 6 } },
+      { kind: "message" as const, order: 7, message: { id: "assistant-2", role: "assistant" as const, text: "All checks pass.", status: "complete" as const, order: 7, completedAt: 45_000 } },
+    ], false);
+    expect(completedTurns.filter(item => item.kind === "entry" && item.entry.kind === "activity")).toEqual([]);
+  });
+
+  it("keeps completed work collapsed until the user expands it", () => {
+    const { container } = render(<WorkedActivityGroup durationMs={21_000} activities={[
+      { kind: "tool", id: "list", name: "list_directory", status: "success", order: 1 },
+    ]} />);
+    const details = container.querySelector("details");
+
+    expect(screen.getByText("Worked for 21s")).toBeTruthy();
+    expect(details?.open).toBe(false);
+    fireEvent.click(screen.getByText("Worked for 21s"));
+    expect(details?.open).toBe(true);
+  });
+
+  it("keeps tool activity from mixed restored assistant messages inside the completed turn", () => {
+    const collapsed = collapseCompletedTurnActivity([
+      { kind: "message", order: 1, message: { id: "user", role: "user", text: "Inspect sync", status: "complete", order: 1, messageId: 10 } },
+      { kind: "message", order: 2, message: { id: "progress", role: "assistant", text: "I found the files.", status: "complete", order: 2, messageId: 11 } },
+      { kind: "activity", order: 3, activity: { kind: "tool", id: "read", name: "read_file", status: "success", order: 3 } },
+      { kind: "activity", order: 4, activity: { kind: "tool", id: "test", name: "run_shell_command", status: "error", order: 4 } },
+      { kind: "message", order: 5, message: { id: "final", role: "assistant", text: "Fixed.", status: "complete", order: 5, messageId: 14, branchable: true } },
+    ], false);
+
+    expect(collapsed.filter(item => item.kind === "entry" && item.entry.kind === "activity")).toEqual([]);
+    expect(collapsed.find(item => item.kind === "worked")).toMatchObject({ activities: [expect.objectContaining({ name: "read_file" }), expect.objectContaining({ name: "run_shell_command" })] });
+  });
+
+  it("distinguishes messages without redundant speaker labels", () => {
+    const bridge = makeApi();
+    const { container } = render(<Harness />);
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+
+    fireEvent.change(textbox, { target: { value: "request" } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    act(() => {
+      bridge.emit({ type: "assistant-delta", text: "response" });
+      bridge.emit({ type: "assistant-complete" });
+    });
+
+    expect(container.querySelectorAll(".message")).toHaveLength(2);
+    expect(container.querySelector(".message-role")).toBeNull();
+  });
+
   it("hides transcript position dashes when there is no overflow", () => {
     makeApi();
     const { container } = render(<Harness />);

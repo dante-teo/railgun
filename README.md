@@ -769,9 +769,11 @@ response before another prompt can start.
 The sidebar's search action opens a keyboard-accessible task palette over the
 newest-first saved-session list. Filtering matches preview, model, or session ID
 without changing backend order; selecting a result explicitly resumes its safe
-text transcript and persisted todos. The sidebar places **Scheduled** directly
-below **New Task** and keeps Knowledge inside Settings. Relaunch restores only
-the last valid Task, Scheduled, or Settings area, never an active session.
+transcript, persisted tool activity (tool name plus success or failure only),
+and persisted todos. Raw tool arguments and results never cross the restore
+boundary. The sidebar places **Scheduled** directly below **New Task** and keeps
+Knowledge inside Settings. Relaunch restores only the last valid Task,
+Scheduled, or Settings area, never an active session.
 Legacy Knowledge route records migrate to Settings. Knowledge destinations wait
 for backend readiness before issuing store requests.
 
@@ -792,9 +794,10 @@ row to verify stop-and-settle occurs before activation. Resume a saved task, the
 switch to Command rejection to verify a failed branch keeps its dialog and
 current renderer state intact.
 
-The desktop mock also includes ordered saved tasks (including a rich Markdown,
-todo, and scrolling fixture), empty/error stores, approval, choice clarification,
-free-text clarification, cancellation, and disconnection scenarios. Approval and
+The desktop mock also includes ordered saved tasks (including rich Markdown,
+todo, scrolling, and dense completed-task fixtures with grouped tool activity),
+empty/error stores, approval, choice clarification, free-text clarification,
+cancellation, and disconnection scenarios. Approval and
 clarification prompts are rendered inline; the ordinary composer is locked while
 they are open, Stop remains available, and prompt responses are correlated by
 opaque renderer IDs. Backend request IDs never cross the preload boundary, and
@@ -850,6 +853,12 @@ range. The transcript follows new output while it is at the bottom, preserves
 the reading position after any user-driven scroll away, and resumes following
 when returned to the bottom. Operation errors stay visible below the toolbar and
 follow the sidebar inset instead of adding a new layout row.
+
+After a successful turn, activity between the user request and final assistant
+response is collapsed into a closed **Worked for ...** disclosure. Expand it to
+inspect the ordered tool timeline; activity remains visible while work is active,
+failed, or stopped. Restored sessions retain only tool names and success or
+failure states, never tool arguments or results.
 
 When todos exist, the top-right toggle controls a non-resizable floating card.
 At wide widths it reserves transcript space and wraps its content up to the

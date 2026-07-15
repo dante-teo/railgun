@@ -229,7 +229,11 @@ describe("runRpcMode", () => {
     expect(JSON.stringify(load)).not.toContain("messages");
     send(stdin, { id: "transcript", type: "session_transcript", sessionId: "saved", cursor: 0, limit: 100 });
     const transcript = await waitForLine(getLines, line => line["id"] === "transcript");
-    expect(transcript).toMatchObject({ data: { sessionId: "saved", messages: [{ role: "user", text: "old" }, { role: "assistant", text: "answer" }] } });
+    expect(transcript).toMatchObject({ data: { sessionId: "saved", messages: [
+      { role: "user", text: "old" },
+      { role: "assistant", text: "answer" },
+      { role: "tool", id: "restored-tool-1-0", name: "shell", failed: false },
+    ] } });
     expect(JSON.stringify(transcript)).not.toMatch(/secret|private|yyyy/u);
     send(stdin, { id: "prompt", type: "prompt", message: "continue" });
     await waitForLine(getLines, line => line["id"] === "prompt");

@@ -87,8 +87,8 @@ describe("mock backend process", () => {
     try {
       send(child, { id: "list", type: "session_list" });
       const list = JSON.parse((await nextLine(child)).line) as { data: { sessions: Array<{ id: string }> } };
-      expect(list.data.sessions[0]?.id).toBe("mock-session-rich-history");
-      expect(list.data.sessions).toHaveLength(3);
+      expect(list.data.sessions[0]?.id).toBe("mock-session-complex-task");
+      expect(list.data.sessions).toHaveLength(4);
 
       send(child, { id: "load", type: "session_load", sessionId: "mock-session-rich-history", includeMessages: false });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "load", success: true, data: { sessionId: "mock-session-rich-history" } });
@@ -105,6 +105,40 @@ describe("mock backend process", () => {
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({
         data: { sessionId: expect.not.stringMatching(/^mock-session-rich-history$/u), model: "mock-reference", persistence: "unsaved" },
       });
+    } finally { child.kill(); }
+  });
+
+  it("provides a dense completed task fixture while keeping raw tool payloads out of restored transcripts", async () => {
+    const child = startMock("ready-idle");
+    try {
+      send(child, { id: "list", type: "session_list" });
+      const list = JSON.parse((await nextLine(child)).line) as { data: { sessions: Array<{ id: string; messageCount: number; firstUserPreview: string }> } };
+      expect(list.data.sessions).toContainEqual(expect.objectContaining({
+        id: "mock-session-complex-task",
+        messageCount: expect.any(Number),
+        firstUserPreview: expect.stringContaining("retry behavior"),
+      }));
+      expect(list.data.sessions.find(session => session.id === "mock-session-complex-task")?.messageCount).toBeGreaterThan(50);
+
+      send(child, { id: "load", type: "session_load", sessionId: "mock-session-complex-task", includeMessages: false });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ success: true, data: { sessionId: "mock-session-complex-task" } });
+      send(child, { id: "transcript", type: "session_transcript", sessionId: "mock-session-complex-task", cursor: 0, limit: 100 });
+      const transcript = JSON.parse((await nextLine(child)).line) as { data: { messages: Array<{ role: string; text?: string; name?: string; failed?: boolean; startedAt?: number; completedAt?: number }> } };
+      expect(transcript.data.messages).toHaveLength(43);
+      const tools = transcript.data.messages.filter(message => message.role === "tool");
+      expect(tools).toHaveLength(31);
+      expect(tools.slice(0, 11).map(tool => [tool.name, tool.failed])).toEqual([
+        ["list_directory", false],
+        ["read_file", false], ["read_file", false],
+        ["write_file", false], ["write_file", false], ["write_file", false], ["write_file", false],
+        ["read_file", false], ["read_file", true],
+        ["write_file", false], ["write_file", false],
+      ]);
+      expect(transcript.data.messages[0]).toMatchObject({ role: "user", startedAt: 1_784_496_000_000 });
+      expect(transcript.data.messages.find(message => message.text?.includes("retry-aware polling"))).toMatchObject({ completedAt: 1_784_496_021_000 });
+      expect(transcript.data.messages.map(message => message.text ?? "").join("\n")).toContain("retry-aware polling");
+      expect(transcript.data.messages).toContainEqual(expect.objectContaining({ role: "tool", name: "read_file", failed: true }));
+      expect(JSON.stringify(transcript)).not.toMatch(/mock-tool-secret|raw provider tool result/u);
     } finally { child.kill(); }
   });
 

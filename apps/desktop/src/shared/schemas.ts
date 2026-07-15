@@ -320,11 +320,25 @@ export const RestoredTranscriptMessageSchema = z.strictObject({
   text: z.string().min(1).max(DESKTOP_SESSION_LIMITS.messageText),
   messageId: PersistenceMessageIdSchema.optional(),
   branchable: z.literal(true).optional(),
+  startedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  completedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 }).superRefine((message, context) => {
   if (message.branchable && (message.role !== "assistant" || message.messageId === undefined)) {
     context.addIssue({ code: "custom", message: "Branchable messages must be persisted assistant boundaries" });
   }
+  if (message.startedAt !== undefined && message.role !== "user") context.addIssue({ code: "custom", message: "Only user messages may start work" });
+  if (message.completedAt !== undefined && message.role !== "assistant") context.addIssue({ code: "custom", message: "Only assistant messages may complete work" });
 });
+export const RestoredTranscriptToolSchema = z.strictObject({
+  role: z.literal("tool"),
+  id: activityId,
+  name: boundedActivityString(DESKTOP_ACTIVITY_LIMITS.toolName).min(1),
+  failed: z.boolean(),
+});
+export const RestoredTranscriptEntrySchema = z.union([
+  RestoredTranscriptMessageSchema,
+  RestoredTranscriptToolSchema,
+]);
 export const RestoredTodoSchema = z.strictObject({
   id: z.string().min(1).max(DESKTOP_SESSION_LIMITS.id),
   content: z.string().min(1).max(DESKTOP_SESSION_LIMITS.todoText),
@@ -343,7 +357,7 @@ export const SessionSnapshotSchema = z.strictObject({
   messageCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   running: z.boolean(),
   checkpoint: CheckpointStatusSchema,
-  transcript: z.array(RestoredTranscriptMessageSchema).max(DESKTOP_SESSION_LIMITS.messages).readonly(),
+  transcript: z.array(RestoredTranscriptEntrySchema).max(DESKTOP_SESSION_LIMITS.messages).readonly(),
   todos: z.array(RestoredTodoSchema).max(DESKTOP_SESSION_LIMITS.todos).readonly(),
 });
 

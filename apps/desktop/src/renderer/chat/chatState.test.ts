@@ -98,6 +98,28 @@ describe("chat event reduction", () => {
     ]);
   });
 
+  it("restores persisted tool uses between conversation messages", () => {
+    const state = chatReducer(initialChatState, {
+      type: "hydrate",
+      messages: [
+        { role: "user", text: "Inspect the retry loop" },
+        { role: "tool", id: "tool-1", name: "list_directory", failed: false },
+        { role: "tool", id: "tool-2", name: "read_file", failed: true },
+        { role: "assistant", text: "The retry loop is unbounded." },
+      ],
+      todos: [],
+    });
+
+    expect(state.messages.map(message => [message.text, message.order])).toEqual([
+      ["Inspect the retry loop", 1],
+      ["The retry loop is unbounded.", 4],
+    ]);
+    expect(state.activity.entries).toEqual([
+      expect.objectContaining({ kind: "tool", name: "list_directory", status: "success", order: 2 }),
+      expect.objectContaining({ kind: "tool", name: "read_file", status: "error", order: 3 }),
+    ]);
+  });
+
   it("keeps simultaneous prompts in arrival order and settles them at lifecycle boundaries", () => {
     let state = chatReducer(initialChatState, { type: "initial-submit", id: "user-1", text: "hello" });
     state = chatReducer(state, { type: "interaction-request", request: { type: "approval", id: "11111111-1111-4111-8111-111111111111", command: "echo one" } });

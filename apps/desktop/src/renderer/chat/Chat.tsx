@@ -11,6 +11,7 @@ import { BackendStatus } from "../backendStatus";
 import { chatReducer, initialChatState, shouldShowThinking } from "./chatState";
 import type { InteractionPrompt, QueueKind } from "./chatState";
 import type { ActivityEntry, ActivityState, ActivityStatus } from "./activityState";
+import type { TranscriptMessage } from "./chatState";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { createDeltaFrameBuffer } from "./streaming";
 import { errorMessage } from "../lib/utils";
@@ -48,7 +49,7 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     const handleEvent = (event: DesktopAgentEvent): void => {
       switch (event.type) {
         case "run-start": dispatch({ type: "run-start" }); break;
-        case "run-end": deltaBuffer.current?.flush(); dispatch({ type: "run-end" }); break;
+        case "run-end": deltaBuffer.current?.flush(); dispatch({ type: "run-end", at: Date.now() }); break;
         case "assistant-delta": deltaBuffer.current?.push(event.text); break;
         case "assistant-complete": deltaBuffer.current?.flush(); dispatch({ type: "assistant-complete" }); break;
         case "queue-update": dispatch({ type: "queue-update", steering: event.steering, followUp: event.followUp }); break;
@@ -90,7 +91,7 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     if (text === "" || snapshot?.phase !== "ready" || stateRef.current.running) return;
     const userId = makeId("user");
     setDraft("");
-    dispatch({ type: "initial-submit", id: userId, text });
+    dispatch({ type: "initial-submit", id: userId, text, at: Date.now() });
     await performInitial(userId, text);
   };
 
@@ -253,6 +254,69 @@ export const ActivityInspector = ({ activity }: { readonly activity: ActivitySta
   );
 };
 
+type TranscriptEntry =
+  | { readonly kind: "message"; readonly order: number; readonly message: TranscriptMessage }
+  | { readonly kind: "activity"; readonly order: number; readonly activity: ActivityEntry };
+
+type TranscriptPresentationEntry =
+  | { readonly kind: "entry"; readonly entry: TranscriptEntry }
+  | { readonly kind: "worked"; readonly activities: readonly ActivityEntry[]; readonly durationMs?: number; readonly key: string };
+
+const formatWorkedDuration = (durationMs: number | undefined): string => {
+  if (durationMs === undefined) return "Worked";
+  const seconds = Math.max(1, Math.round(durationMs / 1_000));
+  return seconds < 60 ? `Worked for ${String(seconds)}s` : `Worked for ${String(Math.floor(seconds / 60))}m ${String(seconds % 60)}s`;
+};
+
+export const collapseCompletedTurnActivity = (
+  entries: readonly TranscriptEntry[],
+  isRunning: boolean,
+): readonly TranscriptPresentationEntry[] => {
+  if (isRunning) return entries.map(entry => ({ kind: "entry", entry }));
+  const result: TranscriptPresentationEntry[] = [];
+  let user: TranscriptMessage | undefined;
+  let activities: ActivityEntry[] = [];
+  const flushActivities = (): void => {
+    result.push(...activities.map(activity => ({ kind: "entry" as const, entry: { kind: "activity" as const, order: activity.order, activity } })));
+    activities = [];
+  };
+  for (const entry of entries) {
+    if (entry.kind === "activity" && user !== undefined) {
+      activities.push(entry.activity);
+      continue;
+    }
+    if (entry.kind === "message" && entry.message.role === "user") {
+      flushActivities();
+      user = entry.message;
+      result.push({ kind: "entry", entry });
+      continue;
+    }
+    if (entry.kind === "message" && entry.message.role === "assistant") {
+      const completesTurn = entry.message.status === "complete" && (entry.message.branchable === true || entry.message.messageId === undefined);
+      if (user !== undefined && completesTurn && activities.length > 0) {
+        const durationMs = user.startedAt === undefined || entry.message.completedAt === undefined
+          ? undefined
+          : Math.max(0, entry.message.completedAt - user.startedAt);
+        result.push({ kind: "worked", activities, ...(durationMs === undefined ? {} : { durationMs }), key: `worked-${String(user.order)}-${String(entry.message.order)}` });
+        activities = [];
+      } else if (completesTurn) {
+        flushActivities();
+      }
+      if (completesTurn) user = undefined;
+    }
+    result.push({ kind: "entry", entry });
+  }
+  flushActivities();
+  return result;
+};
+
+export const WorkedActivityGroup = ({ activities, durationMs }: { readonly activities: readonly ActivityEntry[]; readonly durationMs?: number }): React.JSX.Element => (
+  <details className="worked-activity-group">
+    <summary><span>{formatWorkedDuration(durationMs)}</span><span className="worked-activity-chevron" aria-hidden="true">›</span></summary>
+    <div>{activities.map(activity => <ActivityRow entry={activity} key={`${activity.id}-${String(activity.order)}`} />)}</div>
+  </details>
+);
+
 interface TranscriptProps {
   readonly controller: ChatController;
   readonly snapshot: BackendSnapshot;
@@ -354,10 +418,11 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
     }
     updateScrollPresentation(instance);
   }, [updateScrollPresentation]);
-  const entries = [
+  const entries: TranscriptEntry[] = [
     ...state.messages.map(message => ({ kind: "message" as const, order: message.order, message })),
     ...state.activity.entries.map(activity => ({ kind: "activity" as const, order: activity.order, activity })),
   ].sort((left, right) => left.order - right.order);
+  const presentationEntries = collapseCompletedTurnActivity(entries, state.running);
   const empty = entries.length === 0;
   return (
     <div className="transcript-stage">
@@ -373,22 +438,25 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
           {empty && snapshot.phase !== "ready"
             ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
             : null}
-          {entries.map((entry, entryIndex) => entry.kind === "activity" ? <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} /> : (
-            <article className={`message ${entry.message.role} ${entry.message.status}`} key={entry.message.id} data-status={entry.message.status}>
-              <div className="message-role">{entry.message.role === "user" ? "You" : "Railgun"}</div>
-              {entry.message.role === "assistant" && entry.message.status !== "streaming"
-                ? <MarkdownMessage>{entry.message.text}</MarkdownMessage>
-                : <p>{entry.message.text}</p>}
-              {entry.message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
-              {canBranch && onBranch !== undefined && entry.message.branchable && entry.message.messageId !== undefined && entries.slice(entryIndex + 1).some(candidate => candidate.kind === "message") ? <Button
+          {presentationEntries.map(item => {
+            if (item.kind === "worked") return <WorkedActivityGroup key={item.key} activities={item.activities} {...(item.durationMs === undefined ? {} : { durationMs: item.durationMs })} />;
+            const entry = item.entry;
+            if (entry.kind === "activity") return <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} />;
+            const message = entry.message;
+            return <article className={`message ${message.role} ${message.status}`} key={message.id} data-status={message.status}>
+              {message.role === "assistant" && message.status !== "streaming"
+                ? <MarkdownMessage>{message.text}</MarkdownMessage>
+                : <p>{message.text}</p>}
+              {message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
+              {canBranch && onBranch !== undefined && message.branchable && message.messageId !== undefined && entries.some(candidate => candidate.kind === "message" && candidate.order > entry.order) ? <Button
                 type="button"
                 className="branch-message-action"
                 size="sm"
                 variant="ghost"
-                onClick={() => onBranch(entry.message.messageId!)}
+                onClick={() => onBranch(message.messageId!)}
               ><GitBranch aria-hidden="true" />Branch from this message</Button> : null}
-            </article>
-          ))}
+            </article>;
+          })}
           {state.failedRun === undefined ? null : (
             <div className="run-error" role="alert">
               <span>{state.failedRun.error}</span>

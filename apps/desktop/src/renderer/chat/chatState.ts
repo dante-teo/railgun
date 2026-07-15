@@ -1,6 +1,6 @@
-import type { DesktopAgentEvent, DesktopInteractionRequest, RestoredTodo, RestoredTranscriptMessage } from "../../shared/types";
+import type { DesktopAgentEvent, DesktopInteractionRequest, RestoredTodo, RestoredTranscriptEntry } from "../../shared/types";
 import { activityReducer, initialActivityState } from "./activityState";
-import type { ActivityState } from "./activityState";
+import type { ActivityEntry, ActivityState } from "./activityState";
 
 export type MessageStatus = "streaming" | "complete" | "queued" | "failed" | "stopped";
 export type QueueKind = "steering" | "follow-up";
@@ -33,6 +33,8 @@ export interface TranscriptMessage {
   readonly text: string;
   readonly status: Exclude<MessageStatus, "queued">;
   readonly order: number;
+  readonly startedAt?: number;
+  readonly completedAt?: number;
 }
 
 export interface QueuedMessage {
@@ -79,7 +81,7 @@ export const initialChatState: ChatState = {
 };
 
 export type ChatAction =
-  | { readonly type: "initial-submit"; readonly id: string; readonly text: string }
+  | { readonly type: "initial-submit"; readonly id: string; readonly text: string; readonly at?: number }
   | { readonly type: "retry-start" }
   | { readonly type: "request-failed"; readonly userId: string; readonly text: string; readonly error: string }
   | { readonly type: "run-start" }
@@ -91,7 +93,7 @@ export type ChatAction =
   | { readonly type: "stop-request" }
   | { readonly type: "stop-failed"; readonly error: string }
   | { readonly type: "stop-acknowledged" }
-  | { readonly type: "run-end" }
+  | { readonly type: "run-end"; readonly at?: number }
   | { readonly type: "backend-failed"; readonly error: string }
   | { readonly type: "interaction-request"; readonly request: DesktopInteractionRequest }
   | { readonly type: "interaction-answer"; readonly id: string; readonly answer: string }
@@ -100,22 +102,28 @@ export type ChatAction =
   | { readonly type: "interaction-failed"; readonly id: string; readonly error: string }
   | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" | "context-usage" | "context-reset" }> }
   | { readonly type: "reset" }
-  | { readonly type: "hydrate"; readonly messages: readonly RestoredTranscriptMessage[]; readonly todos: readonly RestoredTodo[] };
+  | { readonly type: "hydrate"; readonly messages: readonly RestoredTranscriptEntry[]; readonly todos: readonly RestoredTodo[] };
 
 const finishLastAssistant = (
   messages: readonly TranscriptMessage[],
   status: "complete" | "stopped",
+  completedAt?: number,
 ): readonly TranscriptMessage[] => {
   let index = -1;
+  let latestAssistant = -1;
   for (let candidate = messages.length - 1; candidate >= 0; candidate -= 1) {
     const message = messages[candidate];
+    if (message?.role === "assistant" && latestAssistant < 0) latestAssistant = candidate;
     if (message?.role === "assistant" && message.status === "streaming") {
       index = candidate;
       break;
     }
   }
+  if (index < 0 && completedAt !== undefined) index = latestAssistant;
   if (index < 0) return messages;
-  return messages.map((message, messageIndex) => messageIndex === index ? { ...message, status } : message);
+  return messages.map((message, messageIndex) => messageIndex === index
+    ? { ...message, ...(message.status === "streaming" ? { status } : {}), ...(completedAt === undefined ? {} : { completedAt }) }
+    : message);
 };
 
 interface QueueReconciliation {
@@ -187,7 +195,7 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
     case "initial-submit":
       return {
         ...state,
-        messages: [...state.messages, { id: action.id, role: "user", text: action.text, status: "complete", order: state.nextOrder }],
+        messages: [...state.messages, { id: action.id, role: "user", text: action.text, status: "complete", order: state.nextOrder, startedAt: action.at ?? Date.now() }],
         queue: [],
         running: true,
         stopping: false,
@@ -265,7 +273,7 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
     case "run-end":
       return {
         ...state,
-        messages: finishLastAssistant(state.messages, state.stopping ? "stopped" : "complete"),
+        messages: finishLastAssistant(state.messages, state.stopping ? "stopped" : "complete", action.at ?? Date.now()),
         queue: [],
         running: false,
         stopping: false,
@@ -318,20 +326,34 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
           : prompt),
       };
     case "hydrate":
+      {
+        const messages: TranscriptMessage[] = [];
+        const entries: ActivityEntry[] = [];
+        action.messages.forEach((item, index) => {
+          const order = index + 1;
+          if (item.role === "tool") {
+            entries.push({ kind: "tool", id: item.id, name: item.name, status: item.failed ? "error" : "success", order });
+            return;
+          }
+          messages.push({
+            id: `restored-${String(order)}`,
+            ...(item.messageId === undefined ? {} : { messageId: item.messageId }),
+            ...(item.branchable === undefined ? {} : { branchable: item.branchable }),
+            ...(item.startedAt === undefined ? {} : { startedAt: item.startedAt }),
+            ...(item.completedAt === undefined ? {} : { completedAt: item.completedAt }),
+            role: item.role,
+            text: item.text,
+            status: "complete",
+            order,
+          });
+        });
       return {
         ...initialChatState,
-        messages: action.messages.map((message, index) => ({
-          id: `restored-${String(index + 1)}`,
-          ...(message.messageId === undefined ? {} : { messageId: message.messageId }),
-          ...(message.branchable === undefined ? {} : { branchable: message.branchable }),
-          role: message.role,
-          text: message.text,
-          status: "complete",
-          order: index + 1,
-        })),
-        activity: { ...initialActivityState, todos: action.todos },
+        messages,
+        activity: { ...initialActivityState, entries, todos: action.todos },
         nextOrder: action.messages.length + 1,
       };
+      }
     case "reset":
       return initialChatState;
   }

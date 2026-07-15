@@ -4,7 +4,7 @@ import {
   SessionIdSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
-  RestoredTranscriptMessageSchema,
+  RestoredTranscriptEntrySchema,
   RestoredTodoSchema,
   PersistenceMessageIdSchema,
 } from "../shared/schemas";
@@ -26,7 +26,7 @@ const rawBranchMutation = z.strictObject({
 });
 const rawTranscriptPage = z.strictObject({
   sessionId: SessionIdSchema,
-  messages: z.array(RestoredTranscriptMessageSchema).max(100),
+  messages: z.array(RestoredTranscriptEntrySchema).max(100),
   nextCursor: z.number().int().nonnegative().optional(),
 });
 const rawState = z.strictObject({

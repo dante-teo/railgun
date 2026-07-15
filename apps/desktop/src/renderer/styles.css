@@ -561,10 +561,15 @@ kbd { font-family: var(--font-sans); }
 .transcript-scroll-indicator span.active { background: var(--color-transcript-dash-active); }
 .welcome { max-width: 26rem; }
 .message { max-width: var(--content-width); margin: 0 auto var(--space-6); }
-.message-role { margin-bottom: 0.4375rem; color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.07em; }
+.worked-activity-group { max-width: var(--content-width); margin: 0 auto var(--space-6); }
+.worked-activity-group > summary { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding: 0 0 var(--space-3); color: var(--color-text-secondary); font-size: var(--text-control); cursor: pointer; list-style: none; }
+.worked-activity-group > summary::-webkit-details-marker { display: none; }
+.worked-activity-chevron { font-size: 1.75rem; line-height: 1; transition: transform var(--motion-fast) var(--motion-ease); }
+.worked-activity-group[open] .worked-activity-chevron { transform: rotate(90deg); }
+.worked-activity-group > div { padding-top: var(--space-4); }
+.worked-activity-group .activity-row { margin-bottom: var(--space-4); }
 .message > p { margin: 0; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message.user > p { width: fit-content; max-width: 85%; margin-left: auto; padding: 0.625rem var(--space-4); border-radius: var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg); background: var(--color-surface-muted); }
-.message.user .message-role { text-align: right; }
 .message.error { color: var(--color-danger); }
 .message.failed { border-left: 2px solid var(--color-danger); padding-left: var(--space-3); }
 .message-status { display: inline-block; margin-top: var(--space-2); color: var(--color-text-tertiary); font-size: var(--text-caption); }

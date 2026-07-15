@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
-import type { AppCommand, BackendSnapshot, MockScenario, SessionSnapshot, SessionSummary } from "../shared/types";
+import type { AppCommand, BackendSnapshot, MockScenario, RestoredTranscriptMessage, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { ErrorState, LoadingState } from "./components/ui/state";
@@ -335,13 +335,14 @@ export const App = (): React.JSX.Element => {
       title="Open Files"
       onClick={() => setFilesPaneVisible(true)}
     ><PanelRightOpen aria-hidden="true" /></Button>;
+  const firstUserMessage = activeSession?.transcript.find((entry): entry is RestoredTranscriptMessage => entry.role === "user");
   const toolbarActions = <div className="content-toolbar-actions">
     <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
     {filesPaneVisible ? todoPaneToggle : <div className="right-pane-controls">{todoPaneToggle}{filesPaneToggle}</div>}
   </div>;
   const chatContent = <section className="chat-surface">
           <header className="content-toolbar">
-            <div className="content-toolbar-title"><h1>{activeSession?.transcript.find(message => message.role === "user")?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
+            <div className="content-toolbar-title"><h1>{firstUserMessage?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
           </header>
           {operationError === undefined ? null : <div className="shell-error" role="alert">{operationError}</div>}
           <Transcript
