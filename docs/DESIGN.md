@@ -111,7 +111,12 @@ the same model; text entry is reserved for free-form answers and preset names.
   target (for example, `Edited scheduler.ts`) is shown by default, while
   sanitized live input/output remains available on expansion. Restored file-tool
   rows retain only a safe basename target; they never receive raw arguments or
-  results. Tool state remains part of the disclosure's accessible name and error
+  results. Consecutive uses of the same tool merge into an outer, parameter-free
+  disclosure (for example, `Edited files`) that expands to the original rows.
+  Collapsed tool rows are visually muted until hover; an expanded merged summary
+  remains at full contrast, shows a down chevron, and its children retain their
+  own hover treatment. A collapsed merged summary shows a right chevron only on
+  hover. Tool state remains part of the disclosure's accessible name and error
   or interrupted icons use the matching semantic color. Advisor `nit`, `concern`,
   and `blocker` rows use success, warning, and danger tokens. Todos and
   current-run subagents appear only in the non-resizable responsive inspector;

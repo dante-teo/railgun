@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import type { BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
-import { ActivityInspector, collapseCompletedTurnActivity, Composer, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController, WorkedActivityGroup } from "./Chat";
+import { ActivityInspector, collapseCompletedTurnActivity, Composer, groupConsecutiveToolActivities, toolActivityGroupKey, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController, WorkedActivityGroup } from "./Chat";
 
 const overlayHarness = vi.hoisted(() => ({
   clientHeight: 0,
@@ -161,6 +161,43 @@ const Harness = (): React.JSX.Element => {
 };
 
 describe("chat renderer", () => {
+  it("groups only consecutive uses of the same tool", () => {
+    const grouped = groupConsecutiveToolActivities([
+      { kind: "tool", id: "one", name: "write_file", status: "success", order: 1 },
+      { kind: "tool", id: "two", name: "write_file", status: "success", order: 2 },
+      { kind: "tool", id: "read", name: "read_file", status: "success", order: 3 },
+      { kind: "tool", id: "three", name: "write_file", status: "success", order: 4 },
+      { kind: "advisor", id: "note", severity: "nit", text: "Keep this separate", order: 5 },
+      { kind: "tool", id: "four", name: "write_file", status: "success", order: 6 },
+      { kind: "tool", id: "five", name: "write_file", status: "success", order: 7 },
+    ]);
+
+    expect(grouped).toHaveLength(5);
+    expect(grouped[0]).toMatchObject({ kind: "tool-group", name: "write_file", entries: [{ id: "one" }, { id: "two" }] });
+    expect(grouped[1]).toMatchObject({ kind: "tool", id: "read" });
+    expect(grouped[2]).toMatchObject({ kind: "tool", id: "three" });
+    expect(grouped[4]).toMatchObject({ kind: "tool-group", name: "write_file", entries: [{ id: "four" }, { id: "five" }] });
+  });
+
+  it("keeps merged activity active while one of its tool uses is still running", () => {
+    expect(groupConsecutiveToolActivities([
+      { kind: "tool", id: "failed", name: "write_file", status: "error", order: 1 },
+      { kind: "tool", id: "active", name: "write_file", status: "running", order: 2 },
+    ])).toMatchObject([{ kind: "tool-group", status: "running" }]);
+  });
+
+  it("uses tool name and invocation order to uniquely key merged activity rows", () => {
+    const groups = groupConsecutiveToolActivities([
+      { kind: "tool", id: "a", name: "write_file", status: "success", order: 10 },
+      { kind: "tool", id: "b", name: "write_file", status: "success", order: 11 },
+      { kind: "advisor", id: "boundary", severity: "nit", text: "Separate groups", order: 12 },
+      { kind: "tool", id: "a", name: "write_file", status: "success", order: 20 },
+      { kind: "tool", id: "b", name: "write_file", status: "success", order: 21 },
+    ]).filter(entry => entry.kind === "tool-group");
+
+    expect(groups.map(toolActivityGroupKey)).toEqual(["tool-group-write_file-10-11", "tool-group-write_file-20-21"]);
+  });
+
   it("collapses successful turn activity until its final response", () => {
     const entries = [
       { kind: "message" as const, order: 1, message: { id: "user", role: "user" as const, text: "Fix sync", status: "complete" as const, order: 1, startedAt: 10_000 } },
@@ -466,6 +503,24 @@ describe("chat renderer", () => {
     expect(screen.getByText("Aggregating 1 reference")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference").parentElement?.textContent).toContain("Completed");
     expect(screen.getByText("Advisor blocker").closest(".advisor-row")?.className).toContain("blocker");
+  });
+
+  it("merges consecutive tool rows into an expandable parameter-free summary", () => {
+    const bridge = makeApi();
+    render(<Harness />);
+    act(() => bridge.emit({ type: "tool-start", id: "first", name: "write_file", input: '{"path":"src/one.ts"}' }));
+    act(() => bridge.emit({ type: "tool-start", id: "second", name: "write_file", input: '{"path":"src/two.ts"}' }));
+    act(() => bridge.emit({ type: "tool-end", id: "first", name: "write_file", failed: false }));
+    act(() => bridge.emit({ type: "tool-end", id: "second", name: "write_file", failed: false }));
+
+    const summary = screen.getByRole("group", { name: "Edited files — 2 tool uses" }) as HTMLDetailsElement;
+    expect(summary.querySelector("summary")?.textContent).toBe("Edited files");
+    expect(summary.querySelector(".tool-activity-group-chevron.lucide-chevron-right")).toBeTruthy();
+    expect(summary.open).toBe(false);
+    fireEvent.click(screen.getByText("Edited files"));
+    expect(summary.open).toBe(true);
+    expect(screen.getAllByRole("group", { name: "write_file — Completed" })).toHaveLength(2);
+    expect(screen.getAllByText("Edited")).toHaveLength(2);
   });
 
   it("shows todo loading and replacement plus current-run subagent statuses, then clears on reset", () => {

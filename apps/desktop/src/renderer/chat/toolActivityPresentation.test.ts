@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { presentToolActivity } from "./toolActivityPresentation";
+import { presentGroupedToolActivity, presentToolActivity } from "./toolActivityPresentation";
 
 describe("presentToolActivity", () => {
   it("uses a concise past-tense action and filename for completed file edits", () => {
@@ -36,5 +36,15 @@ describe("presentToolActivity", () => {
   it("keeps a safe target for an unrecognized restored tool", () => {
     expect(presentToolActivity("custom_tool", undefined, "success", "artifact.json"))
       .toMatchObject({ action: "Ran custom tool", target: "artifact.json", icon: "tool" });
+  });
+
+  it("uses a concise plural action without a parameter for consecutive tool uses", () => {
+    expect(presentGroupedToolActivity("write_file", "success"))
+      .toEqual({ action: "Edited files", icon: "file-edit" });
+  });
+
+  it("uses the same readable fallback for grouped unknown tools", () => {
+    expect(presentGroupedToolActivity("custom_tool", "error"))
+      .toEqual({ action: "Failed to run custom tool", icon: "tool" });
   });
 });

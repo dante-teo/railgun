@@ -858,7 +858,9 @@ After a successful turn, activity between the user request and final assistant
 response is collapsed into a closed **Worked for ...** disclosure. Expand it to
 inspect the ordered tool timeline; activity remains visible while work is active,
 failed, or stopped. Restored sessions retain only tool names and success or
-failure states, never tool arguments or results.
+failure states, never tool arguments or results. Consecutive uses of the same
+tool merge into a parameter-free summary such as **Edited files**; expanding it
+reveals the individual tool rows and their available details.
 
 When todos exist, the top-right toggle controls a non-resizable floating card.
 At wide widths it reserves transcript space and wraps its content up to the

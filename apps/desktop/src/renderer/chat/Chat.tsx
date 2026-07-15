@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { Bot, FileText, FolderOpen, GitBranch, Globe, Search, Send, Square, Terminal, Wrench } from "lucide-react";
+import { Bot, ChevronRight, FileText, FolderOpen, GitBranch, Globe, Search, Send, Square, Terminal, Wrench } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest, SessionSnapshot } from "../../shared/types";
@@ -11,7 +11,7 @@ import { BackendStatus } from "../backendStatus";
 import { chatReducer, initialChatState, shouldShowThinking } from "./chatState";
 import type { InteractionPrompt, QueueKind } from "./chatState";
 import type { ActivityEntry, ActivityState, ActivityStatus } from "./activityState";
-import { presentToolActivity } from "./toolActivityPresentation";
+import { presentGroupedToolActivity, presentToolActivity } from "./toolActivityPresentation";
 import type { ToolActivityIcon } from "./toolActivityPresentation";
 import type { TranscriptMessage } from "./chatState";
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -244,6 +244,73 @@ const ActivityRow = ({ entry }: { readonly entry: ActivityEntry }): React.JSX.El
   );
 };
 
+type ToolActivityEntry = Extract<ActivityEntry, { readonly kind: "tool" }>;
+export interface ToolActivityGroup {
+  readonly kind: "tool-group";
+  readonly name: string;
+  readonly status: ActivityStatus;
+  readonly entries: readonly ToolActivityEntry[];
+}
+
+type ActivityRowItem = ActivityEntry | ToolActivityGroup;
+
+const groupedToolStatus = (entries: readonly ToolActivityEntry[]): ActivityStatus => {
+  if (entries.some(entry => entry.status === "running")) return "running";
+  if (entries.some(entry => entry.status === "error")) return "error";
+  if (entries.some(entry => entry.status === "interrupted")) return "interrupted";
+  return "success";
+};
+
+export const groupConsecutiveToolActivities = (entries: readonly ActivityEntry[]): readonly ActivityRowItem[] => {
+  const grouped: ActivityRowItem[] = [];
+  let consecutiveTools: ToolActivityEntry[] = [];
+  const flush = (): void => {
+    if (consecutiveTools.length === 1) grouped.push(consecutiveTools[0]!);
+    else if (consecutiveTools.length > 1) grouped.push({
+      kind: "tool-group",
+      name: consecutiveTools[0]!.name,
+      status: groupedToolStatus(consecutiveTools),
+      entries: consecutiveTools,
+    });
+    consecutiveTools = [];
+  };
+  for (const entry of entries) {
+    if (entry.kind === "tool" && (consecutiveTools.length === 0 || consecutiveTools[0]!.name === entry.name)) {
+      consecutiveTools.push(entry);
+      continue;
+    }
+    flush();
+    if (entry.kind === "tool") consecutiveTools.push(entry);
+    else grouped.push(entry);
+  }
+  flush();
+  return grouped;
+};
+
+export const toolActivityGroupKey = (group: ToolActivityGroup): string =>
+  `tool-group-${group.name}-${group.entries.map(entry => String(entry.order)).join("-")}`;
+
+const ActivityRows = ({ entries }: { readonly entries: readonly ActivityEntry[] }): React.JSX.Element => <>
+  {groupConsecutiveToolActivities(entries).map(entry => entry.kind === "tool-group"
+    ? <ToolActivityGroupRow key={toolActivityGroupKey(entry)} group={entry} />
+    : <ActivityRow entry={entry} key={`${entry.id}-${String(entry.order)}`} />)}
+</>;
+
+const ToolActivityGroupRow = ({ group }: { readonly group: ToolActivityGroup }): React.JSX.Element => {
+  const presentation = presentGroupedToolActivity(group.name, group.status);
+  const uses = `${String(group.entries.length)} tool ${group.entries.length === 1 ? "use" : "uses"}`;
+  return (
+    <details className={`activity-row tool-row tool-activity-group ${group.status}`} aria-label={`${presentation.action} — ${uses}`}>
+      <summary>
+        <span className="tool-activity-icon"><ToolActivityGlyph icon={presentation.icon} /></span>
+        <span className="tool-activity-copy"><span className="activity-label">{presentation.action}</span></span>
+        <ChevronRight className="tool-activity-group-chevron" aria-hidden="true" />
+      </summary>
+      <div className="tool-activity-group-entries">{group.entries.map(entry => <ActivityRow entry={entry} key={`${entry.id}-${String(entry.order)}`} />)}</div>
+    </details>
+  );
+};
+
 export const ActivityInspector = ({ activity }: { readonly activity: ActivityState }): React.JSX.Element => {
   if (activity.todos.length === 0 && activity.subagents.length === 0 && !activity.todoLoading) return <></>;
   const completed = activity.todos.filter(todo => todo.status === "completed").length;
@@ -277,6 +344,9 @@ type TranscriptEntry =
 type TranscriptPresentationEntry =
   | { readonly kind: "entry"; readonly entry: TranscriptEntry }
   | { readonly kind: "worked"; readonly activities: readonly ActivityEntry[]; readonly durationMs?: number; readonly key: string };
+
+type TranscriptRenderEntry = TranscriptPresentationEntry
+  | { readonly kind: "activity-list"; readonly activities: readonly ActivityEntry[]; readonly key: string };
 
 const formatWorkedDuration = (durationMs: number | undefined): string => {
   if (durationMs === undefined) return "Worked";
@@ -326,10 +396,31 @@ export const collapseCompletedTurnActivity = (
   return result;
 };
 
+const groupConsecutiveTranscriptActivities = (entries: readonly TranscriptPresentationEntry[]): readonly TranscriptRenderEntry[] => {
+  const grouped: TranscriptRenderEntry[] = [];
+  let activities: ActivityEntry[] = [];
+  const flush = (): void => {
+    if (activities.length > 0) {
+      grouped.push({ kind: "activity-list", activities, key: `activities-${activities.map(activity => activity.id).join("-")}` });
+      activities = [];
+    }
+  };
+  for (const entry of entries) {
+    if (entry.kind === "entry" && entry.entry.kind === "activity") {
+      activities.push(entry.entry.activity);
+      continue;
+    }
+    flush();
+    grouped.push(entry);
+  }
+  flush();
+  return grouped;
+};
+
 export const WorkedActivityGroup = ({ activities, durationMs }: { readonly activities: readonly ActivityEntry[]; readonly durationMs?: number }): React.JSX.Element => (
   <details className="worked-activity-group">
     <summary><span>{formatWorkedDuration(durationMs)}</span><span className="worked-activity-chevron" aria-hidden="true">›</span></summary>
-    <div>{activities.map(activity => <ActivityRow entry={activity} key={`${activity.id}-${String(activity.order)}`} />)}</div>
+    <div><ActivityRows entries={activities} /></div>
   </details>
 );
 
@@ -438,7 +529,7 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
     ...state.messages.map(message => ({ kind: "message" as const, order: message.order, message })),
     ...state.activity.entries.map(activity => ({ kind: "activity" as const, order: activity.order, activity })),
   ].sort((left, right) => left.order - right.order);
-  const presentationEntries = collapseCompletedTurnActivity(entries, state.running);
+  const presentationEntries = groupConsecutiveTranscriptActivities(collapseCompletedTurnActivity(entries, state.running));
   const empty = entries.length === 0;
   return (
     <div className="transcript-stage">
@@ -456,8 +547,9 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
             : null}
           {presentationEntries.map(item => {
             if (item.kind === "worked") return <WorkedActivityGroup key={item.key} activities={item.activities} {...(item.durationMs === undefined ? {} : { durationMs: item.durationMs })} />;
+            if (item.kind === "activity-list") return <ActivityRows entries={item.activities} key={item.key} />;
             const entry = item.entry;
-            if (entry.kind === "activity") return <ActivityRow entry={entry.activity} key={`activity-${entry.activity.id}-${entry.activity.order}`} />;
+            if (entry.kind === "activity") return <ActivityRows entries={[entry.activity]} key={`activity-${entry.activity.id}-${entry.activity.order}`} />;
             const message = entry.message;
             return <article className={`message ${message.role} ${message.status}`} key={message.id} data-status={message.status}>
               {message.role === "assistant" && message.status !== "streaming"

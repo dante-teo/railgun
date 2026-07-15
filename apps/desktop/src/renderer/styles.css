@@ -588,7 +588,8 @@ kbd { font-family: var(--font-sans); }
 .activity-row.success { border-color: color-mix(in srgb, var(--color-success) 40%, transparent); }
 .activity-row.interrupted { border-color: color-mix(in srgb, var(--color-warning) 50%, transparent); }
 .tool-row { margin-bottom: var(--space-3); border: 0; border-radius: 0; padding: 0; background: transparent; }
-.tool-row summary { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); cursor: pointer; list-style: none; }
+.tool-row summary { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); cursor: pointer; list-style: none; opacity: 0.52; transition: opacity var(--motion-fast) var(--motion-ease); }
+.tool-row:hover > summary, .tool-activity-group[open] > summary { opacity: 1; }
 .tool-row summary::-webkit-details-marker { display: none; }
 .tool-activity-icon { display: grid; width: 1.125rem; height: 1.125rem; flex: 0 0 auto; place-items: center; color: var(--color-text-tertiary); }
 .tool-activity-icon svg { width: 1rem; height: 1rem; }
@@ -598,6 +599,11 @@ kbd { font-family: var(--font-sans); }
 .tool-row .activity-label { flex: 0 0 auto; font-weight: var(--weight-medium); }
 .tool-activity-target { overflow: hidden; color: var(--color-text-secondary); font-family: var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .tool-row > .tool-activity-details { margin: var(--space-2) 0 0 calc(1.125rem + var(--space-2)); padding: 0; }
+.tool-activity-group > .tool-activity-group-entries { padding-top: var(--space-3); }
+.tool-activity-group-entries .tool-row:last-child { margin-bottom: 0; }
+.tool-activity-group-chevron { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; color: var(--color-text-secondary); visibility: hidden; opacity: 0; transition: opacity var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease); }
+.tool-activity-group:hover .tool-activity-group-chevron, .tool-activity-group[open] .tool-activity-group-chevron { visibility: visible; opacity: 1; }
+.tool-activity-group[open] .tool-activity-group-chevron { transform: rotate(90deg); }
 .tool-row h3 { margin: var(--space-2) 0 var(--space-1); color: var(--color-text-secondary); font-size: var(--text-caption); text-transform: uppercase; }
 .tool-row pre { max-height: 18rem; margin: 0; font-size: var(--text-caption); }
 .moa-row p, .advisor-row p { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
