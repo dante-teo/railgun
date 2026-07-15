@@ -137,7 +137,24 @@ jobs:
           RAILGUN_DESKTOP_VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           pnpm --filter @dantea/railgun-desktop build:backend-assets
-          pnpm --filter @dantea/railgun-desktop exec electron-forge make --arch "${{ matrix.arch }}"
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            log="$RUNNER_TEMP/electron-forge-make-${{ matrix.arch }}-$attempt.log"
+            set +e
+            pnpm --filter @dantea/railgun-desktop exec electron-forge make --arch "${{ matrix.arch }}" 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$status" -eq 0 ]; then exit 0; fi
+            if ! grep -Eq 'NSURLErrorDomain Code=-1001|The request timed out|HTTPError\(statusCode: nil' "$log"; then
+              exit "$status"
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then exit "$status"; fi
+
+            delay_seconds=$((attempt * 60))
+            echo "::warning::Apple notarization timed out; retrying in ${delay_seconds}s (attempt $((attempt + 1)) of $max_attempts)."
+            sleep "$delay_seconds"
+          done
 
       - name: Verify signed application
         shell: bash

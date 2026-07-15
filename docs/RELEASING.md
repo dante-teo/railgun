@@ -118,8 +118,10 @@ provider sign-in and start the backend.
 
 ## Recover from a failed release
 
-Use GitHub Actions' **Re-run failed jobs** operation after fixing a transient
-credential, notarization, or tap failure. The workflow is designed to resume:
+The desktop build automatically retries transient Apple-notarization timeouts
+up to three times. Use GitHub Actions' **Re-run failed jobs** operation after
+fixing any remaining credential, notarization, or tap failure. The workflow is
+designed to resume:
 
 - npm publication is skipped when the exact package version already exists;
 - an existing GitHub release receives replacement ZIP assets via
