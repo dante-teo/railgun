@@ -4,6 +4,7 @@ import { parseCronSchedule } from "./cron";
 export const DESKTOP_ACTIVITY_LIMITS = Object.freeze({
   id: 256,
   toolName: 128,
+  target: 256,
   detail: 8_000,
   content: 2_000,
   model: 256,
@@ -334,6 +335,7 @@ export const RestoredTranscriptToolSchema = z.strictObject({
   id: activityId,
   name: boundedActivityString(DESKTOP_ACTIVITY_LIMITS.toolName).min(1),
   failed: z.boolean(),
+  target: boundedActivityString(DESKTOP_ACTIVITY_LIMITS.target).min(1).optional(),
 });
 export const RestoredTranscriptEntrySchema = z.union([
   RestoredTranscriptMessageSchema,

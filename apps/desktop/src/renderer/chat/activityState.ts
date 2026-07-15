@@ -4,7 +4,7 @@ export type ActivityStatus = "running" | "success" | "error" | "interrupted";
 export type Todo = NonNullable<Extract<DesktopAgentEvent, { type: "tool-end" }>["todos"]>[number];
 
 export type ActivityEntry =
-  | { readonly kind: "tool"; readonly id: string; readonly name: string; readonly status: ActivityStatus; readonly input?: string; readonly output?: string; readonly order: number }
+  | { readonly kind: "tool"; readonly id: string; readonly name: string; readonly status: ActivityStatus; readonly input?: string; readonly output?: string; readonly target?: string; readonly order: number }
   | { readonly kind: "moa-reference"; readonly id: string; readonly index: number; readonly count: number; readonly model: string; readonly status: ActivityStatus; readonly preview?: string; readonly order: number }
   | { readonly kind: "moa-aggregation"; readonly id: string; readonly model: string; readonly refCount: number; readonly status: ActivityStatus; readonly order: number }
   | { readonly kind: "advisor"; readonly id: string; readonly severity: "nit" | "concern" | "blocker"; readonly text: string; readonly order: number };

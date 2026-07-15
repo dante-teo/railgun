@@ -439,7 +439,7 @@ describe("chat renderer", () => {
     expect(screen.getAllByText("request")).toHaveLength(1);
   });
 
-  it("renders chronological accessible activity details, advisor severity, and MoA progress", () => {
+  it("renders compact tool activity with expandable details, advisor severity, and MoA progress", () => {
     const bridge = makeApi();
     render(<Harness />);
     act(() => bridge.emit({ type: "tool-start", id: "a", name: "read_file", input: '{"path":"README.md"}' }));
@@ -455,9 +455,13 @@ describe("chat renderer", () => {
     expect(screen.queryByRole("heading", { name: "What are we building?" })).toBeNull();
     const disclosure = screen.getByRole("group", { name: "read_file — Running" });
     expect(disclosure).toBeTruthy();
-    fireEvent.click(screen.getByText("read_file"));
-    expect(screen.getByText(/README\.md/u)).toBeTruthy();
-    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.getByText("Reading")).toBeTruthy();
+    expect(screen.getByText("README.md")).toBeTruthy();
+    expect(disclosure.className).toContain("tool-row");
+    expect(disclosure.querySelector(".tool-activity-icon svg")).toBeTruthy();
+    fireEvent.click(screen.getByText("Reading"));
+    expect(screen.getAllByText(/README\.md/u)).toHaveLength(2);
+    expect(screen.getByRole("group", { name: "run_shell — Error" })).toBeTruthy();
     expect(screen.getByText("Reference 1 of 1")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference").parentElement?.textContent).toContain("Completed");

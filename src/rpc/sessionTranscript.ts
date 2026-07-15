@@ -12,6 +12,7 @@ export interface RpcTranscriptTool {
   readonly id: string;
   readonly name: string;
   readonly failed: boolean;
+  readonly target?: string;
 }
 
 export type RpcTranscriptEntry = RpcTranscriptMessage | RpcTranscriptTool;
@@ -64,6 +65,19 @@ const toolFailureByCallId = (history: readonly unknown[]): ReadonlyMap<string, b
   return failures;
 };
 
+const fileTarget = (arguments_: unknown): string | undefined => {
+  const path = record(arguments_)?.path;
+  if (typeof path !== "string") return undefined;
+  const segments = path.replace(/\\/gu, "/").split("/").filter(Boolean);
+  const target = segments.at(-1)?.trim();
+  return target === "" || target === undefined ? undefined : truncateUtf8(target, 256);
+};
+
+const safeToolTarget = (name: string, arguments_: unknown): string | undefined =>
+  name === "read_file" || name === "write_file" || name === "list_directory"
+    ? fileTarget(arguments_)
+    : undefined;
+
 const transcriptTools = (
   message: unknown,
   historyIndex: number,
@@ -74,11 +88,14 @@ const transcriptTools = (
   return item.content.flatMap((part, partIndex) => {
     const call = record(part);
     if (call?.type !== "toolCall" || typeof call.id !== "string" || typeof call.name !== "string" || call.name.trim() === "") return [];
+    const name = call.name.trim();
+    const target = safeToolTarget(name, call.arguments);
     return [{
       role: "tool" as const,
       id: `restored-tool-${String(historyIndex)}-${String(partIndex)}`,
-      name: truncateUtf8(call.name.trim(), 128),
+      name: truncateUtf8(name, 128),
       failed: failures.get(call.id) === true,
+      ...(target === undefined ? {} : { target }),
     }];
   });
 };

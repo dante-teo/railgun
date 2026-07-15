@@ -66,12 +66,12 @@ describe("RPC session transcript", () => {
     ]);
   });
 
-  it("projects every tool call from mixed and parallel assistant messages", () => {
+  it("projects file targets from mixed and parallel tool calls without exposing raw payloads", () => {
     const page = createRpcTranscriptPage("saved", [
       { role: "user", content: "Inspect the sync flow" },
       { role: "assistant", content: [
         { type: "text", text: "I found the relevant files." },
-        { type: "toolCall", id: "read", name: "read_file", arguments: { path: "private.ts" } },
+        { type: "toolCall", id: "read", name: "read_file", arguments: { path: "/private/secret-directory/private.ts" } },
         { type: "toolCall", id: "test", name: "run_shell_command", arguments: { command: "private command" } },
       ] },
       { role: "tool", toolCallId: "read", content: "private file contents", isError: false },
@@ -89,7 +89,7 @@ describe("RPC session transcript", () => {
       { role: "user", content: "Inspect the sync flow" },
       { role: "assistant", content: [
         { type: "text", text: "I found the relevant files." },
-        { type: "toolCall", id: "read", name: "read_file", arguments: { path: "private.ts" } },
+        { type: "toolCall", id: "read", name: "read_file", arguments: { path: "/private/secret-directory/private.ts" } },
         { type: "toolCall", id: "test", name: "run_shell_command", arguments: { command: "private command" } },
       ] },
       { role: "tool", toolCallId: "read", content: "private file contents", isError: false },
@@ -98,10 +98,21 @@ describe("RPC session transcript", () => {
     ], page.nextCursor, 3, [10, 11, 12, 13, 14]);
 
     expect(secondPage.messages).toEqual([
-      { role: "tool", id: "restored-tool-1-1", name: "read_file", failed: false },
+      { role: "tool", id: "restored-tool-1-1", name: "read_file", failed: false, target: "private.ts" },
       { role: "tool", id: "restored-tool-1-2", name: "run_shell_command", failed: true },
       { role: "assistant", text: "The retry loop is fixed.", messageId: 14, branchable: true },
     ]);
-    expect(JSON.stringify(secondPage)).not.toMatch(/private\.ts|private command|private file contents|private test output/u);
+    expect(JSON.stringify(secondPage)).not.toMatch(/secret-directory|private command|private file contents|private test output/u);
+  });
+
+  it("normalizes tool names before deriving their safe file targets", () => {
+    const page = createRpcTranscriptPage("saved", [
+      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "  read_file  ", arguments: { path: "src/cli.ts" } }] },
+      { role: "tool", toolCallId: "call", content: "private" },
+    ]);
+
+    expect(page.messages).toEqual([
+      { role: "tool", id: "restored-tool-0-0", name: "read_file", failed: false, target: "cli.ts" },
+    ]);
   });
 });

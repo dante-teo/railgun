@@ -332,7 +332,7 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
         action.messages.forEach((item, index) => {
           const order = index + 1;
           if (item.role === "tool") {
-            entries.push({ kind: "tool", id: item.id, name: item.name, status: item.failed ? "error" : "success", order });
+            entries.push({ kind: "tool", id: item.id, name: item.name, status: item.failed ? "error" : "success", order, ...(item.target === undefined ? {} : { target: item.target }) });
             return;
           }
           messages.push({

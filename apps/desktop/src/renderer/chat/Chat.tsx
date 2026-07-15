@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { Bot, GitBranch, Send, Square } from "lucide-react";
+import { Bot, FileText, FolderOpen, GitBranch, Globe, Search, Send, Square, Terminal, Wrench } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest, SessionSnapshot } from "../../shared/types";
@@ -11,6 +11,8 @@ import { BackendStatus } from "../backendStatus";
 import { chatReducer, initialChatState, shouldShowThinking } from "./chatState";
 import type { InteractionPrompt, QueueKind } from "./chatState";
 import type { ActivityEntry, ActivityState, ActivityStatus } from "./activityState";
+import { presentToolActivity } from "./toolActivityPresentation";
+import type { ToolActivityIcon } from "./toolActivityPresentation";
 import type { TranscriptMessage } from "./chatState";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { createDeltaFrameBuffer } from "./streaming";
@@ -200,6 +202,16 @@ const SUBAGENT_STATUS_LABEL: Record<ActivityState["subagents"][number]["status"]
   running: "Running", completed: "Completed", interrupted: "Interrupted",
 };
 
+const ToolActivityGlyph = ({ icon }: { readonly icon: ToolActivityIcon }): React.JSX.Element => {
+  const Icon = icon === "file-edit" || icon === "file-read" ? FileText
+    : icon === "folder" ? FolderOpen
+      : icon === "terminal" ? Terminal
+        : icon === "search" ? Search
+          : icon === "globe" ? Globe
+            : Wrench;
+  return <Icon aria-hidden="true" />;
+};
+
 const ActivityRow = ({ entry }: { readonly entry: ActivityEntry }): React.JSX.Element => {
   if (entry.kind === "advisor") return (
     <article className={`activity-row advisor-row ${entry.severity}`}>
@@ -219,11 +231,15 @@ const ActivityRow = ({ entry }: { readonly entry: ActivityEntry }): React.JSX.El
     </article>
   );
   const status = STATUS_LABEL[entry.status];
+  const presentation = presentToolActivity(entry.name, entry.input, entry.status, entry.target);
   return (
     <details className={`activity-row tool-row ${entry.status}`} aria-label={`${entry.name} — ${status}`}>
-      <summary><span className="activity-label">{entry.name}</span><span className="activity-status">{status}</span></summary>
-      {entry.input === undefined ? null : <div><h3>Input</h3><pre>{entry.input}</pre></div>}
-      {entry.output === undefined ? null : <div><h3>Output</h3><pre>{entry.output}</pre></div>}
+      <summary>
+        <span className="tool-activity-icon"><ToolActivityGlyph icon={presentation.icon} /></span>
+        <span className="tool-activity-copy"><span className="activity-label">{presentation.action}</span>{presentation.target === undefined ? null : <span className="tool-activity-target">{presentation.target}</span>}</span>
+      </summary>
+      {entry.input === undefined ? null : <div className="tool-activity-details"><h3>Input</h3><pre>{entry.input}</pre></div>}
+      {entry.output === undefined ? null : <div className="tool-activity-details"><h3>Output</h3><pre>{entry.output}</pre></div>}
     </details>
   );
 };

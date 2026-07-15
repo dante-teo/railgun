@@ -54,11 +54,14 @@ Session mutations, model changes, and compaction share one ordered session-opera
 `session_load`, `session_branch`, and `session_fork` remain response-compatible
 and include full provider history by default. Bounded-frame clients request
 `includeMessages: false`, then retrieve the active session through
-`session_transcript` pages. That projection removes thinking, tool calls, tool
-results, and provider-only fields before transport, caps each textual message
-and page by serialized UTF-8 size, and requires the requested session ID to
-match the active session. Saved projections may include a positive persistence
-message ID; only complete assistant turns receive `branchable: true`.
+`session_transcript` pages. That projection removes thinking, raw tool
+arguments/results, and provider-only fields before transport. It retains each
+tool's name and failure state, and may retain a bounded basename target for the
+file tools so restored activity remains intelligible without exposing a full
+path or payload. It caps each textual message and page by serialized UTF-8
+size, and requires the requested session ID to match the active session. Saved
+projections may include a positive persistence message ID; only complete
+assistant turns receive `branchable: true`.
 Persistence revalidates the selected prefix before moving its leaf, and forks
 receive bounded independent UUID-based IDs. Cursor pagination prevents a large
 persisted history or a single oversized provider payload from exceeding

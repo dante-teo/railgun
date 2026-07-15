@@ -103,8 +103,8 @@ describe("chat event reduction", () => {
       type: "hydrate",
       messages: [
         { role: "user", text: "Inspect the retry loop" },
-        { role: "tool", id: "tool-1", name: "list_directory", failed: false },
-        { role: "tool", id: "tool-2", name: "read_file", failed: true },
+        { role: "tool", id: "tool-1", name: "list_directory", failed: false, target: "renderer" },
+        { role: "tool", id: "tool-2", name: "read_file", failed: true, target: "retry.ts" },
         { role: "assistant", text: "The retry loop is unbounded." },
       ],
       todos: [],
@@ -115,8 +115,8 @@ describe("chat event reduction", () => {
       ["The retry loop is unbounded.", 4],
     ]);
     expect(state.activity.entries).toEqual([
-      expect.objectContaining({ kind: "tool", name: "list_directory", status: "success", order: 2 }),
-      expect.objectContaining({ kind: "tool", name: "read_file", status: "error", order: 3 }),
+      expect.objectContaining({ kind: "tool", name: "list_directory", status: "success", target: "renderer", order: 2 }),
+      expect.objectContaining({ kind: "tool", name: "read_file", status: "error", target: "retry.ts", order: 3 }),
     ]);
   });
 

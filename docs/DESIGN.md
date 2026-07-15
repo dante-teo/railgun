@@ -106,11 +106,15 @@ the same model; text entry is reserved for free-form answers and preset names.
   top-aligned for stable scrolling.
 
 - The desktop transcript uses the same chronological contract for assistant
-  messages, tools, MoA references/aggregation, and advisor notes. Tool rows use
-  native `details`/`summary` disclosures and pair every semantic color with a
-  textual Running, Completed, Error, or Interrupted label. Advisor `nit`,
-  `concern`, and `blocker` rows use success, warning, and danger tokens. Todos
-  and current-run subagents appear only in the non-resizable responsive inspector;
+  messages, tools, MoA references/aggregation, and advisor notes. Tool rows are
+  plain native `details`/`summary` disclosures: an icon plus a concise action and
+  target (for example, `Edited scheduler.ts`) is shown by default, while
+  sanitized live input/output remains available on expansion. Restored file-tool
+  rows retain only a safe basename target; they never receive raw arguments or
+  results. Tool state remains part of the disclosure's accessible name and error
+  or interrupted icons use the matching semantic color. Advisor `nit`, `concern`,
+  and `blocker` rows use success, warning, and danger tokens. Todos and
+  current-run subagents appear only in the non-resizable responsive inspector;
   it reserves transcript space and starts visible at wide widths. When the
   remaining Task canvas is constrained it starts hidden; its explicit toggle
   shows the card as an overlay without reserving transcript width. Its section

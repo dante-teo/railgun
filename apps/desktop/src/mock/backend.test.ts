@@ -123,7 +123,7 @@ describe("mock backend process", () => {
       send(child, { id: "load", type: "session_load", sessionId: "mock-session-complex-task", includeMessages: false });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ success: true, data: { sessionId: "mock-session-complex-task" } });
       send(child, { id: "transcript", type: "session_transcript", sessionId: "mock-session-complex-task", cursor: 0, limit: 100 });
-      const transcript = JSON.parse((await nextLine(child)).line) as { data: { messages: Array<{ role: string; text?: string; name?: string; failed?: boolean; startedAt?: number; completedAt?: number }> } };
+      const transcript = JSON.parse((await nextLine(child)).line) as { data: { messages: Array<{ role: string; text?: string; name?: string; target?: string; failed?: boolean; startedAt?: number; completedAt?: number }> } };
       expect(transcript.data.messages).toHaveLength(43);
       const tools = transcript.data.messages.filter(message => message.role === "tool");
       expect(tools).toHaveLength(31);
@@ -133,6 +133,10 @@ describe("mock backend process", () => {
         ["write_file", false], ["write_file", false], ["write_file", false], ["write_file", false],
         ["read_file", false], ["read_file", true],
         ["write_file", false], ["write_file", false],
+      ]);
+      expect(tools.slice(0, 11).map(tool => tool.target)).toEqual([
+        "src", "useSyncStatus.ts", "syncService.ts", "schemas.ts", "syncService.ts", "SyncPanel.tsx", "SyncPanel.test.tsx",
+        "syncService.test.ts", "obsoleteRetry.ts", "syncService.test.ts", "SyncPanel.tsx",
       ]);
       expect(transcript.data.messages[0]).toMatchObject({ role: "user", startedAt: 1_784_496_000_000 });
       expect(transcript.data.messages.find(message => message.text?.includes("retry-aware polling"))).toMatchObject({ completedAt: 1_784_496_021_000 });
