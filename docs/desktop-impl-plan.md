@@ -266,6 +266,8 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Keep the existing CLI build and package unchanged.
   - Package a production-only root CLI deployment and bundled mock backend as
     Forge resources, launched through Electron's embedded Node runtime.
+  - Rebuild the deployed `better-sqlite3` binary for Electron's Node ABI and
+    smoke-test an in-memory database under that runtime before packaging.
   - Run the real CLI boundary with `pnpm dev`, or the deterministic mock child
     with `pnpm dev:mock`.
   - Add new mock behavior to the typed scenario registry with success, empty,

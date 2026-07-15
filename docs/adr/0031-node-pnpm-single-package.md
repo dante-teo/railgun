@@ -28,6 +28,13 @@ mock backend as application resources, then launches them with Electron's
 embedded Node runtime. A packaged desktop app therefore does not require the
 repository checkout or a separately installed pnpm/Node.js runtime.
 
+The production deployment has its own `node_modules` tree under Forge's extra
+resources, outside the application dependency tree handled by Forge's automatic
+native-module rebuild. After deployment, the desktop build therefore rebuilds
+`better-sqlite3` explicitly for the installed Electron version and current
+architecture, then opens an in-memory database with Electron in Node mode. A
+native ABI mismatch fails staging before signing or publication.
+
 `pnpm-workspace.yaml` declares private applications and retains repository-wide
 pnpm policy. Forge's Electron rebuild dependency is overridden to the
 registry-hosted rebuild 4 line so the default exotic-transitive-dependency
@@ -46,6 +53,9 @@ assemble a self-contained CLI deployment.
 - Desktop builds go through Forge so its Vite runtime constants and production
   renderer paths are generated consistently; the deployed backend is a Forge
   resource rather than part of the root package's published files.
+- Each desktop artifact is staged on a runner matching its target architecture;
+  the explicit backend rebuild and smoke test therefore validate the same
+  architecture that Forge packages.
 - Forge packaging keeps dependency pruning disabled. Pruning a hoisted
   workspace can remove desktop development dependencies from the shared
   installation, and it is unnecessary because the Vite plugin already includes

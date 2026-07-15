@@ -82,6 +82,13 @@ old public deploy key from the tap after replacement.
    git diff --check
    ```
 
+   The desktop build stages its backend, rebuilds `better-sqlite3` for the
+   installed Electron version and host architecture, and smoke-tests an
+   in-memory database under Electron before Forge packages the app. A successful
+   run prints `Verified better-sqlite3 for Electron <version> (<architecture>).`
+   Build each artifact on a host matching its target architecture, as the
+   release workflow's native arm64 and Intel runners do.
+
 3. Commit and push the version and release changes, then create and push the
    matching tag:
 

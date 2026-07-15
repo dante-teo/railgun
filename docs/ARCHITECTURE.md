@@ -312,10 +312,13 @@ This document records the intended system architecture for Railgun. Keep it curr
 2. In development, Electron main starts either the root CLI through pnpm/tsx
    with `--mode rpc` or the stateful mock JSONL child. Forge packages a
    production-only deployment of the compiled root CLI and a bundled mock
-   process under `Resources/backend`; the packaged app runs either asset with
-   Electron's embedded Node runtime, so it does not depend on a source checkout,
-   a system Node.js installation, or a system pnpm. Both paths use the same
-   JSONL stdio boundary. Real desktop children alone inherit
+   process under `Resources/backend`. Because this extra resource is outside
+   Forge's application dependency rebuild, staging explicitly rebuilds
+   `better-sqlite3` for Electron and verifies it with an in-memory database
+   under Electron's embedded Node runtime. The packaged app runs either backend
+   asset with that runtime, so it does not depend on a source checkout, a system
+   Node.js installation, or a system pnpm. Both paths use the same JSONL stdio
+   boundary. Real desktop children alone inherit
    `RAILGUN_DESKTOP_RPC=1`, preventing implicit browser OAuth during startup.
    Missing or rejected credentials emit the internal pre-handshake frame
    `{type:"startup_status", status:"authentication_required",
@@ -693,8 +696,10 @@ keeps the newest 50 per job. Cron mode does not open the session database.
   dependency policy.
 - Desktop `build` and `package` both use Forge's Vite pipeline. Before packaging,
   the desktop build compiles and deploys the root package's production runtime
-  plus the mock backend into Forge resources; these runtime assets are separate
-  from the root package's published-file contract.
+  plus the mock backend into Forge resources, rebuilding `better-sqlite3` for
+  Electron's Node ABI after deployment and smoke-testing it with an in-memory
+  database under that runtime; these runtime assets are separate from the root
+  package's published-file contract.
 - A matching `v*` tag publishes the CLI and two native macOS ZIPs. The release
   workflow imports the Developer ID certificate into an ephemeral keychain,
   signs and notarizes arm64 and Intel applications, verifies their stapled

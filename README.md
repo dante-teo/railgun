@@ -860,8 +860,10 @@ written beneath `apps/desktop/out/`. Before Forge runs, the build compiles the
 root CLI and stages a production-only deployment plus the bundled mock backend
 in the ignored `apps/desktop/backend/` directory. Forge copies those files to
 `Resources/backend`, and the packaged app launches them with Electron's
-embedded Node runtime. It therefore does not require a repository checkout or
-a separately installed Node.js or pnpm at runtime.
+embedded Node runtime. Native backend dependencies are rebuilt for that
+Electron runtime and smoke-tested there before Forge copies them. The app
+therefore does not require a repository checkout or a separately installed
+Node.js or pnpm at runtime.
 
 The packaged renderer uses `railgun://app/`, not `file://`. IPC is restricted
 to the known main frame and all preload traffic is runtime-validated.
