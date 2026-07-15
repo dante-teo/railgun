@@ -111,8 +111,9 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   tree.
 - Sidebar width is clamped, pointer- and keyboard-resizable, and stored in a
   versioned renderer-local record. Main-pane content follows the live sidebar
-  width while the toolbar material remains continuous across Task. Todos and current-run
-  subagents use a responsive side-car card that reserves its width and starts
+  width while the toolbar material remains continuous across Task. The Activity
+  Dashboard groups current-run advisor notes, todos, and subagents in that
+  order, using a responsive side-car card that reserves its width and starts
   visible when the Task canvas remains wide. When space is constrained it
   starts hidden, and an explicit toggle shows it as a non-width-reserving
   floating card. It is omitted from the DOM and accessibility tree without
@@ -120,7 +121,7 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   (`clamp(22.5rem, 42vw, 42rem)`) and a clear divider; it starts collapsed and
   can coexist with the activity side-car.
 - While Files is closed, its open control shares a divided glass capsule with
-  the Todos toggle in the Task toolbar. While Files is open, the collapse
+  the Activity Dashboard toggle in the Task toolbar. While Files is open, the collapse
   control moves into its header. The Files title,
   subtitle, and actions share the toolbar's titlebar centerline and control
   sizing; actionable controls remain above Electron's draggable titlebar hit
@@ -362,8 +363,8 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
 
 - [x] **DESK-008 — Render agent activity**
   - Tool running/success/error rows use native accessible disclosures with recursively redacted, pretty-formatted input/output capped at 8,000 characters per field. Redaction covers secret-bearing object keys, Bearer/token-shaped credentials, and unstructured assignments such as `PASSWORD=`, `DEVIN_TOKEN=`, and `api_key:`.
-  - Successful todo completions replace the sticky inspector snapshot without duplicating transcript rows; todo loading, textual status, completion count, and current-run subagents share the optional non-resizable inspector. It starts visible and reserves width on a wide Task canvas; on a constrained canvas it starts hidden and the explicit toggle shows it as a non-width-reserving overlay.
-  - MoA references/aggregation, severity-labelled advisor notes, and tool activity share one chronological transcript; stop, disconnect, run end, and New Task settle or clear run-scoped work.
+  - Successful todo completions replace the dashboard snapshot without duplicating transcript rows. The optional non-resizable Activity Dashboard orders Advisor, Todos, and current-run subagents. Advisor notes are grouped behind one distinct Advisor row, while delegated-agent rows show their full goal, lifecycle status, and final result in hover- and keyboard-focus popovers. Its content wraps intrinsically and Todo/Subagent lists scroll independently; it starts visible and reserves width on a wide Task canvas, while on a constrained canvas it starts hidden and the explicit toggle shows it as a non-width-reserving overlay.
+  - MoA references/aggregation and tool activity share one chronological transcript; advisor notes remain dashboard-only. Stop, disconnect, run end, and New Task settle or clear run-scoped work.
   - The main-process event boundary bounds all renderer-facing strings, parses advisory XML without forwarding it, validates normalized todos, and rejects malformed activity. RPC-created sessions activate the configured MoA preset and enabled advisor.
   - Tool-call IDs correlate only an in-flight invocation: settled IDs may be reused by later turns without suppressing their rows. Failed initial/backend runs retain the danger-styled Retry/Restart presentation.
   - The `agent-activity` mock covers parallel success/error tools, todo loading/update, MoA, advisor, and subagent events while cancellation and disconnection scenarios remain available. Mock integration tests use a persistent buffered line reader so fragmented or coalesced stdout frames are never discarded between assertions.

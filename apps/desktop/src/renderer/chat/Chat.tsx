@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { Bot, ChevronRight, FileText, FolderOpen, GitBranch, Globe, Search, Send, Square, Terminal, Wrench } from "lucide-react";
+import * as HoverCard from "@radix-ui/react-hover-card";
+import { Bot, ChevronRight, FileText, FolderOpen, GitBranch, Globe, Lightbulb, Search, Send, Square, Terminal, Wrench } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest, SessionSnapshot } from "../../shared/types";
@@ -184,7 +185,12 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
     dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos });
   };
 
-  return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, stopAndWait, reset, hydrate, setInteractionAnswer, respondToApproval, respondToClarification };
+  const refresh = (snapshot: SessionSnapshot): void => {
+    deltaBuffer.current?.clear();
+    dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos, preserveDashboard: true });
+  };
+
+  return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, stopAndWait, reset, hydrate, refresh, setInteractionAnswer, respondToApproval, respondToClarification };
 };
 
 export type ChatController = ReturnType<typeof useChatController>;
@@ -213,11 +219,6 @@ const ToolActivityGlyph = ({ icon }: { readonly icon: ToolActivityIcon }): React
 };
 
 const ActivityRow = ({ entry }: { readonly entry: ActivityEntry }): React.JSX.Element => {
-  if (entry.kind === "advisor") return (
-    <article className={`activity-row advisor-row ${entry.severity}`}>
-      <div className="activity-label">Advisor {entry.severity}</div><p>{entry.text}</p>
-    </article>
-  );
   if (entry.kind === "moa-aggregation") return (
     <article className={`activity-row moa-row ${entry.status}`}>
       <div><span className="activity-label">Aggregating {entry.refCount} {entry.refCount === 1 ? "reference" : "references"}</span><span className="activity-status">{STATUS_LABEL[entry.status]}</span></div>
@@ -311,13 +312,91 @@ const ToolActivityGroupRow = ({ group }: { readonly group: ToolActivityGroup }):
   );
 };
 
-export const ActivityInspector = ({ activity }: { readonly activity: ActivityState }): React.JSX.Element => {
-  if (activity.todos.length === 0 && activity.subagents.length === 0 && !activity.todoLoading) return <></>;
+const DashboardAgentRow = ({
+  label,
+  status,
+  icon,
+  advisor = false,
+  children,
+}: {
+  readonly label: string;
+  readonly status: string;
+  readonly icon: ReactNode;
+  readonly advisor?: boolean;
+  readonly children: ReactNode;
+}): React.JSX.Element => (
+  <DashboardAgentHoverCard label={label} status={status} icon={icon} advisor={advisor}>{children}</DashboardAgentHoverCard>
+);
+
+const DashboardAgentHoverCard = ({
+  label,
+  status,
+  icon,
+  advisor,
+  children,
+}: {
+  readonly label: string;
+  readonly status: string;
+  readonly icon: ReactNode;
+  readonly advisor: boolean;
+  readonly children: ReactNode;
+}): React.JSX.Element => {
+  const [open, setOpen] = useState(false);
+  return <HoverCard.Root open={open} onOpenChange={setOpen} openDelay={100} closeDelay={200}>
+    <HoverCard.Trigger asChild>
+      <button type="button" className={`dashboard-agent-row${advisor ? " advisor" : ""}`} aria-label={`${label} — ${status}`} onFocus={() => setOpen(true)}>
+        <span className="dashboard-agent-icon" aria-hidden="true">{icon}</span>
+        <span className="dashboard-agent-copy"><span>{label}</span><span className="dashboard-agent-status">{status}</span></span>
+      </button>
+    </HoverCard.Trigger>
+    <HoverCard.Portal>
+      <HoverCard.Content
+        className="activity-agent-popover"
+        side="left"
+        align="start"
+        sideOffset={10}
+        collisionPadding={16}
+      >
+        {children}
+        <HoverCard.Arrow className="activity-agent-popover-arrow" width={12} height={6} />
+      </HoverCard.Content>
+    </HoverCard.Portal>
+  </HoverCard.Root>;
+};
+
+const SubagentDashboardRow = ({ subagent }: { readonly subagent: ActivityState["subagents"][number] }): React.JSX.Element => (
+  <li>
+    <DashboardAgentRow label={subagent.goal} status={SUBAGENT_STATUS_LABEL[subagent.status]} icon={<Bot />}>
+      <p className="activity-agent-popover-eyebrow">Subagent · {SUBAGENT_STATUS_LABEL[subagent.status]}</p>
+      <h3>{subagent.goal}</h3>
+      {subagent.result === undefined ? null : <><h4>Final result</h4><p>{subagent.result}</p></>}
+    </DashboardAgentRow>
+  </li>
+);
+
+const AdvisorDashboardRow = ({ notes }: { readonly notes: ActivityState["advisorNotes"] }): React.JSX.Element => (
+  <li>
+    <DashboardAgentRow label="Advisor" status={`${String(notes.length)} ${notes.length === 1 ? "note" : "notes"}`} icon={<Lightbulb />} advisor>
+      <p className="activity-agent-popover-eyebrow">Advisor · {String(notes.length)} {notes.length === 1 ? "note" : "notes"}</p>
+      <h3>Advisor notes</h3>
+      <ol className="advisor-note-list">{notes.map(note => <li key={note.order} className={note.severity}>
+        <span>{note.severity}</span><p>{note.text}</p>
+      </li>)}</ol>
+    </DashboardAgentRow>
+  </li>
+);
+
+export const ActivityDashboard = ({ activity }: { readonly activity: ActivityState }): React.JSX.Element => {
+  if (activity.todos.length === 0 && activity.subagents.length === 0 && activity.advisorNotes.length === 0 && !activity.todoLoading) return <></>;
   const completed = activity.todos.filter(todo => todo.status === "completed").length;
   return (
-    <div className="activity-inspector" role="region" aria-label="Agent activity inspector">
-      {activity.todoLoading || activity.todos.length > 0 ? <section aria-labelledby="todo-heading">
-        <header><h2 id="todo-heading">Todos</h2>{activity.todoLoading
+    <div className="activity-dashboard" role="region" aria-label="Activity Dashboard">
+      <header className="activity-dashboard-title"><h2>Activity Dashboard</h2></header>
+      {activity.advisorNotes.length > 0 ? <section className="activity-dashboard-section" aria-label="Advisor">
+        <ol className="activity-agent-list"><AdvisorDashboardRow notes={activity.advisorNotes} /></ol>
+      </section> : null}
+      {activity.todoLoading || activity.todos.length > 0 ? <section className="activity-dashboard-section" aria-labelledby="todo-heading">
+        <header><h3 id="todo-heading">Todos</h3>{activity.todoLoading
           ? <span className="inspector-loading" role="status">Updating todos…</span>
           : <span>{completed} of {activity.todos.length} complete</span>}</header>
         <ol>{activity.todos.map(todo => <li key={todo.id} className={todo.status}>
@@ -325,13 +404,11 @@ export const ActivityInspector = ({ activity }: { readonly activity: ActivitySta
           <span className="todo-content">{todo.content}</span><span className="todo-status">{TODO_STATUS_LABEL[todo.status]}</span>
         </li>)}</ol>
       </section> : null}
-      {activity.subagents.length > 0 ? <section aria-labelledby="subagent-heading">
-        <header><h2 id="subagent-heading">Subagents</h2></header>
-        <ol>{activity.subagents.map(subagent => <li key={subagent.index}>
-          <span className="todo-content">{subagent.goal}</span>
-          <span className="subagent-status">{SUBAGENT_STATUS_LABEL[subagent.status]}</span>
-          {subagent.result === undefined ? null : <p>{subagent.result}</p>}
-        </li>)}</ol>
+      {activity.subagents.length > 0 ? <section className="activity-dashboard-section" aria-labelledby="subagents-heading">
+        <header><h3 id="subagents-heading">Subagents</h3><span>{String(activity.subagents.length)}</span></header>
+        <ol className="activity-agent-list">
+          {activity.subagents.map(subagent => <SubagentDashboardRow key={subagent.index} subagent={subagent} />)}
+        </ol>
       </section> : null}
     </div>
   );

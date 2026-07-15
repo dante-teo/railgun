@@ -120,6 +120,26 @@ describe("chat event reduction", () => {
     ]);
   });
 
+  it("preserves run-scoped agents and advisor notes when refreshing the active session", () => {
+    let state = chatReducer(initialChatState, { type: "activity", event: { type: "subagent-start", index: 0, count: 1, goal: "Inspect" } });
+    state = chatReducer(state, { type: "activity", event: { type: "advisor-note", severity: "concern", text: "Check persistence" } });
+    state = chatReducer(state, { type: "activity", event: { type: "subagent-end", index: 0, goal: "Inspect", result: "Done" } });
+
+    const refreshed = chatReducer(state, {
+      type: "hydrate",
+      messages: [{ role: "assistant", text: "Persisted" }],
+      todos: [{ id: "todo", content: "Persist todo", status: "completed" }],
+      preserveDashboard: true,
+    });
+    expect(refreshed.activity.subagents).toEqual([expect.objectContaining({ goal: "Inspect", status: "completed", result: "Done" })]);
+    expect(refreshed.activity.advisorNotes).toEqual([expect.objectContaining({ severity: "concern", text: "Check persistence" })]);
+    expect(refreshed.activity.todos).toEqual([{ id: "todo", content: "Persist todo", status: "completed" }]);
+
+    const switched = chatReducer(refreshed, { type: "hydrate", messages: [], todos: [] });
+    expect(switched.activity.subagents).toEqual([]);
+    expect(switched.activity.advisorNotes).toEqual([]);
+  });
+
   it("keeps simultaneous prompts in arrival order and settles them at lifecycle boundaries", () => {
     let state = chatReducer(initialChatState, { type: "initial-submit", id: "user-1", text: "hello" });
     state = chatReducer(state, { type: "interaction-request", request: { type: "approval", id: "11111111-1111-4111-8111-111111111111", command: "echo one" } });

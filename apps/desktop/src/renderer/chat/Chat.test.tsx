@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import type { BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
-import { ActivityInspector, collapseCompletedTurnActivity, Composer, groupConsecutiveToolActivities, toolActivityGroupKey, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController, WorkedActivityGroup } from "./Chat";
+import { ActivityDashboard, collapseCompletedTurnActivity, Composer, groupConsecutiveToolActivities, toolActivityGroupKey, Transcript, transcriptActiveDashIndexes, transcriptIndicatorDashCount, transcriptIsAtBottom, transcriptScrollProgress, useChatController, WorkedActivityGroup } from "./Chat";
+
+Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: class {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+} });
 
 const overlayHarness = vi.hoisted(() => ({
   clientHeight: 0,
@@ -157,7 +163,7 @@ const makeApi = (overrides: Partial<RailgunDesktopApi> = {}) => {
 
 const Harness = (): React.JSX.Element => {
   const controller = useChatController(ready);
-  return <><Transcript controller={controller} snapshot={ready} onRestart={async () => undefined} /><ActivityInspector activity={controller.state.activity} /><Composer controller={controller} available /><button>After composer</button></>;
+  return <><Transcript controller={controller} snapshot={ready} onRestart={async () => undefined} /><ActivityDashboard activity={controller.state.activity} /><Composer controller={controller} available /><button>After composer</button></>;
 };
 
 describe("chat renderer", () => {
@@ -167,7 +173,7 @@ describe("chat renderer", () => {
       { kind: "tool", id: "two", name: "write_file", status: "success", order: 2 },
       { kind: "tool", id: "read", name: "read_file", status: "success", order: 3 },
       { kind: "tool", id: "three", name: "write_file", status: "success", order: 4 },
-      { kind: "advisor", id: "note", severity: "nit", text: "Keep this separate", order: 5 },
+      { kind: "moa-aggregation", id: "aggregate", model: "mock", refCount: 1, status: "success", order: 5 },
       { kind: "tool", id: "four", name: "write_file", status: "success", order: 6 },
       { kind: "tool", id: "five", name: "write_file", status: "success", order: 7 },
     ]);
@@ -190,7 +196,7 @@ describe("chat renderer", () => {
     const groups = groupConsecutiveToolActivities([
       { kind: "tool", id: "a", name: "write_file", status: "success", order: 10 },
       { kind: "tool", id: "b", name: "write_file", status: "success", order: 11 },
-      { kind: "advisor", id: "boundary", severity: "nit", text: "Separate groups", order: 12 },
+      { kind: "moa-aggregation", id: "boundary", model: "mock", refCount: 1, status: "success", order: 12 },
       { kind: "tool", id: "a", name: "write_file", status: "success", order: 20 },
       { kind: "tool", id: "b", name: "write_file", status: "success", order: 21 },
     ]).filter(entry => entry.kind === "tool-group");
@@ -476,7 +482,7 @@ describe("chat renderer", () => {
     expect(screen.getAllByText("request")).toHaveLength(1);
   });
 
-  it("renders compact tool activity with expandable details, advisor severity, and MoA progress", () => {
+  it("renders compact tool activity and MoA progress while keeping advisor notes out of the transcript", () => {
     const bridge = makeApi();
     render(<Harness />);
     act(() => bridge.emit({ type: "tool-start", id: "a", name: "read_file", input: '{"path":"README.md"}' }));
@@ -502,7 +508,9 @@ describe("chat renderer", () => {
     expect(screen.getByText("Reference 1 of 1")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference").parentElement?.textContent).toContain("Completed");
-    expect(screen.getByText("Advisor blocker").closest(".advisor-row")?.className).toContain("blocker");
+    expect(screen.getByRole("region", { name: "Activity Dashboard" })).toBeTruthy();
+    expect(screen.queryByText("Advisor blocker")).toBeNull();
+    expect(screen.queryByText("Tests are missing")).toBeNull();
   });
 
   it("merges consecutive tool rows into an expandable parameter-free summary", () => {
@@ -523,20 +531,45 @@ describe("chat renderer", () => {
     expect(screen.getAllByText("Edited")).toHaveLength(2);
   });
 
-  it("shows todo loading and replacement plus current-run subagent statuses, then clears on reset", () => {
+  it("shows the Activity Dashboard in Advisor, Todo, Subagents order with agent detail popovers and run lifecycle updates", () => {
     const bridge = makeApi();
     render(<Harness />);
     act(() => bridge.emit({ type: "run-start" }));
     act(() => bridge.emit({ type: "tool-start", id: "todo-1", name: "todo" }));
     act(() => bridge.emit({ type: "subagent-start", index: 0, count: 1, goal: "Inspect tests" }));
-    expect(screen.getByRole("region", { name: "Agent activity inspector" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Activity Dashboard" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Todos" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Subagents" })).toBeTruthy();
     expect(screen.getByText("Updating todos…")).toBeTruthy();
-    expect(screen.getByText("Running", { selector: ".subagent-status" })).toBeTruthy();
+    const subagent = screen.getByRole("button", { name: "Inspect tests — Running" });
+    fireEvent.focus(subagent);
+    expect(screen.getByRole("heading", { name: "Inspect tests" })).toBeTruthy();
     act(() => bridge.emit({ type: "tool-end", id: "todo-1", name: "todo", failed: false, todos: [{ id: "a", content: "Implement", status: "completed" }, { id: "b", content: "Verify", status: "in_progress" }] }));
     expect(screen.getByText("1 of 2 complete")).toBeTruthy();
     expect(screen.getByText("In progress")).toBeTruthy();
     act(() => bridge.emit({ type: "subagent-end", index: 0, goal: "Inspect tests", result: "Found coverage" }));
-    expect(screen.getByText("Completed", { selector: ".subagent-status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Inspect tests — Completed" })).toBeTruthy();
+    expect(screen.getByText("Final result")).toBeTruthy();
+    expect(screen.getByText("Found coverage")).toBeTruthy();
+
+    act(() => bridge.emit({ type: "advisor-note", severity: "concern", text: "Keep the detail surface keyboard accessible." }));
+    act(() => bridge.emit({ type: "advisor-note", severity: "blocker", text: "Avoid rendering advisor text in the transcript." }));
+    expect(screen.queryByRole("heading", { name: "Advisor" })).toBeNull();
+    const advisor = screen.getByRole("button", { name: "Advisor — 2 notes" });
+    fireEvent.focus(advisor);
+    expect(screen.getByRole("heading", { name: "Advisor notes" })).toBeTruthy();
+    expect(screen.getByText("concern")).toBeTruthy();
+    expect(screen.getByText("blocker")).toBeTruthy();
+    expect(screen.getByText("Keep the detail surface keyboard accessible.")).toBeTruthy();
+    expect([...document.querySelectorAll(".activity-dashboard-section")].map(section =>
+      section.getAttribute("aria-label") ?? section.querySelector("h3")?.textContent,
+    )).toEqual(["Advisor", "Todos", "Subagents"]);
+
+    act(() => bridge.emit({ type: "subagent-start", index: 1, count: 2, goal: "Verify interruption" }));
+    act(() => bridge.emit({ type: "run-end" }));
+    expect(screen.getByRole("button", { name: "Verify interruption — Interrupted" })).toBeTruthy();
+    act(() => bridge.emit({ type: "run-start" }));
+    expect(screen.queryByRole("button", { name: /Inspect tests|Verify interruption|Advisor/u })).toBeNull();
   });
 
   it("renders correlated approval and clarification prompts while locking the composer", async () => {

@@ -381,11 +381,13 @@ describe("mock backend process", () => {
       const events = frames.filter(frame => frame.type !== "response").map(toDesktopAgentEvent);
       expect(events.every(event => event !== undefined && DesktopAgentEventSchema.safeParse(event).success)).toBe(true);
       expect(events.map(event => event?.type)).toEqual([
-        "run-start", "tool-start", "subagent-start", "tool-start", "tool-start", "moa-reference-start",
+        "run-start", "tool-start", "subagent-start", "subagent-start", "tool-start", "tool-start", "moa-reference-start",
         "tool-end", "tool-end", "tool-end", "moa-reference-end", "moa-aggregating", "advisor-note",
-        "subagent-end", "assistant-delta", "assistant-complete", "context-usage", "run-end",
+        "subagent-end", "advisor-note", "subagent-end", "advisor-note", "assistant-delta", "assistant-complete", "context-usage", "run-end",
       ]);
       expect(events).toContainEqual(expect.objectContaining({ type: "tool-end", id: "shell-1", failed: true }));
+      expect(events).toContainEqual(expect.objectContaining({ type: "subagent-end", index: 1, result: "Dashboard interaction states verified." }));
+      expect(events.filter(event => event?.type === "advisor-note").map(event => event?.severity)).toEqual(["nit", "concern", "blocker"]);
     } finally {
       child.kill();
     }

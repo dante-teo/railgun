@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import type { BackendPhase, BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../shared/types";
+import type { BackendPhase, BackendSnapshot, DesktopAgentEvent, RailgunDesktopApi, SessionSnapshot } from "../shared/types";
 import { BackendStatus } from "./backendStatus";
 import { readStoredArea } from "./routeStorage";
 import { filterSessions } from "./tasks/filterSessions";
@@ -299,6 +299,7 @@ describe("desktop shell", () => {
 
   it("uses the product chat UI in mock mode and streams validated replies", async () => {
     const agentListeners = new Set<(event: DesktopAgentEvent) => void>();
+    const sessionListeners = new Set<(snapshot: SessionSnapshot) => void>();
     const sendPrompt = vi.fn(async () => undefined);
     const abortPrompt = vi.fn(async () => undefined);
     const startNewChat = vi.fn(async () => desktopSession);
@@ -318,6 +319,7 @@ describe("desktop shell", () => {
       startNewChat,
       ...sessionApi,
       ...controlApi,
+      onSessionSnapshot: (listener) => { sessionListeners.add(listener); return () => sessionListeners.delete(listener); },
       onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,
@@ -368,30 +370,45 @@ describe("desktop shell", () => {
     expect(screen.getByText("Mock response")).toBeTruthy();
     act(() => agentListeners.forEach(listener => listener({ type: "tool-start", id: "todo", name: "todo" })));
     act(() => agentListeners.forEach(listener => listener({ type: "tool-end", id: "todo", name: "todo", failed: false, todos: [{ id: "done", content: "Desktop activity", status: "completed" }] })));
-    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
+    act(() => agentListeners.forEach(listener => listener({ type: "subagent-start", index: 0, count: 1, goal: "Inspect dashboard persistence" })));
+    act(() => agentListeners.forEach(listener => listener({ type: "advisor-note", severity: "concern", text: "Keep the dashboard visible after checkpointing." })));
+    act(() => agentListeners.forEach(listener => listener({ type: "subagent-end", index: 0, goal: "Inspect dashboard persistence", result: "Dashboard remains visible." })));
+    act(() => sessionListeners.forEach(listener => listener({
+      ...desktopSession,
+      messageCount: 2,
+      checkpoint: { state: "saved" },
+      transcript: [{ role: "user", text: "hello" }, { role: "assistant", text: "Mock response" }],
+      todos: [{ id: "done", content: "Desktop activity", status: "completed" }],
+    })));
+    expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Inspect dashboard persistence — Completed" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Advisor — 1 note" })).toBeTruthy();
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
-    const hideTodos = screen.getByRole("button", { name: "Hide Todos" });
-    expect(hideTodos.getAttribute("aria-pressed")).toBe("true");
-    expect(hideTodos.querySelector(".lucide-sliders-horizontal")).not.toBeNull();
-    expect(hideTodos.closest(".content-toolbar")).toBeNull();
-    fireEvent.click(hideTodos);
-    expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
+    const hideDashboard = screen.getByRole("button", { name: "Hide Activity Dashboard" });
+    expect(hideDashboard.getAttribute("aria-pressed")).toBe("true");
+    expect(hideDashboard.querySelector(".lucide-sliders-horizontal")).not.toBeNull();
+    expect(hideDashboard.closest(".content-toolbar")).toBeNull();
+    fireEvent.click(hideDashboard);
+    expect(screen.queryByRole("complementary", { name: "Activity Dashboard" })).toBeNull();
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
-    const showTodos = screen.getByRole("button", { name: "Show Todos" });
-    expect(showTodos.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(showTodos);
-    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
+    const showDashboard = screen.getByRole("button", { name: "Show Activity Dashboard" });
+    expect(showDashboard.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(showDashboard);
+    expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
     const openFiles = screen.getByRole("button", { name: "Open Files" });
     expect(openFiles.getAttribute("aria-pressed")).toBe("false");
-    expect(openFiles.closest(".right-pane-controls")).toBe(showTodos.closest(".right-pane-controls"));
+    expect(openFiles.closest(".right-pane-controls")).toBe(showDashboard.closest(".right-pane-controls"));
     fireEvent.click(openFiles);
     expect(await screen.findByRole("complementary", { name: "Files workspace" })).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull());
-    const showOverlayTodos = screen.getByRole("button", { name: "Show Todos" });
-    expect(showOverlayTodos.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(showOverlayTodos);
-    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Hide Activity Dashboard" }).closest(".single-pane-control")).not.toBeNull();
+    expect(document.querySelector(".desktop-shell")?.classList.contains("inspector-overlay")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Hide Activity Dashboard" }));
+    const showOverlayDashboard = screen.getByRole("button", { name: "Show Activity Dashboard" });
+    expect(showOverlayDashboard.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(showOverlayDashboard);
+    expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
     expect(document.querySelector(".desktop-shell")?.classList.contains("inspector-overlay")).toBe(true);
     const collapseFiles = screen.getByRole("button", { name: "Collapse Files" });
     expect(collapseFiles.closest(".files-header")).not.toBeNull();

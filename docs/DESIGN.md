@@ -106,7 +106,7 @@ the same model; text entry is reserved for free-form answers and preset names.
   top-aligned for stable scrolling.
 
 - The desktop transcript uses the same chronological contract for assistant
-  messages, tools, MoA references/aggregation, and advisor notes. Tool rows are
+  messages, tools, and MoA references/aggregation. Tool rows are
   plain native `details`/`summary` disclosures: an icon plus a concise action and
   target (for example, `Edited scheduler.ts`) is shown by default, while
   sanitized live input/output remains available on expansion. Restored file-tool
@@ -117,20 +117,23 @@ the same model; text entry is reserved for free-form answers and preset names.
   remains at full contrast, shows a down chevron, and its children retain their
   own hover treatment. A collapsed merged summary shows a right chevron only on
   hover. Tool state remains part of the disclosure's accessible name and error
-  or interrupted icons use the matching semantic color. Advisor `nit`, `concern`,
-  and `blocker` rows use success, warning, and danger tokens. Todos and
-  current-run subagents appear only in the non-resizable responsive inspector;
-  it reserves transcript space and starts visible at wide widths. When the
-  remaining Task canvas is constrained it starts hidden; its explicit toggle
-  shows the card as an overlay without reserving transcript width. Its section
-  header stays sticky, todo progress is textual, and status glyphs are
-  supplemental. These surfaces retain Reduce Transparency, Increase
+  or interrupted icons use the matching semantic color. The non-resizable,
+  responsive **Activity Dashboard** keeps advisor notes out of the transcript.
+  It orders its current-run sections as Advisor, Todos, then Subagents. The
+  single Advisor row uses a distinct icon and exposes severity-styled `nit`,
+  `concern`, and `blocker` notes in a hover- and focus-accessible popover;
+  subagent rows expose their full goal, lifecycle status, and final result in
+  the same way. The card wraps its content, independently caps its Todo and
+  Subagent lists, reserves transcript space and starts visible at wide widths.
+  When the remaining Task canvas is constrained it starts hidden; its explicit
+  toggle shows the card as an overlay without reserving transcript width. Todo
+  progress is textual and status glyphs are supplemental. These surfaces retain Reduce Transparency, Increase
   Contrast, and Reduce Motion behavior through the existing semantic tokens.
   The separate Files pane uses an opaque split tree/preview surface with a
   clear divider. Its header aligns to the toolbar centerline without inheriting
   the toolbar's extra visual depth: the open action stays in the Task toolbar
-  while collapsed, where it shares one divided glass capsule with the Todos
-  toggle, and the collapse action moves into the pane header while open.
+  while collapsed, where it shares one divided glass capsule with the Activity
+  Dashboard toggle, and the collapse action moves into the pane header while open.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission or
   backend interruption remains a danger-styled inline row with its Retry or

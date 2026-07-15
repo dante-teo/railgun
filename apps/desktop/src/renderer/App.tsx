@@ -8,7 +8,7 @@ import { ErrorState, LoadingState } from "./components/ui/state";
 import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
 import { ShellLayout } from "./shell/ShellLayout";
-import { ActivityInspector, Composer, Transcript, useChatController } from "./chat/Chat";
+import { ActivityDashboard, Composer, Transcript, useChatController } from "./chat/Chat";
 import { ChatToolbarControls } from "./chat/ChatControls";
 import { PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
 import { errorMessage } from "./lib/utils";
@@ -16,7 +16,6 @@ import { readStoredArea, writeStoredArea } from "./routeStorage";
 import type { AppArea } from "./routeStorage";
 import { TaskPalette } from "./tasks/TaskPalette";
 import { FileBrowser } from "./files/FileBrowser";
-import type { InspectorLayoutMode } from "./shell/inspectorLayout";
 import { SettingsPage } from "./settings/SettingsPage";
 import { AutomationPage } from "./automation/AutomationPage";
 
@@ -46,19 +45,14 @@ export const App = (): React.JSX.Element => {
   const [pendingSettingsExit, setPendingSettingsExit] = useState<(() => void) | undefined>();
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
-  const activityLayoutMode = useRef<InspectorLayoutMode | undefined>(undefined);
+  const activeSessionId = useRef<string | undefined>(undefined);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
   const hasActivity = chat.state.activity.todos.length > 0
     || chat.state.activity.subagents.length > 0
+    || chat.state.activity.advisorNotes.length > 0
     || chat.state.activity.todoLoading;
-  const handleInspectorLayoutModeChange = useCallback((mode: InspectorLayoutMode): void => {
-    if (activityLayoutMode.current === mode) return;
-    activityLayoutMode.current = mode;
-    setActivityPaneVisible(mode === "reserved");
-  }, []);
-
   const selectArea = (next: AppArea): void => {
     setArea(next);
     try { writeStoredArea(window.localStorage, next); }
@@ -96,8 +90,11 @@ export const App = (): React.JSX.Element => {
     );
     const unsubscribeSnapshot = window.railgunDesktop.onBackendSnapshot(setSnapshot);
     const unsubscribeSession = window.railgunDesktop.onSessionSnapshot((next) => {
+      const sameSession = activeSessionId.current === undefined || activeSessionId.current === next.id;
+      activeSessionId.current = next.id;
       setActiveSession(next);
-      chat.hydrate(next);
+      if (sameSession) chat.refresh(next);
+      else chat.hydrate(next);
       setControlsResetKey(key => key + 1);
       void loadSessions();
     });
@@ -124,6 +121,7 @@ export const App = (): React.JSX.Element => {
   }, []);
 
   const activateSessionSnapshot = (nextSession: SessionSnapshot): void => {
+    activeSessionId.current = nextSession.id;
     setActiveSession(nextSession);
     chat.hydrate(nextSession);
     setControlsResetKey(key => key + 1);
@@ -314,15 +312,15 @@ export const App = (): React.JSX.Element => {
           <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
         </div>
       </>;
-  const todoPaneToggle = <Button
+  const activityPaneToggle = <Button
       type="button"
       variant="sidebarIcon"
       size="icon"
-      className="todo-pane-toggle"
-      aria-label={hasActivity && activityPaneVisible ? "Hide Todos" : "Show Todos"}
+      className="activity-pane-toggle"
+      aria-label={hasActivity && activityPaneVisible ? "Hide Activity Dashboard" : "Show Activity Dashboard"}
       aria-pressed={hasActivity && activityPaneVisible}
       disabled={!hasActivity}
-      title={hasActivity && activityPaneVisible ? "Hide Todos" : "Show Todos"}
+      title={hasActivity && activityPaneVisible ? "Hide Activity Dashboard" : "Show Activity Dashboard"}
       onClick={() => setActivityPaneVisible(visible => !visible)}
     ><SlidersHorizontal aria-hidden="true" /></Button>;
   const filesPaneToggle = <Button
@@ -338,7 +336,9 @@ export const App = (): React.JSX.Element => {
   const firstUserMessage = activeSession?.transcript.find((entry): entry is RestoredTranscriptMessage => entry.role === "user");
   const toolbarActions = <div className="content-toolbar-actions">
     <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
-    {filesPaneVisible ? todoPaneToggle : <div className="right-pane-controls">{todoPaneToggle}{filesPaneToggle}</div>}
+    {filesPaneVisible
+      ? <div className="right-pane-controls single-pane-control">{activityPaneToggle}</div>
+      : <div className="right-pane-controls">{activityPaneToggle}{filesPaneToggle}</div>}
   </div>;
   const chatContent = <section className="chat-surface">
           <header className="content-toolbar">
@@ -370,13 +370,13 @@ export const App = (): React.JSX.Element => {
         collapsedSidebarAction={<Button type="button" variant="sidebarIcon" size="icon" aria-label="New Task" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" /></Button>}
         main={content}
         mainAction={area === "chat" ? toolbarActions : undefined}
-        inspector={area === "chat" && hasActivity ? <ActivityInspector activity={chat.state.activity} /> : undefined}
+        inspector={area === "chat" && hasActivity ? <ActivityDashboard activity={chat.state.activity} /> : undefined}
+        inspectorLabel="Activity Dashboard"
         inspectorVisible={area === "chat" && activityPaneVisible}
         workspace={area === "chat" ? <FileBrowser onCollapse={() => setFilesPaneVisible(false)} /> : undefined}
         workspaceVisible={area === "chat" && filesPaneVisible}
         sidebarVisible={!sidebarCollapsed}
         onSidebarVisibilityChange={(visible) => setSidebarCollapsed(!visible)}
-        onInspectorLayoutModeChange={handleInspectorLayoutModeChange}
       />
       <CommandPalette
         open={paletteOpen}

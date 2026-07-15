@@ -73,11 +73,10 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.composer\s*\{[^}]*background:\s*var\(--material-content\)[^}]*\}/u);
     expect(css).toMatch(/\.shell-inspector\s*\{[^}]*width:\s*var\(--inspector-width\)[^}]*min-width:\s*var\(--inspector-width\)[^}]*height:\s*100%[^}]*display:\s*flex[^}]*padding:\s*calc\(var\(--titlebar-height\) \+ var\(--space-2\)\) var\(--space-4\) var\(--space-2\) 0[^}]*background:\s*transparent/u);
     expect(css).toMatch(/\.shell-workspace\s*\{[^}]*width:\s*var\(--workspace-width\)[^}]*min-width:\s*var\(--workspace-width\)[^}]*border-left:\s*1px solid var\(--color-border-strong\)/u);
-    expect(css).toMatch(/\.activity-inspector\s*\{[^}]*width:\s*100%[^}]*max-height:\s*100%[^}]*overflow:\s*auto[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-radius:\s*var\(--radius-xl\)[^}]*background:\s*var\(--material-content\)[^}]*box-shadow:\s*var\(--shadow-popover\)/u);
-    expect(css).toMatch(/\.activity-inspector\s*\{[^}]*pointer-events:\s*auto/u);
-    const inspector = css.match(/\.activity-inspector\s*\{(?<rules>[^}]*)\}/u)?.groups?.rules ?? "";
-    expect(inspector).not.toMatch(/(?:^|;)\s*height\s*:/u);
-    expect(css).toMatch(/\.activity-inspector li:last-child\s*\{[^}]*border-bottom:\s*0/u);
+    expect(css).toMatch(/\.activity-dashboard\s*\{[^}]*width:\s*100%[^}]*max-height:\s*calc\(100vh - var\(--titlebar-height\) - var\(--space-6\)\)[^}]*align-self:\s*flex-start[^}]*border:\s*1px solid var\(--color-border\)[^}]*border-radius:\s*var\(--radius-xl\)[^}]*background:\s*var\(--material-content\)[^}]*box-shadow:\s*var\(--shadow-popover\)[^}]*overflow:\s*auto[^}]*pointer-events:\s*auto/u);
+    expect(css).not.toMatch(/\.activity-dashboard\s*\{[^}]*height:\s*100%/u);
+    expect(css).toMatch(/\.activity-dashboard ol\s*\{[^}]*max-height:\s*min\(12rem, 24vh\)[^}]*overflow:\s*auto/u);
+    expect(css).toMatch(/\.activity-dashboard li:last-child\s*\{[^}]*border-bottom:\s*0/u);
   });
 
   it("uses dense dialog and anchored popover recipes with a blurred seamless toolbar", () => {
@@ -101,7 +100,7 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.content-toolbar-actions \.ui-button:not\(:disabled\):hover\s*\{[^}]*transform:\s*none[^}]*box-shadow:\s*none/u);
     expect(css).not.toContain("--shadow-toolbar-control-hover");
     expect(css).toMatch(/\.content-toolbar-actions\s*\{[^}]*z-index:\s*var\(--layer-titlebar-control\)[^}]*-webkit-app-region:\s*no-drag/u);
-    expect(css).toMatch(/\.todo-pane-toggle\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--color-surface-control-active\)/u);
+    expect(css).toMatch(/\.activity-pane-toggle\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--color-text\)[^}]*background:\s*var\(--color-surface-control-active\)/u);
     expect(css).toMatch(/\.right-pane-controls\s*\{[^}]*border-radius:\s*var\(--radius-pill\)[^}]*background:\s*var\(--color-surface-control\)[^}]*box-shadow:\s*none[^}]*backdrop-filter:\s*none/u);
     expect(css).toMatch(/\.right-pane-controls::after\s*\{[^}]*width:\s*1px[^}]*background:\s*var\(--color-border-strong\)/u);
     expect(css).toMatch(/\.ui-button-compact-icon\s*\{[^}]*width:\s*1\.5rem[^}]*height:\s*1\.5rem[^}]*border-radius:\s*var\(--radius-xs\)/u);

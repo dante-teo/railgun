@@ -796,6 +796,7 @@ current renderer state intact.
 
 The desktop mock also includes ordered saved tasks (including rich Markdown,
 todo, scrolling, and dense completed-task fixtures with grouped tool activity),
+an **Agent activity** scenario with todos, delegated agents, and advisor notes,
 empty/error stores, approval, choice clarification, free-text clarification,
 cancellation, and disconnection scenarios. Approval and
 clarification prompts are rendered inline; the ordinary composer is locked while
@@ -862,12 +863,17 @@ failure states, never tool arguments or results. Consecutive uses of the same
 tool merge into a parameter-free summary such as **Edited files**; expanding it
 reveals the individual tool rows and their available details.
 
-When todos exist, the top-right toggle controls a non-resizable floating card.
-At wide widths it reserves transcript space and wraps its content up to the
-available height; at constrained widths the same visible card becomes an
+When current-run activity exists, the top-right **Activity Dashboard** toggle
+controls a non-resizable, intrinsic-height sidecar. It orders Advisor, Todos,
+and delegated subagents; each list scrolls independently when needed. Advisor
+notes never appear in the transcript: the dashboard groups them under one
+Advisor row, whose hover- or keyboard-focus popover exposes severity-labelled
+notes. Delegated-agent rows similarly expose their full goal, lifecycle status,
+and final result when available. At wide widths the dashboard reserves
+transcript space; at constrained widths the same visible card becomes an
 overlay instead of disappearing or leaving an empty pane behind it.
-While Files is closed, the Todos and Files controls share one divided glass
-capsule. Opening Files gives it a fully separate opaque right workspace with its
+While Files is closed, the Activity Dashboard and Files controls share one
+divided glass capsule. Opening Files gives it a fully separate opaque right workspace with its
 own header and divider; the Task toolbar material stops at that boundary.
 
 The real desktop backend never opens browser OAuth implicitly during startup.

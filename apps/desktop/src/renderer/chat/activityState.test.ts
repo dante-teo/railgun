@@ -51,7 +51,7 @@ describe("agent activity reduction", () => {
     expect(state.todoLoading).toBe(false);
   });
 
-  it("correlates MoA references and appends aggregation and advisor rows", () => {
+  it("correlates MoA references while grouping advisor notes outside transcript activity", () => {
     let state = activityReducer(initialActivityState, { type: "moa-reference-start", index: 0, count: 1, model: "ref", order: 1 });
     state = activityReducer(state, { type: "moa-reference-end", index: 0, model: "ref", preview: "answer" });
     state = activityReducer(state, { type: "moa-aggregating", model: "agg", refCount: 1, order: 2 });
@@ -60,8 +60,8 @@ describe("agent activity reduction", () => {
     expect(state.entries).toEqual([
       expect.objectContaining({ kind: "moa-reference", status: "success", preview: "answer", order: 1 }),
       expect.objectContaining({ kind: "moa-aggregation", model: "agg", status: "success", order: 2 }),
-      expect.objectContaining({ kind: "advisor", severity: "concern", order: 3 }),
     ]);
+    expect(state.advisorNotes).toEqual([expect.objectContaining({ severity: "concern", text: "Check", order: 3 })]);
   });
 
   it("tracks current-run subagents and settles running work on end, cancellation, and disconnect", () => {
@@ -70,8 +70,10 @@ describe("agent activity reduction", () => {
     state = activityReducer(state, { type: "settle", reason: "interrupted" });
     expect(state.subagents).toEqual([expect.objectContaining({ status: "interrupted" })]);
     expect(state.entries).toEqual([expect.objectContaining({ status: "interrupted" })]);
+    state = activityReducer(state, { type: "advisor-note", severity: "nit", text: "Run scoped", order: 3 });
     state = activityReducer(state, { type: "run-start" });
     expect(state.subagents).toEqual([]);
+    expect(state.advisorNotes).toEqual([]);
     state = activityReducer(state, { type: "reset" });
     expect(state).toBe(initialActivityState);
   });

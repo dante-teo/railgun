@@ -134,7 +134,7 @@ export const MOCK_SCENARIOS = defineMockScenarios([
   {
     id: "agent-activity",
     label: "Agent activity",
-    description: "Emits tools, todos, MoA, advisor, and subagent activity.",
+    description: "Emits tools, todos, MoA, multiple subagents, and advisor notes.",
     behavior: "agent-activity",
   },
   {

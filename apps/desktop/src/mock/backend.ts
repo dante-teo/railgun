@@ -672,19 +672,28 @@ if (scenario.behavior === "authentication-required") {
       }
       writeFragmented({ type: "agent_start" }, 8, prompt);
       if (scenario.behavior === "agent-activity") {
+        const activityTodos = [
+          { id: "inspect", content: "Inspect activity", status: "completed" },
+          { id: "verify", content: "Verify UI", status: "in_progress" },
+        ];
+        activeSession.todos = activityTodos;
         const events: readonly unknown[] = [
           { type: "tool_execution_start", toolCallId: "todo-1", toolName: "todo", args: { todos: [] } },
-          { type: "subagent_start", goal: "Inspect the desktop activity path", index: 0, count: 1 },
+          { type: "subagent_start", goal: "Inspect the desktop activity path", index: 0, count: 2 },
+          { type: "subagent_start", goal: "Verify the dashboard interaction states", index: 1, count: 2 },
           { type: "tool_execution_start", toolCallId: "read-1", toolName: "read_file", args: { path: "README.md" } },
           { type: "tool_execution_start", toolCallId: "shell-1", toolName: "run_shell", args: { command: "exit 1" } },
           { type: "moa_reference_start", index: 0, count: 1, model: "mock-reference" },
           { type: "tool_execution_end", toolCallId: "read-1", toolName: "read_file", result: { toolCallId: "read-1", content: "Read README", isError: false } },
           { type: "tool_execution_end", toolCallId: "shell-1", toolName: "run_shell", result: { toolCallId: "shell-1", content: "exit code 1", isError: true } },
-          { type: "tool_execution_end", toolCallId: "todo-1", toolName: "todo", result: { toolCallId: "todo-1", content: JSON.stringify({ todos: [{ id: "inspect", content: "Inspect activity", status: "completed" }, { id: "verify", content: "Verify UI", status: "in_progress" }] }), isError: false } },
+          { type: "tool_execution_end", toolCallId: "todo-1", toolName: "todo", result: { toolCallId: "todo-1", content: JSON.stringify({ todos: activityTodos }), isError: false } },
           { type: "moa_reference_end", index: 0, model: "mock-reference", text: "Use accessible disclosure controls." },
           { type: "moa_aggregating", aggregator: "mock-aggregator", refCount: 1 },
-          { type: "message_start", message: { role: "user", content: '<advisory severity="concern">Keep status text visible.</advisory>' } },
+          { type: "message_start", message: { role: "user", content: '<advisory severity="nit">Keep status text visible.</advisory>' } },
           { type: "subagent_end", goal: "Inspect the desktop activity path", index: 0, result: "Activity path inspected." },
+          { type: "message_start", message: { role: "user", content: '<advisory severity="concern">Keep the detail popover keyboard accessible.</advisory>' } },
+          { type: "subagent_end", goal: "Verify the dashboard interaction states", index: 1, result: "Dashboard interaction states verified." },
+          { type: "message_start", message: { role: "user", content: '<advisory severity="blocker">Do not render advisor notes in the transcript.</advisory>' } },
           { type: "message_update", streamEvent: { type: "text_delta", delta: "Activity sequence complete." } },
           { type: "message_end", message: { role: "assistant", content: "Activity sequence complete." } },
           { type: "turn_end", message: { role: "assistant", content: [] }, toolResults: [], usage: { inputTokens: 1_200, outputTokens: 300 } },
@@ -697,7 +706,7 @@ if (scenario.behavior === "authentication-required") {
           activePrompt = undefined;
           checkpointMockTurn("Activity sequence complete.");
           respond(type, command.id);
-        }, 180);
+        }, 240);
         prompt.timers.add(responseTimer);
         return;
       }

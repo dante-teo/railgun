@@ -421,8 +421,11 @@ This document records the intended system architecture for Railgun. Keep it curr
    APIs without real content. It starts visible and reserves its fixed width
    while the remaining Task canvas meets the readable-width threshold. When
    the sidebar, Files pane, or window size constrains that canvas, the side-car
-   starts hidden; its explicit toggle then shows the same intrinsic-height card
-   as an overlay without reserving width. The separate Files workspace starts
+   starts hidden; its explicit Activity Dashboard toggle then shows the same
+   intrinsic-height card as an overlay without reserving width. The dashboard
+   orders its current-run Advisor, Todo, and Subagent content; advisor notes do
+   not enter the transcript and are revealed from its distinct Advisor entry.
+   The separate Files workspace starts
    collapsed, is session-only, and reserves a fixed responsive right pane when
    open; the Task toolbar material stops at its divider. Both surfaces can be
    visible and keyboard-accessible at once.

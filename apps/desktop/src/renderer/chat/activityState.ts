@@ -6,8 +6,13 @@ export type Todo = NonNullable<Extract<DesktopAgentEvent, { type: "tool-end" }>[
 export type ActivityEntry =
   | { readonly kind: "tool"; readonly id: string; readonly name: string; readonly status: ActivityStatus; readonly input?: string; readonly output?: string; readonly target?: string; readonly order: number }
   | { readonly kind: "moa-reference"; readonly id: string; readonly index: number; readonly count: number; readonly model: string; readonly status: ActivityStatus; readonly preview?: string; readonly order: number }
-  | { readonly kind: "moa-aggregation"; readonly id: string; readonly model: string; readonly refCount: number; readonly status: ActivityStatus; readonly order: number }
-  | { readonly kind: "advisor"; readonly id: string; readonly severity: "nit" | "concern" | "blocker"; readonly text: string; readonly order: number };
+  | { readonly kind: "moa-aggregation"; readonly id: string; readonly model: string; readonly refCount: number; readonly status: ActivityStatus; readonly order: number };
+
+export interface AdvisorNote {
+  readonly severity: "nit" | "concern" | "blocker";
+  readonly text: string;
+  readonly order: number;
+}
 
 export interface SubagentActivity {
   readonly index: number;
@@ -22,9 +27,10 @@ export interface ActivityState {
   readonly todos: readonly Todo[];
   readonly todoLoading: boolean;
   readonly subagents: readonly SubagentActivity[];
+  readonly advisorNotes: readonly AdvisorNote[];
 }
 
-export const initialActivityState: ActivityState = { entries: [], todos: [], todoLoading: false, subagents: [] };
+export const initialActivityState: ActivityState = { entries: [], todos: [], todoLoading: false, subagents: [], advisorNotes: [] };
 
 type OrderedEvent = Extract<DesktopAgentEvent, { type: "tool-start" | "moa-reference-start" | "moa-aggregating" | "advisor-note" | "subagent-start" }> & { readonly order: number };
 export type ActivityAction =
@@ -79,7 +85,7 @@ export const activityReducer = (state: ActivityState, action: ActivityAction): A
     case "moa-aggregating":
       return { ...state, entries: [...state.entries, { kind: "moa-aggregation", id: `moa-aggregation-${action.order}`, model: action.model, refCount: action.refCount, status: "running", order: action.order }] };
     case "advisor-note":
-      return { ...state, entries: [...state.entries, { kind: "advisor", id: `advisor-${action.order}`, severity: action.severity, text: action.text, order: action.order }] };
+      return { ...state, advisorNotes: [...state.advisorNotes, { severity: action.severity, text: action.text, order: action.order }] };
     case "subagent-start":
       return { ...state, subagents: [...state.subagents.filter(item => item.index !== action.index), { index: action.index, count: action.count, goal: action.goal, status: "running" }] };
     case "subagent-end": {
@@ -99,14 +105,14 @@ export const activityReducer = (state: ActivityState, action: ActivityAction): A
     case "settle":
       return {
         ...state,
-        entries: state.entries.map(entry => entry.kind !== "advisor" && entry.status === "running"
+        entries: state.entries.map(entry => entry.status === "running"
           ? { ...entry, status: "interrupted" }
           : entry),
         todoLoading: false,
         subagents: state.subagents.map(item => item.status === "running" ? { ...item, status: "interrupted" } : item),
       };
     case "run-start":
-      return { ...state, subagents: [] };
+      return { ...state, subagents: [], advisorNotes: [] };
     case "reset": return initialActivityState;
   }
 };

@@ -13,6 +13,7 @@ export interface ShellLayoutProps {
   readonly main: ReactNode;
   readonly mainAction?: ReactNode;
   readonly inspector?: ReactNode;
+  readonly inspectorLabel?: string;
   readonly workspace?: ReactNode;
   readonly sidebarVisible: boolean;
   readonly inspectorVisible?: boolean;
@@ -82,6 +83,7 @@ export const ShellLayout = ({
   main,
   mainAction,
   inspector,
+  inspectorLabel = "Inspector",
   workspace,
   sidebarVisible,
   inspectorVisible = inspector !== undefined,
@@ -152,7 +154,7 @@ export const ShellLayout = ({
       {mainAction}
       <div className="sidebar-spacer" style={{ width: sidebarVisible ? "var(--sidebar-content-inset)" : 0 }} aria-hidden="true" />
       <div className="shell-center">{main}</div>
-      {hasInspector ? <aside className="shell-inspector" aria-label="Inspector">{inspector}</aside> : null}
+      {hasInspector ? <aside className="shell-inspector" aria-label={inspectorLabel}>{inspector}</aside> : null}
       {hasWorkspace ? <aside className="shell-workspace" aria-label="Files workspace">{workspace}</aside> : null}
     </main>
   );
