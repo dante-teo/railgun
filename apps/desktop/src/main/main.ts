@@ -68,6 +68,7 @@ import { createManagementService } from "./managementService";
 import { createKnowledgeService } from "./knowledgeService";
 import { createDesktopDiagnosticSink } from "./desktopDiagnostics";
 import { createBackgroundAutomationService, createUnavailableAutomationService } from "./backgroundAutomation";
+import { createUpdateCheckDialog } from "./updateCheckDialog";
 import { createUpdateService } from "./updateService";
 import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 
@@ -142,7 +143,18 @@ const backgroundAutomation = app.isPackaged && process.platform === "darwin"
     backendEntry: resolve(process.resourcesPath, "backend/railgun/dist/backend.js"),
   })
   : unavailableAutomation;
+const updateCheckDialog = createUpdateCheckDialog((options) => {
+  expectingRailgunWindow = true;
+  try {
+    const parent = BrowserWindow.getFocusedWindow();
+    return new BrowserWindow(parent === null ? options : { ...options, parent });
+  } finally {
+    expectingRailgunWindow = false;
+  }
+});
 const updates = createUpdateService(__RAILGUN_UPDATE_CHANNEL__, autoUpdater, {
+  checking: updateCheckDialog.show,
+  finished: updateCheckDialog.close,
   upToDate: (): void => {
     void dialog.showMessageBox({
       type: "info",

@@ -114,7 +114,7 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
   return <section className="automation-page">
     <header className="content-toolbar automation-toolbar">
       <div className="content-toolbar-title"><h1>Scheduled</h1><p>Scheduled prompts run in your local timezone.</p></div>
-      <div className="content-toolbar-actions"><Button className="automation-create" size="sm" variant="ghost" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" />Create</Button></div>
+      <div className="content-toolbar-actions"><Button size="icon" variant="ghost" aria-label="Create scheduled job" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" /></Button></div>
     </header>
     <div className="automation-scroll">
       {!ready ? <ErrorState title="Scheduled jobs are unavailable" description="Reconnect Railgun to view or change scheduled prompts." />

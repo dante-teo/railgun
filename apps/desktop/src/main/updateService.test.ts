@@ -22,7 +22,7 @@ describe("channel-specific desktop updates", () => {
 
   it("reports the outcome of a manual update check only for direct builds", () => {
     const updater = { checkForUpdates: vi.fn(), downloadUpdate: vi.fn(), quitAndInstall: vi.fn() };
-    const notify = { upToDate: vi.fn(), unableToCheck: vi.fn() };
+    const notify = { checking: vi.fn(), finished: vi.fn(), upToDate: vi.fn(), unableToCheck: vi.fn() };
     const direct = createUpdateService("direct", updater, notify);
     const homebrew = createUpdateService("homebrew", updater, notify);
 
@@ -35,8 +35,25 @@ describe("channel-specific desktop updates", () => {
     homebrew.onError();
 
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(notify.checking).toHaveBeenCalledTimes(2);
+    expect(notify.finished).toHaveBeenCalledTimes(2);
     expect(notify.upToDate).toHaveBeenCalledOnce();
     expect(notify.unableToCheck).toHaveBeenCalledOnce();
+  });
+
+  it("shows checking progress only while a manual check is active", () => {
+    const updater = { checkForUpdates: vi.fn(), downloadUpdate: vi.fn(), quitAndInstall: vi.fn() };
+    const notify = { checking: vi.fn(), finished: vi.fn(), upToDate: vi.fn(), unableToCheck: vi.fn() };
+    const direct = createUpdateService("direct", updater, notify);
+
+    direct.start();
+    expect(notify.checking).not.toHaveBeenCalled();
+    direct.onUpdateNotAvailable();
+
+    direct.checkManually();
+    expect(notify.checking).toHaveBeenCalledOnce();
+    direct.onUpdateAvailable();
+    expect(notify.finished).toHaveBeenCalledOnce();
   });
 
   it("does not overlap manual update checks", () => {
@@ -51,7 +68,7 @@ describe("channel-specific desktop updates", () => {
 
   it("defers a manual check until an automatic check completes", () => {
     const updater = { checkForUpdates: vi.fn(), downloadUpdate: vi.fn(), quitAndInstall: vi.fn() };
-    const notify = { upToDate: vi.fn(), unableToCheck: vi.fn() };
+    const notify = { checking: vi.fn(), finished: vi.fn(), upToDate: vi.fn(), unableToCheck: vi.fn() };
     const direct = createUpdateService("direct", updater, notify);
 
     direct.onCheckingForUpdate();

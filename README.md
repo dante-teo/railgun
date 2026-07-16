@@ -11,7 +11,8 @@ Choose one installation channel:
 - Direct: download the signed app from the Railgun GitHub Release. The app
   checks the direct-release update feed, downloads updates in the background,
   and offers to restart when one is ready. Choose **Railgun → Check for
-  Updates…** to check manually.
+  Updates…** to check manually. A progress dialog remains visible while the
+  manual check is running.
 - Homebrew: install with `brew install --cask railgun`. Homebrew owns updates;
   run `brew upgrade --cask railgun`. The app deliberately disables its updater
   in this channel.

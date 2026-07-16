@@ -40,10 +40,10 @@ describe("Scheduled page", () => {
     const disconnected = installApi();
     const view = render(<AutomationPage backendPhase="disconnected" />);
     expect(screen.getByRole("heading", { name: "Scheduled jobs are unavailable" })).toBeTruthy();
-    const create = screen.getByRole("button", { name: "Create" });
+    const create = screen.getByRole("button", { name: "Create scheduled job" });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     expect(create.closest(".content-toolbar-actions")).not.toBeNull();
-    expect(create.className).toContain("ui-button-sm");
+    expect(create.className).toContain("ui-button-icon");
     expect(disconnected.listCronJobs).not.toHaveBeenCalled();
     view.unmount();
 
@@ -75,7 +75,7 @@ describe("Scheduled page", () => {
     expect(screen.getByText("0 9 * * 1-5")).toBeTruthy();
     expect(screen.getByText("Plan the day").closest("li")?.querySelector(".lucide-clock")).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create scheduled job" }));
     const createButton = screen.getByRole("button", { name: "Create" });
     expect(screen.getByRole("textbox", { name: "Schedule" }).classList.contains("automation-schedule-input")).toBe(true);
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
@@ -127,7 +127,7 @@ describe("Scheduled page", () => {
     installApi({ listCronJobs });
     render(<AutomationPage backendPhase="ready" />);
     expect(await screen.findByRole("heading", { name: "Loading scheduled jobs…" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create scheduled job" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "New automation" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Schedule" }), { target: { value: "0 10 * * *" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));

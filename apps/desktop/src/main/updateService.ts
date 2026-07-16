@@ -7,6 +7,8 @@ export interface DesktopUpdater {
 }
 
 export interface UpdateCheckNotifier {
+  checking(): void;
+  finished(): void;
   upToDate(): void;
   unableToCheck(): void;
 }
@@ -14,6 +16,8 @@ export interface UpdateCheckNotifier {
 type UpdateCheckSource = "automatic" | "manual";
 
 const unavailableNotifier: UpdateCheckNotifier = {
+  checking: (): void => undefined,
+  finished: (): void => undefined,
   upToDate: (): void => undefined,
   unableToCheck: (): void => undefined,
 };
@@ -28,12 +32,18 @@ export const createUpdateService = (
   let manualCheckQueued = false;
   const beginCheck = (source: UpdateCheckSource): void => {
     activeCheck = source;
+    if (source === "manual") notifier.checking();
     updater.checkForUpdates();
+  };
+  const finishManualCheck = (source: UpdateCheckSource | undefined): boolean => {
+    if (source !== "manual") return false;
+    notifier.finished();
+    return true;
   };
   const completeCheck = (notifyManualCheck: () => void): void => {
     const completedCheck = activeCheck;
     activeCheck = undefined;
-    if (completedCheck === "manual") notifyManualCheck();
+    if (finishManualCheck(completedCheck)) notifyManualCheck();
     if (!manualCheckQueued) return;
     manualCheckQueued = false;
     beginCheck("manual");
@@ -59,6 +69,7 @@ export const createUpdateService = (
     },
     onUpdateAvailable: (): void => {
       if (!enabled) return;
+      finishManualCheck(activeCheck);
       activeCheck = undefined;
       manualCheckQueued = false;
       updater.downloadUpdate?.();

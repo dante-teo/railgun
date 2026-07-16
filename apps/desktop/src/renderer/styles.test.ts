@@ -86,7 +86,8 @@ describe("desktop activity styles", () => {
     expect(toolbar).toContain("min-height: 0");
     expect(toolbar).toContain("width: 100%");
     expect(toolbar).not.toContain("margin-left");
-    expect(toolbar).toContain("z-index: calc(var(--layer-sidebar) - 1)");
+    expect(toolbar).toContain("z-index: var(--layer-titlebar-control)");
+    expect(toolbar).toContain("-webkit-app-region: drag");
     expect(toolbar).toContain("background: transparent");
     expect(toolbar).not.toContain("backdrop-filter");
     expect(css).toMatch(/\.content-toolbar::before\s*\{[^}]*position:\s*fixed[^}]*top:\s*0[^}]*right:\s*0[^}]*left:\s*0[^}]*height:\s*var\(--toolbar-surface-height\)[^}]*background:\s*var\(--material-toolbar\)[^}]*backdrop-filter:\s*var\(--material-blur-toolbar\)[^}]*mask-image:\s*linear-gradient/u);
@@ -255,14 +256,22 @@ describe("desktop activity styles", () => {
     expect(ghostHover).toContain("background:");
   });
 
+  it("centers glyphs inside ghost icon button hover frames", () => {
+    expect(css).toMatch(/\.ui-button-ghost\.ui-button-icon\s*,\s*\.ui-button-ghost\.ui-button-compact-icon\s*\{[^}]*justify-content:\s*center/u);
+  });
+
   it("provides a visible hover background for sidebar icon buttons", () => {
     const sidebarIconHover = css.match(/\.ui-button-sidebar-icon:not\(:disabled\):hover\s*\{([^}]*)\}/u)?.[1] ?? "";
     expect(sidebarIconHover).not.toContain("background: transparent");
     expect(sidebarIconHover).toContain("background:");
   });
 
-  it("uses rounded-rect not oval for toolbar icon button hover frame", () => {
-    expect(css).toMatch(/\.content-toolbar-actions\s+\.ui-button-icon\s*\{[^}]*border-radius:\s*var\(--radius-sm\)/u);
+  it("uses a circular frame for toolbar icon buttons", () => {
+    expect(css).toMatch(/\.content-toolbar-actions\s+\.ui-button-icon\s*\{[^}]*border-radius:\s*50%/u);
+  });
+
+  it("keeps standalone toolbar icon controls square", () => {
+    expect(css).toMatch(/\.content-toolbar-actions\s*>\s*\.ui-button-icon\s*\{[^}]*width:\s*var\(--titlebar-control-height\)[^}]*height:\s*var\(--titlebar-control-height\)/u);
   });
 
   it("uses a thin styled scrollbar on the sidebar scroll zone", () => {
