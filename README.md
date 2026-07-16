@@ -43,6 +43,15 @@ If the app asks you to sign in, sign in from Settings and then retry. Background
 services never open browser authentication; they exit cleanly until credentials
 are available. Scheduler logs are retained under `~/.railgun/cron/logs/`.
 
+## Shell command environment
+
+Railgun runs agent shell commands through your login shell in non-interactive
+mode. This loads login environment setup—such as Homebrew's `PATH`—without
+loading interactive aliases or functions. That boundary ensures the command
+shown for approval is the command that runs; use an executable or login-shell
+environment configuration rather than an interactive shell alias for commands
+you want Railgun to invoke.
+
 ## Development and release
 
 `pnpm dev` runs the desktop app from source. `pnpm dev:mock` uses the desktop

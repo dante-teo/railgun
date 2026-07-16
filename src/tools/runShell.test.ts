@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { registry } from "./registry.js";
 import type { ToolContext } from "./registry.js";
-import "./runShell.js";
+import { shellInvocation } from "./runShell.js";
 
 const makeContext = (overrides: Partial<ToolContext> = {}): ToolContext => ({
   signal: new AbortController().signal,
@@ -12,6 +12,20 @@ const makeContext = (overrides: Partial<ToolContext> = {}): ToolContext => ({
 });
 
 describe("run_shell_command", () => {
+  it("runs commands through the user's login shell without interactive aliases or functions", () => {
+    expect(shellInvocation("copilot", { SHELL: "/bin/zsh" })).toEqual({
+      command: "/bin/zsh",
+      args: ["-lc", "copilot"],
+    });
+  });
+
+  it("uses macOS's default login shell when the app has no SHELL", () => {
+    expect(shellInvocation("copilot", {}, "darwin")).toEqual({
+      command: "/bin/zsh",
+      args: ["-lc", "copilot"],
+    });
+  });
+
   it("runs a safe command and returns its stdout without asking for approval", async () => {
     const confirmShellCommand = vi.fn(async () => true);
     const context = makeContext({ confirmShellCommand });

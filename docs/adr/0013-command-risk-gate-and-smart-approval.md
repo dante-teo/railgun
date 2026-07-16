@@ -29,6 +29,13 @@ A new pure module, `src/security/commandApproval.ts`, classifies every command
 string before any shell is spawned. It is called from `runShell.ts` and returns
 one of three `ApprovalRequirement` variants:
 
+`runShell.ts` invokes the user's login shell in non-interactive mode
+(`$SHELL -lc`, with a macOS `zsh` fallback). This retains login environment
+setup, such as a Homebrew `PATH`, but deliberately excludes interactive aliases
+and functions. An approval decision therefore applies to the command string
+that executes, rather than to a later alias or function expansion from an
+interactive startup file.
+
 **`forbidden`** — returned for any of five hardline regex patterns:
 
 | ID | Matches |
@@ -111,6 +118,9 @@ about approval policy, catching omissions at compile time.
 - The dangerous-pattern list is a heuristic, not an allowlist. Unknown dangerous
   commands that do not match any pattern will pass as safe. The hardline tier
   covers the most catastrophic known cases unconditionally.
+- Interactive shell aliases and functions are not available to agent shell
+  commands. Commands that Railgun must invoke should be installed executables
+  or be configured through the login-shell environment instead.
 - `ToolContext` now requires `commandApprovalMode` and `sessionApprovals`. All
   test contexts must supply them; the compiler enforces this. Callers that omit
   `sessionApprovals` via `RunTurnOptions` receive an ephemeral `Set` scoped to

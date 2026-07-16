@@ -12,6 +12,16 @@ const extractCommand = (args: unknown): string | undefined => {
 };
 
 const STOPPED_RESULT: ToolRunResult = { content: "[stopped by user]", isError: true };
+type ShellInvocation = Readonly<{ command: string; args: readonly string[] }>;
+
+export const shellInvocation = (
+  command: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  platform = process.platform,
+): ShellInvocation => {
+  const shell = environment.SHELL?.trim() || (platform === "darwin" ? "/bin/zsh" : "bash");
+  return { command: shell, args: ["-lc", command] };
+};
 
 const runShellBounded = (command: string, context: Parameters<typeof registry.run>[2]): Promise<ToolRunResult> =>
   runBoundedOperation(context.signal, context.operationTimeoutMs, `Tool "run_shell_command"`, signal => execShell(command, signal))
@@ -43,7 +53,11 @@ const execShell = (command: string, signal: AbortSignal): Promise<ToolRunResult>
   const { promise, resolve } = Promise.withResolvers<ToolRunResult>();
   let settled = false;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
-  const child = spawn("bash", ["-c", command], { detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  const invocation = shellInvocation(command);
+  const child = spawn(invocation.command, [...invocation.args], {
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
