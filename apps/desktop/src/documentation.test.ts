@@ -63,7 +63,7 @@ describe("desktop documentation", () => {
     expect(normalizedSwiftPlan).toContain("Completed or removed IDs are never reused or renumbered.");
     expect(normalizedSwiftPlan).toContain("New work receives a new ID.");
 
-    const tasks = [...swiftPlan.matchAll(/^- \[ \] `(SWFT-\d{3})` — .* `\[(\d+)h\]`$/gmu)];
+    const tasks = [...swiftPlan.matchAll(/^- \[[ x]\] `(SWFT-\d{3})` — .* `\[(\d+)h\]`$/gmu)];
     const taskIds = tasks.map(([, id]) => id);
     const estimates = tasks.map(([, , estimate]) => Number(estimate));
 

@@ -16,18 +16,13 @@ project_dir="$build_root/project"
 derived_data_dir="$build_root/DerivedData"
 app_executable="$derived_data_dir/Build/Products/Debug/RailgunX.app/Contents/MacOS/RailgunX"
 
-require_command xcodegen
 require_command xcodebuild
-mkdir -p "$project_dir"
-
-xcodegen generate \
-  --spec "$project_root/project.yml" \
-  --project-root "$project_root" \
-  --project "$project_dir"
+"$project_root/scripts/generate-project.sh" "$project_dir"
 
 xcodebuild build \
   -project "$project_dir/RailgunX.xcodeproj" \
   -scheme RailgunX \
+  -configuration Debug \
   -destination 'platform=macOS' \
   -derivedDataPath "$derived_data_dir"
 

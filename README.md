@@ -61,10 +61,34 @@ direct and Homebrew artifacts for arm64 and x64. Create the version commit and
 tag with `pnpm release:version patch`; see
 [release instructions](docs/RELEASING.md) for the artifact and signing checks.
 
-The RailgunX native scaffold can be launched with `./scripts/run.sh`, or with
+The RailgunX native scaffold requires Xcode and XcodeGen `2.45.4`. The pinned
+version is recorded in `apps/macos/.xcodegen-version`; generation fails before
+writing project files when the installed version does not match. Install the
+pinned XcodeGen version, make it available on `PATH`, and confirm it before
+generating a project:
+
+```sh
+xcodegen --version
+# Version: 2.45.4
+```
+
+Generated Xcode projects are disposable. Create one explicitly with:
+
+```sh
+./apps/macos/scripts/generate-project.sh /tmp/railgunx-project
+```
+
+Validate reproducible generation and build the generated Debug app with:
+
+```sh
+./apps/macos/scripts/validate-project.sh
+```
+
+Launch the native scaffold with `./scripts/run.sh`, or use
 `./scripts/run-mock.sh` to select its deterministic mock-backend placeholder.
-This mock mode is limited to the native shell until the planned transport and
-backend integration land.
+Set `RAILGUNX_BUILD_ROOT` to retain the generated project and derived data in a
+specific location. This mock mode is limited to the native shell until the
+planned transport and backend integration land.
 
 Run the complete check suite from the repository root with:
 

@@ -197,7 +197,7 @@ eight hours.
 ### 1. Project foundation and visual identity
 
 - [x] `SWFT-001` — Scaffold `apps/macos/project.yml`, Swift 6 targets, schemes, tests, and `io.anvia.railgun` configuration. `[6h]`
-- [ ] `SWFT-002` — Add reproducible XcodeGen generation and validation scripts; exclude generated projects from source control. `[4h]`
+- [x] `SWFT-002` — Add reproducible XcodeGen generation and validation scripts; exclude generated projects from source control. `[4h]`
 - [ ] `SWFT-003` — Configure SwiftPM and commit resolved pins for Swift Markdown and Sparkle. `[4h]`
 - [ ] `SWFT-004` — Establish app, core, transport, services, `RailgunUI`, and test-support module boundaries. `[6h]`
 - [ ] `SWFT-005` — Build the SwiftUI lifecycle, primary window, Settings scene, commands, restoration, and minimum sizing. `[8h]`
