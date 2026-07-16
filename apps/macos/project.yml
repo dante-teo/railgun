@@ -12,12 +12,48 @@ settings:
     MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: 1
 
+packages:
+  Markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    exactVersion: 0.8.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.9.4
+
 targets:
   RailgunX:
     type: application
     platform: macOS
     sources:
       - path: Sources/RailgunX
+    dependencies:
+      - package: Markdown
+      - package: Sparkle
+        product: Sparkle
+        # XcodeGen's generic Embed Frameworks phase cannot infer Sparkle's
+        # binary-package .framework extension; embed it explicitly below.
+        embed: false
+    postBuildScripts:
+      - name: Embed Sparkle Framework
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          source_framework="${BUILT_PRODUCTS_DIR}/Sparkle.framework"
+          destination_framework="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Sparkle.framework"
+
+          if [[ ! -d "$source_framework" ]]; then
+            echo "error: Sparkle.framework was not built at $source_framework" >&2
+            exit 1
+          fi
+
+          if [[ ! -d "$destination_framework" ]]; then
+            /usr/bin/ditto "$source_framework" "$destination_framework"
+          fi
+
+          if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
+            /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" \
+              --preserve-metadata=identifier,entitlements "$destination_framework"
+          fi
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.anvia.railgun

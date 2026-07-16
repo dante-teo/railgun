@@ -78,7 +78,22 @@ Generated Xcode projects are disposable. Create one explicitly with:
 ./apps/macos/scripts/generate-project.sh /tmp/railgunx-project
 ```
 
-Validate reproducible generation and build the generated Debug app with:
+RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
+`0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
+`apps/macos/Package.resolved` is the reviewed source-controlled lockfile;
+generation seeds it into each disposable Xcode project. The generated app
+links Markdown and packages Sparkle.framework in its bundle. Sparkle is a
+binary framework, so `project.yml` includes a guarded `Embed Sparkle Framework`
+post-build phase; keep it when changing package declarations because XcodeGen's
+generic package embed phase cannot represent its `.framework` filename. To
+intentionally refresh the lockfile after changing an exact version, run:
+
+```sh
+./apps/macos/scripts/resolve-packages.sh
+```
+
+Validate deterministic generation, clean-cache package resolution, the
+checked-in lockfile, build, and tests with:
 
 ```sh
 ./apps/macos/scripts/validate-project.sh

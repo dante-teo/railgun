@@ -5,6 +5,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
 version_file="$project_root/.xcodegen-version"
+lockfile="$project_root/Package.resolved"
 
 usage() {
   printf 'usage: %s OUTPUT_DIRECTORY\n' "${0##*/}" >&2
@@ -38,6 +39,24 @@ require_pinned_xcodegen() {
   fi
 }
 
+seed_package_lockfile() {
+  local generated_lockfile
+
+  if [[ "${RAILGUNX_SKIP_LOCKFILE_SEED:-0}" == "1" ]]; then
+    return
+  fi
+
+  if [[ ! -f "$lockfile" ]]; then
+    printf 'error: missing checked-in package lockfile: %s. Run %s to create it.\n' \
+      "$lockfile" "$script_dir/resolve-packages.sh" >&2
+    exit 1
+  fi
+
+  generated_lockfile="$output_directory/RailgunX.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+  mkdir -p "$(dirname "$generated_lockfile")"
+  cp "$lockfile" "$generated_lockfile"
+}
+
 if [[ $# -ne 1 ]]; then
   usage
 fi
@@ -51,3 +70,5 @@ xcodegen generate \
   --spec "$project_root/project.yml" \
   --project-root "$project_root" \
   --project "$output_directory"
+
+seed_package_lockfile
