@@ -16,13 +16,13 @@ export const createAuthenticationHelperSpec = (
 ): AuthenticationHelperSpec => {
   if (runtime.kind === "development") return {
     command: "pnpm",
-    args: ["exec", "tsx", resolve(runtime.repositoryRoot, "src/cli.ts"), action],
+    args: ["exec", "tsx", resolve(runtime.repositoryRoot, "src/backend.ts"), action],
     cwd: runtime.repositoryRoot,
     env: { ...process.env, RAILGUN_DESKTOP_RPC: undefined },
   };
   return {
     command: runtime.executablePath,
-    args: [resolve(runtime.resourcesPath, "backend/railgun/dist/cli.js"), action],
+    args: [resolve(runtime.resourcesPath, "backend/railgun/dist/backend.js"), action],
     cwd: runtime.workingDirectory,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", RAILGUN_DESKTOP_RPC: undefined },
   };

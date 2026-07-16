@@ -1,22 +1,14 @@
 {
   "name": "@dantea/railgun",
-  "version": "0.3.3",
+  "private": true,
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/dante-teo/railgun.git"
-  },
-  "bin": {
-    "railgun": "dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "publishConfig": {
-    "access": "public"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -24,13 +16,9 @@
   "scripts": {
     "dev": "pnpm --filter @dantea/railgun-desktop start",
     "dev:mock": "pnpm --filter @dantea/railgun-desktop start:mock",
-    "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "postbuild": "node -e \"const fs=require('fs');const f='dist/cli.js';const s=fs.readFileSync(f,'utf8');if(!s.startsWith('#!'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+s);fs.chmodSync(f,0o755)\"",
-    "test": "vitest run src",
-    "smoke:package": "node scripts/smoke-package.mjs",
-    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run smoke:package"
+    "test": "vitest run src"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.2.1",

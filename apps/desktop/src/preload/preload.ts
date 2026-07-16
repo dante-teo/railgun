@@ -31,6 +31,7 @@ import {
   CronJobInputSchema,
   CronJobListSchema,
   CronJobSchema,
+  BackgroundAutomationStatusSchema,
   SkillNameSchema,
   SkillSummaryListSchema,
   SkillDetailSchema,
@@ -202,6 +203,18 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
         await transport.invoke(DESKTOP_IPC.deleteCronJob, CronJobIdSchema.parse(id)),
       );
     },
+    getAutomationStatus: async () => BackgroundAutomationStatusSchema.parse(
+      await transport.invoke(DESKTOP_IPC.getAutomationStatus),
+    ),
+    enableAutomation: async () => BackgroundAutomationStatusSchema.parse(
+      await transport.invoke(DESKTOP_IPC.enableAutomation),
+    ),
+    disableAutomation: async () => BackgroundAutomationStatusSchema.parse(
+      await transport.invoke(DESKTOP_IPC.disableAutomation),
+    ),
+    repairAutomation: async () => BackgroundAutomationStatusSchema.parse(
+      await transport.invoke(DESKTOP_IPC.repairAutomation),
+    ),
     signInDevin: async () => SettingsSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.signInDevin),
     ),

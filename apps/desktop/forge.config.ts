@@ -16,6 +16,7 @@ const releaseCredentials = readMacReleaseCredentials(process.env);
 const releaseVersion = readReleaseVersion(process.env);
 const macAppVersion = releaseVersion === undefined ? undefined : toMacAppVersion(releaseVersion);
 const buildVersion = process.env.RAILGUN_DESKTOP_BUILD_VERSION;
+const updateChannel = process.env.RAILGUN_UPDATE_CHANNEL === "homebrew" ? "homebrew" : "direct";
 const signingIdentity = "Developer ID Application: Chen Pei Teo (GUKP6SNV36)";
 
 const config: ForgeConfig = {
@@ -48,6 +49,13 @@ const config: ForgeConfig = {
     }),
   },
   makers: [new MakerZIP({}, ["darwin"])],
+  publishers: updateChannel === "direct" ? [{
+    name: "@electron-forge/publisher-github",
+    config: {
+      repository: { owner: "dante-teo", name: "railgun" },
+      prerelease: releaseVersion?.includes("-") ?? false,
+    },
+  }] : [],
   plugins: [
     new VitePlugin({
       build: [

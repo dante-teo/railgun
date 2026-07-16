@@ -538,12 +538,12 @@ export const createBackendSpawnSpec = (
 ): BackendSpawnSpec => {
   if (runtime.kind === "development") {
     const entry = mode === "real"
-      ? resolve(runtime.repositoryRoot, "src/cli.ts")
+      ? resolve(runtime.repositoryRoot, "src/backend.ts")
       : resolve(runtime.repositoryRoot, "apps/desktop/src/mock/backend.ts");
     return {
       command: "pnpm",
       args: mode === "real"
-        ? ["exec", "tsx", entry, "--mode", "rpc"]
+        ? ["exec", "tsx", entry, "desktop"]
         : ["exec", "tsx", entry, scenarioId ?? "ready-idle"],
       cwd: runtime.repositoryRoot,
       env: mode === "real" ? { ...process.env, [DESKTOP_RPC_ENV]: "1" } : process.env,
@@ -551,11 +551,11 @@ export const createBackendSpawnSpec = (
   }
 
   const entry = mode === "real"
-    ? resolve(runtime.resourcesPath, "backend/railgun/dist/cli.js")
+    ? resolve(runtime.resourcesPath, "backend/railgun/dist/backend.js")
     : resolve(runtime.resourcesPath, "backend/mock-backend.cjs");
   return {
     command: runtime.executablePath,
-    args: mode === "real" ? [entry, "--mode", "rpc"] : [entry, scenarioId ?? "ready-idle"],
+    args: mode === "real" ? [entry, "desktop"] : [entry, scenarioId ?? "ready-idle"],
     cwd: runtime.workingDirectory,
     env: {
       ...process.env,

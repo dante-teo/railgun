@@ -85,6 +85,14 @@ export const CronJobSchema = z.strictObject({
 });
 export const CronJobListSchema = z.array(CronJobSchema).max(DESKTOP_CRON_LIMITS.jobs).readonly();
 
+export const BackgroundAutomationStatusSchema = z.strictObject({
+  state: z.enum(["disabled", "enabled", "repair-needed", "unavailable"]),
+  enabled: z.boolean(),
+  scheduler: z.enum(["running", "waiting", "stopped", "unavailable"]),
+  dream: z.enum(["running", "waiting", "stopped", "unavailable"]),
+  message: z.string().trim().min(1).max(2_000),
+});
+
 export const DESKTOP_KNOWLEDGE_LIMITS = Object.freeze({
   skills: 500,
   skillName: 64,

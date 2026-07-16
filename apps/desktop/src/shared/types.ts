@@ -29,6 +29,7 @@ import type {
   SettingsUpdateSchema,
   CronJobSchema,
   CronJobInputSchema,
+  BackgroundAutomationStatusSchema,
   SkillSummarySchema,
   SkillDetailSchema,
   McpServerSchema,
@@ -69,6 +70,7 @@ export type SettingsSnapshot = z.infer<typeof SettingsSnapshotSchema>;
 export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
 export type CronJob = z.infer<typeof CronJobSchema>;
 export type CronJobInput = z.infer<typeof CronJobInputSchema>;
+export type BackgroundAutomationStatus = z.infer<typeof BackgroundAutomationStatusSchema>;
 export type SkillSummary = z.infer<typeof SkillSummarySchema>;
 export type SkillDetail = z.infer<typeof SkillDetailSchema>;
 export type McpServer = z.infer<typeof McpServerSchema>;
@@ -132,6 +134,10 @@ export interface RailgunDesktopApi extends KnowledgeDesktopApi {
   createCronJob: (input: CronJobInput) => Promise<CronJob>;
   updateCronJob: (id: string, input: CronJobInput) => Promise<CronJob>;
   deleteCronJob: (id: string) => Promise<void>;
+  getAutomationStatus: () => Promise<BackgroundAutomationStatus>;
+  enableAutomation: () => Promise<BackgroundAutomationStatus>;
+  disableAutomation: () => Promise<BackgroundAutomationStatus>;
+  repairAutomation: () => Promise<BackgroundAutomationStatus>;
   signInDevin: () => Promise<SettingsSnapshot>;
   signOutDevin: () => Promise<SettingsSnapshot>;
   listSkills: () => Promise<readonly SkillSummary[]>;
@@ -182,6 +188,10 @@ export const DESKTOP_IPC = {
   createCronJob: "cron:create",
   updateCronJob: "cron:update",
   deleteCronJob: "cron:delete",
+  getAutomationStatus: "automation:get-status",
+  enableAutomation: "automation:enable",
+  disableAutomation: "automation:disable",
+  repairAutomation: "automation:repair",
   listSkills: "knowledge:list-skills",
   getSkill: "knowledge:get-skill",
   listMcpServers: "settings:list-mcp-servers",

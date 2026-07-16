@@ -98,6 +98,10 @@ const knowledgeApi = {
   listInstructionFiles: async () => [],
   getInstructionFile: async () => { throw new Error("unused"); },
   updateInstructionFile: async () => { throw new Error("unused"); },
+  getAutomationStatus: async () => ({ state: "disabled" as const, enabled: false, scheduler: "stopped" as const, dream: "stopped" as const, message: "Background automation is off." }),
+  enableAutomation: async () => ({ state: "enabled" as const, enabled: true, scheduler: "running" as const, dream: "waiting" as const, message: "Enabled" }),
+  disableAutomation: async () => ({ state: "disabled" as const, enabled: false, scheduler: "stopped" as const, dream: "stopped" as const, message: "Disabled" }),
+  repairAutomation: async () => ({ state: "enabled" as const, enabled: true, scheduler: "running" as const, dream: "waiting" as const, message: "Repaired" }),
 };
 
 describe("BackendStatus", () => {

@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, session, shell } from "electron";
+import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, session, shell } from "electron";
 import { resolve } from "node:path";
+import { userInfo } from "node:os";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
 import { createInteractionBroker } from "./interactionBroker";
 import { toDesktopAgentEvent } from "./agentBoundary";
@@ -51,6 +52,7 @@ import {
   MemoryIdSchema, MemoryMutationSchema, MemoryListSchema, MemorySchema, KnowledgeQuerySchema,
   NoteImportResultSchema, NoteResultListSchema, NoteSearchModeSchema, DreamSummarySchema, DreamProgressSchema,
   InstructionFileIdSchema, InstructionFileListSchema, InstructionFileSchema, InstructionContentSchema,
+  BackgroundAutomationStatusSchema,
 } from "../shared/schemas";
 import { DESKTOP_IPC } from "../shared/types";
 import type { AppCommand, BackendMode, BackendSnapshot, DesktopAgentEvent, SessionSnapshot } from "../shared/types";
@@ -65,6 +67,9 @@ import { createCronService } from "./cronService";
 import { createManagementService } from "./managementService";
 import { createKnowledgeService } from "./knowledgeService";
 import { createDesktopDiagnosticSink } from "./desktopDiagnostics";
+import { createBackgroundAutomationService, createUnavailableAutomationService } from "./backgroundAutomation";
+import { createUpdateService } from "./updateService";
+import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "railgun",
@@ -128,6 +133,17 @@ const waitForBackendReady = (action: "login" | "logout"): Promise<void> => new P
   supervisor.restartBackend();
 });
 const authentication = createAuthenticationService(backendRuntime, waitForBackendReady);
+const unavailableAutomation = createUnavailableAutomationService("Background automation is available from an installed Railgun app.");
+const backgroundAutomation = app.isPackaged && process.platform === "darwin"
+  ? createBackgroundAutomationService({
+    uid: userInfo().uid,
+    home: app.getPath("home"),
+    executablePath: process.execPath,
+    backendEntry: resolve(process.resourcesPath, "backend/railgun/dist/backend.js"),
+  })
+  : unavailableAutomation;
+const updates = createUpdateService(__RAILGUN_UPDATE_CHANNEL__, autoUpdater);
+autoUpdater.on("update-available", () => updates.onUpdateAvailable());
 const authenticationCoordinator = createAuthenticationCoordinator({
   mutations: mutationQueue,
   isAgentRunning: async () => (await settingsService.get()).running,
@@ -355,6 +371,22 @@ const registerIpc = (): void => {
     assertAuthorizedIpcSender(event, senderContext);
     await cronService.delete(CronJobIdSchema.parse(id));
   });
+  ipcMain.handle(DESKTOP_IPC.getAutomationStatus, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return BackgroundAutomationStatusSchema.parse(await backgroundAutomation.getAutomationStatus());
+  });
+  ipcMain.handle(DESKTOP_IPC.enableAutomation, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return BackgroundAutomationStatusSchema.parse(await mutationQueue.run(() => backgroundAutomation.enableAutomation()));
+  });
+  ipcMain.handle(DESKTOP_IPC.disableAutomation, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return BackgroundAutomationStatusSchema.parse(await mutationQueue.run(() => backgroundAutomation.disableAutomation()));
+  });
+  ipcMain.handle(DESKTOP_IPC.repairAutomation, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return BackgroundAutomationStatusSchema.parse(await mutationQueue.run(() => backgroundAutomation.repairAutomation()));
+  });
   ipcMain.handle(DESKTOP_IPC.updateSettings, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
     return SettingsSnapshotSchema.parse(await settingsService.update(SettingsUpdateSchema.parse(value)));
@@ -492,6 +524,11 @@ supervisor.subscribeBackendEvents((value) => {
 });
 
 void app.whenReady().then(() => {
+  if (updates.enabled && app.isPackaged) {
+    updateElectronApp({
+      updateSource: { type: UpdateSourceType.ElectronPublicUpdateService, repo: "dante-teo/railgun" },
+    });
+  }
   installSessionGuards(session.defaultSession, rendererCsp(developmentUrl));
   if (developmentUrl === undefined) {
     const rendererRoot = resolve(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`);

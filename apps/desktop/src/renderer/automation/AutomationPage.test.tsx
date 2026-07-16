@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CronJob, RailgunDesktopApi } from "../../shared/types";
+import type { BackgroundAutomationStatus, CronJob, RailgunDesktopApi } from "../../shared/types";
 import { AutomationPage } from "./AutomationPage";
 
 afterEach(cleanup);
@@ -14,7 +14,9 @@ const job: CronJob = {
   prompt: "Plan the day",
 };
 
-type CronApi = Pick<RailgunDesktopApi, "listCronJobs" | "createCronJob" | "updateCronJob" | "deleteCronJob">;
+type CronApi = Pick<RailgunDesktopApi, "listCronJobs" | "createCronJob" | "updateCronJob" | "deleteCronJob" | "getAutomationStatus" | "enableAutomation" | "disableAutomation" | "repairAutomation">;
+
+const automation: BackgroundAutomationStatus = { state: "disabled", enabled: false, scheduler: "stopped", dream: "stopped", message: "Background automation is off." };
 
 const installApi = (overrides: Partial<CronApi> = {}): CronApi => {
   const api = {
@@ -22,6 +24,10 @@ const installApi = (overrides: Partial<CronApi> = {}): CronApi => {
     createCronJob: vi.fn(async (input) => ({ id: "job-2", summary: "At 10:00", ...input })),
     updateCronJob: vi.fn(async (id, input) => ({ id, summary: "At 10:00", ...input })),
     deleteCronJob: vi.fn(async () => undefined),
+    getAutomationStatus: vi.fn(async () => automation),
+    enableAutomation: vi.fn(async () => ({ ...automation, state: "enabled" as const, enabled: true })),
+    disableAutomation: vi.fn(async () => automation),
+    repairAutomation: vi.fn(async () => ({ ...automation, state: "enabled" as const, enabled: true })),
     ...overrides,
   } as CronApi;
   Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
@@ -29,6 +35,16 @@ const installApi = (overrides: Partial<CronApi> = {}): CronApi => {
 };
 
 describe("Scheduled page", () => {
+  it("controls the two opt-in background services without exposing launchctl", async () => {
+    const api = installApi();
+    render(<AutomationPage backendPhase="ready" />);
+    await waitFor(() => expect(api.getAutomationStatus).toHaveBeenCalledOnce());
+    const toggle = screen.getByRole("checkbox", { name: "Enable background automation" });
+    expect(screen.getByText(/scheduled prompts and nightly maintenance/u)).toBeTruthy();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(api.enableAutomation).toHaveBeenCalledOnce());
+  });
+
   it("renders disconnected, loading, empty, and retryable error states", async () => {
     const disconnected = installApi();
     const view = render(<AutomationPage backendPhase="disconnected" />);

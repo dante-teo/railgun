@@ -5,10 +5,10 @@ import { createMutationQueue } from "./mutationQueue";
 describe("desktop authentication helper", () => {
   it("builds development and packaged CLI invocations without desktop RPC mode", () => {
     expect(createAuthenticationHelperSpec({ kind: "development", repositoryRoot: "/repo" }, "login")).toMatchObject({
-      command: "pnpm", args: ["exec", "tsx", "/repo/src/cli.ts", "login"], cwd: "/repo",
+      command: "pnpm", args: ["exec", "tsx", "/repo/src/backend.ts", "login"], cwd: "/repo",
     });
     expect(createAuthenticationHelperSpec({ kind: "packaged", resourcesPath: "/resources", executablePath: "/Electron", workingDirectory: "/home" }, "logout")).toMatchObject({
-      command: "/Electron", args: ["/resources/backend/railgun/dist/cli.js", "logout"], cwd: "/home",
+      command: "/Electron", args: ["/resources/backend/railgun/dist/backend.js", "logout"], cwd: "/home",
       env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: "1" }),
     });
   });

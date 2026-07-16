@@ -424,7 +424,7 @@ describe("createBackendSpawnSpec", () => {
       "real",
     )).toMatchObject({
       command: "pnpm",
-      args: ["exec", "tsx", "/repo/src/cli.ts", "--mode", "rpc"],
+      args: ["exec", "tsx", "/repo/src/backend.ts", "desktop"],
       cwd: "/repo",
       env: { RAILGUN_DESKTOP_RPC: "1" },
     });
@@ -452,9 +452,8 @@ describe("createBackendSpawnSpec", () => {
     expect(createBackendSpawnSpec(runtime, "real")).toMatchObject({
       command: "/Railgun.app/Contents/MacOS/Railgun",
       args: [
-        "/Railgun.app/Contents/Resources/backend/railgun/dist/cli.js",
-        "--mode",
-        "rpc",
+        "/Railgun.app/Contents/Resources/backend/railgun/dist/backend.js",
+        "desktop",
       ],
       cwd: "/Users/example",
       env: { ELECTRON_RUN_AS_NODE: "1" },

@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "desktop-v*"
 
 permissions:
   contents: read
@@ -16,56 +16,6 @@ env:
   TAP_REPOSITORY: dante-teo/homebrew-tap
 
 jobs:
-  publish-cli:
-    name: Publish CLI to npm
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-
-      - name: Check package version
-        id: package
-        shell: bash
-        run: |
-          package_name="$(node -p "require('./package.json').name")"
-          package_version="$(node -p "require('./package.json').version")"
-          tag_version="${GITHUB_REF_NAME#v}"
-          if [ "$package_version" != "$tag_version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
-            exit 1
-          fi
-          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
-            echo "${package_name}@${package_version} is already published; nothing to do."
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Publishing ${package_name}@${package_version}."
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install dependencies
-        if: steps.package.outputs.should_publish == 'true'
-        run: pnpm install --frozen-lockfile
-
-      # npm trusted publishing currently performs its OIDC exchange in the npm
-      # CLI. prepublishOnly still runs the pnpm-based checks and package smoke test.
-      - name: Build, test, and publish
-        if: steps.package.outputs.should_publish == 'true'
-        run: npm publish --access public
-
   build-desktop:
     name: Desktop (${{ matrix.arch }})
     strategy:
@@ -74,8 +24,16 @@ jobs:
         include:
           - arch: arm64
             runner: macos-15
+            channel: direct
+          - arch: arm64
+            runner: macos-15
+            channel: homebrew
           - arch: x64
             runner: macos-15-intel
+            channel: direct
+          - arch: x64
+            runner: macos-15-intel
+            channel: homebrew
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -98,8 +56,8 @@ jobs:
         id: metadata
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          package_version="$(node -p "require('./package.json').version")"
+          version="${GITHUB_REF_NAME#desktop-v}"
+          package_version="$(node -p "require('./apps/desktop/package.json').version")"
           if [ "$version" != "$package_version" ]; then
             echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
             exit 1
@@ -135,6 +93,7 @@ jobs:
           MACOS_KEYCHAIN: ${{ steps.keychain.outputs.path }}
           RAILGUN_DESKTOP_BUILD_VERSION: ${{ github.run_number }}
           RAILGUN_DESKTOP_VERSION: ${{ steps.metadata.outputs.version }}
+          RAILGUN_UPDATE_CHANNEL: ${{ matrix.channel }}
         run: |
           pnpm --filter @dantea/railgun-desktop build:backend-assets
           max_attempts=3
@@ -172,7 +131,7 @@ jobs:
           set -euo pipefail
           version="${{ steps.metadata.outputs.version }}"
           source="$(find "apps/desktop/out/make/zip/darwin/${{ matrix.arch }}" -maxdepth 1 -name '*.zip' -print -quit)"
-          destination="$RUNNER_TEMP/Railgun-${version}-${{ matrix.arch }}.zip"
+          destination="$RUNNER_TEMP/Railgun-${{ matrix.channel }}-${version}-darwin-${{ matrix.arch }}.zip"
           test -n "$source"
           mv "$source" "$destination"
           echo "path=$destination" >> "$GITHUB_OUTPUT"
@@ -180,7 +139,7 @@ jobs:
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v7
         with:
-          name: railgun-desktop-${{ matrix.arch }}
+          name: railgun-desktop-${{ matrix.channel }}-${{ matrix.arch }}
           path: ${{ steps.artifact.outputs.path }}
           if-no-files-found: error
           retention-days: 7
@@ -188,7 +147,6 @@ jobs:
   release:
     name: Publish desktop and update Homebrew
     needs:
-      - publish-cli
       - build-desktop
     runs-on: ubuntu-latest
     permissions:
@@ -210,9 +168,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          arm64_zip="dist/Railgun-${version}-arm64.zip"
-          x64_zip="dist/Railgun-${version}-x64.zip"
+          version="${GITHUB_REF_NAME#desktop-v}"
+          arm64_zip="dist/Railgun-homebrew-${version}-darwin-arm64.zip"
+          x64_zip="dist/Railgun-homebrew-${version}-darwin-x64.zip"
           test -f "$arm64_zip"
           test -f "$x64_zip"
           arm64_sha256="$(sha256sum "$arm64_zip" | awk '{print $1}')"
@@ -266,7 +224,7 @@ jobs:
             sha256 arm:   "$ARM64_SHA256",
                    intel: "$X64_SHA256"
 
-            url "https://github.com/dante-teo/railgun/releases/download/v#{version}/Railgun-#{version}-#{arch}.zip"
+            url "https://github.com/dante-teo/railgun/releases/download/desktop-v#{version}/Railgun-homebrew-#{version}-darwin-#{arch}.zip"
             name "Railgun"
             desc "AI coding agent for local development workflows"
             homepage "https://github.com/dante-teo/railgun"
