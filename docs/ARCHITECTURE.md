@@ -26,3 +26,11 @@ GitHub-backed Electron updater can find them. Direct installations check
 automatically and expose **Railgun → Check for Updates…** for an explicit
 check; downloaded updates require the user's restart confirmation. Homebrew
 archives are a separate channel and only the Cask updates those installations.
+
+The update-check modal loads the same packaged Vite renderer with
+`?surface=update-check`; it does not inject a second HTML/CSS application. The
+renderer marks that document surface before mounting so the modal can opt out
+of the main app's 760×520 floor while retaining the shared semantic tokens,
+system appearance, motion preference, and glass accessibility fallbacks. The
+window remains hidden until `ready-to-show` and closes if renderer loading
+fails.

@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import * as HoverCard from "@radix-ui/react-hover-card";
 import { Bot, ChevronRight, FileText, FolderOpen, GitBranch, Globe, Lightbulb, Search, Send, Square, Terminal, Wrench } from "lucide-react";
 import type { OverlayScrollbars } from "overlayscrollbars";
 import { OverlayScrollbarsComponent } from "overlayscrollbars-react";
 import type { BackendSnapshot, DesktopAgentEvent, DesktopInteractionRequest, SessionSnapshot } from "../../shared/types";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
 import { EmptyState } from "../components/ui/state";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../components/ui/hover-card";
 import { BackendStatus } from "../backendStatus";
 import { chatReducer, initialChatState, shouldShowThinking } from "./chatState";
 import type { InteractionPrompt, QueueKind } from "./chatState";
@@ -17,7 +18,7 @@ import type { ToolActivityIcon } from "./toolActivityPresentation";
 import type { TranscriptMessage } from "./chatState";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { createDeltaFrameBuffer } from "./streaming";
-import { errorMessage } from "../lib/utils";
+import { cn, errorMessage } from "../lib/utils";
 
 const nextFrame = (callback: FrameRequestCallback): number =>
   typeof requestAnimationFrame === "function"
@@ -218,29 +219,39 @@ const ToolActivityGlyph = ({ icon }: { readonly icon: ToolActivityIcon }): React
   return <Icon aria-hidden="true" />;
 };
 
+const activityRowClass = (status: ActivityStatus): string => cn(
+  "mx-auto mb-4 w-full max-w-content rounded-sm border border-border bg-surface-muted px-4 py-3 text-control",
+  status === "error" && "border-destructive/55",
+  status === "success" && "border-success/40",
+  status === "interrupted" && "border-warning/50",
+);
+const activityHeadingClass = "flex items-center justify-between gap-3";
+const activityLabelClass = "font-semibold";
+const activityStatusClass = "text-caption text-foreground-secondary";
+
 const ActivityRow = ({ entry }: { readonly entry: ActivityEntry }): React.JSX.Element => {
   if (entry.kind === "moa-aggregation") return (
-    <article className={`activity-row moa-row ${entry.status}`}>
-      <div><span className="activity-label">Aggregating {entry.refCount} {entry.refCount === 1 ? "reference" : "references"}</span><span className="activity-status">{STATUS_LABEL[entry.status]}</span></div>
-      <p>{entry.model}</p>
+    <article className={activityRowClass(entry.status)}>
+      <div className={activityHeadingClass}><span className={activityLabelClass}>Aggregating {entry.refCount} {entry.refCount === 1 ? "reference" : "references"}</span><span className={activityStatusClass}>{STATUS_LABEL[entry.status]}</span></div>
+      <p className="mb-0 mt-1 [overflow-wrap:anywhere]">{entry.model}</p>
     </article>
   );
   if (entry.kind === "moa-reference") return (
-    <article className={`activity-row moa-row ${entry.status}`}>
-      <div><span className="activity-label">Reference {entry.index + 1} of {entry.count}</span><span className="activity-status">{STATUS_LABEL[entry.status]}</span></div>
-      <p>{entry.model}</p>{entry.preview === undefined ? null : <p className="activity-preview">{entry.preview}</p>}
+    <article className={activityRowClass(entry.status)}>
+      <div className={activityHeadingClass}><span className={activityLabelClass}>Reference {entry.index + 1} of {entry.count}</span><span className={activityStatusClass}>{STATUS_LABEL[entry.status]}</span></div>
+      <p className="mb-0 mt-1 [overflow-wrap:anywhere]">{entry.model}</p>{entry.preview === undefined ? null : <p className="mb-0 mt-1 text-foreground-secondary">{entry.preview}</p>}
     </article>
   );
   const status = STATUS_LABEL[entry.status];
   const presentation = presentToolActivity(entry.name, entry.input, entry.status, entry.target);
   return (
-    <details className={`activity-row tool-row ${entry.status}`} aria-label={`${entry.name} — ${status}`}>
-      <summary>
-        <span className="tool-activity-icon"><ToolActivityGlyph icon={presentation.icon} /></span>
-        <span className="tool-activity-copy"><span className="activity-label">{presentation.action}</span>{presentation.target === undefined ? null : <span className="tool-activity-target">{presentation.target}</span>}</span>
+    <details className={cn("tool-row group/tool-row mx-auto mb-3 w-full max-w-content transition-opacity duration-fast focus-within:opacity-100 hover:opacity-100 open:opacity-100", entry.status === "success" ? "opacity-55" : "opacity-100", entry.status === "error" && "text-destructive", entry.status === "interrupted" && "text-warning")} aria-label={`${entry.name} — ${status}`}>
+      <summary className="flex cursor-pointer list-none items-center justify-start gap-2">
+        <span className="tool-activity-icon grid size-[1.125rem] shrink-0 place-items-center text-foreground-tertiary [&_svg]:size-4"><ToolActivityGlyph icon={presentation.icon} /></span>
+        <span className="flex min-w-0 items-baseline gap-1 overflow-hidden"><span className="shrink-0 font-medium">{presentation.action}</span>{presentation.target === undefined ? null : <span className="truncate font-mono text-foreground-secondary">{presentation.target}</span>}</span>
       </summary>
-      {entry.input === undefined ? null : <div className="tool-activity-details"><h3>Input</h3><pre>{entry.input}</pre></div>}
-      {entry.output === undefined ? null : <div className="tool-activity-details"><h3>Output</h3><pre>{entry.output}</pre></div>}
+      {entry.input === undefined ? null : <div className="mb-0 ml-[calc(1.125rem+var(--space-2))] mt-2 p-0 [&_h3]:mb-1 [&_h3]:mt-2 [&_h3]:text-caption [&_h3]:uppercase [&_h3]:text-foreground-secondary [&_pre]:m-0 [&_pre]:max-h-72 [&_pre]:text-caption"><h3>Input</h3><pre>{entry.input}</pre></div>}
+      {entry.output === undefined ? null : <div className="mb-0 ml-[calc(1.125rem+var(--space-2))] mt-2 p-0 [&_h3]:mb-1 [&_h3]:mt-2 [&_h3]:text-caption [&_h3]:uppercase [&_h3]:text-foreground-secondary [&_pre]:m-0 [&_pre]:max-h-72 [&_pre]:text-caption"><h3>Output</h3><pre>{entry.output}</pre></div>}
     </details>
   );
 };
@@ -301,13 +312,13 @@ const ToolActivityGroupRow = ({ group }: { readonly group: ToolActivityGroup }):
   const presentation = presentGroupedToolActivity(group.name, group.status);
   const uses = `${String(group.entries.length)} tool ${group.entries.length === 1 ? "use" : "uses"}`;
   return (
-    <details className={`activity-row tool-row tool-activity-group ${group.status}`} aria-label={`${presentation.action} — ${uses}`}>
-      <summary>
-        <span className="tool-activity-icon"><ToolActivityGlyph icon={presentation.icon} /></span>
-        <span className="tool-activity-copy"><span className="activity-label">{presentation.action}</span></span>
-        <ChevronRight className="tool-activity-group-chevron" aria-hidden="true" />
+    <details className={cn("tool-activity-group group/tool-group mx-auto mb-3 w-full max-w-content transition-opacity duration-fast focus-within:opacity-100 hover:opacity-100 open:opacity-100", group.status === "success" ? "opacity-55" : "opacity-100")} aria-label={`${presentation.action} — ${uses}`}>
+      <summary className="flex cursor-pointer list-none items-center justify-start gap-2">
+        <span className="tool-activity-icon grid size-[1.125rem] shrink-0 place-items-center text-foreground-tertiary [&_svg]:size-4"><ToolActivityGlyph icon={presentation.icon} /></span>
+        <span className="flex min-w-0 items-baseline gap-1 overflow-hidden"><span className="shrink-0 font-medium">{presentation.action}</span></span>
+        <ChevronRight className="tool-activity-group-chevron size-3.5 shrink-0 text-foreground-secondary transition-transform duration-fast group-open/tool-group:rotate-90" aria-hidden="true" />
       </summary>
-      <div className="tool-activity-group-entries">{group.entries.map(entry => <ActivityRow entry={entry} key={`${entry.id}-${String(entry.order)}`} />)}</div>
+      <div className="pl-7 pt-3 [&>*:last-child]:mb-0">{group.entries.map(entry => <ActivityRow entry={entry} key={`${entry.id}-${String(entry.order)}`} />)}</div>
     </details>
   );
 };
@@ -342,32 +353,29 @@ const DashboardAgentHoverCard = ({
   readonly children: ReactNode;
 }): React.JSX.Element => {
   const [open, setOpen] = useState(false);
-  return <HoverCard.Root open={open} onOpenChange={setOpen} openDelay={100} closeDelay={200}>
-    <HoverCard.Trigger asChild>
-      <button type="button" className={`dashboard-agent-row${advisor ? " advisor" : ""}`} aria-label={`${label} — ${status}`} onFocus={() => setOpen(true)}>
-        <span className="dashboard-agent-icon" aria-hidden="true">{icon}</span>
-        <span className="dashboard-agent-copy"><span>{label}</span><span className="dashboard-agent-status">{status}</span></span>
+  return <HoverCard open={open} onOpenChange={setOpen} openDelay={100} closeDelay={200}>
+    <HoverCardTrigger asChild>
+      <button type="button" className="grid min-h-11 w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-sm border-0 bg-transparent p-2 text-left text-foreground hover:bg-[var(--color-menu-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus" aria-label={`${label} — ${status}`} onFocus={() => setOpen(true)}>
+        <span className={cn("grid size-6 place-items-center rounded-full bg-accent text-accent-foreground [&_svg]:size-3.5", advisor && "bg-warning-soft text-warning")} aria-hidden="true">{icon}</span>
+        <span className="grid min-w-0 gap-px"><span className="truncate font-medium">{label}</span><span className="text-caption text-foreground-secondary">{status}</span></span>
       </button>
-    </HoverCard.Trigger>
-    <HoverCard.Portal>
-      <HoverCard.Content
-        className="activity-agent-popover"
+    </HoverCardTrigger>
+      <HoverCardContent
+        className="z-[var(--layer-dialog-popover)] max-h-[min(24rem,calc(100vh_-_2rem))] w-[min(22rem,calc(100vw_-_2rem))] overflow-auto [&_h3]:m-0 [&_h3]:text-control [&_h4]:mb-0 [&_h4]:mt-3 [&_h4]:text-caption [&_h4]:font-semibold [&_h4]:text-foreground-secondary [&_p]:m-0"
         side="left"
         align="start"
         sideOffset={10}
         collisionPadding={16}
       >
         {children}
-        <HoverCard.Arrow className="activity-agent-popover-arrow" width={12} height={6} />
-      </HoverCard.Content>
-    </HoverCard.Portal>
-  </HoverCard.Root>;
+      </HoverCardContent>
+  </HoverCard>;
 };
 
 const SubagentDashboardRow = ({ subagent }: { readonly subagent: ActivityState["subagents"][number] }): React.JSX.Element => (
   <li>
     <DashboardAgentRow label={subagent.goal} status={SUBAGENT_STATUS_LABEL[subagent.status]} icon={<Bot />}>
-      <p className="activity-agent-popover-eyebrow">Subagent · {SUBAGENT_STATUS_LABEL[subagent.status]}</p>
+      <p className="mb-1 text-caption font-semibold uppercase tracking-[0.04em] text-foreground-secondary">Subagent · {SUBAGENT_STATUS_LABEL[subagent.status]}</p>
       <h3>{subagent.goal}</h3>
       {subagent.result === undefined ? null : <><h4>Final result</h4><p>{subagent.result}</p></>}
     </DashboardAgentRow>
@@ -377,10 +385,10 @@ const SubagentDashboardRow = ({ subagent }: { readonly subagent: ActivityState["
 const AdvisorDashboardRow = ({ notes }: { readonly notes: ActivityState["advisorNotes"] }): React.JSX.Element => (
   <li>
     <DashboardAgentRow label="Advisor" status={`${String(notes.length)} ${notes.length === 1 ? "note" : "notes"}`} icon={<Lightbulb />} advisor>
-      <p className="activity-agent-popover-eyebrow">Advisor · {String(notes.length)} {notes.length === 1 ? "note" : "notes"}</p>
+      <p className="mb-1 text-caption font-semibold uppercase tracking-[0.04em] text-foreground-secondary">Advisor · {String(notes.length)} {notes.length === 1 ? "note" : "notes"}</p>
       <h3>Advisor notes</h3>
-      <ol className="advisor-note-list">{notes.map(note => <li key={note.order} className={note.severity}>
-        <span>{note.severity}</span><p>{note.text}</p>
+      <ol className="mt-3 grid list-none gap-2 p-0">{notes.map(note => <li key={note.order} className={cn("border-l-2 border-accent-foreground py-1 pl-2", note.severity === "concern" && "border-warning", note.severity === "blocker" && "border-destructive")}>
+        <span className={cn("mb-0.5 block text-caption font-bold uppercase text-foreground-secondary", note.severity === "concern" && "text-warning", note.severity === "blocker" && "text-destructive")}>{note.severity}</span><p className="text-caption text-foreground-secondary [overflow-wrap:anywhere]">{note.text}</p>
       </li>)}</ol>
     </DashboardAgentRow>
   </li>
@@ -390,23 +398,23 @@ export const ActivityDashboard = ({ activity }: { readonly activity: ActivitySta
   if (activity.todos.length === 0 && activity.subagents.length === 0 && activity.advisorNotes.length === 0 && !activity.todoLoading) return <></>;
   const completed = activity.todos.filter(todo => todo.status === "completed").length;
   return (
-    <div className="activity-dashboard" role="region" aria-label="Activity Dashboard">
-      <header className="activity-dashboard-title"><h2>Activity Dashboard</h2></header>
-      {activity.advisorNotes.length > 0 ? <section className="activity-dashboard-section" aria-label="Advisor">
-        <ol className="activity-agent-list"><AdvisorDashboardRow notes={activity.advisorNotes} /></ol>
+    <div data-glass-surface="panel" className="pointer-events-auto grid max-h-[calc(100vh_-_var(--titlebar-height)_-_var(--space-6))] w-full gap-4 self-start overflow-auto rounded-xl border border-border bg-popover p-4 shadow-popover backdrop-blur-popover" role="region" aria-label="Activity Dashboard">
+      <header className="flex items-center justify-between gap-2"><h2 className="m-0 text-heading">Activity Dashboard</h2></header>
+      {activity.advisorNotes.length > 0 ? <section className="activity-dashboard-section min-w-0" aria-label="Advisor">
+        <ol className="m-0 grid list-none content-start gap-0 p-0 [&>li]:block [&>li]:p-0"><AdvisorDashboardRow notes={activity.advisorNotes} /></ol>
       </section> : null}
-      {activity.todoLoading || activity.todos.length > 0 ? <section className="activity-dashboard-section" aria-labelledby="todo-heading">
-        <header><h3 id="todo-heading">Todos</h3>{activity.todoLoading
-          ? <span className="inspector-loading" role="status">Updating todos…</span>
+      {activity.todoLoading || activity.todos.length > 0 ? <section className="activity-dashboard-section min-w-0" aria-labelledby="todo-heading">
+        <header className="flex items-baseline justify-between gap-2 py-2 [&>span]:text-caption [&>span]:text-foreground-secondary"><h3 className="m-0 text-control" id="todo-heading">Todos</h3>{activity.todoLoading
+          ? <span role="status">Updating todos…</span>
           : <span>{completed} of {activity.todos.length} complete</span>}</header>
-        <ol>{activity.todos.map(todo => <li key={todo.id} className={todo.status}>
-          <span className="todo-indicator" aria-hidden="true">{TODO_STATUS_ICON[todo.status]}</span>
-          <span className="todo-content">{todo.content}</span><span className="todo-status">{TODO_STATUS_LABEL[todo.status]}</span>
+        <ol className="mt-2 grid max-h-[min(12rem,24vh)] list-none content-start gap-2 overflow-auto p-0">{activity.todos.map(todo => <li key={todo.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 border-b border-border py-2 text-control last:border-b-0", todo.status === "cancelled" && "text-foreground-tertiary")}>
+          <span className={cn("font-bold", todo.status === "completed" && "text-success", todo.status === "in_progress" && "text-primary")} aria-hidden="true">{TODO_STATUS_ICON[todo.status]}</span>
+          <span className="[overflow-wrap:anywhere]">{todo.content}</span><span className="whitespace-nowrap text-caption text-foreground-secondary">{TODO_STATUS_LABEL[todo.status]}</span>
         </li>)}</ol>
       </section> : null}
-      {activity.subagents.length > 0 ? <section className="activity-dashboard-section" aria-labelledby="subagents-heading">
-        <header><h3 id="subagents-heading">Subagents</h3><span>{String(activity.subagents.length)}</span></header>
-        <ol className="activity-agent-list">
+      {activity.subagents.length > 0 ? <section className="activity-dashboard-section min-w-0" aria-labelledby="subagents-heading">
+        <header className="flex items-baseline justify-between gap-2 py-2 [&>span]:text-caption [&>span]:text-foreground-secondary"><h3 className="m-0 text-control" id="subagents-heading">Subagents</h3><span>{String(activity.subagents.length)}</span></header>
+        <ol className="m-0 grid list-none content-start gap-0 p-0 [&>li]:block [&>li]:p-0">
           {activity.subagents.map(subagent => <SubagentDashboardRow key={subagent.index} subagent={subagent} />)}
         </ol>
       </section> : null}
@@ -495,9 +503,9 @@ const groupConsecutiveTranscriptActivities = (entries: readonly TranscriptPresen
 };
 
 export const WorkedActivityGroup = ({ activities, durationMs }: { readonly activities: readonly ActivityEntry[]; readonly durationMs?: number }): React.JSX.Element => (
-  <details className="worked-activity-group">
-    <summary><span>{formatWorkedDuration(durationMs)}</span><span className="worked-activity-chevron" aria-hidden="true">›</span></summary>
-    <div><ActivityRows entries={activities} /></div>
+  <details className="group/worked mx-auto mb-6 w-full max-w-content">
+    <summary className="flex cursor-pointer list-none items-center justify-between border-b border-border pb-3 text-control text-foreground-secondary"><span>{formatWorkedDuration(durationMs)}</span><span className="text-[1.75rem] leading-none transition-transform duration-fast group-open/worked:rotate-90" aria-hidden="true">›</span></summary>
+    <div className="pt-4"><ActivityRows entries={activities} /></div>
   </details>
 );
 
@@ -556,8 +564,8 @@ const TranscriptScrollIndicator = ({ progress, dashCount }: { readonly progress:
   const activeDashes = transcriptActiveDashIndexes(progress, dashCount);
   const dashIndexes = Array.from({ length: dashCount }, (_, index) => index);
   return (
-    <div className="transcript-scroll-indicator" aria-hidden="true" style={{ "--transcript-indicator-dash-count": dashCount } as CSSProperties}>
-      {dashIndexes.map(index => <span className={activeDashes.includes(index) ? "active" : undefined} key={index} />)}
+    <div className="transcript-scroll-indicator pointer-events-none absolute left-[var(--transcript-indicator-left)] top-1/2 z-[1] grid h-[min(var(--transcript-indicator-max-height),42vh,calc(var(--transcript-indicator-dash-count)*var(--space-5)))] w-[var(--transcript-indicator-width)] -translate-y-1/2 auto-rows-fr items-center" aria-hidden="true" style={{ "--transcript-indicator-dash-count": dashCount } as CSSProperties}>
+      {dashIndexes.map(index => <span className={cn("h-[3px] w-full bg-[var(--color-transcript-dash-muted)] transition-colors duration-fast", activeDashes.includes(index) && "active bg-[var(--color-transcript-dash-active)]")} key={index} />)}
     </div>
   );
 };
@@ -609,15 +617,15 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
   const presentationEntries = groupConsecutiveTranscriptActivities(collapseCompletedTurnActivity(entries, state.running));
   const empty = entries.length === 0;
   return (
-    <div className="transcript-stage">
+    <div className="relative col-start-1 row-start-1 size-full min-h-0">
       <OverlayScrollbarsComponent
-        className="transcript"
+        className="transcript size-full"
         options={transcriptScrollOptions}
         events={{ initialized: initializeTranscriptScroll, updated: handleTranscriptUpdated, scroll: handleTranscriptScroll }}
       >
-        <div className={`transcript-content ${empty ? "empty" : ""}`} aria-live="polite">
+        <div className={cn("transcript-content min-h-full pb-[var(--transcript-bottom-inset)] pl-[var(--transcript-content-left-base)] pr-8 pt-[var(--transcript-top-inset)] transition-[padding-inline] duration-standard ease-standard", empty && "grid place-items-center")} aria-live="polite">
           {empty && snapshot.phase === "ready"
-            ? <EmptyState className="welcome" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." />
+            ? <EmptyState className="max-w-[26rem]" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." />
             : null}
           {empty && snapshot.phase !== "ready"
             ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
@@ -628,14 +636,14 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
             const entry = item.entry;
             if (entry.kind === "activity") return <ActivityRows entries={[entry.activity]} key={`activity-${entry.activity.id}-${entry.activity.order}`} />;
             const message = entry.message;
-            return <article className={`message ${message.role} ${message.status}`} key={message.id} data-status={message.status}>
+            return <article className={cn("message group/message mx-auto mb-6 w-full max-w-content", message.role, message.status === "failed" && "border-l-2 border-destructive pl-3 text-destructive", message.role === "user" && "[&>p]:ml-auto [&>p]:w-fit [&>p]:max-w-[85%] [&>p]:rounded-[var(--radius-lg)_var(--radius-lg)_var(--radius-xs)_var(--radius-lg)] [&>p]:bg-surface-muted [&>p]:px-4 [&>p]:py-2.5", "[&>p]:m-0 [&>p]:whitespace-pre-wrap [&>p]:leading-[1.58] [&>p]:[overflow-wrap:anywhere]")} key={message.id} data-status={message.status}>
               {message.role === "assistant" && message.status !== "streaming"
                 ? <MarkdownMessage>{message.text}</MarkdownMessage>
                 : <p>{message.text}</p>}
-              {message.status === "stopped" ? <span className="message-status">Stopped</span> : null}
+              {message.status === "stopped" ? <span className="mt-2 inline-block text-caption text-foreground-tertiary">Stopped</span> : null}
               {canBranch && onBranch !== undefined && message.branchable && message.messageId !== undefined && entries.some(candidate => candidate.kind === "message" && candidate.order > entry.order) ? <Button
                 type="button"
-                className="branch-message-action"
+                className="mt-2 flex text-foreground-secondary opacity-0 transition-opacity duration-fast group-hover/message:opacity-100 focus-visible:opacity-100"
                 size="sm"
                 variant="ghost"
                 onClick={() => onBranch(message.messageId!)}
@@ -643,15 +651,15 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
             </article>;
           })}
           {state.failedRun === undefined ? null : (
-            <div className="run-error" role="alert">
+            <div className="mx-auto mb-5 flex w-full max-w-content items-center justify-between gap-3 rounded-sm border border-destructive/45 p-3 text-control text-destructive" role="alert">
               <span>{state.failedRun.error}</span>
               {snapshot.phase === "ready"
-                ? <Button type="button" size="sm" variant="tonal" onClick={() => void controller.retry()}>Retry</Button>
-                : <Button type="button" size="sm" variant="tonal" onClick={() => void onRestart()}>Restart backend</Button>}
+                ? <Button type="button" size="sm" variant="secondary" onClick={() => void controller.retry()}>Retry</Button>
+                : <Button type="button" size="sm" variant="secondary" onClick={() => void onRestart()}>Restart backend</Button>}
             </div>
           )}
           {shouldShowThinking(state)
-            ? <div className="thinking"><i /><i /><i /><span>Railgun is thinking</span></div>
+            ? <div className="mx-auto flex w-full max-w-content items-center gap-1 text-xs text-foreground-secondary"><i className="size-1.5 animate-bounce rounded-full bg-success motion-reduce:animate-none" /><i className="size-1.5 animate-bounce rounded-full bg-success [animation-delay:150ms] motion-reduce:animate-none" /><i className="size-1.5 animate-bounce rounded-full bg-success [animation-delay:300ms] motion-reduce:animate-none" /><span className="ml-1">Railgun is thinking</span></div>
             : null}
         </div>
       </OverlayScrollbarsComponent>
@@ -664,6 +672,7 @@ interface ComposerProps {
   readonly controller: ChatController;
   readonly available: boolean;
   readonly controls?: ReactNode;
+  readonly onHeightChange?: (height: number) => void;
 }
 
 const declineAnswer = "[user declined to answer]";
@@ -694,47 +703,46 @@ const InteractionPromptCard = ({ prompt, onAnswer, onApproval, onSelectAnswer }:
 
   const choices = prompt.type === "clarification" ? prompt.choices : undefined;
   return prompt.type === "approval" ? (
-    <section className="interaction-prompt approval-prompt" aria-label="Shell command approval" onKeyDown={event => {
+    <section className="rounded-md border border-warning bg-surface p-3" aria-label="Shell command approval" onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); decline(); }
     }}>
-      <div className="interaction-prompt-heading"><p className="eyebrow">Approval needed</p><h2>Allow this shell command?</h2></div>
-      <pre className="interaction-command" aria-label="Command preview">{prompt.command}</pre>
-      {prompt.error === undefined ? null : <p className="interaction-error" role="alert">{prompt.error}</p>}
-      <div className="interaction-actions">
-        <Button ref={approvalControl} type="button" variant="tonal" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, false)}>Deny</Button>
+      <div><p className="mb-1 mt-0 text-caption font-bold uppercase tracking-[0.07em] text-warning">Approval needed</p><h2 className="m-0 text-body font-semibold">Allow this shell command?</h2></div>
+      <pre className="my-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-sm border border-border bg-surface-muted px-3 py-2 [overflow-wrap:anywhere]" aria-label="Command preview">{prompt.command}</pre>
+      {prompt.error === undefined ? null : <p className="mb-0 mt-2 text-caption text-destructive" role="alert">{prompt.error}</p>}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button ref={approvalControl} type="button" variant="secondary" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, false)}>Deny</Button>
         <Button type="button" disabled={prompt.submitting} onClick={() => void onApproval(prompt.id, true)}>{prompt.submitting ? "Submitting…" : "Allow"}</Button>
       </div>
     </section>
   ) : (
-    <section className="interaction-prompt clarification-prompt" aria-label="Clarification request" onKeyDown={event => {
+    <section className="rounded-md border border-warning bg-surface p-3" aria-label="Clarification request" onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); decline(); }
     }}>
-      <div className="interaction-prompt-heading"><p className="eyebrow">Clarification needed</p><h2>{prompt.question}</h2></div>
+      <div><p className="mb-1 mt-0 text-caption font-bold uppercase tracking-[0.07em] text-warning">Clarification needed</p><h2 className="m-0 text-body font-semibold">{prompt.question}</h2></div>
       {choices === undefined ? (
         <form onSubmit={event => { event.preventDefault(); if (prompt.answer.trim() !== "") void onAnswer(prompt.id, prompt.answer); }}>
-          <label className="interaction-label" htmlFor={`clarification-${prompt.id}`}>Your answer</label>
-          <input
+          <label className="mb-1 mt-3 block text-caption text-foreground-secondary" htmlFor={`clarification-${prompt.id}`}>Your answer</label>
+          <Input
             ref={firstControl}
             id={`clarification-${prompt.id}`}
-            className="ui-field ui-input"
             value={prompt.answer}
             maxLength={100_000}
             disabled={prompt.submitting}
             onChange={event => onSelectAnswer(prompt.id, event.target.value)}
           />
-          <div className="interaction-actions">
-            <Button type="button" variant="tonal" disabled={prompt.submitting} onClick={decline}>Decline</Button>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button type="button" variant="secondary" disabled={prompt.submitting} onClick={decline}>Decline</Button>
             <Button type="submit" disabled={prompt.submitting || prompt.answer.trim() === ""}>{prompt.submitting ? "Submitting…" : "Submit"}</Button>
           </div>
         </form>
       ) : (
-        <div role="radiogroup" aria-label="Clarification choices" className="interaction-choices">
+        <div role="radiogroup" aria-label="Clarification choices" className="mt-3 grid gap-2">
           {choices.map((choice, index) => (
             <Button
               type="button"
               role="radio"
               aria-checked={prompt.answer === choice}
-              className="interaction-choice"
+              className="w-full justify-start text-left aria-checked:border-focus aria-checked:bg-surface-control-active aria-checked:shadow-focus"
               key={choice}
               ref={element => { choiceRefs.current[index] = element; }}
               disabled={prompt.submitting}
@@ -753,13 +761,13 @@ const InteractionPromptCard = ({ prompt, onAnswer, onApproval, onSelectAnswer }:
           ))}
         </div>
       )}
-      {prompt.error === undefined ? null : <p className="interaction-error" role="alert">{prompt.error}</p>}
+      {prompt.error === undefined ? null : <p className="mb-0 mt-2 text-caption text-destructive" role="alert">{prompt.error}</p>}
     </section>
   );
 };
 
 const InteractionPrompts = ({ controller }: { readonly controller: ChatController }): React.JSX.Element => (
-  <div className="interaction-prompts" aria-label="Pending agent prompts">
+  <div className="mb-2 grid gap-2" aria-label="Pending agent prompts">
     {controller.state.interactions.map(prompt => <InteractionPromptCard
       key={prompt.id}
       prompt={prompt}
@@ -770,47 +778,68 @@ const InteractionPrompts = ({ controller }: { readonly controller: ChatControlle
   </div>
 );
 
-export const Composer = ({ controller, available, controls }: ComposerProps): React.JSX.Element => {
+export const Composer = ({ controller, available, controls, onHeightChange }: ComposerProps): React.JSX.Element => {
   const { state, draft } = controller;
   const interactionsOpen = state.interactions.length > 0;
+  const composerRef = useRef<HTMLDivElement>(null);
+  const reportComposerHeight = useCallback((entry?: ResizeObserverEntry): void => {
+    const composer = composerRef.current;
+    if (composer === null || onHeightChange === undefined) return;
+    const borderBoxHeight = entry?.borderBoxSize[0]?.blockSize;
+    const height = Math.ceil(borderBoxHeight ?? composer.getBoundingClientRect().height);
+    if (height > 0) onHeightChange(height);
+  }, [onHeightChange]);
+  useLayoutEffect(() => reportComposerHeight());
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+    if (composer === null || onHeightChange === undefined) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(entries => reportComposerHeight(entries[0]));
+    observer.observe(composer, { box: "border-box" });
+    return () => observer.disconnect();
+  }, [onHeightChange, reportComposerHeight]);
   return (
-    <div className="composer-wrap">
-      <InteractionPrompts controller={controller} />
-      {state.queue.length === 0 ? null : (
-        <section className="prompt-queue" aria-label="Queued messages">
-          <h2>Queued</h2>
-          <ol>{state.queue.map(item => <li key={item.id}><span>{item.kind === "steering" ? "Steering" : "Follow-up"}</span><p>{item.text}</p></li>)}</ol>
-        </section>
-      )}
-      <div className="composer">
-        <Textarea
-          aria-label="Message Railgun"
-          placeholder={available ? "Message Railgun…" : "Backend unavailable"}
-          value={draft}
-          disabled={!available || interactionsOpen}
-          onChange={event => controller.setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              if (state.running) void controller.queueDraft("steering");
-              else void controller.sendInitial();
-            } else if (event.key === "Tab" && state.running && draft.trim() !== "") {
-              event.preventDefault();
-              void controller.queueDraft("follow-up");
-            }
-          }}
-        />
-        <div className="composer-footer">
-          {controls === undefined ? null : <div className="composer-controls">{controls}</div>}
-          {state.running ? (
-            <Button variant="destructive" size="icon" className="send-button" aria-label="Stop" disabled={state.stopping} onClick={() => void controller.stop()}><Square aria-hidden="true" /></Button>
-          ) : (
-            <Button size="icon" className="send-button" aria-label="Send" disabled={draft.trim() === "" || !available} onClick={() => void controller.sendInitial()}><Send aria-hidden="true" /></Button>
-          )}
+    <div ref={composerRef} data-composer-root className="col-start-1 row-start-1 h-fit z-[2] self-end px-7 pb-2 pt-3 transition-[padding] duration-standard ease-standard">
+      <div className="mx-auto w-full max-w-content">
+        <InteractionPrompts controller={controller} />
+        {state.queue.length === 0 ? null : (
+          <section className="mb-2 rounded-sm border border-border bg-surface px-3 py-2" aria-label="Queued messages">
+            <h2 className="mb-1 mt-0 text-caption uppercase tracking-[0.07em] text-foreground-secondary">Queued</h2>
+            <ol className="m-0 grid list-none gap-1 p-0">{state.queue.map(item => <li className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 text-control" key={item.id}><span className="text-caption text-foreground-tertiary">{item.kind === "steering" ? "Steering" : "Follow-up"}</span><p className="m-0 truncate">{item.text}</p></li>)}</ol>
+          </section>
+        )}
+        <div data-glass-surface="composer" className="relative z-[1] flex flex-col items-stretch rounded-lg border border-border bg-popover p-3 shadow-control backdrop-blur-popover focus-within:border-focus focus-within:shadow-focus">
+          <Textarea
+            aria-label="Message Railgun"
+            rows={1}
+            className="min-h-[calc(1lh+var(--space-4)+2px)] max-h-[calc(10lh+var(--space-4)+2px)] resize-none overflow-y-auto [field-sizing:content]"
+            placeholder={available ? "Message Railgun…" : "Backend unavailable"}
+            value={draft}
+            disabled={!available || interactionsOpen}
+            onChange={event => controller.setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (state.running) void controller.queueDraft("steering");
+                else void controller.sendInitial();
+              } else if (event.key === "Tab" && state.running && draft.trim() !== "") {
+                event.preventDefault();
+                void controller.queueDraft("follow-up");
+              }
+            }}
+          />
+          <div className="mt-3 flex items-center gap-2">
+            {controls === undefined ? null : <div className="min-w-0 flex-1">{controls}</div>}
+            {state.running ? (
+              <Button variant="destructive" size="icon" className="shrink-0" aria-label="Stop" disabled={state.stopping} onClick={() => void controller.stop()}><Square aria-hidden="true" /></Button>
+            ) : (
+              <Button size="icon" className="shrink-0" aria-label="Send" disabled={draft.trim() === "" || !available} onClick={() => void controller.sendInitial()}><Send className="-translate-x-px translate-y-px" aria-hidden="true" /></Button>
+            )}
+          </div>
         </div>
+        {state.submissionError === undefined ? null : <p className="mb-0 mt-2 text-caption text-destructive" role="alert">{state.submissionError}</p>}
+        <p className="relative z-[2] mx-auto -mt-px w-fit rounded-b-sm border border-t-0 border-border bg-surface px-4 pb-[0.3125rem] pt-1 text-center text-[0.625rem] text-foreground-tertiary shadow-control">{interactionsOpen ? "Answer the pending prompt to continue" : state.running ? "Enter steers · Tab queues follow-up · Shift+Enter adds a line" : "Enter sends · Shift+Enter adds a line"}</p>
       </div>
-      {state.submissionError === undefined ? null : <p className="composer-error" role="alert">{state.submissionError}</p>}
-      <p className="composer-hint">{interactionsOpen ? "Answer the pending prompt to continue" : state.running ? "Enter steers · Tab queues follow-up · Shift+Enter adds a line" : "Enter sends · Shift+Enter adds a line"}</p>
     </div>
   );
 };

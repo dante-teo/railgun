@@ -25,8 +25,14 @@ describe("ShellLayout", () => {
   it("uses the shared compact sidebar icon treatment for the toggle", () => {
     renderLayout();
     const toggle = screen.getByRole("button", { name: "Collapse sidebar" });
-    expect(toggle.className).toContain("ui-button-sidebar-icon");
-    expect(toggle.className).toContain("ui-button-compact-icon");
+    expect(toggle.className).toContain("bg-transparent");
+    expect(toggle.className).toContain("size-control-icon");
+    expect(toggle.className).not.toContain("size-[var(--titlebar-control-height)]");
+    expect(toggle.className).toContain("rounded-full");
+    expect(toggle.className).not.toContain("rounded-xs");
+    expect(toggle.className).toContain("before:size-6");
+    expect(toggle.className).toContain("hover:not-disabled:before:bg-surface-muted");
+    expect(toggle.className).toContain("hover:not-disabled:bg-transparent");
     expect(toggle.querySelector(".lucide-panel-right")).not.toBeNull();
   });
 
@@ -40,6 +46,16 @@ describe("ShellLayout", () => {
     expect(shell?.style.getPropertyValue("--sidebar-width")).toBe(`${PANE_WIDTHS.sidebar.max}px`);
     expect(shell?.style.getPropertyValue("--sidebar-content-inset"))
       .toBe(`calc(${PANE_WIDTHS.sidebar.max}px + (2 * var(--sidebar-gutter)))`);
+    expect(shell?.style.getPropertyValue("--toolbar-surface-right")).toBe("0px");
+    expect(shell?.style.getPropertyValue("--titlebar-drag-left")).toBe("0px");
+    expect(shell?.style.getPropertyValue("--titlebar-drag-right")).toBe("var(--titlebar-actions-safe-width)");
+    const toolbarMaterial = shell?.querySelector<HTMLElement>("[data-glass-surface='toolbar']");
+    expect(toolbarMaterial?.className).toContain("left-0");
+    expect(toolbarMaterial?.className).not.toContain("inset-x-0");
+    expect(toolbarMaterial?.className).toContain("right-[var(--toolbar-surface-right)]");
+    expect(toolbarMaterial?.style.right).toBe("");
+    expect(toolbarMaterial?.className).toContain("z-[var(--layer-toolbar-material)]");
+    expect(shell?.querySelector(".titlebar-drag-region")?.className).toContain("left-[var(--titlebar-drag-left)]");
     expect(shell?.querySelector<HTMLElement>(".sidebar-spacer")?.style.width).toBe("var(--sidebar-content-inset)");
     fireEvent.doubleClick(separator);
     expect(separator.getAttribute("aria-valuenow")).toBe(String(PANE_WIDTHS.sidebar.default));
@@ -77,6 +93,8 @@ describe("ShellLayout", () => {
     act(() => resize([{ contentRect: { width: 1_900 } } as ResizeObserverEntry], {} as ResizeObserver));
     expect(shell?.classList.contains("workspace-open")).toBe(true);
     expect(shell?.classList.contains("inspector-overlay")).toBe(false);
+    expect(shell?.style.getPropertyValue("--toolbar-surface-right")).toBe("var(--workspace-width)");
+    expect(shell?.style.getPropertyValue("--titlebar-drag-right")).toBe("calc(var(--workspace-width) + var(--titlebar-actions-safe-width))");
     expect(screen.getByRole("complementary", { name: "Inspector" })).not.toBeNull();
     expect(screen.getByRole("complementary", { name: "Files workspace" })).not.toBeNull();
     expect(shell?.querySelector(".shell-center")?.nextElementSibling?.classList.contains("shell-inspector")).toBe(true);
@@ -84,6 +102,7 @@ describe("ShellLayout", () => {
 
     act(() => resize([{ contentRect: { width: 1_600 } } as ResizeObserverEntry], {} as ResizeObserver));
     expect(shell?.classList.contains("inspector-overlay")).toBe(true);
+    expect(shell?.style.getPropertyValue("--toolbar-surface-right")).toBe("var(--workspace-width)");
     expect(screen.getByRole("complementary", { name: "Inspector" })).not.toBeNull();
     expect(onModeChange).toHaveBeenLastCalledWith("overlay");
   });
@@ -109,6 +128,31 @@ describe("ShellLayout", () => {
       .toBe(String(PANE_WIDTHS.sidebar.default));
   });
 
+  it("reserves the Files pane at normal desktop widths and overlays it only when chat would be unusable", () => {
+    let resize: ResizeObserverCallback = () => undefined;
+    Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: class {
+      constructor(callback: ResizeObserverCallback) { resize = callback; }
+      observe(): void { /* Driven explicitly by the test. */ }
+      disconnect(): void { /* No resources in the test double. */ }
+    } });
+    render(<ShellLayout
+      sidebar={<span>Sidebar content</span>}
+      main={<span>Main content</span>}
+      workspace={<span>Workspace content</span>}
+      sidebarVisible
+      onSidebarVisibilityChange={() => undefined}
+    />);
+    const shell = document.querySelector<HTMLElement>(".desktop-shell");
+
+    act(() => resize([{ contentRect: { width: 1_024 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(shell?.classList.contains("workspace-overlay")).toBe(false);
+    expect(screen.getByRole("complementary", { name: "Files workspace" }).className).not.toContain("absolute");
+
+    act(() => resize([{ contentRect: { width: 760 } } as ResizeObserverEntry], {} as ResizeObserver));
+    expect(shell?.classList.contains("workspace-overlay")).toBe(true);
+    expect(screen.getByRole("complementary", { name: "Files workspace" }).className).toContain("absolute");
+  });
+
   it("omits the inspector entirely and never persists visibility state", () => {
     renderLayout();
     expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
@@ -131,13 +175,18 @@ describe("ShellLayout", () => {
       onSidebarVisibilityChange={() => undefined}
     />);
     expect(document.querySelector<HTMLElement>(".sidebar-spacer")?.style.width).toBe("0px");
+    expect(document.querySelector<HTMLElement>(".desktop-shell")?.style.getPropertyValue("--toolbar-surface-right")).toBe("0px");
+    expect(document.querySelector<HTMLElement>(".desktop-shell")?.style.getPropertyValue("--titlebar-drag-left")).toBe("var(--collapsed-toolbar-content-left)");
     const toggle = screen.getByRole("button", { name: "Expand sidebar" });
-    expect(toggle.className).toContain("ui-button-icon");
-    expect(toggle.className).toContain("ui-button-sidebar-icon");
-    expect(toggle.className).not.toContain("ui-button-compact-icon");
+    expect(toggle.className).toContain("size-control-icon");
+    expect(toggle.className).toContain("bg-transparent");
+    expect(toggle.className).toContain("rounded-full");
+    expect(toggle.className.split(" ")).not.toContain("size-6");
     expect(toggle.querySelector(".lucide-panel-left")).not.toBeNull();
     const controls = toggle.closest(".collapsed-sidebar-controls");
     expect(controls).not.toBeNull();
+    expect(controls?.className).toContain("z-[var(--layer-titlebar-action)]");
+    expect(toggle.className).toContain("[-webkit-app-region:no-drag]");
     expect(screen.getByRole("button", { name: "New Task" }).closest(".collapsed-sidebar-controls")).toBe(controls);
   });
 });

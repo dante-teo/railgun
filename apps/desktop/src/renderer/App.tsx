@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, Clock, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import type { CSSProperties } from "react";
+import { PanelRightOpen, Search, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, RestoredTranscriptMessage, SessionSnapshot, SessionSummary } from "../shared/types";
-import { Button } from "./components/ui/button";
+import { Button, InsetIconButton } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
+import { Checkbox } from "./components/ui/checkbox";
+import { ConfirmDialog } from "./components/ui/confirm-dialog";
 import { ErrorState, LoadingState } from "./components/ui/state";
 import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
 import { ShellLayout } from "./shell/ShellLayout";
+import { AppSidebar } from "./shell/AppSidebar";
 import { ActivityDashboard, Composer, Transcript, useChatController } from "./chat/Chat";
 import { ChatToolbarControls } from "./chat/ChatControls";
-import { PHASE_COPY, RETRYABLE_PHASES } from "./backendStatus";
+import { RETRYABLE_PHASES } from "./backendStatus";
 import { errorMessage } from "./lib/utils";
 import { readStoredArea, writeStoredArea } from "./routeStorage";
 import type { AppArea } from "./routeStorage";
@@ -24,11 +28,11 @@ export const App = (): React.JSX.Element => {
   const [scenarios, setScenarios] = useState<readonly MockScenario[]>([]);
   const [area, setArea] = useState<AppArea>(() => readStoredArea(window.localStorage));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarScrolled, setSidebarScrolled] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string>();
   const [operationError, setOperationError] = useState<string>();
   const [controlsResetKey, setControlsResetKey] = useState(0);
+  const [composerHeight, setComposerHeight] = useState<number>();
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string>();
@@ -255,11 +259,11 @@ export const App = (): React.JSX.Element => {
   };
 
   if (snapshot === undefined) return bootstrapError === undefined ? (
-    <main className="loading-shell">
+    <main className="grid h-full place-content-center justify-items-center p-8">
       <LoadingState title="Connecting to Railgun…" description="Starting the secure desktop connection." />
     </main>
   ) : (
-    <main className="loading-shell">
+    <main className="grid h-full place-content-center justify-items-center p-8">
       <ErrorState title="Unable to connect" description={bootstrapError} />
     </main>
   );
@@ -276,65 +280,43 @@ export const App = (): React.JSX.Element => {
       onSelectScenario={selectMockScenario}
       onSessionsChanged={loadSessions}
     />
-    <Dialog open={pendingSettingsExit !== undefined} onOpenChange={open => { if (!open) setPendingSettingsExit(undefined); }}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Discard unsaved changes?</DialogTitle><DialogDescription>Your instruction edits have not been saved.</DialogDescription></DialogHeader>
-        <DialogFooter>
-          <Button variant="ghost" autoFocus onClick={() => setPendingSettingsExit(undefined)}>Cancel</Button>
-          <Button variant="destructive" onClick={() => { const action = pendingSettingsExit; setPendingSettingsExit(undefined); setSettingsDirty(false); action?.(); }}>Discard Changes</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={pendingSettingsExit !== undefined}
+      title="Discard unsaved changes?"
+      description="Your instruction edits have not been saved."
+      confirmLabel="Discard Changes"
+      destructive
+      onOpenChange={open => { if (!open) setPendingSettingsExit(undefined); }}
+      onConfirm={() => {
+        const action = pendingSettingsExit;
+        setPendingSettingsExit(undefined);
+        setSettingsDirty(false);
+        action?.();
+      }}
+    />
   </>;
-  const sidebar = <>
-        <div className="sidebar-pinned-top">
-          <div className="brand"><span>Railgun</span></div>
-          <Button className="sidebar-action new-task" variant="ghost" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" />New Task</Button>
-        </div>
-        <div className={`sidebar-top-divider${sidebarScrolled ? " visible" : ""}`} aria-hidden="true" />
-        <div
-          className="sidebar-scroll"
-          onScroll={e => {
-            const next = (e.currentTarget as HTMLDivElement).scrollTop > 0;
-            setSidebarScrolled(prev => prev === next ? prev : next);
-          }}
-        >
-          <Button variant="ghost" className={`sidebar-action sidebar-automation${area === "automation" ? " active" : ""}`} onClick={() => selectArea("automation")}><Clock aria-hidden="true" />Scheduled</Button>
-          <section className="session-navigation" aria-label="Tasks">
-            <p className="sidebar-list-heading">Tasks</p>
-            <div className="session-list">
-              {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
-                : sessions.length === 0 ? <p>No saved tasks</p>
-                  : sessions.map(session => (
-                      <div
-                        key={session.id}
-                        className={`session-row ${activeSession?.id === session.id ? "active" : ""}`}
-                      ><button
-                          type="button"
-                          className="session-row-main"
-                          aria-current={activeSession?.id === session.id ? "true" : undefined}
-                          disabled={sessionOperation}
-                          onContextMenu={event => { event.preventDefault(); openSessionContextMenu(session.id); }}
-                          onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); openSessionContextMenu(session.id); } }}
-                          onClick={() => void resumeSession(session.id)}
-                        ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
-                        <Button type="button" variant="ghost" size="icon" className="session-archive" aria-label="Archive task" title={`Archive ${session.firstUserPreview || "Untitled chat"}`} disabled={sessionOperation || running} onClick={event => { event.stopPropagation(); void archiveSession(session.id); }}><Archive aria-hidden="true" /></Button>
-                      </div>
-                    ))}
-            </div>
-          </section>
-        </div>
-        <div className="sidebar-bottom-divider" aria-hidden="true" />
-        <div className="sidebar-bottom">
-          <Button variant="ghost" className="sidebar-action sidebar-settings" onClick={() => selectArea("settings")}><Settings aria-hidden="true" />Settings</Button>
-          <div className="sidebar-footer"><span className={`connection-dot ${snapshot.phase}`} aria-hidden="true" /><span>{PHASE_COPY[snapshot.phase].title}</span></div>
-        </div>
-      </>;
+  const sidebar = <AppSidebar
+    area={area}
+    phase={snapshot.phase}
+    sessions={sessions}
+    sessionsLoading={sessionsLoading}
+    {...(sessionsError === undefined ? {} : { sessionsError })}
+    {...(activeSession?.id === undefined ? {} : { activeSessionId: activeSession.id })}
+    busy={sessionOperation}
+    running={running}
+    onNewTask={() => void startNewTask()}
+    onScheduled={() => selectArea("automation")}
+    onSettings={() => selectArea("settings")}
+    onRetrySessions={() => void loadSessions()}
+    onResumeSession={id => void resumeSession(id)}
+    onOpenSessionMenu={openSessionContextMenu}
+    onArchiveSession={id => void archiveSession(id)}
+  />;
   const activityPaneToggle = <Button
       type="button"
-      variant="sidebarIcon"
+      variant="ghost"
       size="icon"
-      className="activity-pane-toggle"
+      className="aria-pressed:bg-surface-control-active aria-pressed:text-foreground [-webkit-app-region:no-drag]"
       aria-label={hasActivity && activityPaneVisible ? "Hide Activity Dashboard" : "Show Activity Dashboard"}
       aria-pressed={hasActivity && activityPaneVisible}
       disabled={!hasActivity}
@@ -343,26 +325,29 @@ export const App = (): React.JSX.Element => {
     ><SlidersHorizontal aria-hidden="true" /></Button>;
   const filesPaneToggle = <Button
       type="button"
-      variant="sidebarIcon"
+      variant="ghost"
       size="icon"
-      className="files-pane-toggle"
+      className="[-webkit-app-region:no-drag]"
       aria-label="Open Files"
       aria-pressed="false"
       title="Open Files"
       onClick={() => setFilesPaneVisible(true)}
     ><PanelRightOpen aria-hidden="true" /></Button>;
   const firstUserMessage = activeSession?.transcript.find((entry): entry is RestoredTranscriptMessage => entry.role === "user");
-  const toolbarActions = <div className="content-toolbar-actions">
-    <div className="checkpoint-status">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
+  const toolbarActions = <div className="content-toolbar-actions pointer-events-auto absolute right-[calc(var(--toolbar-surface-right)+var(--space-7))] top-[var(--titlebar-control-center-y)] z-[var(--layer-titlebar-action)] flex -translate-y-1/2 items-center gap-2 [-webkit-app-region:no-drag]">
+    <div className="text-caption text-foreground-secondary [&_details]:relative [&_details_span]:absolute [&_details_span]:right-0 [&_details_span]:top-[calc(100%_+_var(--space-2))] [&_details_span]:w-64 [&_details_span]:rounded-sm [&_details_span]:border [&_details_span]:border-border [&_details_span]:bg-popover [&_details_span]:p-2 [&_details_span]:text-foreground [&_details_span]:shadow-popover [&_summary]:cursor-default">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
     {filesPaneVisible
-      ? <div className="right-pane-controls single-pane-control">{activityPaneToggle}</div>
-      : <div className="right-pane-controls">{activityPaneToggle}{filesPaneToggle}</div>}
+      ? <div className="right-pane-controls single-pane-control flex size-[var(--titlebar-control-height)] items-center justify-center overflow-hidden rounded-full border border-border bg-surface-control [-webkit-app-region:no-drag] [&>button]:size-full">{activityPaneToggle}</div>
+      : <div className="right-pane-controls flex h-[var(--titlebar-control-height)] items-center overflow-hidden rounded-full border border-border bg-surface-control [-webkit-app-region:no-drag]">{activityPaneToggle}<span className="h-[calc(100%_-_var(--space-4))] w-px bg-border-strong" aria-hidden="true" />{filesPaneToggle}</div>}
   </div>;
-  const chatContent = <section className="chat-surface">
-          <header className="content-toolbar">
-            <div className="content-toolbar-title"><h1>{firstUserMessage?.text.slice(0, 500) ?? "New Task"}</h1><p>{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
+  const chatContentStyle = composerHeight === undefined ? undefined : {
+    "--transcript-bottom-inset": `calc(${String(composerHeight)}px + var(--space-5))`,
+  } as CSSProperties;
+  const chatContent = <section className="relative grid size-full min-w-0 overflow-hidden bg-transparent" style={chatContentStyle}>
+          <header className="content-toolbar relative z-[var(--layer-titlebar-control)] col-start-1 row-start-1 flex w-full self-start bg-transparent pb-2 pr-[var(--titlebar-actions-safe-width)] pt-[calc(var(--titlebar-control-center-y)_-_0.875rem)]">
+            <div className="ml-[var(--toolbar-content-left)] min-w-0 flex-1 transition-[margin-left] duration-standard ease-standard"><h1 className="m-0 max-w-full truncate text-[0.9375rem] font-semibold tracking-[-0.01em]">{firstUserMessage?.text.slice(0, 500) ?? "New Task"}</h1><p className="mb-0 mt-0.5 text-caption text-foreground-secondary">{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
           </header>
-          {operationError === undefined ? null : <div className="shell-error" role="alert">{operationError}</div>}
+          {operationError === undefined ? null : <div className="z-[3] col-start-1 row-start-1 mx-[max(var(--space-7),calc((100%_-_var(--container-content))/2))] mb-2 mt-[var(--transcript-top-inset)] self-start rounded-sm border border-destructive/45 px-3 py-2 text-control text-destructive" role="alert">{operationError}</div>}
           <Transcript
             controller={chat}
             snapshot={snapshot}
@@ -374,6 +359,7 @@ export const App = (): React.JSX.Element => {
             controller={chat}
             available={snapshot.phase === "ready"}
             controls={<ChatToolbarControls running={running} available={snapshot.phase === "ready"} resetKey={controlsResetKey} />}
+            onHeightChange={setComposerHeight}
           />
         </section>;
   const content = area === "automation"
@@ -384,8 +370,8 @@ export const App = (): React.JSX.Element => {
     <>
       <ShellLayout
         sidebar={sidebar}
-        sidebarAction={<Button type="button" variant="sidebarIcon" size="compactIcon" className="task-search-button" aria-label="Search tasks" disabled={sessionOperation} onClick={openTaskPalette}><Search aria-hidden="true" /></Button>}
-        collapsedSidebarAction={<Button type="button" variant="sidebarIcon" size="icon" aria-label="New Task" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" /></Button>}
+        sidebarAction={<InsetIconButton type="button" className="task-search-button absolute left-[calc(var(--sidebar-gutter)_+_var(--sidebar-width)_-_var(--space-2)_-_var(--titlebar-control-height))] top-[var(--titlebar-control-center-y)] z-[var(--layer-titlebar-control)] -translate-y-1/2 rounded-full [-webkit-app-region:no-drag]" aria-label="Search tasks" disabled={sessionOperation} onClick={openTaskPalette}><Search aria-hidden="true" /></InsetIconButton>}
+        collapsedSidebarAction={<Button type="button" variant="ghost" size="icon" className="[-webkit-app-region:no-drag]" aria-label="New Task" disabled={sessionOperation} onClick={() => void startNewTask()}><SquarePen aria-hidden="true" /></Button>}
         main={content}
         mainAction={area === "chat" ? toolbarActions : undefined}
         inspector={area === "chat" && hasActivity ? <ActivityDashboard activity={chat.state.activity} /> : undefined}
@@ -415,13 +401,13 @@ export const App = (): React.JSX.Element => {
         onSelect={(sessionId) => { void resumeSession(sessionId); }}
       />
       <Dialog open={branchMessageId !== undefined} onOpenChange={open => { if (!open && !branchSubmitting) { setBranchMessageId(undefined); setBranchError(undefined); } }}>
-        <DialogContent className="branch-dialog">
+        <DialogContent className="w-[min(30rem,calc(100vw_-_2rem))]">
           <DialogHeader><DialogTitle>Branch from this message?</DialogTitle><DialogDescription>This rewinds the active task to this message. Later messages remain preserved in the abandoned branch.</DialogDescription></DialogHeader>
-          <label className="branch-summary-option"><input type="checkbox" checked={branchSummarize} disabled={branchSubmitting} onChange={event => setBranchSummarize(event.target.checked)} /> <span>Summarize later messages</span></label>
-          {branchError === undefined ? null : <p className="branch-dialog-error" role="alert">{branchError}</p>}
+          <label className="mt-5 flex items-center gap-2 text-body"><Checkbox checked={branchSummarize} disabled={branchSubmitting} onCheckedChange={checked => setBranchSummarize(checked === true)} /> <span>Summarize later messages</span></label>
+          {branchError === undefined ? null : <p className="mb-0 mt-3 text-control text-destructive" role="alert">{branchError}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={branchSubmitting} onClick={() => setBranchMessageId(undefined)}>Cancel</Button>
-            <Button type="button" variant="tonal" disabled={branchSubmitting} onClick={() => void branchSession()}>{branchSubmitting ? "Branching…" : "Branch"}</Button>
+            <Button type="button" variant="secondary" disabled={branchSubmitting} onClick={() => void branchSession()}>{branchSubmitting ? "Branching…" : "Branch"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -43,7 +43,7 @@ describe("Scheduled page", () => {
     const create = screen.getByRole("button", { name: "Create scheduled job" });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     expect(create.closest(".content-toolbar-actions")).not.toBeNull();
-    expect(create.className).toContain("ui-button-icon");
+    expect(create.className).toContain("size-control-icon");
     expect(disconnected.listCronJobs).not.toHaveBeenCalled();
     view.unmount();
 
@@ -77,7 +77,7 @@ describe("Scheduled page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create scheduled job" }));
     const createButton = screen.getByRole("button", { name: "Create" });
-    expect(screen.getByRole("textbox", { name: "Schedule" }).classList.contains("automation-schedule-input")).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Schedule" }).classList.contains("font-mono")).toBe(true);
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), { target: { value: "  Check releases  " } });
     fireEvent.change(screen.getByRole("textbox", { name: "Schedule" }), { target: { value: "0 0 9 * * *" } });

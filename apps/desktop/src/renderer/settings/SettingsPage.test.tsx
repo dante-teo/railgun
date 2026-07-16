@@ -52,7 +52,7 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("Background automation")).toBeTruthy();
     expect(screen.getByText(/scheduled prompts and nightly maintenance/u)).toBeTruthy();
     expect(getAutomationStatus).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Enable background automation" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Enable background automation" }));
     await waitFor(() => expect(enableAutomation).toHaveBeenCalledOnce());
   });
 
@@ -71,8 +71,8 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
 
-    const toggle = await screen.findByRole("checkbox", { name: "Enable background automation" });
-    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(true));
+    const toggle = await screen.findByRole("switch", { name: "Enable background automation" });
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
     fireEvent.click(toggle);
     expect(disableAutomation).toHaveBeenCalledOnce();
     expect((toggle as HTMLInputElement).disabled).toBe(true);
@@ -156,8 +156,10 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "General" }));
 
     const search = screen.getByRole("searchbox", { name: "Search settings" });
+    expect(search.closest("label")?.className).toContain("[-webkit-app-region:no-drag]");
     fireEvent.change(search, { target: { value: "reviews tool approvals" } });
-    fireEvent.click(screen.getByRole("option", { name: /Smart-review model/u }));
+    expect(screen.getByRole("navigation", { name: "Settings search results" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Smart-review model/u }));
     expect(await screen.findByRole("heading", { name: "Trust" })).toBeTruthy();
     await waitFor(() => expect(document.activeElement?.id).toBe("setting-reviewer-model"));
 

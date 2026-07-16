@@ -271,6 +271,8 @@ describe("chat renderer", () => {
 
     expect(container.querySelectorAll(".message")).toHaveLength(2);
     expect(container.querySelector(".message-role")).toBeNull();
+    expect(container.querySelector<HTMLElement>(".message")?.className).toContain("w-full");
+    expect(container.querySelector<HTMLElement>(".message")?.className).toContain("max-w-content");
   });
 
   it("hides transcript position dashes when there is no overflow", () => {
@@ -279,6 +281,39 @@ describe("chat renderer", () => {
 
     expect(container.querySelector(".transcript-scroll-indicator")).toBeNull();
     expect(container.querySelector(".transcript-content")?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("centers the transcript and composer symmetrically within the available shell width", () => {
+    makeApi();
+    const { container } = render(<Harness />);
+    const transcript = container.querySelector<HTMLElement>(".transcript-content");
+    const composer = screen.getByRole("textbox", { name: "Message Railgun" })
+      .closest<HTMLElement>(".col-start-1.row-start-1");
+    const composerContent = screen.getByRole("textbox", { name: "Message Railgun" })
+      .closest<HTMLElement>(".max-w-content");
+    const textbox = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message Railgun" });
+
+    expect(transcript?.className).not.toContain("--active-sidebar-inset");
+    expect(transcript?.className).toContain("pl-[var(--transcript-content-left-base)]");
+    expect(transcript?.className).not.toContain("calc((100%_-_var(--container-content))/2)");
+    expect(composer?.className).not.toContain("--active-sidebar-inset");
+    expect(composer?.className).toContain("px-7");
+    expect(composer?.className).not.toContain("calc((100%_-_var(--container-content))/2)");
+    expect(composer?.className).toContain("h-fit");
+    expect(composerContent?.className).toContain("w-full");
+    expect(textbox.rows).toBe(1);
+    expect(textbox.className).toContain("[field-sizing:content]");
+    expect(textbox.className).toContain("max-h-[calc(10lh+var(--space-4)+2px)]");
+    expect(textbox.className).toContain("resize-none");
+    expect(textbox.className).not.toContain("resize-y");
+    const send = screen.getByRole("button", { name: "Send" });
+    const sendIcon = send.querySelector(".lucide-send");
+    expect(send.parentElement?.className).toContain("mt-3");
+    expect(send.className).toContain("justify-center");
+    expect(send.className).toContain("rounded-full");
+    expect(sendIcon?.classList.contains("-translate-x-px")).toBe(true);
+    expect(sendIcon?.classList.contains("translate-y-px")).toBe(true);
+    expect(container.innerHTML).not.toContain("--content-width");
   });
 
   it("grows the transcript position rail with overflow up to its maximum", () => {
@@ -508,10 +543,18 @@ describe("chat renderer", () => {
     expect(screen.getByText("Reading")).toBeTruthy();
     expect(screen.getByText("README.md")).toBeTruthy();
     expect(disclosure.className).toContain("tool-row");
+    expect(disclosure.className).toContain("opacity-100");
+    expect(disclosure.className).not.toContain("opacity-55");
+    expect(disclosure.className).toContain("focus-within:opacity-100");
+    expect(disclosure.className).toContain("hover:opacity-100");
+    expect(disclosure.className).toContain("open:opacity-100");
+    expect(disclosure.querySelector("summary")?.className).not.toContain("opacity-55");
     expect(disclosure.querySelector(".tool-activity-icon svg")).toBeTruthy();
     fireEvent.click(screen.getByText("Reading"));
     expect(screen.getAllByText(/README\.md/u)).toHaveLength(2);
-    expect(screen.getByRole("group", { name: "run_shell — Error" })).toBeTruthy();
+    const failedDisclosure = screen.getByRole("group", { name: "run_shell — Error" });
+    expect(failedDisclosure.className).toContain("opacity-100");
+    expect(failedDisclosure.className).not.toContain("opacity-55");
     expect(screen.getByText("Reference 1 of 1")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference")).toBeTruthy();
     expect(screen.getByText("Aggregating 1 reference").parentElement?.textContent).toContain("Completed");
@@ -529,8 +572,20 @@ describe("chat renderer", () => {
     act(() => bridge.emit({ type: "tool-end", id: "second", name: "write_file", failed: false }));
 
     const summary = screen.getByRole("group", { name: "Edited files — 2 tool uses" }) as HTMLDetailsElement;
-    expect(summary.querySelector("summary")?.textContent).toBe("Edited files");
-    expect(summary.querySelector(".tool-activity-group-chevron.lucide-chevron-right")).toBeTruthy();
+    const summaryTrigger = summary.querySelector("summary");
+    const chevron = summary.querySelector(".tool-activity-group-chevron.lucide-chevron-right");
+    expect(summary.className).toContain("group/tool-group");
+    expect(summary.className).toContain("opacity-55");
+    expect(summary.className).toContain("focus-within:opacity-100");
+    expect(summary.className).toContain("hover:opacity-100");
+    expect(summary.className).toContain("open:opacity-100");
+    expect(summaryTrigger?.textContent).toBe("Edited files");
+    expect(summaryTrigger?.className).not.toContain("opacity-55");
+    expect(chevron).toBeTruthy();
+    expect(chevron?.getAttribute("class")).toContain("group-open/tool-group:rotate-90");
+    expect(chevron?.getAttribute("class")).not.toContain("invisible");
+    expect(chevron?.getAttribute("class")).not.toContain("group-open:rotate-90");
+    expect(summaryTrigger?.nextElementSibling?.className).toContain("pl-7");
     expect(summary.open).toBe(false);
     fireEvent.click(screen.getByText("Edited files"));
     expect(summary.open).toBe(true);

@@ -151,7 +151,7 @@ const updateCheckDialog = createUpdateCheckDialog((options) => {
   } finally {
     expectingRailgunWindow = false;
   }
-});
+}, developmentUrl ?? RAILGUN_RENDERER_URL);
 const updates = createUpdateService(__RAILGUN_UPDATE_CHANNEL__, autoUpdater, {
   checking: updateCheckDialog.show,
   finished: updateCheckDialog.close,

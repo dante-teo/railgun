@@ -13,7 +13,10 @@ describe("completed Markdown", () => {
     render(<MarkdownMessage>{`# Heading\n\n- item\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n\`inline\`\n\n\`\`\`ts\nconst ok = true;\n\`\`\`\n\n[Docs](https://example.com/docs)`}</MarkdownMessage>);
     expect(screen.getByRole("heading", { name: "Heading" })).toBeTruthy();
     expect(screen.getByRole("table")).toBeTruthy();
-    expect(document.querySelector("code[data-language='ts']")?.textContent).toContain("const ok");
+    const code = document.querySelector("code[data-language='ts']");
+    expect(code?.textContent).toBe("const ok = true;\n");
+    expect(code?.className).toContain("before:content-[attr(data-language)]");
+    expect(screen.queryByText("ts")).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "Docs" }));
     expect(openExternal).toHaveBeenCalledWith("https://example.com/docs");
   });

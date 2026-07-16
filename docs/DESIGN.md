@@ -1,5 +1,9 @@
 # Design
 
+The supported product surface is the macOS desktop renderer. Terminal and Ink
+details below are retained as backend interaction history; when they differ,
+the explicitly labelled desktop contracts are authoritative.
+
 ## Product experience
 
 Railgun's interactive surface is a dense, full-screen terminal workspace. A
@@ -32,11 +36,13 @@ source records, and SIL Open Font License notices are bundled under
 `railgun://app/` origin.
 
 Material communicates hierarchy rather than covering every layer. Glass is
-reserved for the inset sidebar, continuous top toolbar, anchored popovers, and
-dialogs. Cards, lists, fields, the composer, and prompts use opaque or lightly
-tonal content surfaces with hairlines and restrained depth. Ordinary action
-buttons use four flat, shadow-free system-like recipes: tinted capsule, plain
-text action, filled accent capsule, or white/tonal capsule. Destructive actions
+reserved for the inset sidebar, continuous top toolbar, floating composer
+shell, anchored popovers, and dialogs. Cards, lists, fields, and prompts use
+opaque or lightly tonal content surfaces with hairlines and restrained depth;
+the composer's text field remains a stable tonal surface inside its glass
+shell. Ordinary action buttons use four flat, shadow-free system-like recipes:
+tinted capsule, plain text action, filled accent capsule, or white/tonal
+capsule. Destructive actions
 reuse the filled geometry with the danger color. Toolbar controls remain a
 separate liquid-glass hierarchy, while sidebar navigation stays neutral.
 The toolbar material spans the Task canvas behind the inset sidebar; expanding
@@ -95,8 +101,10 @@ the same model; text entry is reserved for free-form answers and preset names.
   choice mode the composer unfocuses so selection input reaches only the
   clarify handler. Both modes show an `❓` prompt box above the composer.
 - Completed replies use GFM Markdown with wrapped prose, lists, links, tables,
-  and themed fenced-code boxes with language labels. Streaming fragments remain
-  plain until completion.
+  and themed fenced-code boxes with language labels. A fenced label is visually
+  generated content sourced from `data-language`, not a text node inside the
+  code element, so copying a block returns only its source. Streaming fragments
+  remain plain until completion.
 - Generic thinking and live tool states use animated mint activity rows — one
   row per in-flight tool call, so a concurrent batch renders as that many
   simultaneous rows rather than a single collapsed count. Agent
@@ -134,6 +142,10 @@ the same model; text entry is reserved for free-form answers and preset names.
   the toolbar's extra visual depth: the open action stays in the Task toolbar
   while collapsed, where it shares one divided glass capsule with the Activity
   Dashboard toggle, and the collapse action moves into the pane header while open.
+  Files reserves width while the expanded-sidebar layout leaves at least 20rem
+  for Task. Below that threshold it becomes a right overlay rather than
+  silently clipping transcript or composer content. Collapsing the sidebar can
+  release enough width to restore the reserved layout.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission or
   backend interruption remains a danger-styled inline row with its Retry or
@@ -158,7 +170,8 @@ the same model; text entry is reserved for free-form answers and preset names.
   footer shows the active model, one combined Agent settings trigger, exact
   context usage, and Send/Stop without turning every action into a separate
   glass pill. The searchable model dialog provides explicit `This task` and
-  `Make default` choices. Agent settings contains MoA, advisor, advisor model,
+  `Make default` choices and initializes keyboard navigation on the active
+  model. Agent settings contains MoA, advisor, advisor model,
   and manual Compact controls; portalled select menus stack above the dialog.
   Dialogs omit a decorative close control by default and use explicit trailing
   footer actions such as Done; the selection-driven command palette is the
@@ -168,7 +181,12 @@ the same model; text entry is reserved for free-form answers and preset names.
   Context usage is the latest provider-reported input plus output total against
   the active model's context window and reads `Not measured yet` after model
   changes, compaction, restart, or New Task until another provider turn reports
-  usage. Loading and mutation failures stay inline and retryable.
+  usage. Loading and mutation failures stay inline and retryable. Transcript
+  rows and the composer fill the available Task column up to the shared 46rem
+  maximum and retain minimum side gutters as Files or the sidebar changes the
+  available width. The text area begins at one line, grows with input to ten
+  lines, never exposes a mouse resize handle, and reports the composer's live
+  height so the transcript bottom inset follows it.
 
 - Desktop Settings replaces the Task shell while open and restores the same
   active task on Back. Its softly tinted sidebar groups General, Agent, and
@@ -181,7 +199,10 @@ the same model; text entry is reserved for free-form answers and preset names.
   Task and New Task commands—confirms before discarding dirty edits. Confirmed
   instruction discards clear the editor and unload guard. Knowledge store views
   mount only after backend readiness; live backend/run refreshes preserve other
-  drafts.
+  drafts. The Settings destination remains marked as the current sidebar page.
+  Its sidebar is an Electron drag region only around passive material: search,
+  navigation, and other interactive wrappers explicitly opt out with
+  `-webkit-app-region: no-drag`.
 - Settings owns persisted defaults, not active work. Default-model changes apply
   to new tasks; agent and trust changes apply to the next run. Mutations are
   disabled during a run or authentication operation. Provider sign-in/out uses

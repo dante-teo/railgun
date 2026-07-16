@@ -1,31 +1,25 @@
-import type { BrowserWindowConstructorOptions, WebContents } from "electron";
+import type { BrowserWindowConstructorOptions } from "electron";
 
 interface UpdateCheckDialogWindow {
   isDestroyed(): boolean;
   show(): void;
   focus(): void;
   close(): void;
-  once(event: "closed", listener: () => void): void;
-  readonly webContents: Pick<WebContents, "executeJavaScript">;
+  loadURL(url: string): Promise<void>;
+  once(event: "closed" | "ready-to-show", listener: () => void): void;
 }
 
 type UpdateCheckDialogWindowFactory = (options: BrowserWindowConstructorOptions) => UpdateCheckDialogWindow;
 
-const dialogMarkup = `
-  document.documentElement.style.cssText = "height:100%;background:#f7f9f8";
-  document.body.style.cssText = "display:grid;height:100%;place-items:center;margin:0;color:#18201d;background:#f7f9f8;font:500 15px -apple-system,BlinkMacSystemFont,sans-serif";
-  document.body.innerHTML = '<main role="status" aria-live="polite" style="display:grid;justify-items:center;gap:14px"><i class="update-check-spinner" aria-hidden="true"></i><span>Checking for updates…</span></main>';
-  const style = document.createElement("style");
-  style.textContent = ".update-check-spinner{width:24px;height:24px;border:3px solid #c5d1ca;border-top-color:#23734f;border-radius:50%;animation:update-check-spin .8s linear infinite}@keyframes update-check-spin{to{transform:rotate(360deg)}}";
-  document.head.append(style);
-`;
+const updateSurfaceUrl = (rendererUrl: string): string => {
+  const url = new URL(rendererUrl);
+  url.searchParams.set("surface", "update-check");
+  return url.toString();
+};
 
-export const createUpdateCheckDialog = (createWindow: UpdateCheckDialogWindowFactory) => {
+export const createUpdateCheckDialog = (createWindow: UpdateCheckDialogWindowFactory, rendererUrl: string) => {
   let current: UpdateCheckDialogWindow | undefined;
   const liveWindow = (): UpdateCheckDialogWindow | undefined => current?.isDestroyed() ? undefined : current;
-  const showWindow = (window: UpdateCheckDialogWindow): void => {
-    if (current === window && !window.isDestroyed()) window.show();
-  };
 
   return {
     show: (): void => {
@@ -46,7 +40,6 @@ export const createUpdateCheckDialog = (createWindow: UpdateCheckDialogWindowFac
         fullscreenable: false,
         closable: false,
         skipTaskbar: true,
-        backgroundColor: "#f7f9f8",
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
@@ -59,7 +52,12 @@ export const createUpdateCheckDialog = (createWindow: UpdateCheckDialogWindowFac
       });
       current = window;
       window.once("closed", () => { if (current === window) current = undefined; });
-      void window.webContents.executeJavaScript(dialogMarkup).then(() => showWindow(window), () => showWindow(window));
+      window.once("ready-to-show", () => { if (current === window && !window.isDestroyed()) window.show(); });
+      void window.loadURL(updateSurfaceUrl(rendererUrl)).catch(() => {
+        if (current !== window) return;
+        current = undefined;
+        if (!window.isDestroyed()) window.close();
+      });
     },
     close: (): void => {
       const window = liveWindow();

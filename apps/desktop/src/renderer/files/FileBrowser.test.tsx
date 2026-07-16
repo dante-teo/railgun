@@ -28,16 +28,21 @@ describe("Files browser", () => {
     render(<FileBrowser onCollapse={() => undefined} />);
     const refresh = screen.getByRole("button", { name: "Refresh files" });
     const collapse = screen.getByRole("button", { name: "Collapse Files" });
-    expect(refresh.className).toContain("ui-button-sidebar-icon");
-    expect(refresh.className).toContain("ui-button-icon");
-    expect(collapse.className).toContain("ui-button-sidebar-icon");
-    expect(collapse.className).toContain("ui-button-icon");
-    fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+    expect(refresh.className).toContain("bg-transparent");
+    expect(refresh.className).toContain("size-[var(--titlebar-control-height)]");
+    expect(refresh.className).toContain("rounded-full");
+    expect(refresh.className).not.toContain("size-control-icon");
+    expect(collapse.className).toContain("bg-transparent");
+    expect(collapse.className).toContain("size-[var(--titlebar-control-height)]");
+    expect(collapse.className).toContain("rounded-full");
+    expect(collapse.className).not.toContain("size-control-icon");
+    expect(refresh.parentElement?.className).not.toContain("[&_button]:min-h-[var(--titlebar-control-height)]");
+    fireEvent.click(await screen.findByRole("treeitem", { name: "folder" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Folder went away");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByRole("button", { name: "inside.txt" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "folder" }));
-    fireEvent.click(screen.getByRole("button", { name: "folder" }));
+    expect(await screen.findByRole("treeitem", { name: "inside.txt" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("treeitem", { name: "folder" }));
+    fireEvent.click(screen.getByRole("treeitem", { name: "folder" }));
     expect(listFiles).toHaveBeenCalledTimes(3);
     fireEvent.click(screen.getByRole("button", { name: "Refresh files" }));
     await waitFor(() => expect(listFiles).toHaveBeenCalledTimes(4));
@@ -58,8 +63,8 @@ describe("Files browser", () => {
       revealFile,
     } as unknown as RailgunDesktopApi });
     render(<FileBrowser onCollapse={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "first.txt" }));
-    fireEvent.click(screen.getByRole("button", { name: "second.png" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "first.txt" }));
+    fireEvent.click(screen.getByRole("treeitem", { name: "second.png" }));
     second.resolve({ kind: "image", dataUrl: "data:image/png;base64,iVBORw0KGgo=", width: 2, height: 3 });
     expect(await screen.findByRole("img", { name: "second.png" })).toBeTruthy();
     first.resolve({ kind: "text", text: "stale text" });
@@ -68,7 +73,7 @@ describe("Files browser", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Reveal in Finder" }));
     await waitFor(() => expect(revealFile).toHaveBeenCalledWith(["second.png"]));
-    fireEvent.click(screen.getByRole("button", { name: "broken" }));
+    fireEvent.click(screen.getByRole("treeitem", { name: "broken" }));
     expect(screen.getByText("This item is unavailable.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Reveal in Finder" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -84,8 +89,8 @@ describe("Files browser", () => {
       revealFile: vi.fn(),
     } as unknown as RailgunDesktopApi });
     render(<FileBrowser onCollapse={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "pending.txt" }));
-    fireEvent.click(screen.getByRole("button", { name: "folder" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "pending.txt" }));
+    fireEvent.click(screen.getByRole("treeitem", { name: "folder" }));
     await act(async () => {
       pendingPreview.resolve({ kind: "text", text: "obsolete preview" });
       await pendingPreview.promise;
@@ -108,18 +113,55 @@ describe("Files browser", () => {
       revealFile: vi.fn(),
     } as unknown as RailgunDesktopApi });
     render(<FileBrowser onCollapse={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "folder" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "folder" }));
     fireEvent.click(screen.getByRole("button", { name: "Refresh files" }));
     await act(async () => {
       refreshed.resolve({ entries: [{ name: "current.txt", kind: "file", symlink: false }] });
       await refreshed.promise;
     });
-    expect(await screen.findByRole("button", { name: "current.txt" })).toBeTruthy();
+    expect(await screen.findByRole("treeitem", { name: "current.txt" })).toBeTruthy();
     await act(async () => {
       initial.resolve({ entries: [{ name: "stale.txt", kind: "file", symlink: false }] });
       await initial.promise;
     });
-    expect(screen.queryByRole("button", { name: "stale.txt" })).toBeNull();
-    expect(screen.getByRole("button", { name: "current.txt" })).toBeTruthy();
+    expect(screen.queryByRole("treeitem", { name: "stale.txt" })).toBeNull();
+    expect(screen.getByRole("treeitem", { name: "current.txt" })).toBeTruthy();
+  });
+
+  it("supports roving focus and the complete tree keyboard contract", async () => {
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      listFiles: async (path: readonly string[]) => path.length === 0 ? { entries: [
+        { name: "folder", kind: "directory" as const, symlink: false },
+        { name: "last.txt", kind: "file" as const, symlink: false },
+      ] } : { entries: [{ name: "inside.txt", kind: "file" as const, symlink: false }] },
+      previewFile: async () => ({ kind: "text" as const, text: "preview" }),
+      revealFile: vi.fn(),
+    } as unknown as RailgunDesktopApi });
+    render(<FileBrowser onCollapse={() => undefined} />);
+
+    const folder = await screen.findByRole("treeitem", { name: "folder" });
+    expect(folder.getAttribute("tabindex")).toBe("0");
+    folder.focus();
+    fireEvent.keyDown(folder, { key: "ArrowRight" });
+    const inside = await screen.findByRole("treeitem", { name: "inside.txt" });
+    fireEvent.keyDown(folder, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(inside);
+    expect(folder.getAttribute("tabindex")).toBe("-1");
+    fireEvent.keyDown(inside, { key: "End" });
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "last.txt" }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Home" });
+    expect(document.activeElement).toBe(folder);
+    fireEvent.keyDown(folder, { key: "ArrowLeft" });
+    expect(folder.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(folder);
+    fireEvent.keyDown(folder, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(folder);
+    const last = screen.getByRole("treeitem", { name: "last.txt" });
+    last.focus();
+    fireEvent.keyDown(last, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(last);
+    folder.focus();
+    fireEvent.keyDown(folder, { key: " " });
+    expect(folder.getAttribute("aria-expanded")).toBe("true");
   });
 });

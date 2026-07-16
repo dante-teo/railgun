@@ -82,8 +82,9 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   and sheets may remain neutrally translucent. Keep the effect subtle;
   transparency, tint, blur, borders, and depth should support the content rather
   than become decoration of their own.
-- Keep transcripts, code, forms, cards, the composer, prompts, and long lists on
-  calm opaque or lightly tonal surfaces.
+- Keep transcripts, code, forms, cards, prompts, and long lists on calm opaque
+  or lightly tonal surfaces. The floating composer shell may use hierarchy
+  glass while its text field retains a stable tonal surface.
 - Use a transparent titlebar with correct traffic-light spacing and native window behavior.
 - Use restrained depth, edge highlights, adaptive tint, and short fluid transitions.
 - Support light/dark appearance, Reduce Transparency, Increase Contrast, and Reduce Motion.
@@ -119,7 +120,11 @@ The app should look native to macOS 26, using Liquid Glass deliberately rather t
   floating card. It is omitted from the DOM and accessibility tree without
   activity. Files is a visually separate, session-only right pane with a fixed responsive width
   (`clamp(22.5rem, 42vw, 42rem)`) and a clear divider; it starts collapsed and
-  can coexist with the activity side-car.
+  can coexist with the activity side-car. Files remains reserved while at least
+  20rem of usable Task width remains with the expanded sidebar and becomes a
+  right overlay only below that threshold. Transcript and composer content
+  fill the available Task column up to 46rem rather than remaining underneath
+  an overlaid pane.
 - While Files is closed, its open control shares a divided glass capsule with
   the Activity Dashboard toggle in the Task toolbar. While Files is open, the collapse
   control moves into its header. The Files title,
@@ -344,6 +349,11 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     HTML and non-HTTP(S) links are inert. Valid absolute HTTP(S) links pass
     through validated preload/main IPC and open in the system browser while
     renderer navigation remains blocked.
+  - Fenced-code language labels use visually generated content from a bounded
+    `data-language` value, keeping the label out of selected and copied source.
+    Transcript rows and the composer are full-width up to 46rem; the composer
+    textarea grows from one to ten lines without manual mouse resizing, and its
+    measured height drives the transcript's bottom inset.
   - In an idle composer, Enter sends and Shift+Enter inserts a newline. During
     an active run, Enter queues steering and nonempty Tab queues a follow-up;
     empty Tab retains normal focus navigation. Accepted items remain in a
@@ -465,6 +475,10 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
     on explicit request, keeps branch errors independent, and ignores stale
     folder and preview responses. Loading, empty, unavailable, retry, text,
     image, and Reveal in Finder states remain renderer-safe.
+  - Tree navigation uses roving focus: Up/Down visit visible nodes, Right
+    expands or enters a branch, Left collapses or returns to a parent, Home/End
+    reach the first/last visible node, and Enter/Space select. Root-level Left
+    on a file or collapsed folder is a no-op.
 
 ### Railgun management
 
@@ -477,6 +491,10 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Search indexes section names, labels, and descriptions and focuses the
     selected setting. Dirty section changes require confirmation before Back,
     section, or search-result navigation.
+  - The active Settings destination retains semantic selected styling and
+    `aria-current="page"`. Settings sidebar material is draggable, while every
+    search and navigation wrapper explicitly uses
+    `-webkit-app-region: no-drag` so pointer interaction never moves the window.
   - Strict snapshots expose only supported fields. Explicit section saves use
     validated `config_update` patches, preserving unknown keys and the atomic
     writer; task and settings mutations share one queue.

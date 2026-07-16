@@ -8,9 +8,11 @@ import type {
   ModelPersistenceMode,
 } from "../../shared/types";
 import { Button } from "../components/ui/button";
+import { PaletteList, PaletteOption, PaletteSearch, PaletteState } from "../components/palette";
+import { useListboxNavigation } from "../components/use-listbox-navigation";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
-import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Toggle } from "../components/ui/toggle";
 import { errorMessage } from "../lib/utils";
 
 interface ContextUsage {
@@ -55,7 +57,6 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(controls.activeModelId);
-  const [activeIndex, setActiveIndex] = useState(0);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return needle === "" ? controls.models : controls.models.filter(model =>
@@ -68,59 +69,49 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
     if (!next) return;
     setQuery("");
     setSelected(controls.activeModelId);
-    setActiveIndex(Math.max(0, controls.models.findIndex(model => model.id === controls.activeModelId)));
   };
   const apply = async (persistence: ModelPersistenceMode): Promise<void> => {
     if (!selectedIsVisible) return;
     if (await onSelect(selected, persistence)) setOpen(false);
   };
-  useEffect(() => { setActiveIndex(index => Math.min(index, Math.max(0, filtered.length - 1))); }, [filtered.length]);
+  const navigation = useListboxNavigation({ open, items: filtered, initialActiveKey: controls.activeModelId, getItemKey: model => model.id, onActivate: model => { if (model !== undefined) setSelected(model.id); } });
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
-      <DialogTrigger asChild><Button type="button" size="sm" variant="tonal" disabled={disabled} aria-label="Choose model">
+      <DialogTrigger asChild><Button type="button" size="sm" variant="ghost" disabled={disabled} aria-label="Choose model">
         {current?.name ?? controls.activeModelId}<ChevronDown aria-hidden="true" />
       </Button></DialogTrigger>
-      <DialogContent className="model-dialog">
+      <DialogContent className="w-[min(36rem,calc(100vw_-_2rem))]">
         <DialogHeader><DialogTitle>Choose a model</DialogTitle><DialogDescription>Select for this task or save it as the default.</DialogDescription></DialogHeader>
-        <Input
+        <PaletteSearch
           autoFocus
           aria-label="Search models"
           role="combobox"
+          aria-autocomplete="list"
           aria-controls="model-options"
           aria-expanded="true"
-          aria-activedescendant={filtered[activeIndex] === undefined ? undefined : `model-option-${String(activeIndex)}`}
+          aria-activedescendant={filtered[navigation.activeIndex] === undefined ? undefined : `model-option-${String(navigation.activeIndex)}`}
           value={query}
-          onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
-          onKeyDown={event => {
-            if (filtered.length === 0) return;
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              const offset = event.key === "ArrowDown" ? 1 : -1;
-              setActiveIndex(index => (index + offset + filtered.length) % filtered.length);
-            } else if (event.key === "Enter") {
-              event.preventDefault();
-              const model = filtered[activeIndex];
-              if (model !== undefined) setSelected(model.id);
-            }
-          }}
+          onChange={event => setQuery(event.target.value)}
+          onKeyDown={navigation.onKeyDown}
         />
-        <div id="model-options" role="listbox" aria-label="Available models" className="model-options">
-          {filtered.length === 0 ? <p className="control-empty">No models match “{query}”.</p> : filtered.map((model, index) => (
-            <button
+        <PaletteList id="model-options" role="listbox" aria-label="Available models">
+          {filtered.map((model, index) => (
+            <PaletteOption
               type="button"
               id={`model-option-${String(index)}`}
               role="option"
               aria-selected={selected === model.id}
-              className={index === activeIndex ? "active" : ""}
+              active={index === navigation.activeIndex}
               key={model.id}
-              onMouseMove={() => setActiveIndex(index)}
+              onMouseMove={() => navigation.setActiveIndex(index)}
               onClick={() => setSelected(model.id)}
-            ><span>{model.name}</span><small>{modelDetail(model)}</small></button>
+            ><span className="grid gap-1"><strong>{model.name}</strong><small className="text-caption text-foreground-secondary">{modelDetail(model)}</small></span></PaletteOption>
           ))}
-        </div>
-        {error === undefined ? null : <p className="control-error" role="alert">{error}</p>}
-        <DialogFooter className="model-actions">
-          <Button type="button" variant="tonal" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This task</Button>
+        </PaletteList>
+        {filtered.length === 0 ? <PaletteState>No models match “{query}”.</PaletteState> : null}
+        {error === undefined ? null : <p className="mb-0 mt-3 text-destructive" role="alert">{error}</p>}
+        <DialogFooter className="mt-4">
+          <Button type="button" variant="secondary" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This task</Button>
           <Button type="button" disabled={disabled || !selectedIsVisible} onClick={() => void apply("default")}>Make default</Button>
         </DialogFooter>
       </DialogContent>
@@ -140,11 +131,11 @@ const AgentDialog = ({ controls, disabled, error, onUpdate, onCompact }: AgentDi
   const advisorModelId = controls.advisor.modelId ?? controls.activeModelId;
   const summary = `${controls.activeMoaPreset === null ? "MoA off" : controls.activeMoaPreset} · Advisor ${controls.advisor.enabled ? "on" : "off"}`;
   return <Dialog>
-    <DialogTrigger asChild><Button type="button" size="sm" variant="tonal" disabled={disabled} aria-label="Agent settings"><Sparkles aria-hidden="true" />{summary}</Button></DialogTrigger>
-    <DialogContent className="agent-controls-dialog">
+    <DialogTrigger asChild><Button type="button" size="sm" variant="ghost" disabled={disabled} aria-label="Agent settings"><Sparkles aria-hidden="true" />{summary}</Button></DialogTrigger>
+    <DialogContent>
       <DialogHeader><DialogTitle>Agent settings</DialogTitle><DialogDescription>Defaults apply to the next run, not one already in progress.</DialogDescription></DialogHeader>
-      <div className="agent-control-fields">
-        <label><span>Mixture of Agents</span><Select
+      <div className="mt-5 grid gap-4 rounded-md border border-border bg-surface p-4">
+        <label className="grid gap-2 text-caption text-foreground-secondary"><span>Mixture of Agents</span><Select
           value={controls.activeMoaPreset ?? "__off__"}
           disabled={disabled}
           onValueChange={value => void onUpdate({ moaPreset: value === "__off__" ? null : value })}
@@ -154,15 +145,13 @@ const AgentDialog = ({ controls, disabled, error, onUpdate, onCompact }: AgentDi
             <SelectItem value={preset.name} key={preset.name}>{preset.name} · {preset.referenceModels.length} refs → {preset.aggregatorModel}</SelectItem>
           ))}</SelectContent>
         </Select></label>
-        <div className="agent-advisor-row"><div><span>Advisor</span><small>Review completed primary-model steps.</small></div><Button
+        <div className="flex items-center justify-between gap-4"><div className="grid gap-0.5"><span>Advisor</span><small className="text-foreground-tertiary">Review completed primary-model steps.</small></div><Toggle
           type="button"
-          size="sm"
-          variant={controls.advisor.enabled ? "capsule" : "tonal"}
           aria-pressed={controls.advisor.enabled}
           disabled={disabled}
           onClick={() => void onUpdate({ advisor: { enabled: !controls.advisor.enabled, modelId: advisorModelId } })}
-        >{controls.advisor.enabled ? "On" : "Off"}</Button></div>
-        <label><span>Advisor model</span><Select
+        >{controls.advisor.enabled ? "On" : "Off"}</Toggle></div>
+        <label className="grid gap-2 text-caption text-foreground-secondary"><span>Advisor model</span><Select
           value={advisorModelId}
           disabled={disabled}
           onValueChange={modelId => void onUpdate({ advisor: { enabled: controls.advisor.enabled, modelId } })}
@@ -170,16 +159,16 @@ const AgentDialog = ({ controls, disabled, error, onUpdate, onCompact }: AgentDi
           <SelectTrigger aria-label="Advisor model"><SelectValue /></SelectTrigger>
           <SelectContent>{controls.models.map(model => <SelectItem value={model.id} key={model.id}>{model.name}</SelectItem>)}</SelectContent>
         </Select></label>
-        <div className="agent-compact-row"><div><span>Context</span><small>Summarize the current history to free context space.</small></div><Button
+        <div className="flex items-center justify-between gap-4"><div className="grid gap-0.5"><span>Context</span><small className="text-foreground-tertiary">Summarize the current history to free context space.</small></div><Button
           type="button"
           size="sm"
-          variant="tonal"
+          variant="secondary"
           aria-label="Compact context"
           disabled={disabled || controls.messageCount === 0}
           onClick={() => void onCompact()}
         >Compact</Button></div>
       </div>
-      {error === undefined ? null : <p className="control-error" role="alert">{error}</p>}
+      {error === undefined ? null : <p className="mb-0 mt-3 text-destructive" role="alert">{error}</p>}
       <DialogFooter><DialogClose asChild><Button type="button">Done</Button></DialogClose></DialogFooter>
     </DialogContent>
   </Dialog>;
@@ -243,13 +232,13 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
     }
   };
 
-  if (controls === undefined && !available) return <div className="chat-controls-state"><span>Controls unavailable</span></div>;
-  if (controls === undefined) return <div className="chat-controls-state">
-    {loading ? <span role="status">Loading controls…</span> : <><span role="alert">{error}</span><Button type="button" size="sm" variant="tonal" onClick={() => void load()}>Retry</Button></>}
+  if (controls === undefined && !available) return <div className="flex w-full items-center gap-px"><span>Controls unavailable</span></div>;
+  if (controls === undefined) return <div className="flex w-full items-center gap-px">
+    {loading ? <span role="status">Loading controls…</span> : <><span role="alert">{error}</span><Button type="button" size="sm" variant="secondary" onClick={() => void load()}>Retry</Button></>}
   </div>;
 
   const disabled = !available || running || mutating;
-  return <div className="chat-controls" aria-label="Task controls">
+  return <div className="flex w-full items-center gap-px" aria-label="Task controls">
     <ModelDialog
       controls={controls}
       disabled={disabled}
@@ -263,7 +252,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
       onUpdate={update => mutation(() => window.railgunDesktop.updateAgentControls(update))}
       onCompact={() => mutation(() => window.railgunDesktop.compactContext(), true)}
     />
-    <span className="context-usage" role="status" title="Latest provider-reported input and output token usage">{formatContextUsage(usage, controls.contextWindow)}</span>
-    {error === undefined ? null : <span className="toolbar-control-error" role="alert">{error}</span>}
+    <span className="ml-auto whitespace-nowrap px-2 font-mono text-caption text-foreground-tertiary" role="status" title="Latest provider-reported input and output token usage">{formatContextUsage(usage, controls.contextWindow)}</span>
+    {error === undefined ? null : <span className="flex-1 truncate text-caption text-destructive" role="alert">{error}</span>}
   </div>;
 };

@@ -4,8 +4,14 @@ import { DESKTOP_CONTROL_LIMITS } from "../../shared/schemas";
 import type { ArchivedSessionSummary, BackendSnapshot, MockScenario, SettingsSection, SettingsSnapshot, SettingsUpdate } from "../../shared/types";
 import { PHASE_COPY, RETRYABLE_PHASES } from "../backendStatus";
 import { Button } from "../components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { SegmentedControl, SegmentedControlItem } from "../components/ui/radio-group";
+import { Switch } from "../components/ui/switch";
+import { SearchField } from "../components/ui/form";
+import { Input } from "../components/ui/input";
+import { StatusBadge } from "../components/ui/badge";
+import { SettingsColumn, SettingsDetail, SettingsHeading, SettingsInline, SettingsNav, SettingsNavGroup, SettingsNavItem, SettingsRow, SettingsRowCopy, SettingsSave, SettingsSearchResult, SettingsSearchResults, SettingsSection as SettingsSectionCard, SettingsShell, SettingsSidebar, SettingsSkeleton } from "../components/ui/product";
 import { KnowledgePage, knowledgeDestinationMetadata } from "../knowledge/KnowledgePage";
 import type { KnowledgeDestination } from "../knowledge/KnowledgePage";
 import { errorMessage } from "../lib/utils";
@@ -73,6 +79,10 @@ const searchRows = [
 type EditableSection = Extract<SettingsSection, "general" | "agent" | "trust" | "archives">;
 const knowledgeDestinations = new Set<SettingsPageSection>(["memories", "notes", "instructions", "skills"]);
 const isKnowledgeDestination = (section: SettingsPageSection): section is KnowledgeDestination => knowledgeDestinations.has(section);
+const statusVariant = (state: string): "success" | "warning" | "destructive" | "neutral" =>
+  state === "ready" || state === "signed-in" ? "success"
+    : state === "failed" || state === "disconnected" ? "destructive"
+      : state.includes("required") || state === "starting" ? "warning" : "neutral";
 const NULL_MODEL_SELECT_VALUE = `railgun:null:model:${"-".repeat(DESKTOP_CONTROL_LIMITS.modelId)}`;
 const NULL_PRESET_SELECT_VALUE = `railgun:null:preset:${"-".repeat(DESKTOP_CONTROL_LIMITS.presetName)}`;
 const archiveRetentionOptions = [1, 7, 30, 90] as const;
@@ -105,29 +115,29 @@ interface ArchiveSettingsPanelProps {
 }
 
 const ArchiveSettingsPanel = ({ retentionDays, sessions, query, loading, busy, onRetentionDaysChange, onQueryChange, onUnarchive }: ArchiveSettingsPanelProps): React.JSX.Element => <>
-  <div className="settings-group">
-    <label className="settings-row" id="setting-archived-tasks" tabIndex={-1}>
-      <span><strong>Archive retention</strong><small>Archived tasks are permanently deleted on the next Dream run after this age.</small></span>
+  <SettingsSectionCard>
+    <SettingsRow asChild><label id="setting-archived-tasks" tabIndex={-1}>
+      <SettingsRowCopy><strong>Archive retention</strong><small>Archived tasks are permanently deleted on the next Dream run after this age.</small></SettingsRowCopy>
       <Select value={String(retentionDays)} disabled={busy} onValueChange={value => onRetentionDaysChange(Number(value) as ArchiveRetentionDays)}>
         <SelectTrigger aria-label="Archive retention"><SelectValue /></SelectTrigger>
-        <SelectContent className="settings-select-content">
+        <SelectContent>
           {archiveRetentionOptions.map(days => <SelectItem key={days} value={String(days)}>{days} day{days === 1 ? "" : "s"}</SelectItem>)}
         </SelectContent>
       </Select>
-    </label>
-  </div>
-  <div className="settings-group archive-list">
-    <label className="settings-row">
-      <span><strong>Archived tasks</strong><small>Archived tasks remain restorable until retention cleanup.</small></span>
-      <input aria-label="Search archived tasks" type="search" placeholder="Search archived tasks" value={query} onChange={event => onQueryChange(event.target.value)} />
-    </label>
-    {loading ? <p className="archive-empty" role="status">Loading archived tasks…</p>
-      : sessions.length === 0 ? <p className="archive-empty">No archived tasks</p>
-        : sessions.map(session => <div className="settings-row" key={session.id}>
-          <span><strong>{session.firstUserPreview || "Untitled chat"}</strong><small>{session.model} · archived {new Date(session.archivedAt).toLocaleString()}</small></span>
+    </label></SettingsRow>
+  </SettingsSectionCard>
+  <SettingsSectionCard>
+    <SettingsRow>
+      <SettingsRowCopy><strong>Archived tasks</strong><small>Archived tasks remain restorable until retention cleanup.</small></SettingsRowCopy>
+      <SearchField aria-label="Search archived tasks" placeholder="Search archived tasks" value={query} onChange={event => onQueryChange(event.target.value)} />
+    </SettingsRow>
+    {loading ? <p className="m-0 px-4 py-3 text-caption text-foreground-secondary" role="status">Loading archived tasks…</p>
+      : sessions.length === 0 ? <p className="m-0 px-4 py-3 text-caption text-foreground-secondary">No archived tasks</p>
+        : sessions.map(session => <SettingsRow key={session.id}>
+          <SettingsRowCopy><strong>{session.firstUserPreview || "Untitled chat"}</strong><small>{session.model} · archived {new Date(session.archivedAt).toLocaleString()}</small></SettingsRowCopy>
           <Button size="sm" disabled={busy} onClick={() => onUnarchive(session.id)}>Unarchive</Button>
-        </div>)}
-  </div>
+        </SettingsRow>)}
+  </SettingsSectionCard>
 </>;
 
 export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirtyChange, onSaved, onRetryBackend, onSelectScenario, onSessionsChanged = async () => undefined }: SettingsPageProps): React.JSX.Element => {
@@ -240,35 +250,30 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirty
     action?.();
   };
 
-  return <main className="settings-shell">
-    <aside className="settings-sidebar">
-      <div className="settings-traffic-clearance" aria-hidden="true" />
-      <button type="button" className="settings-back" onClick={() => navigate(onBack)}><ArrowLeft aria-hidden="true" />Back to Railgun</button>
-      <div className="settings-search-wrap">
-        <Search aria-hidden="true" />
-        <input ref={searchRef} type="search" aria-label="Search settings" placeholder="Search" value={query} onChange={event => setQuery(event.target.value)} />
-      </div>
-      {query === "" ? <nav aria-label="Settings sections">{sectionGroups.map(group => <section className="settings-nav-group" key={group.label} aria-labelledby={`settings-group-${group.label.toLocaleLowerCase()}`}><h2 id={`settings-group-${group.label.toLocaleLowerCase()}`}>{group.label}</h2>{group.sections.map(section => <button type="button" key={section.id} className={selected === section.id ? "selected" : ""} aria-current={selected === section.id ? "page" : undefined} onClick={() => chooseSection(section.id)}><section.icon aria-hidden="true" /><span>{section.label}</span></button>)}</section>)}</nav>
-        : <div className="settings-search-results" role="listbox" aria-label="Settings search results">{results.length === 0 ? <p>No settings found</p> : results.map(result => <button type="button" role="option" aria-selected="false" key={result.id} onClick={() => chooseSection(result.section, result.id)}><strong>{result.label}</strong><span>{result.description}</span></button>)}</div>}
-    </aside>
-    <section className="settings-detail" aria-label="Settings detail">
-      <div className="settings-detail-scroll">
-        <div className="settings-column">
-          <header className="settings-heading"><h1>{sections.find(section => section.id === selected)?.label}</h1><p>{selected === "general" ? "Defaults for new tasks." : selected === "agent" ? "Configure collaboration for the next run." : selected === "trust" ? "Choose how Railgun approves tool use." : selected === "archives" ? "Restore archived tasks and choose how long they are retained." : isKnowledgeDestination(selected) ? knowledgeDestinationMetadata[selected].description : selected === "provider" ? "Manage the Devin provider and authentication." : selected === "mcp" ? "Manage Model Context Protocol servers." : "Inspect the local backend connection."}</p></header>
-          {isKnowledgeDestination(selected) ? backend.phase === "ready" ? <KnowledgePage key={knowledgeResetKey} embedded destination={selected} onDirtyChange={setKnowledgeDirty} /> : <div className="settings-load-state" role={backend.phase === "failed" || backend.phase === "disconnected" ? "alert" : "status"}><strong>{PHASE_COPY[backend.phase].title}</strong><p>{PHASE_COPY[backend.phase].description}</p>{RETRYABLE_PHASES.has(backend.phase) ? <Button size="sm" onClick={() => void onRetryBackend()}>Retry</Button> : null}</div> : loadingError !== undefined ? <div className="settings-load-state" role="alert"><p>{loadingError}</p><Button size="sm" onClick={() => void load()}>Retry</Button></div> : settings === undefined ? <div className="settings-skeleton" role="status" aria-label="Loading settings"><i /><i /><i /></div> : <>
-            {selected === "general" && activeDraft?.section === "general" ? <div className="settings-group">
-              <label className="settings-row" id="setting-default-model" tabIndex={-1}><span><strong>Default model</strong><small>Used for new tasks. The current task is unchanged.</small></span><Select value={activeDraft.defaultModelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, defaultModelId: value === NULL_MODEL_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Default model"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_MODEL_SELECT_VALUE}>Automatic</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></label>
-              <label className="settings-row" id="setting-operation-timeout" tabIndex={-1}><span><strong>Operation timeout</strong><small>Maximum duration before an operation is stopped.</small></span><span className="settings-number"><input aria-label="Operation timeout in seconds" type="number" min="1" max="86400" value={activeDraft.operationTimeoutSeconds} disabled={busy} onChange={event => updateDraft({ ...activeDraft, operationTimeoutSeconds: Number(event.target.value) })} /><em>seconds</em></span></label>
-            </div> : null}
+  return <SettingsShell>
+    <SettingsSidebar>
+      <SettingsNavItem onClick={() => navigate(onBack)}><ArrowLeft aria-hidden="true" />Back to Railgun</SettingsNavItem>
+      <SearchField className="[-webkit-app-region:no-drag]" ref={searchRef} aria-label="Search settings" placeholder="Search" value={query} onChange={event => setQuery(event.target.value)} />
+      {query === "" ? <SettingsNav aria-label="Settings sections">{sectionGroups.map(group => <SettingsNavGroup key={group.label} aria-labelledby={`settings-group-${group.label.toLocaleLowerCase()}`}><h2 id={`settings-group-${group.label.toLocaleLowerCase()}`}>{group.label}</h2>{group.sections.map(section => <SettingsNavItem key={section.id} aria-current={selected === section.id ? "page" : undefined} onClick={() => chooseSection(section.id)}><section.icon aria-hidden="true" /><span>{section.label}</span></SettingsNavItem>)}</SettingsNavGroup>)}</SettingsNav>
+        : <SettingsSearchResults role="navigation" aria-label="Settings search results">{results.length === 0 ? <p>No settings found</p> : results.map(result => <SettingsSearchResult key={result.id} onClick={() => chooseSection(result.section, result.id)}><strong>{result.label}</strong><span>{result.description}</span></SettingsSearchResult>)}</SettingsSearchResults>}
+    </SettingsSidebar>
+    <SettingsDetail aria-label="Settings detail">
+        <SettingsColumn>
+          <SettingsHeading><h1>{sections.find(section => section.id === selected)?.label}</h1><p>{selected === "general" ? "Defaults for new tasks." : selected === "agent" ? "Configure collaboration for the next run." : selected === "trust" ? "Choose how Railgun approves tool use." : selected === "archives" ? "Restore archived tasks and choose how long they are retained." : isKnowledgeDestination(selected) ? knowledgeDestinationMetadata[selected].description : selected === "provider" ? "Manage the Devin provider and authentication." : selected === "mcp" ? "Manage Model Context Protocol servers." : "Inspect the local backend connection."}</p></SettingsHeading>
+          {isKnowledgeDestination(selected) ? backend.phase === "ready" ? <KnowledgePage key={knowledgeResetKey} embedded destination={selected} onDirtyChange={setKnowledgeDirty} /> : <div className="grid justify-items-start gap-3 rounded-md border border-border p-5" role={backend.phase === "failed" || backend.phase === "disconnected" ? "alert" : "status"}><strong>{PHASE_COPY[backend.phase].title}</strong><p className="m-0 text-destructive">{PHASE_COPY[backend.phase].description}</p>{RETRYABLE_PHASES.has(backend.phase) ? <Button size="sm" onClick={() => void onRetryBackend()}>Retry</Button> : null}</div> : loadingError !== undefined ? <div className="grid justify-items-start gap-3 rounded-md border border-border p-5" role="alert"><p className="m-0 text-destructive">{loadingError}</p><Button size="sm" onClick={() => void load()}>Retry</Button></div> : settings === undefined ? <SettingsSkeleton role="status" aria-label="Loading settings" /> : <>
+            {selected === "general" && activeDraft?.section === "general" ? <SettingsSectionCard>
+              <SettingsRow asChild><label id="setting-default-model" tabIndex={-1}><SettingsRowCopy><strong>Default model</strong><small>Used for new tasks. The current task is unchanged.</small></SettingsRowCopy><Select value={activeDraft.defaultModelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, defaultModelId: value === NULL_MODEL_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Default model"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_MODEL_SELECT_VALUE}>Automatic</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></label></SettingsRow>
+              <SettingsRow asChild><label id="setting-operation-timeout" tabIndex={-1}><SettingsRowCopy><strong>Operation timeout</strong><small>Maximum duration before an operation is stopped.</small></SettingsRowCopy><span className="flex items-center gap-2 text-caption text-foreground-secondary"><Input className="h-7 min-h-7 w-24 text-right" aria-label="Operation timeout in seconds" type="number" min="1" max="86400" value={activeDraft.operationTimeoutSeconds} disabled={busy} onChange={event => updateDraft({ ...activeDraft, operationTimeoutSeconds: Number(event.target.value) })} />seconds</span></label></SettingsRow>
+            </SettingsSectionCard> : null}
             {selected === "general" ? <BackgroundAutomationSettingsPanel /> : null}
-            {selected === "agent" && activeDraft?.section === "agent" ? <div className="settings-group">
-              <label className="settings-row" id="setting-moa-preset" tabIndex={-1}><span><strong>Mixture of Agents</strong><small>Presets are defined in Railgun configuration and are read-only here.</small></span><Select value={activeDraft.moaPreset ?? NULL_PRESET_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, moaPreset: value === NULL_PRESET_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Mixture of Agents preset"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_PRESET_SELECT_VALUE}>Off</SelectItem>{settings.moaPresets.map(preset => <SelectItem key={preset.name} value={preset.name}>{preset.name}</SelectItem>)}</SelectContent></Select></label>
-              <div className="settings-row" id="setting-advisor" tabIndex={-1}><span><strong>Advisor</strong><small>Applies to the next run, never work already running.</small></span><div className="settings-inline"><label className="settings-switch"><input type="checkbox" aria-label="Enable advisor" checked={activeDraft.advisor.enabled} disabled={busy} onChange={event => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, enabled: event.target.checked } })} /><span /></label><Select value={activeDraft.advisor.modelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, modelId: value === NULL_MODEL_SELECT_VALUE ? null : value } })}><SelectTrigger aria-label="Advisor model"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_MODEL_SELECT_VALUE}>Choose model</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></div></div>
-            </div> : null}
-            {selected === "trust" && activeDraft?.section === "trust" ? <div className="settings-group">
-              <div className="settings-row" id="setting-approval-mode" tabIndex={-1}><span><strong>Approval mode</strong><small>Controls approval checks for the next run.</small></span><div className="settings-segmented" role="radiogroup" aria-label="Approval mode">{(["manual", "smart", "off"] as const).map(mode => <button key={mode} type="button" role="radio" aria-checked={activeDraft.approvalMode === mode} disabled={busy} onClick={() => updateDraft({ ...activeDraft, approvalMode: mode })}>{mode[0]?.toUpperCase()}{mode.slice(1)}</button>)}</div></div>
-              <label className="settings-row" id="setting-reviewer-model" tabIndex={-1}><span><strong>Smart-review model</strong><small>Required when smart approval is selected.</small></span><Select value={activeDraft.reviewerModelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy || activeDraft.approvalMode !== "smart"} onValueChange={value => updateDraft({ ...activeDraft, reviewerModelId: value === NULL_MODEL_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Smart-review model" aria-invalid={activeDraft.approvalMode === "smart" && activeDraft.reviewerModelId === null}><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_MODEL_SELECT_VALUE}>Choose model</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></label>
-            </div> : null}
+            {selected === "agent" && activeDraft?.section === "agent" ? <SettingsSectionCard>
+              <SettingsRow asChild><label id="setting-moa-preset" tabIndex={-1}><SettingsRowCopy><strong>Mixture of Agents</strong><small>Presets are defined in Railgun configuration and are read-only here.</small></SettingsRowCopy><Select value={activeDraft.moaPreset ?? NULL_PRESET_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, moaPreset: value === NULL_PRESET_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Mixture of Agents preset"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_PRESET_SELECT_VALUE}>Off</SelectItem>{settings.moaPresets.map(preset => <SelectItem key={preset.name} value={preset.name}>{preset.name}</SelectItem>)}</SelectContent></Select></label></SettingsRow>
+              <SettingsRow id="setting-advisor" tabIndex={-1}><SettingsRowCopy><strong>Advisor</strong><small>Applies to the next run, never work already running.</small></SettingsRowCopy><SettingsInline><Switch aria-label="Enable advisor" checked={activeDraft.advisor.enabled} disabled={busy} onCheckedChange={checked => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, enabled: checked } })} /><Select value={activeDraft.advisor.modelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, modelId: value === NULL_MODEL_SELECT_VALUE ? null : value } })}><SelectTrigger aria-label="Advisor model"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_MODEL_SELECT_VALUE}>Choose model</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></SettingsInline></SettingsRow>
+            </SettingsSectionCard> : null}
+            {selected === "trust" && activeDraft?.section === "trust" ? <SettingsSectionCard>
+              <SettingsRow id="setting-approval-mode" tabIndex={-1}><SettingsRowCopy><strong>Approval mode</strong><small>Controls approval checks for the next run.</small></SettingsRowCopy><SegmentedControl aria-label="Approval mode" value={activeDraft.approvalMode} disabled={busy} onValueChange={approvalMode => updateDraft({ ...activeDraft, approvalMode: approvalMode as typeof activeDraft.approvalMode })}>{(["manual", "smart", "off"] as const).map(mode => <SegmentedControlItem key={mode} value={mode}>{mode[0]?.toUpperCase()}{mode.slice(1)}</SegmentedControlItem>)}</SegmentedControl></SettingsRow>
+              <SettingsRow asChild><label id="setting-reviewer-model" tabIndex={-1}><SettingsRowCopy><strong>Smart-review model</strong><small>Required when smart approval is selected.</small></SettingsRowCopy><Select value={activeDraft.reviewerModelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy || activeDraft.approvalMode !== "smart"} onValueChange={value => updateDraft({ ...activeDraft, reviewerModelId: value === NULL_MODEL_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Smart-review model" aria-invalid={activeDraft.approvalMode === "smart" && activeDraft.reviewerModelId === null}><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_MODEL_SELECT_VALUE}>Choose model</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></label></SettingsRow>
+            </SettingsSectionCard> : null}
             {selected === "archives" && activeDraft?.section === "archives" ? <ArchiveSettingsPanel
               retentionDays={activeDraft.archiveRetentionDays}
               sessions={filteredArchivedSessions}
@@ -279,16 +284,15 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirty
               onQueryChange={setArchiveQuery}
               onUnarchive={sessionId => void unarchive(sessionId)}
             /> : null}
-            {selected === "provider" ? <div className="settings-group"><div className="settings-row" id="setting-devin-provider" tabIndex={-1}><span><strong>Devin provider</strong><small>{settings.provider.message}</small><span className={`provider-status ${settings.provider.state}`}>{settings.provider.state.replaceAll("-", " ")}</span></span><div className="settings-inline">{settings.provider.state === "sign-in-required" || settings.provider.state === "unavailable" ? <Button disabled={busy || backend.mode === "mock"} onClick={() => void authenticate("in")}>{authOperation === "signing-in" ? "Signing in…" : "Sign In"}</Button> : <Button variant="destructive" disabled={busy || backend.mode === "mock"} onClick={() => setConfirmSignOut(true)}>{authOperation === "signing-out" ? "Signing out…" : "Sign Out"}</Button>}</div></div></div> : null}
+            {selected === "provider" ? <SettingsSectionCard><SettingsRow id="setting-devin-provider" tabIndex={-1}><SettingsRowCopy><strong>Devin provider</strong><small>{settings.provider.message}</small><StatusBadge variant={statusVariant(settings.provider.state)}>{settings.provider.state.replaceAll("-", " ")}</StatusBadge></SettingsRowCopy><SettingsInline>{settings.provider.state === "sign-in-required" || settings.provider.state === "unavailable" ? <Button disabled={busy || backend.mode === "mock"} onClick={() => void authenticate("in")}>{authOperation === "signing-in" ? "Signing in…" : "Sign In"}</Button> : <Button variant="destructive" disabled={busy || backend.mode === "mock"} onClick={() => setConfirmSignOut(true)}>{authOperation === "signing-out" ? "Signing out…" : "Sign Out"}</Button>}</SettingsInline></SettingsRow></SettingsSectionCard> : null}
             {selected === "mcp" ? <McpSettingsPanel /> : null}
-            {selected === "diagnostics" ? <div className="settings-group"><div className="settings-row" id="setting-backend-health" tabIndex={-1}><span><strong>Backend health</strong><small>{backend.error ?? (backend.phase === "ready" ? "Backend is healthy." : "Backend is not ready.")}</small><span className={`provider-status ${backend.phase}`}>{backend.phase.replaceAll("-", " ")}</span></span><Button disabled={authOperation !== undefined || backend.phase === "starting"} onClick={() => void onRetryBackend()}>Retry</Button></div>{backend.diagnostics.length > 0 ? <details className="settings-diagnostics"><summary>Redacted diagnostics</summary><ol>{backend.diagnostics.slice(-20).map((entry, index) => <li key={index}>{entry}</li>)}</ol></details> : null}{backend.mode === "mock" && backend.scenarioId !== undefined ? <label className="settings-row"><span><strong>Mock scenario</strong><small>Restart with a deterministic desktop scenario.</small></span><Select value={backend.scenarioId} onValueChange={value => void onSelectScenario(value)}><SelectTrigger aria-label="Mock scenario"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content">{scenarios.map(scenario => <SelectItem key={scenario.id} value={scenario.id}>{scenario.label}</SelectItem>)}</SelectContent></Select></label> : null}</div> : null}
-            {operationError === undefined ? null : <p className="settings-operation-error" role="alert">{operationError}</p>}
-            {activeDraft === undefined ? null : <footer className="settings-save"><span role="status">{saved ? "Saved" : dirty ? "Unsaved changes" : "No changes"}</span><Button disabled={!dirty || busy || (activeDraft.section === "agent" && activeDraft.advisor.enabled && activeDraft.advisor.modelId === null) || (activeDraft.section === "trust" && activeDraft.approvalMode === "smart" && activeDraft.reviewerModelId === null)} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button></footer>}
+            {selected === "diagnostics" ? <SettingsSectionCard><SettingsRow id="setting-backend-health" tabIndex={-1}><SettingsRowCopy><strong>Backend health</strong><small>{backend.error ?? (backend.phase === "ready" ? "Backend is healthy." : "Backend is not ready.")}</small><StatusBadge variant={statusVariant(backend.phase)}>{backend.phase.replaceAll("-", " ")}</StatusBadge></SettingsRowCopy><Button disabled={authOperation !== undefined || backend.phase === "starting"} onClick={() => void onRetryBackend()}>Retry</Button></SettingsRow>{backend.diagnostics.length > 0 ? <details className="m-0 border-t border-border px-4 py-3"><summary className="cursor-pointer text-caption text-foreground-secondary">Redacted diagnostics</summary><ol className="mt-3 max-h-48 overflow-auto pl-5 font-mono text-caption">{backend.diagnostics.slice(-20).map((entry, index) => <li key={index}>{entry}</li>)}</ol></details> : null}{backend.mode === "mock" && backend.scenarioId !== undefined ? <SettingsRow asChild><label><SettingsRowCopy><strong>Mock scenario</strong><small>Restart with a deterministic desktop scenario.</small></SettingsRowCopy><Select value={backend.scenarioId} onValueChange={value => void onSelectScenario(value)}><SelectTrigger aria-label="Mock scenario"><SelectValue /></SelectTrigger><SelectContent>{scenarios.map(scenario => <SelectItem key={scenario.id} value={scenario.id}>{scenario.label}</SelectItem>)}</SelectContent></Select></label></SettingsRow> : null}</SettingsSectionCard> : null}
+            {operationError === undefined ? null : <p className="mt-3 min-h-5 text-caption text-destructive" role="alert">{operationError}</p>}
+            {activeDraft === undefined ? null : <SettingsSave><span role="status">{saved ? "Saved" : dirty ? "Unsaved changes" : "No changes"}</span><Button disabled={!dirty || busy || (activeDraft.section === "agent" && activeDraft.advisor.enabled && activeDraft.advisor.modelId === null) || (activeDraft.section === "trust" && activeDraft.approvalMode === "smart" && activeDraft.reviewerModelId === null)} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button></SettingsSave>}
           </>}
-        </div>
-      </div>
-    </section>
-    <Dialog open={discardAction !== undefined} onOpenChange={open => { if (!open) setDiscardAction(undefined); }}><DialogContent><DialogHeader><DialogTitle>Discard unsaved changes?</DialogTitle><DialogDescription>Your edits in this section have not been saved.</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" autoFocus onClick={() => setDiscardAction(undefined)}>Cancel</Button><Button variant="destructive" onClick={discardChanges}>Discard Changes</Button></DialogFooter></DialogContent></Dialog>
-    <Dialog open={confirmSignOut} onOpenChange={setConfirmSignOut}><DialogContent><DialogHeader><DialogTitle>Sign out of Devin?</DialogTitle><DialogDescription>This removes only Railgun’s cached credential. An active DEVIN_TOKEN will continue to provide access.</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" autoFocus onClick={() => setConfirmSignOut(false)}>Cancel</Button><Button variant="destructive" onClick={() => void authenticate("out")}>Sign Out</Button></DialogFooter></DialogContent></Dialog>
-  </main>;
+        </SettingsColumn>
+    </SettingsDetail>
+    <ConfirmDialog open={discardAction !== undefined} title="Discard unsaved changes?" description="Your edits in this section have not been saved." confirmLabel="Discard Changes" destructive onOpenChange={open => { if (!open) setDiscardAction(undefined); }} onConfirm={discardChanges} />
+    <ConfirmDialog open={confirmSignOut} title="Sign out of Devin?" description="This removes only Railgun’s cached credential. An active DEVIN_TOKEN will continue to provide access." confirmLabel="Sign Out" destructive onOpenChange={setConfirmSignOut} onConfirm={() => void authenticate("out")} />
+  </SettingsShell>;
 };

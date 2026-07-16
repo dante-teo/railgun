@@ -38,6 +38,18 @@ describe("chat toolbar controls", () => {
     expect(formatContextUsage({ inputTokens: 100_000, outputTokens: 50_000 }, 200_000)).toBe("150,000 / 200,000 tokens (75%)");
   });
 
+  it("uses frameless composer dropdown triggers", async () => {
+    makeApi();
+    render(<ChatToolbarControls running={false} available resetKey={0} />);
+
+    for (const name of ["Choose model", "Agent settings"]) {
+      const trigger = await screen.findByRole("button", { name });
+      expect(trigger.className).toContain("bg-transparent");
+      expect(trigger.className).toContain("border-transparent");
+      expect(trigger.className).not.toContain("bg-secondary");
+    }
+  });
+
   it("searches models with keyboard selection and an explicit persistence choice", async () => {
     const setChatModel = vi.fn(async () => ({ controls: { ...controls, activeModelId: "model-b", contextWindow: 100_000 }, persistence: "session-only" as const }));
     makeApi({ setChatModel });
@@ -51,6 +63,21 @@ describe("chat toolbar controls", () => {
     await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b", "chat"));
   });
 
+  it("starts keyboard navigation on the active model", async () => {
+    const activeControls = { ...controls, activeModelId: "model-b" };
+    const setChatModel = vi.fn(async () => ({ controls: activeControls, persistence: "session-only" as const }));
+    makeApi({ getChatControls: async () => activeControls, setChatModel });
+    render(<ChatToolbarControls running={false} available resetKey={0} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
+    const search = screen.getByRole("combobox", { name: "Search models" });
+
+    expect(search.getAttribute("aria-activedescendant")).toBe("model-option-1");
+    fireEvent.keyDown(search, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "This task" }));
+
+    await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b", "chat"));
+  });
+
   it("does not apply a model hidden by a search until the user selects a visible result", async () => {
     const setChatModel = vi.fn(async () => ({ controls, persistence: "session-only" as const }));
     makeApi({ setChatModel });
@@ -60,6 +87,19 @@ describe("chat toolbar controls", () => {
 
     expect(screen.getByRole("button", { name: "This task" })).toHaveProperty("disabled", true);
     expect(setChatModel).not.toHaveBeenCalled();
+  });
+
+  it("keeps the model empty state outside the listbox", async () => {
+    makeApi();
+    render(<ChatToolbarControls running={false} available resetKey={0} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
+    const search = screen.getByRole("combobox", { name: "Search models" });
+    expect(search.getAttribute("aria-autocomplete")).toBe("list");
+    fireEvent.change(search, { target: { value: "missing model" } });
+
+    const listbox = screen.getByRole("listbox", { name: "Available models" });
+    expect(listbox.children).toHaveLength(0);
+    expect(screen.getByText(/No models match/u).closest("[role='listbox']")).toBeNull();
   });
 
   it("reports unavailable controls instead of remaining in a loading state", () => {

@@ -4,9 +4,11 @@ import { parseCronSchedule } from "../../shared/cron";
 import { DESKTOP_CRON_LIMITS } from "../../shared/schemas";
 import type { BackendPhase, CronJob, CronJobInput } from "../../shared/types";
 import { Button } from "../components/ui/button";
+import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Input, Textarea } from "../components/ui/input";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/state";
+import { PageLayout } from "../components/layouts";
 import { errorMessage } from "../lib/utils";
 
 interface AutomationPageProps {
@@ -111,43 +113,50 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
     setDeleting(job);
   };
 
-  return <section className="automation-page">
-    <header className="content-toolbar automation-toolbar">
-      <div className="content-toolbar-title"><h1>Scheduled</h1><p>Scheduled prompts run in your local timezone.</p></div>
-      <div className="content-toolbar-actions"><Button size="icon" variant="ghost" aria-label="Create scheduled job" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" /></Button></div>
+  return <PageLayout className="relative">
+    <header className="content-toolbar relative z-[var(--layer-titlebar-control)] flex min-h-[var(--toolbar-surface-height)] w-full items-start bg-transparent pb-2 pt-[calc(var(--titlebar-control-center-y)_-_0.875rem)]">
+      <div className="ml-[var(--toolbar-content-left)] transition-[margin-left] duration-standard ease-standard"><h1 className="m-0 text-[0.9375rem] font-semibold tracking-[-0.01em]">Scheduled</h1><p className="mb-0 mt-0.5 text-caption text-foreground-secondary">Scheduled prompts run in your local timezone.</p></div>
+      <div className="content-toolbar-actions absolute right-[calc(var(--toolbar-surface-right)+var(--space-7))] top-[var(--titlebar-control-center-y)] z-[var(--layer-titlebar-action)] flex -translate-y-1/2 items-center gap-2 [-webkit-app-region:no-drag]"><Button size="icon" variant="ghost" className="[-webkit-app-region:no-drag]" aria-label="Create scheduled job" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" /></Button></div>
     </header>
-    <div className="automation-scroll">
+    <div className="min-h-0 overflow-auto px-7 pb-8 pt-5 [&>*]:mx-auto [&>*]:w-[min(50rem,100%)]">
       {!ready ? <ErrorState title="Scheduled jobs are unavailable" description="Reconnect Railgun to view or change scheduled prompts." />
         : loading ? <LoadingState title="Loading scheduled jobs…" description="Reading scheduled prompts from Railgun." />
-          : loadError !== undefined ? <div className="automation-state"><ErrorState title="Unable to load scheduled jobs" description={loadError} /><Button variant="tonal" onClick={() => void load()}>Retry</Button></div>
+          : loadError !== undefined ? <div className="grid justify-items-center gap-3"><ErrorState title="Unable to load scheduled jobs" description={loadError} /><Button variant="secondary" onClick={() => void load()}>Retry</Button></div>
             : jobs.length === 0 ? <EmptyState title="No scheduled jobs yet" description="Create a scheduled prompt to let Railgun handle recurring work." />
-              : <ol className="automation-list">{jobs.map(job => <li className="automation-row" key={job.id}>
-                <span className="automation-icon" aria-hidden="true"><Clock /></span>
-                <div className="automation-copy"><strong>{job.prompt}</strong><span>{job.summary}</span><code>{job.schedule}</code></div>
-                <div className="automation-row-actions">
-                  <Button variant="ghost" size="icon" aria-label={`Edit ${job.prompt}`} disabled={!ready || busy} onClick={() => openEditor(job)}><Pencil aria-hidden="true" /></Button>
-                  <Button variant="ghost" size="icon" aria-label={`Delete ${job.prompt}`} disabled={!ready || busy} onClick={() => openDelete(job)}><Trash2 aria-hidden="true" /></Button>
+              : <ol className="grid list-none gap-3 p-0">{jobs.map(job => <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-border bg-surface p-4" key={job.id}>
+                <span className="grid size-9 place-items-center rounded-sm bg-accent text-accent-foreground [&_svg]:size-[1.1rem]" aria-hidden="true"><Clock /></span>
+                <div className="grid min-w-0 gap-1"><strong className="truncate text-body font-medium">{job.prompt}</strong><span className="text-control text-foreground-secondary">{job.summary}</span><code className="w-fit rounded-[0.3rem] bg-surface-muted px-1 py-0.5 text-caption text-foreground-secondary">{job.schedule}</code></div>
+                <div className="flex gap-1">
+                  <Button className="size-8 text-foreground-secondary hover:text-foreground" variant="ghost" size="icon" aria-label={`Edit ${job.prompt}`} disabled={!ready || busy} onClick={() => openEditor(job)}><Pencil aria-hidden="true" /></Button>
+                  <Button className="size-8 text-foreground-secondary hover:text-foreground" variant="ghost" size="icon" aria-label={`Delete ${job.prompt}`} disabled={!ready || busy} onClick={() => openDelete(job)}><Trash2 aria-hidden="true" /></Button>
                 </div>
               </li>)}</ol>}
     </div>
 
     <Dialog open={editor !== undefined} onOpenChange={open => { if (!open && !busy) { setEditor(undefined); setMutationError(undefined); } }}>
-      <DialogContent className="automation-dialog">
+      <DialogContent className="w-[min(32rem,calc(100vw_-_2rem))]">
         <DialogHeader><DialogTitle>{editor?.job === undefined ? "Create scheduled job" : "Edit scheduled job"}</DialogTitle><DialogDescription>Use a local-time, five-field cron expression.</DialogDescription></DialogHeader>
-        <label className="automation-field"><span>Prompt</span><Textarea aria-label="Prompt" maxLength={DESKTOP_CRON_LIMITS.prompt} value={editor?.prompt ?? ""} disabled={busy} aria-invalid={editor !== undefined && !promptValid} onChange={event => setEditor(current => current === undefined ? current : { ...current, prompt: event.target.value })} /></label>
-        <label className="automation-field"><span>Schedule</span><Input className="automation-schedule-input" aria-label="Schedule" maxLength={DESKTOP_CRON_LIMITS.schedule} placeholder="0 9 * * 1-5" value={editor?.schedule ?? ""} disabled={busy} aria-invalid={editor !== undefined && !scheduleResult.valid} onChange={event => setEditor(current => current === undefined ? current : { ...current, schedule: event.target.value })} /></label>
-        <div className={`automation-preview ${scheduleResult.valid ? "valid" : "invalid"}`} aria-live="polite">{scheduleResult.valid ? scheduleResult.summary : scheduleResult.error}</div>
-        {mutationError === undefined ? null : <p className="automation-error" role="alert">{mutationError}</p>}
-        <DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setEditor(undefined)}>Cancel</Button><Button variant="tonal" disabled={!ready || busy || !editorValid} onClick={() => void save()}>{busy ? "Saving…" : editor?.job === undefined ? "Create" : "Save"}</Button></DialogFooter>
+        <label className="mt-4 grid gap-2 text-control text-foreground-secondary"><span>Prompt</span><Textarea aria-label="Prompt" maxLength={DESKTOP_CRON_LIMITS.prompt} value={editor?.prompt ?? ""} disabled={busy} aria-invalid={editor !== undefined && !promptValid} onChange={event => setEditor(current => current === undefined ? current : { ...current, prompt: event.target.value })} /></label>
+        <label className="mt-4 grid gap-2 text-control text-foreground-secondary"><span>Schedule</span><Input className="font-mono" aria-label="Schedule" maxLength={DESKTOP_CRON_LIMITS.schedule} placeholder="0 9 * * 1-5" value={editor?.schedule ?? ""} disabled={busy} aria-invalid={editor !== undefined && !scheduleResult.valid} onChange={event => setEditor(current => current === undefined ? current : { ...current, schedule: event.target.value })} /></label>
+        <div className={scheduleResult.valid ? "mt-2 min-h-6 pt-1 text-control leading-snug text-accent-foreground" : "mt-2 min-h-6 pt-1 text-control leading-snug text-foreground-secondary"} aria-live="polite">{scheduleResult.valid ? scheduleResult.summary : scheduleResult.error}</div>
+        {mutationError === undefined ? null : <p className="m-0 text-control text-destructive" role="alert">{mutationError}</p>}
+        <DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setEditor(undefined)}>Cancel</Button><Button variant="secondary" disabled={!ready || busy || !editorValid} onClick={() => void save()}>{busy ? "Saving…" : editor?.job === undefined ? "Create" : "Save"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
 
-    <Dialog open={deleting !== undefined} onOpenChange={open => { if (!open && !busy) { setDeleting(undefined); setMutationError(undefined); } }}>
-      <DialogContent className="automation-dialog">
-        <DialogHeader><DialogTitle>Delete scheduled job?</DialogTitle><DialogDescription>This permanently removes “{deleting?.prompt}”.</DialogDescription></DialogHeader>
-        {mutationError === undefined ? null : <p className="automation-error" role="alert">{mutationError}</p>}
-        <DialogFooter><Button variant="ghost" disabled={busy} onClick={() => setDeleting(undefined)}>Cancel</Button><Button variant="destructive" disabled={!ready || busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete"}</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
-  </section>;
+    <ConfirmDialog
+      open={deleting !== undefined}
+      title="Delete scheduled job?"
+      description={<>This permanently removes “{deleting?.prompt}”.</>}
+      confirmLabel="Delete"
+      busyLabel="Deleting…"
+      busy={busy}
+      confirmDisabled={!ready}
+      destructive
+      error={mutationError}
+      contentClassName="w-[min(32rem,calc(100vw_-_2rem))]"
+      onOpenChange={open => { if (!open) { setDeleting(undefined); setMutationError(undefined); } }}
+      onConfirm={() => void remove()}
+    />
+  </PageLayout>;
 };

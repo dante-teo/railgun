@@ -1,7 +1,13 @@
 export const MIN_TRANSCRIPT_WIDTH = 640;
+export const MIN_TRANSCRIPT_WITH_WORKSPACE = 320;
 export const SHELL_HORIZONTAL_GUTTER = 16;
 export const WORKSPACE_WIDTH = Object.freeze({ min: 360, ratio: 0.42, max: 672 });
 export type InspectorLayoutMode = "reserved" | "overlay";
+
+export const shouldOverlayWorkspace = (shellWidth: number, sidebarVisible: boolean, sidebarWidth: number): boolean => {
+  const sidebarReservation = sidebarVisible ? sidebarWidth + SHELL_HORIZONTAL_GUTTER : 0;
+  return shellWidth - sidebarReservation - workspaceWidth(shellWidth) < MIN_TRANSCRIPT_WITH_WORKSPACE;
+};
 
 interface InspectorOverlayInput {
   readonly shellWidth: number;

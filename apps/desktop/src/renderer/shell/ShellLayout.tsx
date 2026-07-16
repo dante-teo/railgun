@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { PanelLeft, PanelRight } from "lucide-react";
-import { Button } from "../components/ui/button";
-import { shouldOverlayInspector } from "./inspectorLayout";
+import { Button, InsetIconButton } from "../components/ui/button";
+import { cn } from "../lib/utils";
+import { shouldOverlayInspector, shouldOverlayWorkspace } from "./inspectorLayout";
 import type { InspectorLayoutMode } from "./inspectorLayout";
 import { clampPaneWidth, PANE_WIDTHS, readPaneWidths, writePaneWidths } from "./paneStorage";
 
@@ -46,7 +47,7 @@ const SidebarSeparator = ({ width, onWidthChange }: SidebarSeparatorProps): Reac
   const updateWidth = (next: number): void => onWidthChange(clampPaneWidth("sidebar", next));
 
   return <div
-    className="pane-separator sidebar-separator"
+    className="pane-separator group absolute bottom-[var(--sidebar-gutter)] left-[calc(var(--sidebar-gutter)_+_var(--sidebar-width)_-_0.25rem)] top-[var(--sidebar-gutter)] z-[var(--layer-titlebar-control)] w-2 cursor-col-resize touch-none [-webkit-app-region:no-drag]"
     role="separator"
     aria-label="Resize sidebar"
     aria-orientation="vertical"
@@ -73,7 +74,7 @@ const SidebarSeparator = ({ width, onWidthChange }: SidebarSeparatorProps): Reac
     onPointerUp={() => { drag.current = undefined; }}
     onPointerCancel={() => { drag.current = undefined; }}
     onLostPointerCapture={() => { drag.current = undefined; }}
-  />;
+  ><span className="mx-auto block h-full w-px bg-transparent transition-colors duration-fast group-hover:bg-border-strong" /></div>;
 };
 
 export const ShellLayout = ({
@@ -95,6 +96,7 @@ export const ShellLayout = ({
   const [shellWidth, setShellWidth] = useState<number>();
   const shellRef = useRef<HTMLElement>(null);
   const hasWorkspace = workspace !== undefined && workspaceVisible;
+  const workspaceOverlay = hasWorkspace && shellWidth !== undefined && shouldOverlayWorkspace(shellWidth, sidebarVisible, widths.sidebar);
   const inspectorLayoutMode: InspectorLayoutMode | undefined = shellWidth === undefined
     ? undefined
     : shouldOverlayInspector({
@@ -102,7 +104,7 @@ export const ShellLayout = ({
       sidebarVisible,
       sidebarWidth: widths.sidebar,
       inspectorWidth: PANE_WIDTHS.inspector.default,
-      workspaceVisible: hasWorkspace,
+      workspaceVisible: hasWorkspace && !workspaceOverlay,
     }) ? "overlay" : "reserved";
   const hasInspector = inspector !== undefined && inspectorVisible && inspectorLayoutMode !== undefined;
 
@@ -126,36 +128,45 @@ export const ShellLayout = ({
     "--sidebar-width": `${widths.sidebar}px`,
     "--sidebar-content-inset": `calc(${widths.sidebar}px + (2 * var(--sidebar-gutter)))`,
     "--inspector-width": `${PANE_WIDTHS.inspector.default}px`,
+    "--toolbar-content-left": sidebarVisible ? "var(--space-7)" : "var(--collapsed-toolbar-content-left)",
+    "--toolbar-surface-right": hasWorkspace && !workspaceOverlay ? "var(--workspace-width)" : "0px",
+    "--titlebar-drag-left": sidebarVisible ? "0px" : "var(--collapsed-toolbar-content-left)",
+    "--titlebar-drag-right": hasWorkspace && !workspaceOverlay
+      ? "calc(var(--workspace-width) + var(--titlebar-actions-safe-width))"
+      : "var(--titlebar-actions-safe-width)",
   } as CSSProperties;
-  const sidebarToggle = <Button
+  const sidebarToggle = <InsetIconButton
     type="button"
-    variant="sidebarIcon"
-    size={sidebarVisible ? "compactIcon" : "icon"}
-    className="sidebar-toggle"
+    className={cn("z-[var(--layer-titlebar-control)] justify-center rounded-full [-webkit-app-region:no-drag]", sidebarVisible && "absolute left-[var(--sidebar-toggle-left)] top-[var(--titlebar-control-center-y)] -translate-y-1/2 active:scale-[0.975]")}
     aria-label={sidebarVisible ? "Collapse sidebar" : "Expand sidebar"}
     aria-controls="app-sidebar"
     aria-expanded={sidebarVisible}
     onClick={() => onSidebarVisibilityChange(!sidebarVisible)}
-  >{sidebarVisible ? <PanelRight aria-hidden="true" /> : <PanelLeft aria-hidden="true" />}</Button>;
+  >{sidebarVisible ? <PanelRight aria-hidden="true" /> : <PanelLeft aria-hidden="true" />}</InsetIconButton>;
 
   return (
-    <main ref={shellRef} className={`desktop-shell${sidebarVisible ? "" : " sidebar-collapsed"}${hasWorkspace ? " workspace-open" : ""}${inspectorLayoutMode === "overlay" ? " inspector-overlay" : ""}`} style={style}>
-      <div className="titlebar" aria-hidden="true" />
-      <aside id="app-sidebar" className="sidebar" aria-hidden={!sidebarVisible} inert={!sidebarVisible}>{sidebar}</aside>
+    <main ref={shellRef} className={cn("desktop-shell relative flex h-full bg-transparent", !sidebarVisible && "sidebar-collapsed", hasWorkspace && "workspace-open", workspaceOverlay && "workspace-overlay", inspectorLayoutMode === "overlay" && "inspector-overlay")} style={style}>
+      <div
+        data-glass-surface="toolbar"
+        className="toolbar-material pointer-events-none fixed left-0 right-[var(--toolbar-surface-right)] top-0 z-[var(--layer-toolbar-material)] h-[var(--toolbar-surface-height)] [background:var(--material-toolbar)] [-webkit-backdrop-filter:var(--material-blur-toolbar)] [backdrop-filter:var(--material-blur-toolbar)] [-webkit-mask-image:var(--material-toolbar-mask)] [mask-image:var(--material-toolbar-mask)]"
+        aria-hidden="true"
+      />
+      <div className="titlebar-drag-region fixed left-[var(--titlebar-drag-left)] right-[var(--titlebar-drag-right)] top-0 z-[var(--layer-titlebar)] h-[var(--titlebar-height)] [-webkit-app-region:drag]" aria-hidden="true" />
+      <aside id="app-sidebar" data-glass-surface="sidebar" className={cn("absolute bottom-[var(--sidebar-gutter)] left-[var(--sidebar-gutter)] top-[var(--sidebar-gutter)] z-[var(--layer-sidebar)] flex w-[var(--sidebar-width)] flex-col overflow-hidden rounded-xl border border-border bg-popover pt-[calc(var(--titlebar-height)_+_var(--space-2))] shadow-popover backdrop-blur-popover transition-[opacity,transform] duration-standard ease-standard", !sidebarVisible && "pointer-events-none -translate-x-[calc(100%_+_var(--sidebar-gutter))] opacity-0")} aria-hidden={!sidebarVisible} inert={!sidebarVisible}>{sidebar}</aside>
       {sidebarVisible ? sidebarAction : null}
       {sidebarVisible ? <SidebarSeparator
         width={widths.sidebar}
         onWidthChange={setSidebarWidth}
       /> : null}
-      {sidebarVisible ? sidebarToggle : <div className="collapsed-sidebar-controls">
+      {sidebarVisible ? sidebarToggle : <div className="collapsed-sidebar-controls pointer-events-auto absolute left-[var(--sidebar-toggle-left)] top-[var(--titlebar-control-center-y)] z-[var(--layer-titlebar-action)] flex h-[var(--titlebar-control-height)] -translate-y-1/2 items-center overflow-hidden rounded-full border border-border bg-surface-control [-webkit-app-region:no-drag]">
         {sidebarToggle}
-        {collapsedSidebarAction === undefined ? null : <div className="collapsed-sidebar-action">{collapsedSidebarAction}</div>}
+        {collapsedSidebarAction === undefined ? null : <><span className="h-[calc(100%_-_var(--space-4))] w-px bg-border-strong" aria-hidden="true" /><div className="collapsed-sidebar-action flex">{collapsedSidebarAction}</div></>}
       </div>}
       {mainAction}
-      <div className="sidebar-spacer" style={{ width: sidebarVisible ? "var(--sidebar-content-inset)" : 0 }} aria-hidden="true" />
-      <div className="shell-center">{main}</div>
-      {hasInspector ? <aside className="shell-inspector" aria-label={inspectorLabel}>{inspector}</aside> : null}
-      {hasWorkspace ? <aside className="shell-workspace" aria-label="Files workspace">{workspace}</aside> : null}
+      <div className="sidebar-spacer shrink-0 transition-[width] duration-standard ease-standard" style={{ width: sidebarVisible ? "var(--sidebar-content-inset)" : 0 }} aria-hidden="true" />
+      <div className="shell-center min-w-0 flex-1">{main}</div>
+      {hasInspector ? <aside className={cn("shell-inspector flex h-full w-[var(--inspector-width)] min-w-[var(--inspector-width)] items-start overflow-visible border-0 bg-transparent pb-2 pr-4 pt-[calc(var(--titlebar-height)_+_var(--space-2))]", inspectorLayoutMode === "overlay" && "pointer-events-none absolute right-4 top-[calc(var(--titlebar-height)_+_var(--space-2))] z-[var(--layer-popover)] h-auto max-h-[calc(100%_-_var(--titlebar-height)_-_var(--space-6))] w-[var(--inspector-width)] min-w-0 overflow-visible p-0", inspectorLayoutMode === "overlay" && hasWorkspace && !workspaceOverlay && "right-[calc(var(--workspace-width)_+_var(--space-4))]")} aria-label={inspectorLabel}>{inspector}</aside> : null}
+      {hasWorkspace ? <aside className={cn("shell-workspace relative h-full w-[var(--workspace-width)] min-w-[var(--workspace-width)] overflow-hidden border-l border-border-strong bg-surface", workspaceOverlay && "absolute inset-y-0 right-0 z-[var(--layer-popover)] w-[min(var(--workspace-width),calc(100%_-_var(--space-8)))] min-w-[22.5rem] shadow-dialog")} aria-label="Files workspace">{workspace}</aside> : null}
     </main>
   );
 };

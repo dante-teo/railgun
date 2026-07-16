@@ -13,7 +13,14 @@ Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIn
 Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: class {
   readonly callback: ResizeObserverCallback;
   constructor(callback: ResizeObserverCallback) { this.callback = callback; }
-  observe(target: Element): void { this.callback([{ target, contentRect: { width: 1_300 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+  observe(target: Element): void {
+    const composer = target.hasAttribute("data-composer-root");
+    this.callback([{
+      target,
+      contentRect: { width: composer ? 736 : 1_300, height: composer ? 180 : 0 },
+      ...(composer ? { borderBoxSize: [{ inlineSize: 736, blockSize: 180 }] } : {}),
+    } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+  }
   unobserve(): void {}
   disconnect(): void {}
 } });
@@ -226,13 +233,19 @@ describe("desktop shell", () => {
     expect(document.querySelector(".brand-mark")).toBeNull();
     expect(document.querySelector(".brand span")?.textContent).toBe("Railgun");
     expect(searchTasks.className).toContain("task-search-button");
-    expect(searchTasks.className).toContain("ui-button-sidebar-icon");
-    expect(searchTasks.className).toContain("ui-button-compact-icon");
-    expect(await screen.findByRole("button", { name: /Rich history QA/u })).toBeTruthy();
+    expect(searchTasks.className).toContain("bg-transparent");
+    expect(searchTasks.className).toContain("size-control-icon");
+    expect(searchTasks.className).not.toContain("size-[var(--titlebar-control-height)]");
+    expect(searchTasks.className).toContain("rounded-full");
+    expect(searchTasks.className).not.toContain("rounded-xs");
+    expect(searchTasks.className).toContain("before:size-6");
+    expect(searchTasks.className).toContain("hover:not-disabled:before:bg-surface-muted");
+    expect(searchTasks.className).toContain("hover:not-disabled:bg-transparent");
+    expect(await screen.findByRole("button", { name: /^Rich history QA/u })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Search tasks" })).toBeNull();
     fireEvent.click(searchTasks);
     expect(await screen.findByRole("heading", { name: "Find a Task" })).toBeTruthy();
-    const taskSearchInput = screen.getByRole("textbox", { name: "Search tasks" });
+    const taskSearchInput = screen.getByRole("combobox", { name: "Search tasks" });
     await waitFor(() => expect(document.activeElement).toBe(taskSearchInput));
     fireEvent.change(taskSearchInput, { target: { value: "other" } });
     expect(screen.queryByRole("option", { name: /Rich history QA/u })).toBeNull();
@@ -249,13 +262,13 @@ describe("desktop shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
     expect(await screen.findByRole("heading", { name: "Scheduled" })).toBeTruthy();
     expect(window.localStorage.getItem("railgun.desktop.route")).toContain("automation");
-    fireEvent.click(screen.getByRole("button", { name: /Rich history QA/u }));
+    fireEvent.click(screen.getByRole("button", { name: /^Rich history QA/u }));
     expect(await screen.findByText("Visible restored answer")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Branch from this message" }));
     expect(screen.getByRole("dialog", { name: "Branch from this message?" })).toBeTruthy();
     const summarize = screen.getByRole("checkbox", { name: "Summarize later messages" });
-    expect((summarize as HTMLInputElement).checked).toBe(false);
+    expect(summarize.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(summarize);
     fireEvent.click(screen.getByRole("button", { name: /^Branch$/u }));
     expect((await screen.findByRole("alert")).textContent).toContain("mock branch failed");
@@ -265,7 +278,7 @@ describe("desktop shell", () => {
     expect(branchSession).toHaveBeenLastCalledWith(12, true);
     expect(screen.queryByText("Visible restored answer")).toBeNull();
 
-    const richRow = screen.getByRole("button", { name: /Rich history QA/u });
+    const richRow = screen.getByRole("button", { name: /^Rich history QA/u });
     fireEvent.contextMenu(richRow);
     await waitFor(() => expect(showSessionContextMenu).toHaveBeenCalledWith("rich"));
     await waitFor(() => expect(forkSession).toHaveBeenCalledWith("rich"));
@@ -291,7 +304,7 @@ describe("desktop shell", () => {
     };
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
     render(<App />);
-    const row = await screen.findByRole("button", { name: /Keyboard test session/u });
+    const row = await screen.findByRole("button", { name: /^Keyboard test session/u });
 
     // ContextMenu key
     fireEvent.keyDown(row, { key: "ContextMenu" });
@@ -349,8 +362,9 @@ describe("desktop shell", () => {
     expect(expandSidebar.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector(".desktop-shell")?.classList.contains("sidebar-collapsed")).toBe(true);
     const collapsedNewTask = screen.getByRole("button", { name: "New Task" });
-    expect(collapsedNewTask.className).toContain("ui-button-icon");
-    expect(collapsedNewTask.className).toContain("ui-button-sidebar-icon");
+    expect(collapsedNewTask.className).toContain("size-control-icon");
+    expect(collapsedNewTask.className).toContain("bg-transparent");
+    expect(collapsedNewTask.className).toContain("[-webkit-app-region:no-drag]");
     expect(collapsedNewTask.closest(".collapsed-sidebar-controls")).toBe(expandSidebar.closest(".collapsed-sidebar-controls"));
     expect(collapsedNewTask.querySelector(".lucide-square-pen")).not.toBeNull();
     fireEvent.click(expandSidebar);
@@ -364,14 +378,23 @@ describe("desktop shell", () => {
     expect(screen.queryByRole("button", { name: "Knowledge" })).toBeNull();
     expect(settings.className).toContain("sidebar-action");
     expect(newTask.closest(".sidebar-pinned-top")).not.toBeNull();
-    expect(scheduled.closest(".sidebar-scroll")).not.toBeNull();
+    const sessionHistory = scheduled.closest<HTMLElement>(".sidebar-scroll");
+    const scrollingDivider = sessionHistory?.previousElementSibling;
+    const settingsDivider = settings.closest(".sidebar-bottom")?.previousElementSibling;
+    expect(sessionHistory).not.toBeNull();
+    expect(scrollingDivider?.className).toContain("w-full");
+    expect(scrollingDivider?.className).not.toContain("mx-3");
+    expect(settingsDivider?.className).toContain("w-full");
+    expect(settingsDivider?.className).not.toContain("mx-3");
+    fireEvent.scroll(sessionHistory!, { target: { scrollTop: 10 } });
+    expect(scrollingDivider?.className).not.toContain("invisible");
     expect(document.querySelector(".sidebar-footer")?.closest(".sidebar-bottom")).not.toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun" }), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("hello"));
     expect(screen.getByText("hello")).toBeTruthy();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    const paletteSearch = await screen.findByRole("textbox", { name: "Search commands" });
+    const paletteSearch = await screen.findByRole("combobox", { name: "Search commands" });
     fireEvent.change(paletteSearch, { target: { value: "stop response" } });
     fireEvent.keyDown(paletteSearch, { key: "Enter" });
     await waitFor(() => expect(abortPrompt).toHaveBeenCalledOnce());
@@ -398,22 +421,39 @@ describe("desktop shell", () => {
     const hideDashboard = screen.getByRole("button", { name: "Hide Activity Dashboard" });
     expect(hideDashboard.getAttribute("aria-pressed")).toBe("true");
     expect(hideDashboard.querySelector(".lucide-sliders-horizontal")).not.toBeNull();
+    expect(hideDashboard.className).toContain("[-webkit-app-region:no-drag]");
     expect(hideDashboard.closest(".content-toolbar")).toBeNull();
+    expect(document.querySelector(".content-toolbar")?.className).not.toContain("[-webkit-app-region:drag]");
+    expect(hideDashboard.closest(".content-toolbar-actions")?.className).toContain("z-[var(--layer-titlebar-action)]");
+    expect(hideDashboard.closest(".content-toolbar-actions")?.className).toContain("[-webkit-app-region:no-drag]");
+    expect(hideDashboard.closest(".content-toolbar-actions")?.className).toContain("pointer-events-auto");
+    expect(hideDashboard.closest(".content-toolbar-actions")?.className).toContain("right-[calc(var(--toolbar-surface-right)+var(--space-7))]");
+    expect(document.querySelector(".content-toolbar")?.className).toContain("pr-[var(--titlebar-actions-safe-width)]");
+    expect(document.querySelector(".content-toolbar > div")?.className).toContain("flex-1");
+    expect(screen.getByRole("textbox", { name: "Message Railgun" }).closest("section")?.style.getPropertyValue("--transcript-bottom-inset"))
+      .toBe("calc(180px + var(--space-5))");
     fireEvent.click(hideDashboard);
     expect(screen.queryByRole("complementary", { name: "Activity Dashboard" })).toBeNull();
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
     const showDashboard = screen.getByRole("button", { name: "Show Activity Dashboard" });
     expect(showDashboard.getAttribute("aria-pressed")).toBe("false");
+    expect(showDashboard.className).toContain("[-webkit-app-region:no-drag]");
     fireEvent.click(showDashboard);
     expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
     expect(screen.queryByRole("separator", { name: "Resize inspector" })).toBeNull();
     const openFiles = screen.getByRole("button", { name: "Open Files" });
     expect(openFiles.getAttribute("aria-pressed")).toBe("false");
+    expect(openFiles.className).toContain("[-webkit-app-region:no-drag]");
     expect(openFiles.closest(".right-pane-controls")).toBe(showDashboard.closest(".right-pane-controls"));
+    expect(openFiles.closest(".right-pane-controls")?.className).not.toContain("size-[var(--titlebar-control-height)]");
     fireEvent.click(openFiles);
     expect(await screen.findByRole("complementary", { name: "Files workspace" })).toBeTruthy();
     expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Hide Activity Dashboard" }).closest(".single-pane-control")).not.toBeNull();
+    const singlePaneControl = screen.getByRole("button", { name: "Hide Activity Dashboard" }).closest(".single-pane-control");
+    expect(singlePaneControl).not.toBeNull();
+    expect(singlePaneControl?.className).toContain("size-[var(--titlebar-control-height)]");
+    expect(singlePaneControl?.className).toContain("justify-center");
+    expect(singlePaneControl?.className).toContain("[&>button]:size-full");
     expect(document.querySelector(".desktop-shell")?.classList.contains("inspector-overlay")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Hide Activity Dashboard" }));
     const showOverlayDashboard = screen.getByRole("button", { name: "Show Activity Dashboard" });
@@ -422,7 +462,7 @@ describe("desktop shell", () => {
     expect(screen.getByRole("complementary", { name: "Activity Dashboard" })).toBeTruthy();
     expect(document.querySelector(".desktop-shell")?.classList.contains("inspector-overlay")).toBe(true);
     const collapseFiles = screen.getByRole("button", { name: "Collapse Files" });
-    expect(collapseFiles.closest(".files-header")).not.toBeNull();
+    expect(collapseFiles.closest("header")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Open Files" })).toBeNull();
     fireEvent.click(collapseFiles);
     expect(screen.queryByRole("complementary", { name: "Files workspace" })).toBeNull();
@@ -471,7 +511,7 @@ describe("desktop shell", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Retry" });
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    const paletteSearch = await screen.findByRole("textbox", { name: "Search commands" });
+    const paletteSearch = await screen.findByRole("combobox", { name: "Search commands" });
     fireEvent.change(paletteSearch, { target: { value: "retry backend" } });
     fireEvent.keyDown(paletteSearch, { key: "Enter" });
     await waitFor(() => expect(restartBackend).toHaveBeenCalledOnce());
@@ -514,7 +554,7 @@ describe("desktop shell", () => {
     newChat.focus();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(await screen.findByRole("heading", { name: "Command Palette" })).toBeTruthy();
-    const search = screen.getByRole("textbox", { name: "Search commands" });
+    const search = screen.getByRole("combobox", { name: "Search commands" });
     await waitFor(() => expect(document.activeElement).toBe(search));
     await waitFor(() => expect(screen.getByRole("option", { name: /^New Task/u }).getAttribute("aria-selected")).toBe("true"));
     fireEvent.keyDown(search, { key: "ArrowDown" });
@@ -532,7 +572,7 @@ describe("desktop shell", () => {
     expect(document.activeElement).toBe(newChat);
 
     act(() => appCommandListener?.("command-palette"));
-    const nativeSearch = await screen.findByRole("textbox", { name: "Search commands" });
+    const nativeSearch = await screen.findByRole("combobox", { name: "Search commands" });
     fireEvent.change(nativeSearch, { target: { value: "settings" } });
     fireEvent.keyDown(nativeSearch, { key: "Enter" });
     expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
