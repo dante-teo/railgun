@@ -21,10 +21,13 @@ Railgun includes `web_search` and `web_fetch` as zero-configuration, read-only
 tools for primary and delegated agents. Search uses an automatic provider chain:
 configured Brave, Tavily, Jina, or SearXNG services are preferred, Exa's public
 MCP endpoint supplies the keyless path, and DuckDuckGo is a final best-effort
-fallback. Fetch supports HTML, plain text, and JSON from public HTTP(S) URLs;
+fallback. Fetch supports HTML, plain text, and JSON from public HTTP(S) URLs,
+retries a validated address from the other IP family after transport failures,
+and uses the keyless Jina Reader as an automatic fallback for blocked pages;
 private/reserved networks, credentials, binary content, oversized responses,
 and redirect-based SSRF are rejected. Search and fetch are cancellation-aware
-and safe to batch in parallel. See
+and safe to batch in parallel. A fallback fetch identifies the extraction path
+with `reader: "jina"` while retaining the public page URL as `final_url`. See
 `docs/adr/0030-built-in-web-search-and-fetch.md`.
 
 Phase 29 adds a `railgun cron` command that runs the agent automatically on a schedule without human input. Jobs are defined in `~/.railgun/cron/jobs.json` as a JSON array of objects with `id`, `schedule` (cron expression), `prompt`, and `lastRun` (epoch ms or null). A background loop wakes every 60 seconds, parses each schedule with `cron-parser` to find the last firing time before now, and runs any job whose `lastRun` is before that time (or null). Each job fires a fresh `createAgentSession` with a 30-step iteration budget, shell commands denied by default unless `approvalMode` is `"off"` in `config.json`, and no session persistence — output is written to the scheduler log files at `~/.railgun/cron/logs/`. After each job completes successfully, its `lastRun` is advanced and written back to `jobs.json` via `write-file-atomic`. Failed jobs are not marked done — they retry on every subsequent 60s tick until they succeed, at which point `lastRun` is updated normally. The loop runs until SIGINT or SIGTERM, which are each forwarded to an `AbortController`; the signal propagates through the sleep primitive (built with `Promise.withResolvers()`) so the process exits without waiting out the current interval. Extensions are not loaded in cron mode. `src/cron/jobs.ts` owns job types, disk I/O, and `isDue`; `src/cron/scheduler.ts` owns `tick` (sequential per-cycle run), `runCronJob` (session construction and event collection), and `startScheduler` (the main loop). Phase 29 also adds two in-session management interfaces added later: a `cron` agent tool (`src/tools/cron.ts`, toolset `"cron"`) with `list`/`add`/`remove`/`update` actions so the LLM can manage jobs on behalf of the user, and a `/cron [add|remove]` REPL slash command for direct in-session access — both read and write `jobs.json` via the same `loadJobs`/`saveJobs`/`validateJob` functions the scheduler uses.

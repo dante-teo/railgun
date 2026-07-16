@@ -50,6 +50,20 @@ Redirect count, elapsed time, response bytes, declared content length, and
 returned characters are bounded. A stable Railgun user agent identifies the
 client.
 
+DNS results are reduced to a validated IPv4/IPv6 pair, with the second address
+tried after a transient transport failure. Retryable HTTP failures, exhausted
+direct connections, empty HTML, and recognizable bot-challenge pages then use
+Jina Reader (`r.jina.ai`) as an automatic keyless fallback. The original target
+is validated before fallback, and Jina's own connection is resolved, validated,
+and pinned in the same way. This fallback discloses the requested public URL to
+Jina; it requires no credential and remains subject to Jina's unauthenticated
+rate limit.
+
+A successful fallback retains the public page target in `final_url` and
+adds `reader: "jina"` to the result payload. Direct responses omit this field,
+so tool consumers can distinguish the extraction path without treating the
+Reader endpoint as the fetched source.
+
 ### Availability and model behavior
 
 `src/tools/toolsets.ts` is the single source for default toolsets. Primary and
@@ -65,5 +79,7 @@ safeguards with shell HTTP clients such as `curl`.
 - Exa MCP and DuckDuckGo remain external best-effort services.
 - Private-network fetching is intentionally unavailable, including redirects
   from public pages.
+- Some failed direct requests are sent to Jina Reader for keyless extraction;
+  failures from both paths are reported together.
 - Providers can be added without changing the public tool schema.
 - Undici 8 and jsdom 29 raise the runtime floor to Node.js 22.19.0.

@@ -189,7 +189,13 @@ session becomes durable after its first successful turn:
   fallback and may be rate-limited or challenged. Configure providers with
   `BRAVE_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, or `SEARXNG_ENDPOINT`
   (`SEARXNG_TOKEN` is optional). `web_fetch` supports HTML, plain text,
-  and JSON with bounded redirects, response size, time, and output. It does not
+  and JSON with bounded redirects, response size, time, and output. Direct
+  requests try validated IPv4 and IPv6 addresses; blocked pages, transient
+  transport failures, and obvious bot-challenge HTML automatically fall back
+  to the keyless Jina Reader service, which receives the requested public URL.
+  Fallback results retain the public page URL as `final_url` and include
+  `"reader": "jina"` so callers can identify the extraction path.
+  It does not
   execute page JavaScript, click or submit forms, parse PDFs, or access localhost
   and private/reserved networks. Every redirect is revalidated against DNS to
   prevent a public URL from redirecting into a private service.
