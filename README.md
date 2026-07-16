@@ -75,7 +75,7 @@ pnpm --filter @dantea/railgun-desktop test
 - [Product overview](docs/PRODUCT.md)
 - [Desktop architecture](docs/ARCHITECTURE.md)
 - [Design system and interaction contracts](docs/DESIGN.md)
-- [Desktop implementation plan](docs/desktop-impl-plan.md)
+- [Swift implementation plan](docs/swift-plan.md)
 - [Current architecture ADR](docs/adr/0001-railgun-current-architecture.md)
 - [Release procedure](docs/RELEASING.md)
 - [Diagnostics](docs/INTERACTIVE_DIAGNOSTICS.md) and [operational diagnostics](docs/OPERATIONAL_DIAGNOSTICS.md)
