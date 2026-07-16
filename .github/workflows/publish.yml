@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "desktop-v*"
+      - "v*"
 
 permissions:
   contents: read
@@ -56,7 +56,7 @@ jobs:
         id: metadata
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#desktop-v}"
+          version="${GITHUB_REF_NAME#v}"
           package_version="$(node -p "require('./apps/desktop/package.json').version")"
           if [ "$version" != "$package_version" ]; then
             echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
@@ -168,7 +168,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#desktop-v}"
+          version="${GITHUB_REF_NAME#v}"
           arm64_zip="dist/Railgun-homebrew-${version}-darwin-arm64.zip"
           x64_zip="dist/Railgun-homebrew-${version}-darwin-x64.zip"
           test -f "$arm64_zip"
@@ -224,7 +224,7 @@ jobs:
             sha256 arm:   "$ARM64_SHA256",
                    intel: "$X64_SHA256"
 
-            url "https://github.com/dante-teo/railgun/releases/download/desktop-v#{version}/Railgun-homebrew-#{version}-darwin-#{arch}.zip"
+            url "https://github.com/dante-teo/railgun/releases/download/v#{version}/Railgun-homebrew-#{version}-darwin-#{arch}.zip"
             name "Railgun"
             desc "AI coding agent for local development workflows"
             homepage "https://github.com/dante-teo/railgun"

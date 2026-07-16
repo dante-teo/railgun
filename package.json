@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "pnpm --filter @dantea/railgun-desktop start",
     "dev:mock": "pnpm --filter @dantea/railgun-desktop start:mock",
+    "release:version": "pnpm --dir apps/desktop version",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run src"

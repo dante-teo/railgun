@@ -1,7 +1,27 @@
 # Releasing Railgun desktop
 
 `apps/desktop/package.json` is the only release-version authority. Create a
-matching `desktop-vX.Y.Z` tag after desktop tests pass.
+matching `vX.Y.Z` tag after desktop tests pass.
+
+## Stable release procedure
+
+From a clean `main` checkout, run the root release command. It bumps only the
+desktop workspace, creates the version commit, and creates the matching
+`vX.Y.Z` tag. Do not run `pnpm version` directly at the repository
+root: the bundled backend is intentionally private and has no release version.
+
+```sh
+pnpm run typecheck
+pnpm --filter @dantea/railgun-desktop typecheck
+pnpm test
+pnpm --filter @dantea/railgun-desktop test
+pnpm release:version patch
+git push origin main --tags
+```
+
+Use `minor`, `major`, or an explicit version in place of `patch` as needed.
+The command uses pnpm's normal commit-and-tag behavior and its standard `v`
+prefix, which is recognized by the GitHub-backed updater.
 
 The release workflow signs, notarizes, staples, and validates arm64 and x64
 artifacts for two immutable channels:

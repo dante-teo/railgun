@@ -44,8 +44,9 @@ are available. Scheduler logs are retained under `~/.railgun/cron/logs/`.
 
 `pnpm dev` runs the desktop app from source. `pnpm dev:mock` uses the desktop
 mock backend. The release version is defined only in
-`apps/desktop/package.json`; releases use `desktop-vX.Y.Z` tags and build both
-direct and Homebrew artifacts for arm64 and x64. See
+`apps/desktop/package.json`; releases use `vX.Y.Z` tags and build both
+direct and Homebrew artifacts for arm64 and x64. Create the version commit and
+tag with `pnpm release:version patch`; see
 [release instructions](docs/RELEASING.md) for the artifact and signing checks.
 
 Run the desktop checks with:
