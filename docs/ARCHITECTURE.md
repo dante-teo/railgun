@@ -22,5 +22,7 @@ Desktop release configuration is owned by `apps/desktop/package.json`. Direct
 and Homebrew builds carry immutable update-channel values, preventing two
 updaters from controlling one installed app. Direct releases retain
 `darwin-arm64` or `darwin-x64` in their GitHub ZIP artifact names so the
-GitHub-backed Electron updater can find them; Homebrew archives are a separate
-channel and only the Cask updates those installations.
+GitHub-backed Electron updater can find them. Direct installations check
+automatically and expose **Railgun → Check for Updates…** for an explicit
+check; downloaded updates require the user's restart confirmation. Homebrew
+archives are a separate channel and only the Cask updates those installations.

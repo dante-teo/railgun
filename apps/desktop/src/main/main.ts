@@ -142,8 +142,42 @@ const backgroundAutomation = app.isPackaged && process.platform === "darwin"
     backendEntry: resolve(process.resourcesPath, "backend/railgun/dist/backend.js"),
   })
   : unavailableAutomation;
-const updates = createUpdateService(__RAILGUN_UPDATE_CHANNEL__, autoUpdater);
+const updates = createUpdateService(__RAILGUN_UPDATE_CHANNEL__, autoUpdater, {
+  upToDate: (): void => {
+    void dialog.showMessageBox({
+      type: "info",
+      title: "Railgun is up to date",
+      message: "You're running the latest version of Railgun.",
+    });
+  },
+  unableToCheck: (): void => {
+    void dialog.showMessageBox({
+      type: "error",
+      title: "Unable to check for updates",
+      message: "Railgun could not check for updates. Please try again later.",
+    });
+  },
+});
+const checkForUpdates = updates.enabled && app.isPackaged ? updates.checkManually : undefined;
+autoUpdater.on("checking-for-update", () => updates.onCheckingForUpdate());
 autoUpdater.on("update-available", () => updates.onUpdateAvailable());
+autoUpdater.on("update-not-available", () => updates.onUpdateNotAvailable());
+autoUpdater.on("error", () => updates.onError());
+autoUpdater.on("update-downloaded", () => {
+  updates.onUpdateDownloaded();
+  if (!updates.enabled) return;
+  void dialog.showMessageBox({
+    type: "info",
+    buttons: ["Restart", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+    title: "Update ready",
+    message: "A new version of Railgun has been downloaded.",
+    detail: "Restart Railgun to apply the update.",
+  }).then(({ response }) => {
+    if (response === 0) updates.install();
+  });
+});
 const authenticationCoordinator = createAuthenticationCoordinator({
   mutations: mutationQueue,
   isAgentRunning: async () => (await settingsService.get()).running,
@@ -525,8 +559,10 @@ supervisor.subscribeBackendEvents((value) => {
 
 void app.whenReady().then(() => {
   if (updates.enabled && app.isPackaged) {
+    updates.expectAutomaticCheck();
     updateElectronApp({
       updateSource: { type: UpdateSourceType.ElectronPublicUpdateService, repo: "dante-teo/railgun" },
+      notifyUser: false,
     });
   }
   installSessionGuards(session.defaultSession, rendererCsp(developmentUrl));
@@ -544,6 +580,7 @@ void app.whenReady().then(() => {
         createWindow,
       });
     },
+    checkForUpdates,
   )));
   createWindow();
   app.on("activate", () => {

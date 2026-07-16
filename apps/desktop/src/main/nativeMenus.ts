@@ -7,6 +7,7 @@ export type SendAppCommand = (command: AppCommand) => void;
 export const buildApplicationMenuTemplate = (
   development: boolean,
   sendCommand: SendAppCommand,
+  checkForUpdates?: () => void,
 ): MenuItemConstructorOptions[] => {
   const command = (value: AppCommand): (() => void) => () => sendCommand(value);
   const viewItems: MenuItemConstructorOptions[] = [
@@ -24,8 +25,27 @@ export const buildApplicationMenuTemplate = (
     );
   }
 
+  const appMenu: MenuItemConstructorOptions = checkForUpdates === undefined
+    ? { role: "appMenu" }
+    : {
+      role: "appMenu",
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { label: "Check for Updates…", enabled: true, click: checkForUpdates },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    };
+
   return [
-    { role: "appMenu" },
+    appMenu,
     {
       label: "File",
       submenu: [

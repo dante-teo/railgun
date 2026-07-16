@@ -27,8 +27,9 @@ The release workflow signs, notarizes, staples, and validates arm64 and x64
 artifacts for two immutable channels:
 
 - `direct` artifacts are uploaded to the GitHub release and may use the
-  in-app updater. Their names retain the updater-required macOS target, for
-  example `Railgun-direct-X.Y.Z-darwin-arm64.zip`.
+  in-app updater, including automatic and **Railgun → Check for Updates…**
+  checks. Their names retain the updater-required macOS target, for example
+  `Railgun-direct-X.Y.Z-darwin-arm64.zip`.
 - `homebrew` artifacts are used only by the Cask; updates are exclusively
   `brew upgrade --cask railgun`. They use separate names such as
   `Railgun-homebrew-X.Y.Z-darwin-arm64.zip`.

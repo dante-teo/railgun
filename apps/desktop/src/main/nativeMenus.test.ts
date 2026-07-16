@@ -37,6 +37,19 @@ describe("native application menu", () => {
     expect(roles).toEqual(expect.arrayContaining(["appMenu", "editMenu", "windowMenu"]));
   });
 
+  it("includes a manual update check in the macOS application menu when updates are available", () => {
+    const checkForUpdates = vi.fn();
+    const items = flatten(buildApplicationMenuTemplate(false, vi.fn(), checkForUpdates));
+    const checkItem = items.find((item) => item.label === "Check for Updates…");
+
+    checkItem?.click?.({} as never, {} as never, {} as never);
+
+    expect(checkItem).toEqual(expect.objectContaining({ enabled: true }));
+    expect(checkForUpdates).toHaveBeenCalledOnce();
+    expect(flatten(buildApplicationMenuTemplate(false, vi.fn())).map((item) => item.label))
+      .not.toContain("Check for Updates…");
+  });
+
   it("includes reload and developer tools roles only in development", () => {
     const roles = (development: boolean): unknown[] => flatten(buildApplicationMenuTemplate(development, vi.fn()))
       .map((item) => item.role);
