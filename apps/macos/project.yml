@@ -1,0 +1,62 @@
+name: RailgunX
+
+options:
+  bundleIdPrefix: io.anvia
+  deploymentTarget:
+    macOS: "15.0"
+
+settings:
+  base:
+    SDKROOT: macosx
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+
+targets:
+  RailgunX:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/RailgunX
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.anvia.railgun
+        PRODUCT_NAME: RailgunX
+        PRODUCT_BUNDLE_PACKAGE_TYPE: APPL
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+
+  RailgunXTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/RailgunXTests
+    dependencies:
+      - target: RailgunX
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.anvia.railgun.tests
+        PRODUCT_NAME: RailgunXTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/RailgunX.app/Contents/MacOS/RailgunX"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+
+schemes:
+  RailgunX:
+    build:
+      targets:
+        RailgunX: all
+        RailgunXTests: [test]
+    test:
+      targets:
+        - RailgunXTests

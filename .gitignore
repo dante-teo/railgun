@@ -5,3 +5,4 @@ dist/
 apps/desktop/.vite/
 apps/desktop/backend/
 apps/desktop/out/
+apps/macos/RailgunX.xcodeproj/

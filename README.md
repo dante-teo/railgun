@@ -61,6 +61,11 @@ direct and Homebrew artifacts for arm64 and x64. Create the version commit and
 tag with `pnpm release:version patch`; see
 [release instructions](docs/RELEASING.md) for the artifact and signing checks.
 
+The RailgunX native scaffold can be launched with `./scripts/run.sh`, or with
+`./scripts/run-mock.sh` to select its deterministic mock-backend placeholder.
+This mock mode is limited to the native shell until the planned transport and
+backend integration land.
+
 Run the complete check suite from the repository root with:
 
 ```sh
