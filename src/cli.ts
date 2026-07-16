@@ -451,8 +451,13 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
   }
   if (mode.kind === "dream") {
     const session = await dependencies.initSession();
-    await withStores(dependencies, async (_store, memoryStore, noteStore) => {
-      await runDreamSession(memoryStore, noteStore, session.devin, session.model);
+    const config = await dependencies.loadConfig();
+    await withStores(dependencies, async (store, memoryStore, noteStore) => {
+      try {
+        await runDreamSession(memoryStore, noteStore, session.devin, session.model);
+      } finally {
+        store.pruneArchivedSessions(config.archiveRetentionDays ?? 7);
+      }
     });
     return;
   }

@@ -32,6 +32,7 @@ import {
   SessionContextMenuResultSchema,
   PersistenceMessageIdSchema,
   SessionSummaryListSchema,
+  ArchivedSessionSummaryListSchema,
   DirectoryListingSchema,
   FilePathSegmentsSchema,
   FilePreviewSchema,
@@ -267,6 +268,22 @@ const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.listSessions, async (event) => {
     assertAuthorizedIpcSender(event, senderContext);
     return SessionSummaryListSchema.parse(await sessionService.list());
+  });
+  ipcMain.handle(DESKTOP_IPC.listArchivedSessions, async (event) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    return ArchivedSessionSummaryListSchema.parse(await sessionService.listArchived());
+  });
+  ipcMain.handle(DESKTOP_IPC.archiveSession, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
+    const result = await sessionService.archive(SessionIdSchema.parse(value));
+    broadcastSessionSnapshot(result);
+    return SessionSnapshotSchema.parse(result);
+  });
+  ipcMain.handle(DESKTOP_IPC.unarchiveSession, async (event, value: unknown) => {
+    assertAuthorizedIpcSender(event, senderContext);
+    authenticationCoordinator.assertTaskMutationAllowed();
+    await sessionService.unarchive(SessionIdSchema.parse(value));
   });
   ipcMain.handle(DESKTOP_IPC.resumeSession, async (event, value: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);

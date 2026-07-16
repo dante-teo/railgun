@@ -6,6 +6,7 @@ import { CONFIG_PATH } from "./paths.js";
 
 export interface AppConfig {
   readonly model: string | null;
+  readonly archiveRetentionDays?: ArchiveRetentionDays;
   readonly approvalMode?: "manual" | "smart" | "off";
   readonly reviewerModel?: string;
   readonly moaPresets?: Record<string, unknown>;
@@ -15,7 +16,10 @@ export interface AppConfig {
   readonly [key: string]: unknown;
 }
 
-export const DEFAULT_CONFIG: AppConfig = { model: null, operationTimeoutMs: 600_000 };
+export const ARCHIVE_RETENTION_DAYS = [1, 7, 30, 90] as const;
+export type ArchiveRetentionDays = typeof ARCHIVE_RETENTION_DAYS[number];
+
+export const DEFAULT_CONFIG: AppConfig = { model: null, operationTimeoutMs: 600_000, archiveRetentionDays: 7 };
 
 type JsonObject = Record<string, unknown>;
 
@@ -67,6 +71,10 @@ const validateConfig = (value: unknown, path: string): AppConfig => {
   const operationTimeoutMs = merged.operationTimeoutMs;
   if (!Number.isInteger(operationTimeoutMs) || (operationTimeoutMs as number) <= 0) {
     throw new ConfigError(path, '"operationTimeoutMs" must be a positive integer');
+  }
+  const archiveRetentionDays = merged.archiveRetentionDays;
+  if (!ARCHIVE_RETENTION_DAYS.includes(archiveRetentionDays as ArchiveRetentionDays)) {
+    throw new ConfigError(path, '"archiveRetentionDays" must be one of 1, 7, 30, or 90');
   }
   const reviewerModel = merged.reviewerModel;
   if (reviewerModel !== undefined && (typeof reviewerModel !== "string" || reviewerModel.length === 0 || /\s/.test(reviewerModel))) {

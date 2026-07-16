@@ -315,6 +315,10 @@ export const SessionSummarySchema = z.strictObject({
   firstUserPreview: z.string().max(DESKTOP_SESSION_LIMITS.preview),
 });
 export const SessionSummaryListSchema = z.array(SessionSummarySchema).max(DESKTOP_SESSION_LIMITS.sessions).readonly();
+export const ArchivedSessionSummarySchema = SessionSummarySchema.extend({
+  archivedAt: z.string().datetime(),
+}).strict();
+export const ArchivedSessionSummaryListSchema = z.array(ArchivedSessionSummarySchema).max(DESKTOP_SESSION_LIMITS.sessions).readonly();
 
 export const RestoredTranscriptMessageSchema = z.strictObject({
   role: z.enum(["user", "assistant"]),
@@ -419,7 +423,8 @@ export const ControlMutationResultSchema = z.strictObject({
   warning: z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.warning).optional(),
 });
 
-export const SettingsSectionSchema = z.enum(["general", "agent", "trust", "provider", "mcp", "diagnostics"]);
+export const ArchiveRetentionDaysSchema = z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(90)]);
+export const SettingsSectionSchema = z.enum(["general", "agent", "trust", "archives", "provider", "mcp", "diagnostics"]);
 export const SettingsSnapshotSchema = z.strictObject({
   models: z.array(DesktopModelMetadataSchema).max(DESKTOP_CONTROL_LIMITS.models).readonly(),
   moaPresets: z.array(MoAPresetSummarySchema).max(DESKTOP_CONTROL_LIMITS.presets).readonly(),
@@ -435,6 +440,7 @@ export const SettingsSnapshotSchema = z.strictObject({
     approvalMode: z.enum(["manual", "smart", "off"]),
     reviewerModelId: ChatModelIdSchema.nullable(),
   }),
+  archives: z.strictObject({ archiveRetentionDays: ArchiveRetentionDaysSchema }),
   provider: z.strictObject({
     state: z.enum(["signed-in", "environment-managed", "sign-in-required", "unavailable"]),
     source: z.enum(["cached", "environment", "none"]),
@@ -468,6 +474,10 @@ export const SettingsUpdateSchema = z.discriminatedUnion("section", [
     if (value.approvalMode === "smart" && value.reviewerModelId === null) {
       context.addIssue({ code: "custom", path: ["reviewerModelId"], message: "Smart review requires a model" });
     }
+  }),
+  z.strictObject({
+    section: z.literal("archives"),
+    archiveRetentionDays: ArchiveRetentionDaysSchema,
   }),
 ]);
 

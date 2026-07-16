@@ -88,6 +88,10 @@ const makeMemoriesDb = (): Database.Database => {
 
 const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
   listSessions: vi.fn(() => sessions),
+  listArchivedSessions: vi.fn(() => []),
+  archiveSession: vi.fn(),
+  unarchiveSession: vi.fn(),
+  pruneArchivedSessions: vi.fn(() => 0),
   loadSession: vi.fn((id: string): PersistedSession | undefined => id === "saved" ? {
     id,
     model: "model-a",

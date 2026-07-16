@@ -4,16 +4,18 @@ import {
   SessionIdSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
+  ArchivedSessionSummaryListSchema,
   RestoredTranscriptEntrySchema,
   RestoredTodoSchema,
   PersistenceMessageIdSchema,
 } from "../shared/schemas";
-import type { SessionSnapshot, SessionSummary } from "../shared/types";
+import type { ArchivedSessionSummary, SessionSnapshot, SessionSummary } from "../shared/types";
 import type { BackendRpcCommand } from "./backendSupervisor";
 
 type Call = <T>(command: BackendRpcCommand, validate: (data: unknown) => T) => Promise<T>;
 
 const rawSummaryList = z.strictObject({ sessions: SessionSummaryListSchema });
+const rawArchivedSummaryList = z.strictObject({ sessions: ArchivedSessionSummaryListSchema });
 const rawMutation = z.strictObject({
   sessionId: SessionIdSchema,
 });
@@ -77,6 +79,7 @@ export const createSessionService = (call: Call) => {
   };
   return {
     list: async (): Promise<readonly SessionSummary[]> => (await call({ type: "session_list" }, value => rawSummaryList.parse(value))).sessions,
+    listArchived: async (): Promise<readonly ArchivedSessionSummary[]> => (await call({ type: "session_list_archived" }, value => rawArchivedSummaryList.parse(value))).sessions,
     create: async (): Promise<SessionSnapshot> => {
       const result = await call({ type: "session_new" }, value => rawMutation.parse(value));
       const next = await snapshot();
@@ -109,6 +112,15 @@ export const createSessionService = (call: Call) => {
       const next = await snapshot();
       if (next.id !== result.sessionId) throw new Error("Backend activated a mismatched fork");
       return next;
+    },
+    archive: async (sessionId: string): Promise<SessionSnapshot> => {
+      const validId = SessionIdSchema.parse(sessionId);
+      await call({ type: "session_archive", sessionId: validId }, value => rawMutation.parse(value));
+      return snapshot();
+    },
+    unarchive: async (sessionId: string): Promise<void> => {
+      const validId = SessionIdSchema.parse(sessionId);
+      await call({ type: "session_unarchive", sessionId: validId }, value => rawMutation.parse(value));
     },
     snapshot,
   };

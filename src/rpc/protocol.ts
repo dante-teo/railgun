@@ -65,7 +65,7 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     case "prompt": case "steer": case "follow_up":
       return { ...base, type, message: nonEmpty(value.message, "message") };
     case "abort": case "get_state": case "get_messages": case "get_available_models": case "compact":
-    case "session_list": case "session_save": case "config_get": case "mcp_list": case "skills_list":
+    case "session_list": case "session_list_archived": case "session_save": case "config_get": case "mcp_list": case "skills_list":
     case "dream_run": case "instruction_files_list":
       return { ...base, type };
     case "set_model": return { ...base, type, modelId: nonEmpty(value.modelId, "modelId") };
@@ -90,6 +90,7 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
         ...(value.includeMessages === undefined ? {} : { includeMessages: value.includeMessages }),
       };
     }
+    case "session_archive": case "session_unarchive": return { ...base, type, sessionId: nonEmpty(value.sessionId, "sessionId") };
     case "session_branch": {
       if (!Number.isInteger(value.messageId) || (value.messageId as number) < 1) throw new Error("invalid command: messageId must be a positive integer");
       if (value.summarize !== undefined && typeof value.summarize !== "boolean") throw new Error("invalid command: summarize must be a boolean");

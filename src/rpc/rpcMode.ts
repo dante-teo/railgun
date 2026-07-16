@@ -57,7 +57,7 @@ const MANAGEMENT_COMMANDS = new Set<string>([
 ]);
 
 const SESSION_COMMANDS = new Set<string>([
-  "session_new", "session_list", "session_load", "session_save", "session_branch", "session_fork", "session_recent_messages", "session_transcript",
+  "session_new", "session_list", "session_list_archived", "session_load", "session_archive", "session_unarchive", "session_save", "session_branch", "session_fork", "session_recent_messages", "session_transcript",
 ]);
 const MUTATING_MANAGEMENT_COMMANDS = new Set<string>([
   "config_update", "mcp_upsert", "mcp_remove", "cron_add", "cron_update", "cron_remove",
@@ -344,10 +344,14 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
       if (options.memoryStore === undefined) { respond(command.type, id, undefined, "memory store is unavailable"); return; }
       void track(sessionHandler.runExclusive("run Dream", async selected => {
         const runtime = requireModelRuntime(selected.model);
-        return (options.runDream ?? runDreamSession)(
-          options.memoryStore!, options.noteStore, session.devin, runtime.model, () => undefined,
-          progress => writeObject({ type: "dream_progress", ...progress }),
-        );
+        try {
+          return await (options.runDream ?? runDreamSession)(
+            options.memoryStore!, options.noteStore, session.devin, runtime.model, () => undefined,
+            progress => writeObject({ type: "dream_progress", ...progress }),
+          );
+        } finally {
+          options.sessionStore?.pruneArchivedSessions(config.archiveRetentionDays ?? 7);
+        }
       }).then(data => respond(command.type, id, data)).catch(error => respond(command.type, id, undefined, errorMessage(error))));
       return;
     }
@@ -355,7 +359,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
     if (SESSION_COMMANDS.has(command.type)) {
       void track(sessionHandler.handle(command as Parameters<typeof sessionHandler.handle>[0])
         .then(data => {
-          if (command.type === "session_new" || command.type === "session_load" || command.type === "session_fork") approvals.clear();
+          if (command.type === "session_new" || command.type === "session_load" || command.type === "session_fork" || command.type === "session_archive") approvals.clear();
           respond(command.type, id, data);
         })
         .catch(error => respond(command.type, id, undefined, errorMessage(error))));

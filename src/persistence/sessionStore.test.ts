@@ -62,7 +62,7 @@ describe("createSessionStore", () => {
 
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(5);
+    expect(db.pragma("user_version", { simple: true })).toBe(6);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '%_fts%' AND name NOT LIKE 'notes\\_vec\\_%' ESCAPE '\\' AND name != 'sqlite_sequence' ORDER BY name").pluck().all())
       .toEqual(["memories", "messages", "notes", "notes_vec", "sessions"]);
@@ -164,6 +164,41 @@ describe("createSessionStore", () => {
     store.close();
   });
 
+  it("archives and restores sessions while keeping active and archived listings isolated", () => {
+    let current = new Date("2026-07-10T10:00:00.000Z");
+    const store = createSessionStore(path, { now: () => current });
+    store.saveCheckpoint(checkpoint({ id: "older", startedAt: "2026-07-09T00:00:00.000Z" }));
+    store.saveCheckpoint(checkpoint({ id: "newer" }));
+
+    store.archiveSession("older");
+    current = new Date("2026-07-10T11:00:00.000Z");
+    store.archiveSession("newer");
+
+    expect(store.listSessions()).toEqual([]);
+    expect(store.loadSession("newer")).toBeUndefined();
+    expect(store.listArchivedSessions().map(session => session.id)).toEqual(["newer", "older"]);
+    expect(store.listArchivedSessions()[0]?.archivedAt).toBe("2026-07-10T11:00:00.000Z");
+    expect(() => store.forkSession("newer")).toThrow(/archived/u);
+
+    store.unarchiveSession("older");
+    expect(store.listSessions().map(session => session.id)).toEqual(["older"]);
+    expect(store.listArchivedSessions().map(session => session.id)).toEqual(["newer"]);
+    store.close();
+  });
+
+  it("prunes archives at the inclusive retention boundary and cascades their messages", () => {
+    let current = new Date("2026-07-17T10:00:00.000Z");
+    const store = createSessionStore(path, { now: () => current });
+    store.saveCheckpoint(checkpoint());
+    store.archiveSession("session-a");
+    current = new Date("2026-07-24T10:00:00.000Z");
+
+    expect(store.pruneArchivedSessions(7)).toBe(1);
+    expect(store.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE session_id = ?").get("session-a")).toEqual({ count: 0 });
+    expect(store.listArchivedSessions()).toEqual([]);
+    store.close();
+  });
+
   it("fails closed with a session-specific corruption error", () => {
     const store = createSessionStore(path);
     store.saveCheckpoint(checkpoint());
@@ -243,7 +278,7 @@ describe("schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a v1 database to v5 by adding the memories table, branching columns, notes tables, and notes_vec", () => {
+  it("migrates a v1 database to v6 by adding the memories table, branching columns, notes tables, notes_vec, and archiving", () => {
     // Bootstrap a v1-era database manually (no memories table, user_version = 1).
     const bootstrap = new Database(path);
     bootstrap.exec(`
@@ -275,7 +310,7 @@ describe("schema migration", () => {
     store.close();
 
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(5);
+    expect(db.pragma("user_version", { simple: true })).toBe(6);
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories'").pluck().all()
     ).toEqual(["memories"]);
@@ -284,6 +319,8 @@ describe("schema migration", () => {
     expect(msgCols.some(c => c.name === "parent_id")).toBe(true);
     const sessCols = db.pragma("table_info(sessions)") as ColInfo[];
     expect(sessCols.some(c => c.name === "current_leaf_id")).toBe(true);
+    expect(sessCols.some(c => c.name === "archived_at")).toBe(true);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'sessions_archived_at'").pluck().all()).toEqual(["sessions_archived_at"]);
     const tableNames = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('notes', 'notes_fts', 'notes_vec')")
       .pluck().all() as string[];
@@ -305,7 +342,7 @@ describe("notes schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a fresh database to v5 with notes, notes_fts, and notes_vec tables", () => {
+  it("migrates a fresh database to v6 with notes, notes_fts, notes_vec, and archive metadata", () => {
     const path = join(dir, "state.db");
     const store = createSessionStore(path);
     store.close();
@@ -313,7 +350,7 @@ describe("notes schema migration", () => {
     const db = new Database(path);
     try {
       const version = db.pragma("user_version", { simple: true }) as number;
-      expect(version).toBe(5);
+      expect(version).toBe(6);
 
       const tables = db
         .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'shadow') AND name IN ('notes', 'notes_fts', 'notes_vec')")
@@ -322,6 +359,7 @@ describe("notes schema migration", () => {
       expect(tables).toContain("notes");
       expect(tables).toContain("notes_fts");
       expect(tables).toContain("notes_vec");
+      expect((db.pragma("table_info(sessions)") as { name: string }[]).some(column => column.name === "archived_at")).toBe(true);
     } finally {
       db.close();
     }

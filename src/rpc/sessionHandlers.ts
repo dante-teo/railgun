@@ -7,7 +7,7 @@ import type { RpcCommand, RpcPersistenceStatus } from "./types.js";
 import { createRpcTranscriptPage } from "./sessionTranscript.js";
 
 type SessionCommand = Extract<RpcCommand, { type:
-  "session_new" | "session_list" | "session_load" | "session_save" |
+  "session_new" | "session_list" | "session_list_archived" | "session_load" | "session_archive" | "session_unarchive" | "session_save" |
   "session_branch" | "session_fork" | "session_recent_messages" | "session_transcript" }>;
 
 export interface RpcActiveSession {
@@ -69,6 +69,13 @@ export const createRpcSessionHandler = (options: {
       persistence: "saved",
     };
   };
+  const loadActivePersistedSession = (sessionId: string): NonNullable<ReturnType<SessionStore["loadSession"]>> => {
+    const store = requireStore();
+    const persisted = store.loadSession(sessionId);
+    if (persisted !== undefined) return persisted;
+    if (store.listArchivedSessions().some(session => session.id === sessionId)) throw new Error(`session is archived: ${sessionId}`);
+    throw new Error(`session not found: ${sessionId}`);
+  };
 
   const checkpoint = (): void => {
     const selected = requireActive();
@@ -98,10 +105,10 @@ export const createRpcSessionHandler = (options: {
         active = fresh(command.modelId ?? options.defaultModel);
         return { sessionId: active.id };
       case "session_list": return { sessions: requireStore().listSessions() };
+      case "session_list_archived": return { sessions: requireStore().listArchivedSessions() };
       case "session_load": {
         guardIdle("load a session");
-        const persisted = requireStore().loadSession(command.sessionId);
-        if (persisted === undefined) throw new Error(`session not found: ${command.sessionId}`);
+        const persisted = loadActivePersistedSession(command.sessionId);
         await options.prepareModel?.(persisted.model);
         activate(persisted);
         return {
@@ -112,6 +119,21 @@ export const createRpcSessionHandler = (options: {
       case "session_save":
         guardIdle("save a session");
         checkpoint();
+        return { sessionId: requireActive().id };
+      case "session_archive": {
+        guardIdle("archive a session");
+        const selected = requireActive();
+        if (selected.id === command.sessionId && selected.persistence !== "saved") {
+          throw new Error("active session must be saved before archiving");
+        }
+        const store = requireStore();
+        store.archiveSession(command.sessionId);
+        if (selected.id === command.sessionId) active = fresh();
+        return { sessionId: requireActive().id };
+      }
+      case "session_unarchive":
+        guardIdle("restore a session");
+        requireStore().unarchiveSession(command.sessionId);
         return { sessionId: requireActive().id };
       case "session_branch": {
         guardIdle("branch a session");
@@ -132,8 +154,7 @@ export const createRpcSessionHandler = (options: {
         guardIdle("fork a session");
         const store = requireStore();
         const sourceId = command.sessionId ?? requireActive().id;
-        const source = store.loadSession(sourceId);
-        if (source === undefined) throw new Error(`session not found: ${sourceId}`);
+        const source = loadActivePersistedSession(sourceId);
         await options.prepareModel?.(source.model);
         const forkId = store.forkSession(sourceId);
         const persisted = store.loadSession(forkId);

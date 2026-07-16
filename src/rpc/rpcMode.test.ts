@@ -103,6 +103,10 @@ const fakeSessionStore = (): SessionStore => ({
   db: {} as SessionStore["db"],
   loadSession: vi.fn(),
   listSessions: vi.fn(() => []),
+  listArchivedSessions: vi.fn(() => []),
+  archiveSession: vi.fn(),
+  unarchiveSession: vi.fn(),
+  pruneArchivedSessions: vi.fn(() => 0),
   saveCheckpoint: vi.fn(checkpoint => checkpoint),
   branch: vi.fn(),
   branchWithSummary: vi.fn(async () => {}),
@@ -113,6 +117,28 @@ const fakeSessionStore = (): SessionStore => ({
 });
 
 describe("runRpcMode", () => {
+  it.each([
+    ["completed", async () => ({ status: "completed" as const, beforeCount: 6, afterCount: 4 })],
+    ["skipped", async () => ({ status: "skipped" as const, beforeCount: 2, afterCount: 2 })],
+    ["failed", async () => { throw new Error("dream failed"); }],
+  ])("prunes expired archives after a %s Dream invocation", async (_outcome, runDream) => {
+    const store = fakeSessionStore();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const runPromise = runRpcMode({
+      session: fakeSession(fakeProvider([])), config: { ...fakeConfig(), archiveRetentionDays: 30 }, stdin, stdout,
+      sessionStore: store, memoryStore: { all: () => [] } as never, runDream: runDream as never,
+    });
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    await waitForLine(getLines, line => line["id"] === "init");
+    send(stdin, { id: "dream", type: "dream_run" });
+    await waitForLine(getLines, line => line["id"] === "dream");
+    stdin.push(null);
+    await runPromise;
+    expect(store.pruneArchivedSessions).toHaveBeenCalledWith(30);
+  });
+
   it("finishes compaction on its original session before activating a new session", async () => {
     const { promise: compactionEntered, resolve: signalCompactionEntered } = Promise.withResolvers<void>();
     const { promise: releaseCompaction, resolve: release } = Promise.withResolvers<void>();

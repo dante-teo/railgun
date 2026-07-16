@@ -16,6 +16,7 @@ import type {
   AdvisorControlSchema,
   SessionSummarySchema,
   SessionSnapshotSchema,
+  ArchivedSessionSummarySchema,
   CheckpointStatusSchema,
   RestoredTranscriptEntrySchema,
   RestoredTranscriptMessageSchema,
@@ -54,6 +55,7 @@ export type MoAPresetSummary = z.infer<typeof MoAPresetSummarySchema>;
 export type AdvisorControl = z.infer<typeof AdvisorControlSchema>;
 export type ContextUsageEvent = Extract<DesktopAgentEvent, { type: "context-usage" }>;
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+export type ArchivedSessionSummary = z.infer<typeof ArchivedSessionSummarySchema>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 export type CheckpointStatus = z.infer<typeof CheckpointStatusSchema>;
 export type RestoredTranscriptEntry = z.infer<typeof RestoredTranscriptEntrySchema>;
@@ -112,6 +114,9 @@ export interface RailgunDesktopApi extends KnowledgeDesktopApi {
   revealFile: (pathSegments: readonly string[]) => Promise<void>;
   startNewChat: () => Promise<SessionSnapshot>;
   listSessions: () => Promise<readonly SessionSummary[]>;
+  listArchivedSessions: () => Promise<readonly ArchivedSessionSummary[]>;
+  archiveSession: (sessionId: string) => Promise<SessionSnapshot>;
+  unarchiveSession: (sessionId: string) => Promise<void>;
   resumeSession: (sessionId: string) => Promise<SessionSnapshot>;
   branchSession: (messageId: number, summarize: boolean) => Promise<SessionSnapshot>;
   forkSession: (sessionId: string) => Promise<SessionSnapshot>;
@@ -157,6 +162,9 @@ export const DESKTOP_IPC = {
   revealFile: "files:reveal",
   startNewChat: "agent:new-chat",
   listSessions: "sessions:list",
+  listArchivedSessions: "sessions:list-archived",
+  archiveSession: "sessions:archive",
+  unarchiveSession: "sessions:unarchive",
   resumeSession: "sessions:resume",
   branchSession: "sessions:branch",
   forkSession: "sessions:fork",

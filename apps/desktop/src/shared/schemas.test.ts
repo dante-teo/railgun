@@ -15,6 +15,7 @@ import {
   ControlMutationResultSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
+  ArchivedSessionSummaryListSchema,
   DESKTOP_SESSION_LIMITS,
   DESKTOP_FILE_LIMITS,
   DirectoryListingSchema,
@@ -112,6 +113,9 @@ describe("desktop boundary schemas", () => {
   it("accepts only bounded sanitized desktop session payloads", () => {
     const summary = { id: "session-1", model: "model-a", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Hello" };
     expect(SessionSummaryListSchema.parse([summary])).toEqual([summary]);
+    const archived = { ...summary, archivedAt: "2026-07-15T08:00:00.000Z" };
+    expect(ArchivedSessionSummaryListSchema.parse([archived])).toEqual([archived]);
+    expect(() => ArchivedSessionSummaryListSchema.parse([{ ...archived, token: "private" }])).toThrow();
     const session = { id: "session-1", startedAt: "2026-07-14T08:00:00.000Z", model: "model-a", messageCount: 2, running: false, checkpoint: { state: "saved" }, transcript: [{ role: "user", text: "Hello", messageId: 42 }], todos: [] };
     expect(SessionSnapshotSchema.parse(session)).toEqual(session);
     expect(() => SessionSnapshotSchema.parse({ ...session, rawMessages: [{ role: "tool", content: "secret" }] })).toThrow();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clock, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
+import { Archive, Clock, PanelRightOpen, Search, Settings, SlidersHorizontal, SquarePen } from "lucide-react";
 import { MockScenarioIdSchema } from "../shared/schemas";
 import type { AppCommand, BackendSnapshot, MockScenario, RestoredTranscriptMessage, SessionSnapshot, SessionSummary } from "../shared/types";
 import { Button } from "./components/ui/button";
@@ -185,6 +185,19 @@ export const App = (): React.JSX.Element => {
     } finally { setSessionOperation(false); }
   };
 
+  const archiveSession = async (sessionId: string): Promise<void> => {
+    if (sessionOperation || running) return;
+    setSessionOperation(true);
+    try {
+      setOperationError(undefined);
+      const next = await window.railgunDesktop.archiveSession(sessionId);
+      if (activeSession?.id === sessionId) activateSessionSnapshot(next);
+      await loadSessions();
+    } catch (error) {
+      setOperationError(errorMessage(error, "Unable to archive the task"));
+    } finally { setSessionOperation(false); }
+  };
+
   const openSessionContextMenu = useCallback((sessionId: string): void => {
     if (sessionOperation) return;
     void (async () => {
@@ -261,6 +274,7 @@ export const App = (): React.JSX.Element => {
       onSaved={() => setControlsResetKey(key => key + 1)}
       onRetryBackend={restartBackend}
       onSelectScenario={selectMockScenario}
+      onSessionsChanged={loadSessions}
     />
     <Dialog open={pendingSettingsExit !== undefined} onOpenChange={open => { if (!open) setPendingSettingsExit(undefined); }}>
       <DialogContent>
@@ -292,16 +306,20 @@ export const App = (): React.JSX.Element => {
               {sessionsLoading ? <p role="status">Loading sessions…</p> : sessionsError !== undefined ? <div role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={() => void loadSessions()}>Retry</Button></div>
                 : sessions.length === 0 ? <p>No saved tasks</p>
                   : sessions.map(session => (
-                      <button
+                      <div
                         key={session.id}
-                        type="button"
                         className={`session-row ${activeSession?.id === session.id ? "active" : ""}`}
-                        aria-current={activeSession?.id === session.id ? "true" : undefined}
-                        disabled={sessionOperation}
-                        onContextMenu={event => { event.preventDefault(); openSessionContextMenu(session.id); }}
-                        onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); openSessionContextMenu(session.id); } }}
-                        onClick={() => void resumeSession(session.id)}
-                      ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
+                      ><button
+                          type="button"
+                          className="session-row-main"
+                          aria-current={activeSession?.id === session.id ? "true" : undefined}
+                          disabled={sessionOperation}
+                          onContextMenu={event => { event.preventDefault(); openSessionContextMenu(session.id); }}
+                          onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); openSessionContextMenu(session.id); } }}
+                          onClick={() => void resumeSession(session.id)}
+                        ><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
+                        <Button type="button" variant="ghost" size="icon" className="session-archive" aria-label="Archive task" title={`Archive ${session.firstUserPreview || "Untitled chat"}`} disabled={sessionOperation || running} onClick={event => { event.stopPropagation(); void archiveSession(session.id); }}><Archive aria-hidden="true" /></Button>
+                      </div>
                     ))}
             </div>
           </section>

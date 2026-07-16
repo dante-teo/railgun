@@ -21,6 +21,7 @@ import {
   SessionContextMenuResultSchema,
   SessionSnapshotSchema,
   SessionSummaryListSchema,
+  ArchivedSessionSummaryListSchema,
   DirectoryListingSchema,
   FilePathSegmentsSchema,
   FilePreviewSchema,
@@ -128,6 +129,15 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     listSessions: async () => SessionSummaryListSchema.parse(
       await transport.invoke(DESKTOP_IPC.listSessions),
     ),
+    listArchivedSessions: async () => ArchivedSessionSummaryListSchema.parse(
+      await transport.invoke(DESKTOP_IPC.listArchivedSessions),
+    ),
+    archiveSession: async (sessionId) => SessionSnapshotSchema.parse(
+      await transport.invoke(DESKTOP_IPC.archiveSession, SessionIdSchema.parse(sessionId)),
+    ),
+    unarchiveSession: async (sessionId) => {
+      EmptyResponseSchema.parse(await transport.invoke(DESKTOP_IPC.unarchiveSession, SessionIdSchema.parse(sessionId)));
+    },
     resumeSession: async (sessionId) => SessionSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.resumeSession, SessionIdSchema.parse(sessionId)),
     ),

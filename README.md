@@ -342,6 +342,7 @@ authenticate, open SQLite, create files, or enter the TUI. Recognized fields:
 | `approvalMode` | `"manual"` \| `"smart"` \| `"off"` | `"manual"` | Shell command approval tier: manual y/n prompt, LLM review, or no prompt (hardline blocks always apply) |
 | `reviewerModel` | string | _(session model)_ | Devin model ID used for smart-mode LLM review; omit to use the same model as the session |
 | `operationTimeoutMs` | positive integer | `600000` | Per-operation deadline for providers, tools, extensions, listeners, compaction, and delegated work; approval and clarification prompts have no automatic deadline |
+| `archiveRetentionDays` | `1` \| `7` \| `30` \| `90` | `7` | How long archived desktop tasks remain restorable before the next Dream run permanently removes them |
 
 Unknown fields are preserved on read and write. Malformed files and invalid recognized values fail without automatic repair.
 
@@ -449,6 +450,16 @@ a backup so the database and its WAL are consistent. Session persistence covers
 conversation history and todos only. File writes and shell-command side effects
 apply directly to the working directory, so protect project files with normal
 version control or backups.
+
+Desktop users can archive a saved task from its sidebar row. Archived tasks are
+removed from active history immediately, cannot be resumed or forked, and are
+available in **Settings → Archived Tasks** until restored. Archiving the active
+task opens a fresh unsaved task; archiving an inactive task leaves the current
+task unchanged. Set one of the 1-, 7-, 30-, or 90-day retention presets in the
+same Settings section. An archive is permanently deleted, together with its
+messages, on the next Dream run after it reaches the selected age. Run Dream
+manually from desktop Knowledge, with `railgun dream`, or through the scheduled
+midnight Dream installed by `railgun cron install`.
 
 ### Manual persistence smoke test
 
@@ -692,7 +703,8 @@ protocol v1 before the first run:
 
 The handshake returns `version` and `capabilities`. V1 adds persistent session
 commands (`session_new`, `session_list`, `session_load`, `session_save`,
-`session_branch`, `session_fork`, `session_recent_messages`,
+`session_branch`, `session_fork`, `session_archive`, `session_list_archived`,
+`session_unarchive`, `session_recent_messages`,
 `session_transcript`), interactive
 `approval_request`/`approval_response` and
 `clarification_request`/`clarification_response` pairs, and config/MCP, cron,
@@ -713,6 +725,12 @@ model metadata and model-specific prompt before it becomes active. Changing
 the model of a persisted session creates a new unsaved session identity with a
 copy of the active transcript and todos; it never rewrites the saved session's
 immutable model metadata.
+
+`session_archive` immediately removes a saved session from `session_list` and
+returns a fresh active session when it archives the active task. Archived
+summaries are returned by `session_list_archived`, newest archive first, and
+include `archivedAt`. `session_unarchive` restores the session to active
+history. Archived sessions are rejected by `session_load` and `session_fork`.
 
 `session_load`, `session_branch`, and `session_fork` retain their existing
 full-history responses by default. Clients that do not need provider history
@@ -823,7 +841,8 @@ and the detail status distinguishes skills available to model invocation from
 those requiring explicit user invocation.
 
 Desktop Settings is a restorable full-page route rather than a card inside the
-Task shell. Its sidebar contains General, Agent, Trust, Provider, MCP, and
+Task shell. Its sidebar contains General, Agent, Trust, Archived Tasks,
+Provider, MCP, and
 Diagnostics. Search matches section names, labels, and descriptions, then moves
 focus to the selected row. General persists the default model and operation
 timeout; Agent persists the default MoA preset and advisor; Trust persists the
@@ -836,6 +855,11 @@ removed keys are deleted. Successful changes refresh authoritative redacted
 data and affect new backend sessions, not the currently running session. Saves
 are explicit per section, the UI prompts before discarding dirty edits, and
 unknown configuration keys remain backend-owned and preserved.
+
+**Archived Tasks** keeps archive retention alongside a searchable list of
+archived summaries. Each entry shows its preview, model, and archive timestamp,
+and **Unarchive** restores it to active sidebar history. Restore actions are
+serialized, and the control is disabled while one is in progress.
 
 Desktop Knowledge is a restorable full-page route with Skills, Memories, Notes,
 and Instructions. Memories expose bounded search and CRUD plus idle-only Dream

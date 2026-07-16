@@ -69,6 +69,7 @@ export const createSettingsService = (
       general: { defaultModelId: null, operationTimeoutSeconds: 600 },
       agent: { moaPreset: null, advisor: { enabled: false, modelId: null } },
       trust: { approvalMode: "manual", reviewerModelId: null },
+      archives: { archiveRetentionDays: 7 },
       provider: providerFromSnapshot(snapshot),
       diagnostics: {
         phase: snapshot.phase,
@@ -90,6 +91,7 @@ export const createSettingsService = (
     }
     const approvalMode = config.approvalMode ?? "manual";
     const reviewerModelId = configString(config.reviewerModel, "Smart review model");
+    const archiveRetentionDays = config.archiveRetentionDays ?? 7;
     return SettingsSnapshotSchema.parse({
       models: chatControls.models,
       moaPresets: chatControls.moaPresets,
@@ -99,6 +101,7 @@ export const createSettingsService = (
       },
       agent: { moaPreset: chatControls.activeMoaPreset, advisor: chatControls.advisor },
       trust: { approvalMode, reviewerModelId },
+      archives: { archiveRetentionDays },
       provider: providerFromSnapshot(snapshot),
       diagnostics: {
         phase: snapshot.phase,
@@ -143,6 +146,9 @@ export const createSettingsService = (
           approvalMode: update.approvalMode,
           ...(update.reviewerModelId === null ? { reviewerModel: undefined } : { reviewerModel: update.reviewerModelId }),
         };
+        break;
+      case "archives":
+        patch = { archiveRetentionDays: update.archiveRetentionDays };
         break;
     }
     await backend.call({ type: "config_update", patch }, value => configResponseSchema.parse(value));

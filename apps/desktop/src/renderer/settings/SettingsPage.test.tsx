@@ -14,6 +14,7 @@ const snapshot: SettingsSnapshot = {
   general: { defaultModelId: null, operationTimeoutSeconds: 600 },
   agent: { moaPreset: null, advisor: { enabled: false, modelId: null } },
   trust: { approvalMode: "manual", reviewerModelId: null },
+  archives: { archiveRetentionDays: 7 },
   provider: { state: "signed-in", source: "cached", message: "Cached credential" },
   diagnostics: { phase: "ready", message: "Healthy", entries: [], mockMode: false },
   running: false,
@@ -22,6 +23,55 @@ const snapshot: SettingsSnapshot = {
 afterEach(cleanup);
 
 describe("SettingsPage", () => {
+  it("serializes restore requests so a double-click cannot report a false failure", async () => {
+    let resolveRestore!: () => void;
+    const restore = new Promise<void>(resolve => { resolveRestore = resolve; });
+    const unarchiveSession = vi.fn(async () => restore);
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => snapshot,
+      updateSettings: async () => snapshot,
+      listArchivedSessions: async () => [{ id: "archive-1", model: "model-a", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Restore once", archivedAt: "2026-07-15T08:00:00.000Z" }],
+      unarchiveSession,
+    } as unknown as RailgunDesktopApi });
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Archived Tasks" }));
+    const restoreButton = await screen.findByRole("button", { name: "Unarchive" });
+    fireEvent.click(restoreButton);
+    fireEvent.click(restoreButton);
+    expect(unarchiveSession).toHaveBeenCalledOnce();
+    await waitFor(() => expect((restoreButton as HTMLButtonElement).disabled).toBe(true));
+    resolveRestore();
+    await waitFor(() => expect((restoreButton as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("filters archived tasks, saves retention, and refreshes active history after restore", async () => {
+    const updateSettings = vi.fn(async () => ({ ...snapshot, archives: { archiveRetentionDays: 30 as const } }));
+    const unarchiveSession = vi.fn(async () => undefined);
+    const onSessionsChanged = vi.fn(async () => undefined);
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => snapshot,
+      updateSettings,
+      listArchivedSessions: async () => [
+        { id: "archive-1", model: "model-a", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Refine archive controls", archivedAt: "2026-07-15T08:00:00.000Z" },
+        { id: "archive-2", model: "model-a", startedAtLocal: "yesterday", messageCount: 3, firstUserPreview: "Other task", archivedAt: "2026-07-14T08:00:00.000Z" },
+      ],
+      unarchiveSession,
+    } as unknown as RailgunDesktopApi });
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} onSessionsChanged={onSessionsChanged} />);
+    await screen.findByText("Default model");
+    fireEvent.click(screen.getByRole("button", { name: "Archived Tasks" }));
+    expect(await screen.findByText("Refine archive controls")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search archived tasks" }), { target: { value: "other" } });
+    expect(screen.queryByText("Refine archive controls")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
+    await waitFor(() => expect(unarchiveSession).toHaveBeenCalledWith("archive-2"));
+    expect(onSessionsChanged).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("combobox", { name: "Archive retention" }));
+    fireEvent.click(await screen.findByRole("option", { name: "30 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ section: "archives", archiveRetentionDays: 30 }));
+  });
+
   it("searches descriptions, focuses a selected row, and confirms dirty navigation", async () => {
     const updateSettings = vi.fn(async () => snapshot);
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {

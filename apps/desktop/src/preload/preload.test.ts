@@ -33,6 +33,7 @@ describe("preload desktop bridge", () => {
     const exposed = exposeInMainWorld.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(Object.keys(exposed).sort()).toEqual([
       "abortPrompt",
+      "archiveSession",
       "branchSession",
       "compactContext",
       "createCronJob",
@@ -47,6 +48,7 @@ describe("preload desktop bridge", () => {
       "getSettings",
       "getSkill",
       "importNotes",
+      "listArchivedSessions",
       "listCronJobs",
       "listFiles",
       "listInstructionFiles",
@@ -79,6 +81,7 @@ describe("preload desktop bridge", () => {
       "signOutDevin",
       "startNewChat",
       "steerPrompt",
+      "unarchiveSession",
       "updateAgentControls",
       "updateCronJob",
       "updateInstructionFile",
@@ -119,6 +122,21 @@ describe("preload desktop bridge", () => {
     await expect(api.showSessionContextMenu("sess-1")).resolves.toBeNull();
   });
 
+  it("exposes validated archive operations on dedicated channels", async () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    invoke.mockResolvedValueOnce([{ id: "archived", model: "mock-model", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Hello", archivedAt: "2026-07-15T08:00:00.000Z" }]);
+    await expect(api.listArchivedSessions()).resolves.toMatchObject([{ id: "archived" }]);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.listArchivedSessions);
+    const archivedSnapshot = { id: "new", startedAt: "2026-07-15T09:00:00.000Z", model: "mock-model", messageCount: 0, running: false, checkpoint: { state: "unsaved" }, transcript: [], todos: [] };
+    invoke.mockResolvedValueOnce(archivedSnapshot);
+    await expect(api.archiveSession("saved")).resolves.toEqual(archivedSnapshot);
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.archiveSession, "saved");
+    invoke.mockResolvedValueOnce(undefined);
+    await expect(api.unarchiveSession("archived")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.unarchiveSession, "archived");
+    await expect(api.archiveSession("")).rejects.toThrow();
+  });
+
   it("validates chat control arguments and results on fixed channels", async () => {
     const api = createDesktopApi({ invoke, on, removeListener });
     const controls = {
@@ -151,6 +169,7 @@ describe("preload desktop bridge", () => {
       general: { defaultModelId: null, operationTimeoutSeconds: 600 },
       agent: { moaPreset: null, advisor: { enabled: false, modelId: null } },
       trust: { approvalMode: "manual", reviewerModelId: null },
+      archives: { archiveRetentionDays: 7 },
       provider: { state: "sign-in-required", source: "none", message: "Sign in" },
       diagnostics: { phase: "authentication-required", message: "Sign in", entries: [], mockMode: false },
       running: false,

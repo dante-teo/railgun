@@ -81,4 +81,21 @@ describe("desktop session service", () => {
       : command.type === "get_state" ? state : { sessionId: "saved-1", messages: [] }));
     await expect(mismatched.fork("saved-1")).rejects.toThrow(/mismatched fork/u);
   });
+
+  it("lists archived tasks and validates archive and restore mutations", async () => {
+    const call = vi.fn(async (command: { type: string }) => {
+      if (command.type === "session_list_archived") return { sessions: [{ id: "archived-1", model: "mock-model", startedAtLocal: "today", messageCount: 4, firstUserPreview: "Hello", archivedAt: "2026-07-15T08:00:00.000Z" }] };
+      if (command.type === "session_archive" || command.type === "session_unarchive") return { sessionId: "saved-1" };
+      if (command.type === "get_state") return state;
+      if (command.type === "session_transcript") return { sessionId: "saved-1", messages: [] };
+      throw new Error(`unexpected ${command.type}`);
+    });
+    const service = createSessionService((command, validate) => call(command).then(validate));
+
+    await expect(service.listArchived()).resolves.toMatchObject([{ id: "archived-1", archivedAt: "2026-07-15T08:00:00.000Z" }]);
+    await expect(service.archive("saved-1")).resolves.toMatchObject({ id: "saved-1" });
+    await expect(service.unarchive("archived-1")).resolves.toBeUndefined();
+    expect(call).toHaveBeenCalledWith({ type: "session_archive", sessionId: "saved-1" });
+    expect(call).toHaveBeenCalledWith({ type: "session_unarchive", sessionId: "archived-1" });
+  });
 });

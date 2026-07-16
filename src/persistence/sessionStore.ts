@@ -32,6 +32,10 @@ export interface SessionSummary {
   firstUserPreview: string;
 }
 
+export interface ArchivedSessionSummary extends SessionSummary {
+  archivedAt: string;
+}
+
 export interface RecentMessage {
   id: number;
   role: string;
@@ -42,6 +46,10 @@ export interface SessionStore {
   readonly db: Database.Database;
   loadSession(id: string): PersistedSession | undefined;
   listSessions(): readonly SessionSummary[];
+  listArchivedSessions(): readonly ArchivedSessionSummary[];
+  archiveSession(id: string): void;
+  unarchiveSession(id: string): void;
+  pruneArchivedSessions(retentionDays: number): number;
   saveCheckpoint(checkpoint: SessionCheckpoint): PersistedSession;
   branch(sessionId: string, messageId: number): void;
   branchWithSummary(sessionId: string, messageId: number, devin: DevinProvider, model: string): Promise<void>;
@@ -64,6 +72,7 @@ interface SessionRow {
   started_at: string;
   todos_json: string;
   current_leaf_id: number | null;
+  archived_at: string | null;
 }
 
 interface MessageRow {
@@ -471,6 +480,12 @@ const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
       embedding FLOAT[384]
     );
   `),
+
+  // 5 → 6: reversible task-session archiving.
+  (db) => db.exec(`
+    ALTER TABLE sessions ADD COLUMN archived_at TEXT NULL;
+    CREATE INDEX sessions_archived_at ON sessions(archived_at DESC, id DESC);
+  `),
 ];
 
 const initializeSchema = (db: Database.Database): void => {
@@ -489,20 +504,28 @@ const initializeSchema = (db: Database.Database): void => {
   }
 };
 
-export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
+export const createSessionStore = (path = DEFAULT_STATE_PATH, options: { readonly now?: () => Date } = {}): SessionStore => {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new Database(path);
   chmodSync(path, 0o600);
   initializeSchema(db);
 
-  const selectSession   = db.prepare("SELECT id, model, started_at, todos_json, current_leaf_id FROM sessions WHERE id = ?");
+  const now = options.now ?? (() => new Date());
+  const selectSession   = db.prepare("SELECT id, model, started_at, todos_json, current_leaf_id, archived_at FROM sessions WHERE id = ?");
   const selectAllSessions = db.prepare(`
-    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, COUNT(m.id) AS message_count
+    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, s.archived_at, COUNT(m.id) AS message_count
     FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-    GROUP BY s.id ORDER BY s.started_at DESC, s.id DESC`);
+    WHERE s.archived_at IS NULL GROUP BY s.id ORDER BY s.started_at DESC, s.id DESC`);
+  const selectArchivedSessions = db.prepare(`
+    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, s.archived_at, COUNT(m.id) AS message_count
+    FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
+    WHERE s.archived_at IS NOT NULL GROUP BY s.id ORDER BY s.archived_at DESC, s.id DESC`);
   const insertSession   = db.prepare("INSERT INTO sessions (id, model, started_at, todos_json) VALUES (?, ?, ?, ?)");
   const updateTodos     = db.prepare("UPDATE sessions SET todos_json = ? WHERE id = ?");
   const updateLeaf      = db.prepare("UPDATE sessions SET current_leaf_id = ? WHERE id = ?");
+  const archive = db.prepare("UPDATE sessions SET archived_at = ? WHERE id = ? AND archived_at IS NULL");
+  const unarchive = db.prepare("UPDATE sessions SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL");
+  const pruneArchived = db.prepare("DELETE FROM sessions WHERE archived_at IS NOT NULL AND archived_at <= ?");
   const selectMessage   = db.prepare("SELECT id FROM messages WHERE id = ? AND session_id = ?");
   // Recursive CTE: walks the parent_id chain from a given leaf id, returns all ancestors in
   // chronological order (root first). A single query replaces the O(n) per-row prepare loop.
@@ -542,7 +565,7 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
 
   const loadSession = (id: string): PersistedSession | undefined => {
     const session = selectSession.get(id) as SessionRow | undefined;
-    if (!session) return undefined;
+    if (!session || session.archived_at !== null) return undefined;
     return decodePersistedSession(session, getBranch(id));
   };
 
@@ -554,6 +577,8 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
     const existing = selectSession.get(checkpoint.id) as SessionRow | undefined;
     if (!existing) {
       insertSession.run(checkpoint.id, checkpoint.model, checkpoint.startedAt, todosJson);
+    } else if (existing.archived_at !== null) {
+      throw new Error(`session ${checkpoint.id} is archived`);
     } else if (existing.model !== checkpoint.model || existing.started_at !== checkpoint.startedAt) {
       throw new SessionCorruptionError(checkpoint.id, "checkpoint metadata does not match the saved session");
     }
@@ -598,6 +623,16 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
   });
 
   interface ListSessionRow extends SessionRow { message_count: number }
+  const sessionSummary = (session: ListSessionRow): SessionSummary => {
+    const persisted = decodePersistedSession(session, getBranch(session.id));
+    return {
+      id: session.id,
+      model: session.model,
+      startedAtLocal: new Date(session.started_at).toLocaleString(),
+      messageCount: session.message_count,
+      firstUserPreview: makeSessionPreview(persisted.messages),
+    };
+  };
 
   return {
     db,
@@ -605,23 +640,33 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
 
     listSessions: () => {
       const sessions = selectAllSessions.all() as ListSessionRow[];
-      return sessions.map(session => {
-        const persisted = decodePersistedSession(session, getBranch(session.id));
-        return {
-          id: session.id,
-          model: session.model,
-          startedAtLocal: new Date(session.started_at).toLocaleString(),
-          messageCount: session.message_count,
-          firstUserPreview: makeSessionPreview(persisted.messages),
-        };
-      });
+      return sessions.map(sessionSummary);
+    },
+
+    listArchivedSessions: () => (selectArchivedSessions.all() as ListSessionRow[]).map(session => ({
+      ...sessionSummary(session),
+      archivedAt: session.archived_at!,
+    })),
+
+    archiveSession: id => {
+      if (archive.run(now().toISOString(), id).changes !== 1) throw new Error(`active session ${id} not found`);
+    },
+
+    unarchiveSession: id => {
+      if (unarchive.run(id).changes !== 1) throw new Error(`archived session ${id} not found`);
+    },
+
+    pruneArchivedSessions: retentionDays => {
+      if (!Number.isInteger(retentionDays) || retentionDays < 1) throw new Error("archive retention must be a positive whole number of days");
+      const expiresAt = new Date(now().getTime() - retentionDays * 86_400_000).toISOString();
+      return pruneArchived.run(expiresAt).changes;
     },
 
     saveCheckpoint: checkpoint => {
       assertSessionMetadata(checkpoint);
-      const now = new Date().toISOString();
+      const createdAt = now().toISOString();
       // parentId is null on initial encode; saveTransaction resolves actual ids from branchRows.
-      const encoded = checkpoint.messages.map((message, ordinal) => encodeMessage(checkpoint.id, ordinal, message, now, null));
+      const encoded = checkpoint.messages.map((message, ordinal) => encodeMessage(checkpoint.id, ordinal, message, createdAt, null));
       validateTranscript(checkpoint.messages);
       const todosJson = encodeTodos(checkpoint.todos);
       saveTransaction(checkpoint, encoded, todosJson);
@@ -679,6 +724,7 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH): SessionStore => {
       const sourceBranch = getBranch(sessionId);
       const sourceSession = selectSession.get(sessionId) as SessionRow | undefined;
       if (!sourceSession) throw new Error(`session ${sessionId} not found`);
+      if (sourceSession.archived_at !== null) throw new Error(`session ${sessionId} is archived`);
 
       const newId = `fork-${randomUUID()}`;
       db.transaction(() => {

@@ -36,7 +36,10 @@ export type RpcCommand =
   | { id?: string; type: "clarification_response"; requestId: string; answer: string }
   | { id?: string; type: "session_new"; modelId?: string }
   | { id?: string; type: "session_list" }
+  | { id?: string; type: "session_list_archived" }
   | { id?: string; type: "session_load"; sessionId: string; includeMessages?: boolean }
+  | { id?: string; type: "session_archive"; sessionId: string }
+  | { id?: string; type: "session_unarchive"; sessionId: string }
   | { id?: string; type: "session_save" }
   | { id?: string; type: "session_branch"; messageId: number; summarize?: boolean; includeMessages?: boolean }
   | { id?: string; type: "session_fork"; sessionId?: string; includeMessages?: boolean }

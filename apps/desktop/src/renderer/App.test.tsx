@@ -43,6 +43,9 @@ const desktopSession = {
 };
 const sessionApi = {
   listSessions: async () => [],
+  listArchivedSessions: async () => [],
+  archiveSession: async () => desktopSession,
+  unarchiveSession: async () => undefined,
   resumeSession: async () => desktopSession,
   branchSession: async () => desktopSession,
   forkSession: async () => desktopSession,
@@ -60,6 +63,7 @@ const controlApi = {
     general: { defaultModelId: null, operationTimeoutSeconds: 600 },
     agent: { moaPreset: null, advisor: chatControls.advisor },
     trust: { approvalMode: "manual" as const, reviewerModelId: null },
+    archives: { archiveRetentionDays: 7 as const },
     provider: { state: "signed-in" as const, source: "cached" as const, message: "Signed in" },
     diagnostics: { phase: "ready" as const, message: "Healthy", entries: [], mockMode: true },
     running: false,
@@ -207,6 +211,7 @@ describe("desktop shell", () => {
         { id: "rich", model: "mock-model", startedAtLocal: "today", messageCount: 3, firstUserPreview: "Rich history QA" },
         { id: "older", model: "other", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Older chat" },
       ],
+      listArchivedSessions: async () => [], archiveSession: async () => desktopSession, unarchiveSession: async () => undefined,
       resumeSession, branchSession, forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, ...controlApi,
       onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
@@ -274,6 +279,7 @@ describe("desktop shell", () => {
       listSessions: async () => [
         { id: "kbd-test", model: "mock-model", startedAtLocal: "today", messageCount: 1, firstUserPreview: "Keyboard test session" },
       ],
+      listArchivedSessions: async () => [], archiveSession: async () => desktopSession, unarchiveSession: async () => undefined,
       resumeSession: async () => desktopSession, branchSession: async () => desktopSession,
       forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, ...controlApi,
       onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
@@ -320,6 +326,7 @@ describe("desktop shell", () => {
       ...sessionApi,
       ...controlApi,
       onSessionSnapshot: (listener) => { sessionListeners.add(listener); return () => sessionListeners.delete(listener); },
+      listArchivedSessions: async () => [], archiveSession: async () => desktopSession, unarchiveSession: async () => undefined,
       onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,

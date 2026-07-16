@@ -122,6 +122,7 @@ const savedSessions: MockSession[] = [
     messages: [{ role: "user", content: "Audit keyboard navigation" }, { role: "assistant", content: [{ type: "text", text: "Keyboard navigation is covered." }] }], todos: [],
   },
 ];
+const archivedSessions: { session: MockSession; archivedAt: string }[] = [];
 let nextSession = 1;
 let nextMessageId = 1_000;
 const ensureMessageIds = (session: MockSession): number[] => {
@@ -149,6 +150,7 @@ const checkpointMockTurn = (assistantText: string): void => {
   if (!savedSessions.some(session => session.id === activeSession.id)) savedSessions.unshift(activeSession);
 };
 let config: Record<string, unknown> = {
+  archiveRetentionDays: 7,
   model: "mock-model",
   moaPresets: {
     review: {
@@ -347,6 +349,14 @@ if (scenario.behavior === "authentication-required") {
       setTimeout(() => respond(type, command.id, { data: { sessions } }), 25);
       return;
     }
+    if (type === "session_list_archived") {
+      const sessions = archivedSessions.map(({ session, archivedAt }) => ({
+        id: session.id, model: session.model, startedAtLocal: session.startedAtLocal,
+        messageCount: session.messages.length, firstUserPreview: firstUserPreview(session), archivedAt,
+      }));
+      respond(type, command.id, { data: { sessions } });
+      return;
+    }
     if (type === "session_new") {
       if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot create a new session while agent is running" }); return; }
       const id = `mock-new-${String(nextSession++)}`;
@@ -372,6 +382,30 @@ if (scenario.behavior === "authentication-required") {
           ...(command.includeMessages === false ? {} : { messages: activeSession.messages }),
         },
       }), 60);
+      return;
+    }
+    if (type === "session_archive") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot archive a session while agent is running" }); return; }
+      const index = savedSessions.findIndex(session => session.id === command.sessionId);
+      if (index < 0) { respond(type, command.id, { error: `active session ${String(command.sessionId)} not found` }); return; }
+      if (activeSession.id === command.sessionId && activeSession.persistence !== "saved") { respond(type, command.id, { error: "active session must be saved before archiving" }); return; }
+      const [archived] = savedSessions.splice(index, 1);
+      archivedSessions.unshift({ session: archived!, archivedAt: new Date().toISOString() });
+      if (activeSession.id === command.sessionId) {
+        const id = `mock-new-${String(nextSession++)}`;
+        activeSession = { id, startedAt: new Date().toISOString(), startedAtLocal: new Date().toLocaleString(), model: "mock-model", messages: [], todos: [], persistence: "unsaved" };
+        syncSessionState();
+      }
+      respond(type, command.id, { data: { sessionId: activeSession.id } });
+      return;
+    }
+    if (type === "session_unarchive") {
+      if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot restore a session while agent is running" }); return; }
+      const index = archivedSessions.findIndex(entry => entry.session.id === command.sessionId);
+      if (index < 0) { respond(type, command.id, { error: `archived session ${String(command.sessionId)} not found` }); return; }
+      const [restored] = archivedSessions.splice(index, 1);
+      savedSessions.unshift(restored!.session);
+      respond(type, command.id, { data: { sessionId: activeSession.id } });
       return;
     }
     if (type === "session_transcript") {
