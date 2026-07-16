@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { KnowledgePage, knowledgeDestinationMetadata } from "../knowledge/KnowledgePage";
 import type { KnowledgeDestination } from "../knowledge/KnowledgePage";
 import { errorMessage } from "../lib/utils";
+import { BackgroundAutomationSettingsPanel } from "./BackgroundAutomationSettingsPanel";
 import { McpSettingsPanel } from "./McpSettingsPanel";
 
 interface SettingsPageProps {
@@ -54,6 +55,7 @@ const sections = sectionGroups.flatMap(group => group.sections);
 const searchRows = [
   { section: "general", id: "default-model", label: "Default model", description: "Model used for new tasks" },
   { section: "general", id: "operation-timeout", label: "Operation timeout", description: "Maximum time for an operation" },
+  { section: "general", id: "background-automation", label: "Background automation", description: "Run scheduled prompts and nightly maintenance while Railgun is closed" },
   { section: "agent", id: "moa-preset", label: "Mixture of Agents preset", description: "Read-only configured collaboration preset" },
   { section: "agent", id: "advisor", label: "Advisor", description: "Enable and choose the advisor model" },
   { section: "trust", id: "approval-mode", label: "Approval mode", description: "Manual, smart review, or off" },
@@ -258,6 +260,7 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirty
               <label className="settings-row" id="setting-default-model" tabIndex={-1}><span><strong>Default model</strong><small>Used for new tasks. The current task is unchanged.</small></span><Select value={activeDraft.defaultModelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, defaultModelId: value === NULL_MODEL_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Default model"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_MODEL_SELECT_VALUE}>Automatic</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></label>
               <label className="settings-row" id="setting-operation-timeout" tabIndex={-1}><span><strong>Operation timeout</strong><small>Maximum duration before an operation is stopped.</small></span><span className="settings-number"><input aria-label="Operation timeout in seconds" type="number" min="1" max="86400" value={activeDraft.operationTimeoutSeconds} disabled={busy} onChange={event => updateDraft({ ...activeDraft, operationTimeoutSeconds: Number(event.target.value) })} /><em>seconds</em></span></label>
             </div> : null}
+            {selected === "general" ? <BackgroundAutomationSettingsPanel /> : null}
             {selected === "agent" && activeDraft?.section === "agent" ? <div className="settings-group">
               <label className="settings-row" id="setting-moa-preset" tabIndex={-1}><span><strong>Mixture of Agents</strong><small>Presets are defined in Railgun configuration and are read-only here.</small></span><Select value={activeDraft.moaPreset ?? NULL_PRESET_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, moaPreset: value === NULL_PRESET_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Mixture of Agents preset"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_PRESET_SELECT_VALUE}>Off</SelectItem>{settings.moaPresets.map(preset => <SelectItem key={preset.name} value={preset.name}>{preset.name}</SelectItem>)}</SelectContent></Select></label>
               <div className="settings-row" id="setting-advisor" tabIndex={-1}><span><strong>Advisor</strong><small>Applies to the next run, never work already running.</small></span><div className="settings-inline"><label className="settings-switch"><input type="checkbox" aria-label="Enable advisor" checked={activeDraft.advisor.enabled} disabled={busy} onChange={event => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, enabled: event.target.checked } })} /><span /></label><Select value={activeDraft.advisor.modelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, modelId: value === NULL_MODEL_SELECT_VALUE ? null : value } })}><SelectTrigger aria-label="Advisor model"><SelectValue /></SelectTrigger><SelectContent className="settings-select-content"><SelectItem value={NULL_MODEL_SELECT_VALUE}>Choose model</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></div></div>

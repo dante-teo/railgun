@@ -10,11 +10,11 @@ the app’s embedded Electron executable with `ELECTRON_RUN_AS_NODE=1`. Its
 versioned JSONL transport is private to Electron main and the child backend.
 User state remains under `~/.railgun`.
 
-The Scheduled page manages job definitions through that backend. Its separate
-Background automation control is a narrowly scoped main-process service that
-writes only the `sh.railgun.cron` and `sh.railgun.dream` launch agents in the
-current user `gui/<uid>` domain. The scheduler is long-running and restarts
-after unexpected crashes; Dream is a midnight one-shot task. Missing
+The Scheduled page manages job definitions through the backend. Settings → General
+owns the separate Background automation control, a narrowly scoped main-process
+service that writes only the `sh.railgun.cron` and `sh.railgun.dream` launch
+agents in the current user `gui/<uid>` domain. The scheduler is long-running and
+restarts after unexpected crashes; Dream is a midnight one-shot task. Missing
 credentials cause either background entry to exit normally without browser
 authentication.
 

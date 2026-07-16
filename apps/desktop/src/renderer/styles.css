@@ -865,7 +865,7 @@ pre { overflow: auto; padding: var(--space-3); border-radius: var(--radius-sm); 
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
-  .thinking i, .ui-state-loading .ui-state-icon svg, .ui-popover { animation: none; }
+  .thinking i, .ui-state-loading .ui-state-icon svg, .ui-popover, .settings-automation-spinner { animation: none; }
 }
 
 @media (prefers-contrast: more) {
@@ -922,11 +922,13 @@ pre { overflow: auto; padding: var(--space-3); border-radius: var(--radius-sm); 
 .settings-heading h1 { margin: 0; font-size: 1.65rem; font-weight: var(--weight-semibold); letter-spacing: -0.025em; }
 .settings-heading p { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--text-control); }
 .settings-group { overflow: hidden; border: 1px solid var(--color-border); border-radius: 0.7rem; background: var(--material-content); }
+.settings-group + .settings-group { margin-top: var(--space-3); }
 .settings-row { display: flex; min-height: 4.25rem; align-items: center; justify-content: space-between; gap: var(--space-5); padding: var(--space-3) var(--space-4); outline: none; }
 .settings-row + .settings-row, .settings-diagnostics + .settings-row { border-top: 1px solid var(--color-border); }
 .settings-row > span:first-child { display: grid; min-width: 0; gap: 0.2rem; }
 .settings-row strong { font-size: var(--text-control); font-weight: var(--weight-medium); }
 .settings-row small { max-width: 28rem; color: var(--color-text-secondary); font-size: var(--text-caption); line-height: 1.35; }
+.settings-automation-status { color: var(--color-text-tertiary); }
 .settings-row select, .settings-row input[type="number"] { height: 1.8rem; max-width: 15rem; border: 1px solid var(--color-border-strong); border-radius: 0.4rem; padding: 0 var(--space-2); color: var(--color-text); background: var(--color-surface-control); font: inherit; font-size: var(--text-control); }
 .settings-row select { min-width: 10rem; }
 .archive-empty { margin: 0; padding: var(--space-3) var(--space-4); color: var(--color-text-secondary); font-size: var(--text-caption); }
@@ -946,6 +948,11 @@ pre { overflow: auto; padding: var(--space-3); border-radius: var(--radius-sm); 
 .settings-switch input:checked + span { background: var(--color-accent); }
 .settings-switch input:checked + span::after { transform: translateX(0.94rem); }
 .settings-switch input:focus-visible + span { box-shadow: var(--shadow-focus); }
+.settings-switch input:disabled + span { opacity: 0.55; }
+.settings-switch.busy { cursor: progress; }
+.settings-automation-status { display: flex; align-items: center; gap: var(--space-1); }
+.settings-automation-spinner { width: 0.8rem; height: 0.8rem; animation: settings-automation-spin 0.9s linear infinite; }
+@keyframes settings-automation-spin { to { transform: rotate(360deg); } }
 .settings-segmented { display: flex; overflow: hidden; border: 1px solid var(--color-border-strong); border-radius: 0.42rem; background: var(--color-surface-control); }
 .settings-segmented button { min-height: 1.7rem; border: 0; border-right: 1px solid var(--color-border); padding: 0 var(--space-3); color: var(--color-text-secondary); background: transparent; font: inherit; font-size: var(--text-caption); }
 .settings-segmented button:last-child { border-right: 0; }

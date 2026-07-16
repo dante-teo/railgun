@@ -472,6 +472,8 @@ Status: `[ ]` backlog, `[>]` active, `[x]` complete.
   - Settings is a restorable full-page split route with General, Agent, Trust,
     Knowledge (Memories, Notes, Instructions, Skills), Provider, MCP, and
     Diagnostics destinations. Back restores the active Task state.
+  - General includes the Background automation control for the opt-in launchd
+    services; Scheduled remains focused on persistent job definitions.
   - Search indexes section names, labels, and descriptions and focuses the
     selected setting. Dirty section changes require confirmation before Back,
     section, or search-result navigation.

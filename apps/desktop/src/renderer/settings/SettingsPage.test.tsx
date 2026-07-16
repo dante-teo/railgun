@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BackendSnapshot, RailgunDesktopApi, SettingsSnapshot } from "../../shared/types";
+import type { BackgroundAutomationStatus, BackendSnapshot, RailgunDesktopApi, SettingsSnapshot } from "../../shared/types";
 import { SettingsPage } from "./SettingsPage";
 
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
@@ -23,6 +23,65 @@ const snapshot: SettingsSnapshot = {
 afterEach(cleanup);
 
 describe("SettingsPage", () => {
+  it("places background automation controls in General settings", async () => {
+    const getAutomationStatus = vi.fn(async () => ({
+      state: "disabled" as const,
+      enabled: false,
+      scheduler: "stopped" as const,
+      dream: "stopped" as const,
+      message: "Background automation is off.",
+    }));
+    const enableAutomation = vi.fn(async () => ({
+      state: "enabled" as const,
+      enabled: true,
+      scheduler: "running" as const,
+      dream: "waiting" as const,
+      message: "Scheduled prompts and nightly maintenance run in the background.",
+    }));
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => snapshot,
+      updateSettings: async () => snapshot,
+      getAutomationStatus,
+      enableAutomation,
+      disableAutomation: async () => ({ state: "disabled", enabled: false, scheduler: "stopped", dream: "stopped", message: "Background automation is off." }),
+      repairAutomation: async () => ({ state: "enabled", enabled: true, scheduler: "running", dream: "waiting", message: "Scheduled prompts and nightly maintenance run in the background." }),
+    } as unknown as RailgunDesktopApi });
+
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+
+    expect(await screen.findByText("Background automation")).toBeTruthy();
+    expect(screen.getByText(/scheduled prompts and nightly maintenance/u)).toBeTruthy();
+    expect(getAutomationStatus).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Enable background automation" }));
+    await waitFor(() => expect(enableAutomation).toHaveBeenCalledOnce());
+  });
+
+  it("shows progress while background automation is turning off", async () => {
+    const disabled: BackgroundAutomationStatus = { state: "disabled", enabled: false, scheduler: "stopped", dream: "stopped", message: "Background automation is off." };
+    let resolveDisable!: (status: BackgroundAutomationStatus) => void;
+    const disableAutomation = vi.fn(() => new Promise<BackgroundAutomationStatus>(resolve => { resolveDisable = resolve; }));
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: {
+      getSettings: async () => snapshot,
+      updateSettings: async () => snapshot,
+      getAutomationStatus: async (): Promise<BackgroundAutomationStatus> => ({ state: "enabled", enabled: true, scheduler: "running", dream: "waiting", message: "Scheduled prompts and nightly maintenance run in the background." }),
+      enableAutomation: async (): Promise<BackgroundAutomationStatus> => disabled,
+      disableAutomation,
+      repairAutomation: async (): Promise<BackgroundAutomationStatus> => disabled,
+    } as unknown as RailgunDesktopApi });
+
+    render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
+
+    const toggle = await screen.findByRole("checkbox", { name: "Enable background automation" });
+    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(true));
+    fireEvent.click(toggle);
+    expect(disableAutomation).toHaveBeenCalledOnce();
+    expect((toggle as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText("Turning background automation off…")).toBeTruthy();
+    resolveDisable(disabled);
+    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
+    expect(screen.getByText("Background automation is off.")).toBeTruthy();
+  });
+
   it("serializes restore requests so a double-click cannot report a false failure", async () => {
     let resolveRestore!: () => void;
     const restore = new Promise<void>(resolve => { resolveRestore = resolve; });

@@ -23,12 +23,13 @@ switching channels.
 Use the **Scheduled** page to create, edit, or remove prompts. Scheduled data,
 credentials, sessions, skills, memories, and logs remain in `~/.railgun`.
 
-Background automation is opt-in. Its toggle installs two user launchd agents:
+Use **Settings → General** to control background automation. It is opt-in and
+installs two user launchd agents:
 
 - `sh.railgun.cron` runs scheduled prompts while the app is closed.
 - `sh.railgun.dream` runs nightly maintenance at local midnight.
 
-The page reports whether launchd is healthy. Use **Repair** after moving or
+Settings reports whether launchd is healthy. Use **Repair** after moving or
 updating the app if it reports an old app location. Disabling automation stops
 both services without removing your scheduled jobs or other Railgun data.
 If credentials are unavailable, background services exit normally; sign in from

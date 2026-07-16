@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { parseCronSchedule } from "../../shared/cron";
 import { DESKTOP_CRON_LIMITS } from "../../shared/schemas";
-import type { BackgroundAutomationStatus, BackendPhase, CronJob, CronJobInput } from "../../shared/types";
+import type { BackendPhase, CronJob, CronJobInput } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Input, Textarea } from "../components/ui/input";
@@ -33,9 +33,6 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
   const [deleting, setDeleting] = useState<CronJob>();
   const [busy, setBusy] = useState(false);
   const [mutationError, setMutationError] = useState<string>();
-  const [automation, setAutomation] = useState<BackgroundAutomationStatus>();
-  const [automationBusy, setAutomationBusy] = useState(false);
-  const [automationError, setAutomationError] = useState<string>();
   const loadGeneration = useRef(0);
   const ready = backendPhase === "ready";
 
@@ -63,39 +60,6 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
     }
     return () => { loadGeneration.current += 1; };
   }, [ready, load]);
-
-  const loadAutomation = useCallback(async (): Promise<void> => {
-    try {
-      setAutomation(await window.railgunDesktop.getAutomationStatus());
-      setAutomationError(undefined);
-    } catch (error) {
-      setAutomationError(errorMessage(error, "Unable to read background automation status"));
-    }
-  }, []);
-
-  useEffect(() => { void loadAutomation(); }, [loadAutomation]);
-
-  const setAutomationEnabled = async (enabled: boolean): Promise<void> => {
-    if (automationBusy || automation?.state === "unavailable") return;
-    setAutomationBusy(true);
-    setAutomationError(undefined);
-    try {
-      setAutomation(enabled
-        ? await window.railgunDesktop.enableAutomation()
-        : await window.railgunDesktop.disableAutomation());
-    } catch (error) {
-      setAutomationError(errorMessage(error, "Unable to update background automation"));
-    } finally { setAutomationBusy(false); }
-  };
-
-  const repairAutomation = async (): Promise<void> => {
-    if (automationBusy) return;
-    setAutomationBusy(true);
-    setAutomationError(undefined);
-    try { setAutomation(await window.railgunDesktop.repairAutomation()); }
-    catch (error) { setAutomationError(errorMessage(error, "Unable to repair background automation")); }
-    finally { setAutomationBusy(false); }
-  };
 
   const scheduleResult = parseCronSchedule(editor?.schedule ?? "");
   const promptValid = (editor?.prompt.trim().length ?? 0) > 0;
@@ -153,12 +117,6 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
       <div className="content-toolbar-actions"><Button className="automation-create" size="sm" variant="ghost" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" />Create</Button></div>
     </header>
     <div className="automation-scroll">
-      <section className="automation-background" aria-label="Background automation">
-        <div><strong>Background automation</strong><p>Enable both scheduled prompts and nightly maintenance while Railgun is closed.</p></div>
-        <label className="settings-switch"><input aria-label="Enable background automation" type="checkbox" checked={automation?.enabled ?? false} disabled={automationBusy || automation?.state === "unavailable"} onChange={event => void setAutomationEnabled(event.target.checked)} /><span /></label>
-        <small role="status">{automationError ?? automation?.message ?? "Checking background automation…"}</small>
-        {(automation?.state === "repair-needed" || (automation?.state === "unavailable" && automation.enabled)) && <Button size="sm" variant="tonal" disabled={automationBusy} onClick={() => void repairAutomation()}>{automationBusy ? "Repairing…" : "Repair"}</Button>}
-      </section>
       {!ready ? <ErrorState title="Scheduled jobs are unavailable" description="Reconnect Railgun to view or change scheduled prompts." />
         : loading ? <LoadingState title="Loading scheduled jobs…" description="Reading scheduled prompts from Railgun." />
           : loadError !== undefined ? <div className="automation-state"><ErrorState title="Unable to load scheduled jobs" description={loadError} /><Button variant="tonal" onClick={() => void load()}>Retry</Button></div>

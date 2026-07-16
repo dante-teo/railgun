@@ -245,6 +245,10 @@ describe("desktop activity styles", () => {
     expect(css).toMatch(/\.settings-detail-scroll\s*\{[^}]*min-height:\s*0/u);
   });
 
+  it("separates adjacent settings cards", () => {
+    expect(css).toMatch(/\.settings-group \+ \.settings-group\s*\{[^}]*margin-top:\s*var\(--space-3\)/u);
+  });
+
   it("provides a visible hover background for ghost buttons", () => {
     const ghostHover = css.match(/\.ui-button-ghost:not\(:disabled\):hover\s*\{([^}]*)\}/u)?.[1] ?? "";
     expect(ghostHover).not.toContain("background: transparent");
