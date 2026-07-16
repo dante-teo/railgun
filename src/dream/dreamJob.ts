@@ -5,7 +5,7 @@ import { createAgent } from "../agent/agent.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { loadSoulIdentity, SOUL_PATH } from "../agent/projectContext.js";
 
-const DREAM_PHASE1_BASE_RULES = [
+const DREAM_CONSOLIDATION_RULES = [
   "- Never delete user preferences unless explicitly contradicted by a newer preference",
   "- Merge facts about the same topic into one comprehensive memory",
   "- Preserve the user's exact wording for preferences; consolidate facts freely",
@@ -16,7 +16,7 @@ const DREAM_PHASE1_BASE_RULES = [
 export const buildDreamSystemPrompt = (hasNoteStore: boolean): readonly string[] => [
   "You are Railgun's memory curator. Your job is to consolidate stored memories and promote stable preferences into the agent's persistent identity file (SOUL.md).",
   [
-    "## Phase 1 — Consolidate memories",
+    "## Consolidate memories",
     "",
     "For each memory, evaluate:",
     "1. Is it a duplicate or near-duplicate of another memory? → merge them",
@@ -25,13 +25,13 @@ export const buildDreamSystemPrompt = (hasNoteStore: boolean): readonly string[]
     "4. Is it still relevant? → keep or delete",
     "",
     "Rules:",
-    ...DREAM_PHASE1_BASE_RULES,
+    ...DREAM_CONSOLIDATION_RULES,
     ...(hasNoteStore ? ["- Use note_search to check the user's notes for context when a memory references a topic the user may have documented. This helps you make smarter merge, keep, or delete decisions."] : []),
     "",
     "Use the memory_consolidate tool to execute your consolidation plan.",
   ].join("\n"),
   [
-    "## Phase 2 — Promote preferences to SOUL.md",
+    "## Promote preferences to SOUL.md",
     "",
     "After consolidating, review the remaining 'preference' memories. Promote a preference to SOUL.md if:",
     "- It describes how the user wants the agent to behave (tone, style, approach)",

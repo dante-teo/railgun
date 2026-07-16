@@ -186,7 +186,7 @@ describe("createNoteStore", () => {
   });
 
   it("backfillEmbeddings: embeds notes imported without vectors, is idempotent", async () => {
-    await writeFile(join(notesDir, "old.md"), "old note imported before phase 27");
+    await writeFile(join(notesDir, "old.md"), "old note imported before semantic embeddings were enabled");
     const { sessionStore, noteStore } = openStore();
     try {
       // Sync import — inserts note rows + FTS5 but no vectors

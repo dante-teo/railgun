@@ -79,7 +79,6 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt(defaultInput).join("\n");
 
     expect(prompt).not.toContain("AGENTS.md");
-    expect(prompt).not.toContain(".hermes.md");
     expect(prompt).not.toContain("Global Coding Preferences");
   });
 

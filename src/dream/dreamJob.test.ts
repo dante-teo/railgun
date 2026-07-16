@@ -97,6 +97,13 @@ describe("DREAM_SYSTEM_PROMPT", () => {
     expect(joined).toContain("write_file");
   });
 
+  it("uses current capability headings without historical labels", () => {
+    const joined = DREAM_SYSTEM_PROMPT.join("\n");
+    expect(joined).toContain("## Consolidate memories");
+    expect(joined).toContain("## Promote preferences to SOUL.md");
+    expect(joined).not.toContain("Phase");
+  });
+
   it("includes note_search instruction when noteStore is available", () => {
     expect(buildDreamSystemPrompt(true).join("\n")).toContain("note_search");
   });

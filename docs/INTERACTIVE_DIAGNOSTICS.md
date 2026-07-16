@@ -1,8 +1,8 @@
 # Interactive diagnostics
 
-Railgun creates local diagnostics for fresh and resumed terminal sessions. The
-diagnostics are always observational: they do not cancel work, change operation
-deadlines, or terminate the CLI.
+Railgun creates local diagnostics for fresh and resumed interactive agent
+sessions. The diagnostics are always observational: they do not cancel work,
+change operation deadlines, or terminate the session.
 
 ## Files and lifecycle
 
@@ -41,10 +41,10 @@ present only when relevant.
 | `timestamp` | ISO-8601 string | Wall-clock time assigned by the writer. |
 | `event` | string | Bounded event category, such as `operation_start`, `operation_success`, or `operation_stall`. |
 | `severity` | `debug` \| `info` \| `warning` \| `error` | Record severity. |
-| `runId` | string | Correlates every record from one CLI launch. |
+| `runId` | string | Correlates every record from one interactive launch. |
 | `sessionId` | string | Optional persisted-session correlation. |
 | `operationId` | string | Optional operation correlation, including tool-call IDs where available. |
-| `phase` | string | Fixed implementation phase; never prompt or command content. |
+| `phase` | string | Fixed operation phase; never prompt or command content. |
 | `durationMs` | number | Monotonic elapsed duration, bounded to a safe integer. |
 | `outcome` | `start` \| `progress` \| `success` \| `failure` \| `timeout` \| `abort` \| `recovery` | Lifecycle outcome. |
 | `model` | string | Optional bounded model identifier. |

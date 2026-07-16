@@ -1,8 +1,8 @@
 # Design
 
-The supported product surface is the macOS desktop renderer. Terminal and Ink
-details below are retained as backend interaction history; when they differ,
-the explicitly labelled desktop contracts are authoritative.
+The supported product surface is the macOS desktop renderer. The interaction,
+appearance, accessibility, and recovery contracts below describe the Railgun
+experience and its backend boundary.
 
 ## Product experience
 
@@ -223,7 +223,7 @@ Seven observable states drive the visual treatment of the transcript and compose
 | State | Treatment |
 |---|---|
 | Empty session (no messages) | Header with `RAILGUN · adaptive agent console` and the status bar are visible. The transcript area is empty; short content bottom-aligns against the composer (existing behavior in `transcriptJustification`). No placeholder text — the composer's prompt is invitation enough. |
-| Waiting for first token | An animated `dots2` spinner row with `theme.dim` styling and "Thinking…" label. Uses the existing `ink-spinner` in the Ink REPL; the Phase 36 non-Ink tree uses `theme.thinkingIndicator()`. |
+| Waiting for first token | An animated `dots2` spinner row with `theme.dim` styling and a "Thinking…" label. The desktop renderer uses the shared thinking-indicator token. |
 | Tool awaiting approval | A `theme.warning`-surface inline row with the command text and `y/n` prompt. The composer freezes (input disabled) until the approval resolves. Not a native OS dialog. Existing behavior in `App.tsx`'s approval modal state. |
 | Clarify question with choices | An `❓` prompt box above the composer. Up/Down moves the highlight, Enter selects it, and Escape declines with `[user declined to answer]`. Numeric shortcuts and free-form entry are disabled while choices are displayed. |
 | Connection lost (stdio pipe closes) | A `theme.error`-styled inline transcript line (`"Connection lost"`). The composer remains editable but submissions fail until the agent process is restarted. In RPC mode, the client detects EOF on the child's stdout. |
@@ -301,7 +301,7 @@ the replacement atomically before session construction; Escape/Ctrl-C leaves
 the file unchanged and exits successfully. Non-interactive launches fail with
 the missing and available IDs plus interactive recovery instructions. Resumes
 remain pinned to their stored model because changing it would alter conversation
-semantics. Proactive/general model switching remains Phase 15.
+semantics. Proactive/general model switching is available from the model controls.
 
 ## Authentication and recovery
 

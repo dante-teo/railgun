@@ -56,15 +56,14 @@ const normalizeStatus = (value: unknown): TodoStatus => {
   return VALID_STATUSES.has(lower as TodoStatus) ? (lower as TodoStatus) : "pending";
 };
 
-// Hermes todo_tool.py:153-156: total length ≤ TODO_CONTENT_LIMIT
+// Keep todo content bounded for storage, injection, and UI rendering.
 const capContent = (content: string): string => {
   if (content.length <= TODO_CONTENT_LIMIT) return content;
   const keep = TODO_CONTENT_LIMIT - TODO_TRUNCATION_MARKER.length;
   return content.slice(0, keep) + TODO_TRUNCATION_MARKER;
 };
 
-// --- Hermes-aligned _validate (todo_tool.py:158-183) ---
-// Coerces malformed items into valid ones instead of dropping them.
+// Coerce malformed items into valid ones instead of dropping them.
 const validateItem = (item: unknown): NormalizedTodoItem => {
   if (!isRecord(item)) return { id: "?", content: "(invalid item)", status: "pending" };
 
@@ -77,8 +76,7 @@ const validateItem = (item: unknown): NormalizedTodoItem => {
   return { id, content, status: normalizeStatus(item.status) };
 };
 
-// --- Hermes-aligned _dedupe_by_id (todo_tool.py:186-196) ---
-// Runs BEFORE validation on raw items. Non-dict items get synthetic keys
+// Runs before validation on raw items. Non-dict items get synthetic keys
 // so they survive dedupe independently (two non-dicts both survive; a
 // non-dict and a blank-id dict both survive).
 const dedupeById = (todos: readonly unknown[]): readonly unknown[] => {
@@ -110,8 +108,7 @@ export const summarizeTodos = (todos: TodoState): TodoSummary => ({
   cancelled: todos.filter(t => t.status === "cancelled").length,
 });
 
-// --- Hermes-aligned merge (todo_tool.py:66-101) ---
-// Update existing items by id (partial fields), append new ones.
+// Update existing items by id (partial fields), then append new ones.
 const mergeTodos = (current: TodoState, incoming: readonly unknown[]): TodoState => {
   const deduped = dedupeById(incoming);
   const existing = new Map(current.map(item => [item.id, { ...item }]));
@@ -121,10 +118,10 @@ const mergeTodos = (current: TodoState, incoming: readonly unknown[]): TodoState
     if (!isRecord(raw)) continue; // Can't merge a non-dict — no id to match on
 
     const rawId = typeof raw.id === "string" ? raw.id.trim() : raw.id === undefined || raw.id === null ? "" : String(raw.id).trim();
-    if (rawId === "") continue; // Can't merge without an id (Hermes: line 71-72)
+    if (rawId === "") continue; // Can't merge without an id.
 
     if (existing.has(rawId)) {
-      // Update only the fields the LLM actually provided (Hermes: lines 75-81)
+      // Update only the fields the model actually provided.
       const entry = existing.get(rawId)!;
       if ("content" in raw && raw.content) {
         const c = typeof raw.content === "string" ? raw.content.trim() : String(raw.content).trim();
@@ -135,14 +132,14 @@ const mergeTodos = (current: TodoState, incoming: readonly unknown[]): TodoState
         if (VALID_STATUSES.has(s as TodoStatus)) entry.status = s as TodoStatus;
       }
     } else {
-      // New item — validate fully and append (Hermes: lines 83-86)
+      // New item — validate fully and append.
       const validated = validateItem(raw);
       existing.set(validated.id, validated);
       appendOrder.push(validated);
     }
   }
 
-  // Rebuild preserving order for existing items, then appended new ones (Hermes: lines 88-95)
+  // Rebuild preserving existing order, then append new items.
   const seen = new Set<string>();
   const rebuilt: NormalizedTodoItem[] = [];
   for (const item of current) {
@@ -162,8 +159,7 @@ const mergeTodos = (current: TodoState, incoming: readonly unknown[]): TodoState
   return rebuilt.slice(0, TODO_NODE_LIMIT);
 };
 
-// --- Hermes-aligned format_for_injection (todo_tool.py:111-143) ---
-// Wire-format glyphs from todo_tool.py:122-127 (cancelled = "[~]")
+// Format active todos for prompt injection using stable status glyphs.
 const INJECTION_MARKERS: Record<TodoStatus, string> = {
   completed: "[x]",
   in_progress: "[>]",
@@ -202,7 +198,7 @@ const todoTool = async (args: unknown, context: ToolContext): Promise<ToolRunRes
     const todos = store.read() as TodoState;
     return { content: JSON.stringify({ todos, summary: summarizeTodos(todos) }), isError: false };
   }
-  // Hermes todo_tool.py:218-228: parse JSON strings, reject other non-lists
+  // Accept JSON strings for compatibility with model tool calls.
   let todos = args.todos;
   if (typeof todos === "string") {
     try { todos = JSON.parse(todos); } catch { return { content: "Error: todos must be a list of objects, got unparseable string", isError: true }; }

@@ -61,9 +61,21 @@ direct and Homebrew artifacts for arm64 and x64. Create the version commit and
 tag with `pnpm release:version patch`; see
 [release instructions](docs/RELEASING.md) for the artifact and signing checks.
 
-Run the desktop checks with:
+Run the complete check suite from the repository root with:
 
 ```sh
+pnpm run typecheck
+pnpm run test
 pnpm --filter @dantea/railgun-desktop typecheck
 pnpm --filter @dantea/railgun-desktop test
 ```
+
+## Documentation
+
+- [Product overview](docs/PRODUCT.md)
+- [Desktop architecture](docs/ARCHITECTURE.md)
+- [Design system and interaction contracts](docs/DESIGN.md)
+- [Desktop implementation plan](docs/desktop-impl-plan.md)
+- [Current architecture ADR](docs/adr/0001-railgun-current-architecture.md)
+- [Release procedure](docs/RELEASING.md)
+- [Diagnostics](docs/INTERACTIVE_DIAGNOSTICS.md) and [operational diagnostics](docs/OPERATIONAL_DIAGNOSTICS.md)
