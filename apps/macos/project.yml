@@ -70,6 +70,8 @@ targets:
       - path: Sources/RailgunX
       - path: Resources/Assets.xcassets
         buildPhase: resources
+      - path: Resources/Legal
+        buildPhase: resources
     dependencies:
       - target: RailgunCore
       - target: RailgunTransport

@@ -5,6 +5,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 generate_project="$script_dir/generate-project.sh"
 validate_app_icon="$script_dir/validate-app-icon-assets.sh"
+validate_legal_notices="$script_dir/generate-legal-notices.mjs"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -47,7 +48,9 @@ build_scheme() {
 }
 
 require_command xcodebuild
+require_command node
 "$validate_app_icon"
+node "$validate_legal_notices" --check
 "$generate_project" "$first_output"
 "$generate_project" "$second_output"
 

@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 import RailgunCore
 import RailgunServices
@@ -8,6 +9,15 @@ import RailgunUI
 
 @MainActor
 final class RailgunXAppTests: XCTestCase {
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     func testModuleBoundariesCompile() {}
 
     func testPlaceholderWindowUsesProductName() {
@@ -45,12 +55,6 @@ final class RailgunXAppTests: XCTestCase {
     }
 
     func testRunScriptLaunchesTheAppBundleThroughLaunchServices() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let runScript = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/run.sh"),
             encoding: .utf8
@@ -59,5 +63,80 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(runScript.contains("open -n -W \"$app_bundle\""))
         XCTAssertTrue(runScript.contains("--railgunx-backend-mode=mock"))
         XCTAssertFalse(runScript.contains("launch_arguments"))
+    }
+
+    func testLegalNoticesAreBundledWithTheApplication() throws {
+        XCTAssertNotNil(LegalNotices.noticesURL)
+        XCTAssertNotNil(LegalNotices.manifestURL)
+
+        let manifest = try LegalNotices.loadManifest()
+        XCTAssertFalse(manifest.components.isEmpty)
+    }
+
+    func testLegalNoticeManifestRecordsLockedSwiftPackagesAndRequiredFirstPartyMaterial() throws {
+        let manifest = try LegalNotices.loadManifest()
+        let records = Dictionary(uniqueKeysWithValues: manifest.components.map { ($0.identifier, $0) })
+
+        XCTAssertEqual(records["swift-markdown"]?.version, "0.8.0")
+        XCTAssertEqual(records["swift-markdown"]?.revision, "3c6f9523da3a1ec2fd829673e472d95b8097a3b8")
+        XCTAssertEqual(records["swift-cmark"]?.version, "0.8.0")
+        XCTAssertEqual(records["swift-cmark"]?.revision, "924936d0427cb25a61169739a7660230bffa6ea6")
+        XCTAssertEqual(records["sparkle"]?.version, "2.9.4")
+        XCTAssertEqual(records["sparkle"]?.revision, "b6496a74a087257ef5e6da1c5b29a447a60f5bd7")
+
+        XCTAssertEqual(records["nodejs-24-lts"]?.version, "24 LTS")
+        XCTAssertEqual(records["nodejs-24-lts"]?.archive, "Pending SWFT-011 runtime selection")
+        XCTAssertEqual(records["railgun-icon-artwork"]?.copyright, "© 2026 Dante Teo")
+        XCTAssertEqual(records["railgun"]?.license, "MIT")
+    }
+
+    func testLegalNoticeManifestContainsOnlyProductionBackendClosureWithBothMacOSNativeVariants() throws {
+        let manifest = try LegalNotices.loadManifest()
+        let backendRecords = manifest.components.filter { $0.kind == .backendProductionPackage }
+        let backendNames = Set(backendRecords.map(\.name))
+
+        XCTAssertFalse(backendRecords.isEmpty)
+        XCTAssertFalse(backendNames.contains("tsx"))
+        XCTAssertFalse(backendNames.contains("typescript"))
+        XCTAssertFalse(backendNames.contains("vitest"))
+        XCTAssertFalse(backendNames.contains("@types/better-sqlite3"))
+        XCTAssertTrue(backendNames.contains("sqlite-vec-darwin-arm64"))
+        XCTAssertTrue(backendNames.contains("sqlite-vec-darwin-x64"))
+        XCTAssertTrue(backendRecords.allSatisfy { !$0.noticeContentSHA256.isEmpty })
+    }
+
+    func testLegalNoticeManifestTracksTheCheckedInBackendLockfileAndIncludesFullLGPLTerms() throws {
+        let manifest = try LegalNotices.loadManifest()
+        let lockfile = try Data(contentsOf: repositoryRoot.appendingPathComponent("pnpm-lock.yaml"))
+        let notices = try String(contentsOf: try XCTUnwrap(LegalNotices.noticesURL), encoding: .utf8)
+
+        XCTAssertEqual(manifest.backendLockfileSHA256, SHA256.hash(data: lockfile).hexString)
+        XCTAssertTrue(notices.contains("GNU LESSER GENERAL PUBLIC LICENSE"))
+    }
+
+    func testLegalNoticeValidatorAcceptsTheCheckedInCatalogWithoutInstalledPackages() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "node",
+            "apps/macos/scripts/generate-legal-notices.mjs",
+            "--check"
+        ]
+        process.currentDirectoryURL = repositoryRoot
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES": "1"],
+            uniquingKeysWith: { _, replacement in replacement }
+        )
+
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+    }
+}
+
+private extension Digest {
+    var hexString: String {
+        map { String(format: "%02x", $0) }.joined()
     }
 }

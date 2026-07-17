@@ -92,6 +92,29 @@ intentionally refresh the lockfile after changing an exact version, run:
 ./apps/macos/scripts/resolve-packages.sh
 ```
 
+### Native legal notices
+
+RailgunX bundles `ThirdPartyNotices.md` and `LegalNoticeManifest.json` as app
+resources; no legal-notices UI is provided yet. The catalog records the locked
+Swift packages, Node 24 LTS licensing, first-party icon provenance, Railgun's
+MIT license, and the complete macOS production backend closure. Node's concrete
+archive, version, and checksums remain owned by SWFT-011.
+
+After a root `pnpm-lock.yaml`, package-license, Swift pin, first-party license,
+or icon-source change, regenerate the catalog from an installed dependency tree:
+
+```sh
+pnpm install
+node apps/macos/scripts/generate-legal-notices.mjs --write
+```
+
+`--write` reads package-provided legal files and refuses a metadata-only license
+unless the repository bundles the full matching license text. `--check` is run
+by `validate-project.sh`: it compares the complete generated catalog when
+packages are installed, or validates the checked-in catalog's tracked-input and
+notice hashes in a clean checkout. Neither mode requires the ignored backend
+deployment directory.
+
 ### Native module boundaries
 
 `apps/macos/project.yml` defines static-library modules and their one-way
@@ -171,7 +194,7 @@ placeholder until the Task alpha. Feature commands and editable preferences are
 deferred to their assigned Swift milestones.
 
 Validate deterministic generation, clean-cache package resolution, the
-checked-in lockfile, build, and tests with:
+checked-in lockfile, legal notices, build, and tests with:
 
 ```sh
 ./apps/macos/scripts/validate-project.sh
