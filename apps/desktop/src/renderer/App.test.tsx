@@ -320,6 +320,50 @@ describe("desktop shell", () => {
     await waitFor(() => expect(forkSession).toHaveBeenCalledWith("kbd-test"));
   });
 
+  it("shows the working and just-completed status beside the active task", async () => {
+    const agentListeners = new Set<(event: DesktopAgentEvent) => void>();
+    const sessionListeners = new Set<(snapshot: SessionSnapshot) => void>();
+    const activeSession = { ...desktopSession, id: "status-task", running: false };
+    const api: RailgunDesktopApi = {
+      ...knowledgeApi,
+      getBackendSnapshot: async () => snapshot("ready"),
+      restartBackend: async () => snapshot("starting"),
+      onBackendSnapshot: () => () => undefined,
+      listMockScenarios: async () => [],
+      selectMockScenario: async () => snapshot("ready"),
+      sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
+      abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
+      ...fileApi,
+      startNewChat: async () => activeSession,
+      ...sessionApi,
+      listSessions: async () => [{ id: "status-task", model: "mock-model", startedAtLocal: "today", messageCount: 1, firstUserPreview: "Status task" }],
+      ...controlApi,
+      onSessionSnapshot: (listener) => { sessionListeners.add(listener); return () => sessionListeners.delete(listener); },
+      onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
+      onAppCommand: () => () => undefined,
+    };
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
+
+    render(<App />);
+    await screen.findByRole("button", { name: /^Status task/u });
+    act(() => sessionListeners.forEach(listener => listener(activeSession)));
+    act(() => agentListeners.forEach(listener => listener({ type: "run-start" })));
+    expect(await screen.findByRole("status", { name: "Agent working" })).toBeTruthy();
+
+    vi.useFakeTimers();
+    act(() => agentListeners.forEach(listener => listener({ type: "run-end" })));
+    expect(screen.getByRole("img", { name: "Agent completed" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.queryByRole("img", { name: "Agent completed" })).toBeNull();
+    vi.useRealTimers();
+  });
+
   it("uses the product chat UI in mock mode and streams validated replies", async () => {
     const agentListeners = new Set<(event: DesktopAgentEvent) => void>();
     const sessionListeners = new Set<(snapshot: SessionSnapshot) => void>();

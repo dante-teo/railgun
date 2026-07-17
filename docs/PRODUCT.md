@@ -3,6 +3,10 @@
 Railgun is a desktop-only macOS coding-agent application. The supported user
 surfaces are the app’s task, Scheduled, Settings, and knowledge interfaces.
 
+The task history identifies live agent work without requiring the user to open
+the task: the active task has a trailing spinner, and a just-completed task has
+a green checkmark briefly before returning to its idle appearance.
+
 Scheduled prompts are stored in the user’s existing `~/.railgun` data. They run
 while the app is open; background execution is explicitly enabled from
 **Settings → General** and includes both recurring prompts and midnight Dream

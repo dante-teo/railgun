@@ -28,6 +28,7 @@ Glass is a hierarchy signal, not a universal material. Sidebars, the titlebar fa
 - Trees use roving focus with arrows, Home/End, Enter/Space, expansion, selection, and visible focus.
 - Selection controls use the Radix-backed `Checkbox`, `Switch`, `RadioGroup`, or `SegmentedControl`.
 - Loading, empty, error, and inline feedback use shared state components.
+- Task-history rows communicate the active agent lifecycle at their trailing edge: the running task shows a reduced-motion-safe spinner, a completed run shows a green checkmark for five seconds, and idle tasks show no status indicator. These indicators retain accessible names.
 - Navigation destinations expose `aria-current="page"` and use the same semantic active treatment.
 - Every interactive descendant of an Electron drag region must establish `-webkit-app-region: no-drag` on its interactive wrapper.
 - Fenced-code language badges are generated visually from `data-language`; they must not add text nodes to `<code>` or alter copied source.

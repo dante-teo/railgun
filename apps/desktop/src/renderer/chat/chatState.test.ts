@@ -98,6 +98,17 @@ describe("chat event reduction", () => {
     ]);
   });
 
+  it("restores the backend-reported running state with a session", () => {
+    const state = chatReducer(initialChatState, {
+      type: "hydrate",
+      messages: [{ role: "user", text: "Continue the task" }],
+      todos: [],
+      running: true,
+    });
+
+    expect(state.running).toBe(true);
+  });
+
   it("restores persisted tool uses between conversation messages", () => {
     const state = chatReducer(initialChatState, {
       type: "hydrate",

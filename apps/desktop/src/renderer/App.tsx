@@ -23,6 +23,8 @@ import { FileBrowser } from "./files/FileBrowser";
 import { SettingsPage } from "./settings/SettingsPage";
 import { AutomationPage } from "./automation/AutomationPage";
 
+const COMPLETED_SESSION_INDICATOR_MS = 5_000;
+
 export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>();
   const [scenarios, setScenarios] = useState<readonly MockScenario[]>([]);
@@ -38,6 +40,7 @@ export const App = (): React.JSX.Element => {
   const [sessionsError, setSessionsError] = useState<string>();
   const [taskPaletteOpen, setTaskPaletteOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<SessionSnapshot>();
+  const [completedSessionId, setCompletedSessionId] = useState<string>();
   const [sessionOperation, setSessionOperation] = useState(false);
   const [activityPaneVisible, setActivityPaneVisible] = useState(true);
   const [filesPaneVisible, setFilesPaneVisible] = useState(false);
@@ -50,6 +53,7 @@ export const App = (): React.JSX.Element => {
   const paletteRestoreFocus = useRef<HTMLElement | null>(null);
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const activeSessionId = useRef<string | undefined>(undefined);
+  const runningSessionId = useRef<string | undefined>(undefined);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
@@ -57,6 +61,33 @@ export const App = (): React.JSX.Element => {
     || chat.state.activity.subagents.length > 0
     || chat.state.activity.advisorNotes.length > 0
     || chat.state.activity.todoLoading;
+  const sessionActivity = running
+    ? activeSession === undefined ? undefined : { sessionId: activeSession.id, state: "working" as const }
+    : completedSessionId === undefined ? undefined : { sessionId: completedSessionId, state: "completed" as const };
+  const sidebarSessionState = {
+    ...(sessionsError === undefined ? {} : { sessionsError }),
+    ...(activeSession === undefined ? {} : { activeSessionId: activeSession.id }),
+    ...(sessionActivity === undefined ? {} : { sessionActivity }),
+  };
+
+  useEffect(() => {
+    if (running) {
+      setCompletedSessionId(undefined);
+      runningSessionId.current = activeSession?.id;
+      return;
+    }
+    const justCompletedSessionId = runningSessionId.current;
+    runningSessionId.current = undefined;
+    if (justCompletedSessionId !== undefined) setCompletedSessionId(justCompletedSessionId);
+  }, [activeSession?.id, running]);
+
+  useEffect(() => {
+    if (completedSessionId === undefined) return;
+    const timeout = window.setTimeout(() => {
+      setCompletedSessionId(sessionId => sessionId === completedSessionId ? undefined : sessionId);
+    }, COMPLETED_SESSION_INDICATOR_MS);
+    return () => window.clearTimeout(timeout);
+  }, [completedSessionId]);
   const selectArea = (next: AppArea): void => {
     setArea(next);
     try { writeStoredArea(window.localStorage, next); }
@@ -300,8 +331,7 @@ export const App = (): React.JSX.Element => {
     phase={snapshot.phase}
     sessions={sessions}
     sessionsLoading={sessionsLoading}
-    {...(sessionsError === undefined ? {} : { sessionsError })}
-    {...(activeSession?.id === undefined ? {} : { activeSessionId: activeSession.id })}
+    {...sidebarSessionState}
     busy={sessionOperation}
     running={running}
     onNewTask={() => void startNewTask()}

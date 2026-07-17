@@ -57,4 +57,27 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("button", { name: "Archive Second task" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Archive task" })).toBeNull();
   });
+
+  it("shows only the current task's working or just-completed status", () => {
+    const sessions: readonly SessionSummary[] = [
+      { id: "working", model: "Model A", startedAtLocal: "today", messageCount: 1, firstUserPreview: "Working task" },
+      { id: "idle", model: "Model B", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Idle task" },
+    ];
+    const { rerender } = render(<AppSidebar area="chat" {...commonProps} sessions={sessions} sessionActivity={{ sessionId: "working", state: "working" }} />);
+
+    const working = screen.getByRole("status", { name: "Agent working" });
+    expect(working.querySelector(".lucide-loader-circle")?.getAttribute("class")).toContain("animate-spin");
+    expect(screen.queryByRole("img", { name: "Agent completed" })).toBeNull();
+
+    rerender(<AppSidebar area="chat" {...commonProps} sessions={sessions} sessionActivity={{ sessionId: "working", state: "completed" }} />);
+
+    const completed = screen.getByRole("img", { name: "Agent completed" });
+    expect(completed.className).toContain("text-success");
+    expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull();
+
+    rerender(<AppSidebar area="chat" {...commonProps} sessions={sessions} />);
+
+    expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Agent completed" })).toBeNull();
+  });
 });

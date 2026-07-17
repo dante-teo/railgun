@@ -1,9 +1,16 @@
-import { Archive, Clock, Settings, SquarePen } from "lucide-react";
+import { Archive, Check, Clock, LoaderCircle, Settings, SquarePen } from "lucide-react";
 import { useState } from "react";
 import type { BackendPhase, SessionSummary } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { PHASE_COPY } from "../backendStatus";
+
+type SessionActivityState = "working" | "completed";
+
+interface SessionActivity {
+  readonly sessionId: string;
+  readonly state: SessionActivityState;
+}
 
 interface AppSidebarProps {
   readonly area: "chat" | "automation" | "settings";
@@ -12,6 +19,7 @@ interface AppSidebarProps {
   readonly sessionsLoading: boolean;
   readonly sessionsError?: string;
   readonly activeSessionId?: string;
+  readonly sessionActivity?: SessionActivity;
   readonly busy: boolean;
   readonly running: boolean;
   readonly onNewTask: () => void;
@@ -25,7 +33,11 @@ interface AppSidebarProps {
 
 const sidebarAction = "sidebar-action w-full justify-start gap-2 px-2 text-body font-normal tracking-[-0.01em] text-foreground hover:bg-[var(--material-sidebar-control-hover)]";
 
-export const AppSidebar = ({ area, phase, sessions, sessionsLoading, sessionsError, activeSessionId, busy, running, onNewTask, onScheduled, onSettings, onRetrySessions, onResumeSession, onOpenSessionMenu, onArchiveSession }: AppSidebarProps): React.JSX.Element => {
+const SessionActivityIndicator = ({ state }: { readonly state: SessionActivityState }): React.JSX.Element => state === "working"
+  ? <span className="mr-1 flex size-4 shrink-0 items-center justify-center text-primary" role="status" aria-label="Agent working" title="Agent working"><LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /></span>
+  : <span className="mr-1 flex size-4 shrink-0 items-center justify-center text-success" role="img" aria-label="Agent completed" title="Agent completed"><Check className="size-3.5" aria-hidden="true" /></span>;
+
+export const AppSidebar = ({ area, phase, sessions, sessionsLoading, sessionsError, activeSessionId, sessionActivity, busy, running, onNewTask, onScheduled, onSettings, onRetrySessions, onResumeSession, onOpenSessionMenu, onArchiveSession }: AppSidebarProps): React.JSX.Element => {
   const [scrolled, setScrolled] = useState(false);
   return <>
     <div className="sidebar-pinned-top px-3">
@@ -43,6 +55,7 @@ export const AppSidebar = ({ area, phase, sessions, sessionsLoading, sessionsErr
               : sessions.length === 0 ? <p className="mx-2 my-3 text-caption text-foreground-secondary">No saved tasks</p>
                 : sessions.map(session => <div key={session.id} className={cn("group flex w-full items-center gap-1 rounded-sm text-foreground hover:bg-[var(--material-sidebar-control-hover)] focus-within:bg-[var(--material-sidebar-control-hover)]", activeSessionId === session.id && "bg-accent text-accent-foreground")}>
                   <button type="button" className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden border-0 bg-transparent p-2 text-left text-inherit [&>span]:truncate [&>span]:text-caption [&>span]:text-foreground-secondary [&>strong]:truncate [&>strong]:text-control [&>strong]:font-medium" aria-current={activeSessionId === session.id ? "true" : undefined} disabled={busy} onContextMenu={event => { event.preventDefault(); onOpenSessionMenu(session.id); }} onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onOpenSessionMenu(session.id); } }} onClick={() => onResumeSession(session.id)}><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
+                  {sessionActivity?.sessionId === session.id ? <SessionActivityIndicator state={sessionActivity.state} /> : null}
                   <Button type="button" variant="ghost" size="icon" className="mr-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" aria-label={`Archive ${session.firstUserPreview || "Untitled chat"}`} title={`Archive ${session.firstUserPreview || "Untitled chat"}`} disabled={busy || running} onClick={event => { event.stopPropagation(); onArchiveSession(session.id); }}><Archive aria-hidden="true" /></Button>
                 </div>)}
         </div>

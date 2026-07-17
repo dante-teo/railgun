@@ -102,7 +102,7 @@ export type ChatAction =
   | { readonly type: "interaction-failed"; readonly id: string; readonly error: string }
   | { readonly type: "activity"; readonly event: Exclude<DesktopAgentEvent, { type: "run-start" | "run-end" | "assistant-delta" | "assistant-complete" | "queue-update" | "context-usage" | "context-reset" }> }
   | { readonly type: "reset" }
-  | { readonly type: "hydrate"; readonly messages: readonly RestoredTranscriptEntry[]; readonly todos: readonly RestoredTodo[]; readonly preserveDashboard?: true };
+  | { readonly type: "hydrate"; readonly messages: readonly RestoredTranscriptEntry[]; readonly todos: readonly RestoredTodo[]; readonly running?: boolean; readonly preserveDashboard?: true };
 
 const finishLastAssistant = (
   messages: readonly TranscriptMessage[],
@@ -350,6 +350,7 @@ export const chatReducer = (state: ChatState, action: ChatAction): ChatState => 
       return {
         ...initialChatState,
         messages,
+        running: action.running ?? false,
         activity: {
           ...initialActivityState,
           entries,

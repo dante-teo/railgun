@@ -183,12 +183,12 @@ export const useChatController = (snapshot: BackendSnapshot | undefined) => {
   const hydrate = (snapshot: SessionSnapshot): void => {
     deltaBuffer.current?.clear();
     setDraft("");
-    dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos });
+    dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos, running: snapshot.running });
   };
 
   const refresh = (snapshot: SessionSnapshot): void => {
     deltaBuffer.current?.clear();
-    dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos, preserveDashboard: true });
+    dispatch({ type: "hydrate", messages: snapshot.transcript, todos: snapshot.todos, running: snapshot.running, preserveDashboard: true });
   };
 
   return { state, draft, setDraft, sendInitial, retry, queueDraft, stop, stopAndWait, reset, hydrate, refresh, setInteractionAnswer, respondToApproval, respondToClarification };
