@@ -1,8 +1,15 @@
 import XCTest
+import RailgunCore
+import RailgunServices
+import RailgunTestSupport
+import RailgunTransport
+import RailgunUI
 @testable import RailgunX
 
 @MainActor
 final class RailgunXAppTests: XCTestCase {
+    func testModuleBoundariesCompile() {}
+
     func testPlaceholderWindowUsesProductName() {
         XCTAssertEqual(RailgunXApp.windowTitle, "RailgunX")
     }

@@ -92,6 +92,23 @@ intentionally refresh the lockfile after changing an exact version, run:
 ./apps/macos/scripts/resolve-packages.sh
 ```
 
+### Native module boundaries
+
+`apps/macos/project.yml` defines static-library modules and their one-way
+dependencies. `RailgunX` is the application composition root:
+
+- `RailgunCore` is the Foundation-only domain layer with no project dependencies.
+- `RailgunTransport` depends on `RailgunCore`.
+- `RailgunServices` depends on `RailgunCore` and `RailgunTransport`.
+- `RailgunUI` depends on `RailgunCore` and contains reusable SwiftUI components.
+- `RailgunTestSupport` depends on Core, Transport, and Services; only
+  `RailgunXTests` links it.
+- `RailgunX` depends on Core, Transport, Services, and UI.
+
+The current scaffolding intentionally exposes no module APIs. Swift Markdown
+and Sparkle remain application packaging dependencies until a later milestone
+assigns an API owner.
+
 Validate deterministic generation, clean-cache package resolution, the
 checked-in lockfile, build, and tests with:
 

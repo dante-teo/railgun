@@ -200,7 +200,7 @@ eight hours.
 - [x] `SWFT-001` — Scaffold `apps/macos/project.yml`, Swift 6 targets, schemes, tests, and `io.anvia.railgun` configuration. `[6h]`
 - [x] `SWFT-002` — Add reproducible XcodeGen generation and validation scripts; exclude generated projects from source control. `[4h]`
 - [x] `SWFT-003` — Configure SwiftPM and commit resolved pins for Swift Markdown and Sparkle. `[4h]`
-- [ ] `SWFT-004` — Establish app, core, transport, services, `RailgunUI`, and test-support module boundaries. `[6h]`
+- [x] `SWFT-004` — Establish app, core, transport, services, `RailgunUI`, and test-support module boundaries. `[6h]`
 - [ ] `SWFT-005` — Build the SwiftUI lifecycle, primary window, Settings scene, commands, restoration, and minimum sizing. `[8h]`
 - [ ] `SWFT-006` — Add semantic system color, typography, spacing, material, focus, and motion definitions without replacing native control styling. `[8h]`
 - [ ] `SWFT-007` — Design the new native Railgun icon system and deliver editable masters plus a 1024×1024 production source. `[8h]`

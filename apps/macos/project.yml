@@ -21,12 +21,57 @@ packages:
     exactVersion: 2.9.4
 
 targets:
+  RailgunCore:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/RailgunCore
+
+  RailgunTransport:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/RailgunTransport
+    dependencies:
+      - target: RailgunCore
+
+  RailgunServices:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/RailgunServices
+    dependencies:
+      - target: RailgunCore
+      - target: RailgunTransport
+
+  RailgunUI:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/RailgunUI
+    dependencies:
+      - target: RailgunCore
+
+  RailgunTestSupport:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/RailgunTestSupport
+    dependencies:
+      - target: RailgunCore
+      - target: RailgunTransport
+      - target: RailgunServices
+
   RailgunX:
     type: application
     platform: macOS
     sources:
       - path: Sources/RailgunX
     dependencies:
+      - target: RailgunCore
+      - target: RailgunTransport
+      - target: RailgunServices
+      - target: RailgunUI
       - package: Markdown
       - package: Sparkle
         product: Sparkle
@@ -74,6 +119,7 @@ targets:
       - path: Tests/RailgunXTests
     dependencies:
       - target: RailgunX
+      - target: RailgunTestSupport
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.anvia.railgun.tests
