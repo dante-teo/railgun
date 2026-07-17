@@ -38,31 +38,110 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(configuration.primaryWindowResizability, .contentMinimumSize)
     }
 
-    func testMockBackendModeIsSelectedFromEnvironment() {
-        XCTAssertEqual(BackendMode(environment: ["RAILGUNX_BACKEND_MODE": "mock"]), .mock)
-        XCTAssertEqual(BackendMode(environment: ["RAILGUNX_BACKEND_MODE": "mock"]).placeholderText, "RailgunX Mock Backend")
-    }
-
-    func testUnknownBackendModeUsesTheRealBackend() {
-        XCTAssertEqual(BackendMode(environment: ["RAILGUNX_BACKEND_MODE": "unexpected"]), .real)
-    }
-
-    func testMockBackendModeCanBeSelectedFromLaunchArguments() {
+    func testBackendLaunchConfigurationDefaultsUnknownAndMissingModesToBundled() {
+        XCTAssertEqual(BackendLaunchConfiguration(environment: [:], arguments: []).mode, .bundled)
         XCTAssertEqual(
-            BackendMode(environment: [:], arguments: ["RailgunX", "--railgunx-backend-mode=mock"]),
-            .mock
+            BackendLaunchConfiguration(environment: ["RAILGUNX_BACKEND_MODE": "unexpected"], arguments: []).mode,
+            .bundled
+        )
+        XCTAssertEqual(
+            BackendLaunchConfiguration(
+                environment: ["RAILGUNX_BACKEND_MODE": "mock"],
+                arguments: ["RailgunX", "--railgunx-backend-mode=unexpected"]
+            ).mode,
+            .bundled
+        )
+        XCTAssertEqual(
+            BackendLaunchConfiguration(environment: [:], arguments: []).placeholderText,
+            "RailgunX Bundled Backend"
         )
     }
 
-    func testRunScriptLaunchesTheAppBundleThroughLaunchServices() throws {
+    func testBackendLaunchArgumentsTakePrecedenceOverEnvironment() {
+        let configuration = BackendLaunchConfiguration(
+            environment: ["RAILGUNX_BACKEND_MODE": "mock"],
+            arguments: ["RailgunX", "--railgunx-backend-mode=source"]
+        )
+
+        XCTAssertEqual(configuration.mode, .source)
+        XCTAssertEqual(configuration.placeholderText, "RailgunX Source Backend")
+        XCTAssertNil(configuration.mockScenario)
+    }
+
+    func testSourceBackendResolvesTheGeneratedRepositoryRootMarker() throws {
+        let markerDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("railgunx-source-root-marker-\(UUID().uuidString)", isDirectory: true)
+        let marker = markerDirectory.appendingPathComponent(".railgun-source-root")
+        defer { try? FileManager.default.removeItem(at: markerDirectory) }
+
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        try "\(repositoryRoot.path)\n".write(to: marker, atomically: true, encoding: .utf8)
+
+        let configuration = BackendLaunchConfiguration(
+            environment: [
+                "RAILGUNX_BACKEND_MODE": "mock",
+                "RAILGUNX_SOURCE_ROOT": "/"
+            ],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=source",
+                "--railgunx-source-root=\(marker.path)"
+            ]
+        )
+
+        XCTAssertEqual(configuration.mode, .source)
+        XCTAssertEqual(configuration.sourceRoot, repositoryRoot.standardizedFileURL)
+        XCTAssertEqual(configuration.placeholderText, "RailgunX Source Backend")
+    }
+
+    func testMockBackendUsesReadyIdleByDefaultAndAcceptsLaunchMetadata() {
+        let defaultConfiguration = BackendLaunchConfiguration(
+            environment: [
+                "RAILGUNX_BACKEND_MODE": "mock",
+                "RAILGUNX_MOCK_SCENARIO": "   "
+            ],
+            arguments: []
+        )
+        let launchConfiguration = BackendLaunchConfiguration(
+            environment: ["RAILGUNX_MOCK_SCENARIO": "ignored-by-argument"],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=ready-idle"
+            ]
+        )
+
+        XCTAssertEqual(defaultConfiguration.mode, .mock)
+        XCTAssertEqual(defaultConfiguration.mockScenario, BackendLaunchConfiguration.defaultMockScenario)
+        XCTAssertEqual(launchConfiguration.mockScenario, "ready-idle")
+        XCTAssertEqual(launchConfiguration.placeholderText, "RailgunX Mock Backend")
+    }
+
+    func testShellLaunchersForwardExplicitBackendArgumentsThroughLaunchServices() throws {
         let runScript = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/run.sh"),
             encoding: .utf8
         )
+        let runMockScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/run-mock.sh"),
+            encoding: .utf8
+        )
+        let runSourceScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/run-source.sh"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(runScript.contains("open -n -W \"$app_bundle\""))
+        XCTAssertTrue(runScript.contains("--railgunx-backend-mode=source"))
         XCTAssertTrue(runScript.contains("--railgunx-backend-mode=mock"))
-        XCTAssertFalse(runScript.contains("launch_arguments"))
+        XCTAssertTrue(runScript.contains("--railgunx-mock-scenario=$mock_scenario"))
+        XCTAssertTrue(runScript.contains("--railgunx-source-root=$source_root"))
+        XCTAssertFalse(runScript.contains("RAILGUNX_BACKEND_MODE"))
+        XCTAssertFalse(runMockScript.contains("export RAILGUNX_BACKEND_MODE"))
+        XCTAssertTrue(runMockScript.contains("--mock-scenario ready-idle"))
+        XCTAssertTrue(runMockScript.contains("--source-root \"$repository_root\""))
+        XCTAssertTrue(runSourceScript.contains("--backend-mode source"))
+        XCTAssertTrue(runSourceScript.contains("--source-root \"$repository_root\""))
     }
 
     func testNativeBackendStagingContractUsesTheTargetArchitectureAndAtomicPayload() throws {

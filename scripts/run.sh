@@ -16,6 +16,45 @@ project_dir="$build_root/project"
 derived_data_dir="$build_root/DerivedData"
 app_bundle="$derived_data_dir/Build/Products/Debug/RailgunX.app"
 app_executable="$app_bundle/Contents/MacOS/RailgunX"
+backend_mode='bundled'
+mock_scenario='ready-idle'
+source_root="$repo_root"
+
+usage() {
+  printf 'usage: %s [--backend-mode bundled|source|mock] [--mock-scenario SCENARIO] [--source-root DIRECTORY]\n' "${0##*/}" >&2
+  exit 64
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --backend-mode)
+      [[ $# -ge 2 ]] || usage
+      backend_mode="$2"
+      shift 2
+      ;;
+    --mock-scenario)
+      [[ $# -ge 2 ]] || usage
+      mock_scenario="$2"
+      shift 2
+      ;;
+    --source-root)
+      [[ $# -ge 2 ]] || usage
+      source_root="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+case "$backend_mode" in
+  bundled|source|mock)
+    ;;
+  *)
+    usage
+    ;;
+esac
 
 require_command xcodebuild
 "$project_root/scripts/generate-project.sh" "$project_dir"
@@ -32,10 +71,21 @@ if [[ ! -d "$app_bundle" || ! -x "$app_executable" ]]; then
   exit 1
 fi
 
-if [[ "${RAILGUNX_BACKEND_MODE:-}" == "mock" ]]; then
-  exec open -n -W "$app_bundle" --args --railgunx-backend-mode=mock
-fi
-
 # Launch the bundle through LaunchServices so native About/Dock surfaces resolve
 # the current AppIcon instead of treating the executable as a standalone process.
-exec open -n -W "$app_bundle"
+case "$backend_mode" in
+  bundled)
+    exec open -n -W "$app_bundle"
+    ;;
+  source)
+    exec open -n -W "$app_bundle" --args \
+      --railgunx-backend-mode=source \
+      "--railgunx-source-root=$source_root"
+    ;;
+  mock)
+    exec open -n -W "$app_bundle" --args \
+      --railgunx-backend-mode=mock \
+      "--railgunx-mock-scenario=$mock_scenario" \
+      "--railgunx-source-root=$source_root"
+    ;;
+esac

@@ -273,15 +273,30 @@ checked-in lockfile, legal notices, build, and tests with:
 ./apps/macos/scripts/validate-project.sh
 ```
 
-Launch the native scaffold with `./scripts/run.sh`, or use
-`./scripts/run-mock.sh` to select its deterministic mock-backend placeholder.
-Set `RAILGUNX_BUILD_ROOT` to retain the generated project and derived data in a
-specific location. Both scripts launch the built `.app` bundle through macOS
-LaunchServices so bundle metadata, including the AppIcon used by About, is
-resolved correctly. Because LaunchServices does not inherit shell environment
-variables, `run-mock.sh` forwards mock mode as the
-`--railgunx-backend-mode=mock` launch argument. This mock mode is limited to the
-native shell until the planned transport and backend integration land.
+Launch the native scaffold with `./scripts/run.sh`,
+`./scripts/run-source.sh`, or `./scripts/run-mock.sh`. The default uses the
+bundled backend selection. The source and mock launchers pass their mode and
+repository root explicitly; the mock launcher also passes the `ready-idle`
+scenario. Set `RAILGUNX_BUILD_ROOT` to retain the generated project and derived
+data in a specific location. All launchers open the built `.app` bundle through
+macOS LaunchServices so bundle metadata, including the AppIcon used by About, is
+resolved correctly.
+
+For a custom source root or mock scenario, invoke the common launcher directly:
+
+```sh
+./scripts/run.sh --backend-mode source --source-root "$PWD"
+./scripts/run.sh --backend-mode mock --mock-scenario ready-idle --source-root "$PWD"
+```
+
+The app gives explicit `--railgunx-*` launch arguments priority over the
+equivalent `RAILGUNX_*` environment values, which keeps LaunchServices launches
+deterministic. A source-root value may be the repository directory itself or a
+generated `.railgun-source-root` marker. Xcode generates shared `RailgunX
+Source Backend` and `RailgunX Mock Backend` Debug schemes that use that marker
+instead of embedding a developer-specific path. These selections remain
+native-shell placeholders until the planned transport and backend integration
+land.
 
 Run the complete check suite from the repository root with:
 

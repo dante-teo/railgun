@@ -173,3 +173,34 @@ schemes:
     test:
       targets:
         - RailgunXTests
+    run:
+      config: Debug
+
+  RailgunX Source Backend:
+    build:
+      targets:
+        RailgunX: all
+        RailgunXTests: [test]
+    test:
+      targets:
+        - RailgunXTests
+    run:
+      config: Debug
+      commandLineArguments:
+        "--railgunx-backend-mode=source": true
+        "--railgunx-source-root=$(SRCROOT)/scripts/.railgun-source-root": true
+
+  RailgunX Mock Backend:
+    build:
+      targets:
+        RailgunX: all
+        RailgunXTests: [test]
+    test:
+      targets:
+        - RailgunXTests
+    run:
+      config: Debug
+      commandLineArguments:
+        "--railgunx-backend-mode=mock": true
+        "--railgunx-mock-scenario=ready-idle": true
+        "--railgunx-source-root=$(SRCROOT)/scripts/.railgun-source-root": true

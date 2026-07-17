@@ -49,6 +49,28 @@ build_scheme() {
     CODE_SIGN_IDENTITY=
 }
 
+validate_debug_launch_scheme() {
+  local scheme_path="$1"
+  shift
+
+  if [[ ! -f "$scheme_path" ]]; then
+    printf 'error: expected generated shared scheme at %s.\n' "$scheme_path" >&2
+    exit 1
+  fi
+
+  if ! grep -Fq -- 'buildConfiguration = "Debug"' "$scheme_path"; then
+    printf 'error: generated scheme does not use the Debug configuration: %s.\n' "$scheme_path" >&2
+    exit 1
+  fi
+
+  for argument in "$@"; do
+    if ! grep -Fq -- "$argument" "$scheme_path"; then
+      printf 'error: generated scheme is missing launch argument %s: %s.\n' "$argument" "$scheme_path" >&2
+      exit 1
+    fi
+  done
+}
+
 require_command xcodebuild
 require_command node
 "$validate_app_icon"
@@ -57,6 +79,17 @@ require_command node
 node "$validate_legal_notices" --check
 "$generate_project" "$first_output"
 "$generate_project" "$second_output"
+
+shared_schemes_directory="$project_file/xcshareddata/xcschemes"
+validate_debug_launch_scheme \
+  "$shared_schemes_directory/RailgunX Source Backend.xcscheme" \
+  '--railgunx-backend-mode=source' \
+  '--railgunx-source-root=$(SRCROOT)/scripts/.railgun-source-root'
+validate_debug_launch_scheme \
+  "$shared_schemes_directory/RailgunX Mock Backend.xcscheme" \
+  '--railgunx-backend-mode=mock' \
+  '--railgunx-mock-scenario=ready-idle' \
+  '--railgunx-source-root=$(SRCROOT)/scripts/.railgun-source-root'
 
 if ! diff -ru "$first_output" "$second_output"; then
   printf 'error: XcodeGen produced different project files in two fresh runs.\n' >&2
