@@ -18,14 +18,14 @@ restarts after unexpected crashes; Dream is a midnight one-shot task. Missing
 credentials cause either background entry to exit normally without browser
 authentication.
 
-Desktop release configuration is owned by `apps/desktop/package.json`. Direct
-and Homebrew builds carry immutable update-channel values, preventing two
-updaters from controlling one installed app. Direct releases retain
+Desktop release configuration is owned by `apps/desktop/package.json`. The
+release pipeline publishes direct builds only. Direct releases retain
 `darwin-arm64` or `darwin-x64` in their GitHub ZIP artifact names so the
 GitHub-backed Electron updater can find them. Direct installations check
 automatically and expose **Railgun → Check for Updates…** for an explicit
-check; downloaded updates require the user's restart confirmation. Homebrew
-archives are a separate channel and only the Cask updates those installations.
+check; downloaded updates require the user's restart confirmation. The updater
+still recognizes the legacy Homebrew channel so existing installations do not
+unexpectedly invoke Electron's updater.
 
 The update-check modal loads the same packaged Vite renderer with
 `?surface=update-check`; it does not inject a second HTML/CSS application. The

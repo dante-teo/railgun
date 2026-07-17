@@ -6,19 +6,14 @@ npm product.
 
 ## Install and update
 
-Choose one installation channel:
+Download the signed app from the Railgun GitHub Release. The app checks the
+direct-release update feed, downloads updates in the background, and offers to
+restart when one is ready. Choose **Railgun → Check for Updates…** to check
+manually. A progress dialog remains visible while the manual check is running.
 
-- Direct: download the signed app from the Railgun GitHub Release. The app
-  checks the direct-release update feed, downloads updates in the background,
-  and offers to restart when one is ready. Choose **Railgun → Check for
-  Updates…** to check manually. A progress dialog remains visible while the
-  manual check is running.
-- Homebrew: install with `brew install --cask railgun`. Homebrew owns updates;
-  run `brew upgrade --cask railgun`. The app deliberately disables its updater
-  in this channel.
-
-Do not install one channel over the other. Remove the old app first if you are
-switching channels.
+Homebrew distribution is no longer published or updated by the release
+pipeline. Existing Homebrew installations retain their legacy update-channel
+behavior; use the direct release for current installations.
 
 ## Scheduled work and maintenance
 
@@ -56,9 +51,9 @@ you want Railgun to invoke.
 
 `pnpm dev` runs the desktop app from source. `pnpm dev:mock` uses the desktop
 mock backend. The release version is defined only in
-`apps/desktop/package.json`; releases use `vX.Y.Z` tags and build both
-direct and Homebrew artifacts for arm64 and x64. Create the version commit and
-tag with `pnpm release:version patch`; see
+`apps/desktop/package.json`; releases use `vX.Y.Z` tags and build direct
+artifacts for arm64 and x64. Create the version commit and tag with
+`pnpm release:version patch`; see
 [release instructions](docs/RELEASING.md) for the artifact and signing checks.
 
 The RailgunX native scaffold requires Xcode and XcodeGen `2.45.4`. The pinned

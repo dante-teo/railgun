@@ -17,6 +17,6 @@ modes for desktop startup, automation, diagnostics, and integration boundaries.
 These modes are implementation surfaces, not separately distributed user
 products or installation channels.
 
-Install either the direct signed app (which updates in-app) or the Homebrew
-Cask (which updates only with Homebrew). The legacy npm package and terminal
-interfaces are retired; the bundled backend is an implementation detail.
+Install the direct signed app, which updates in-app. The legacy npm package and
+terminal interfaces are retired; the bundled backend is an implementation
+detail.

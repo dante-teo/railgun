@@ -14,7 +14,7 @@ describe("desktop release artifacts", () => {
   });
 
   it("retains darwin architecture identifiers for direct updater archives", () => {
-    expect(workflow).toContain('destination="$RUNNER_TEMP/Railgun-${{ matrix.channel }}-${version}-darwin-${{ matrix.arch }}.zip"');
+    expect(workflow).toContain('destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-${{ matrix.arch }}.zip"');
   });
 
   it("installs Electron with a shared retried action before desktop builds", () => {
