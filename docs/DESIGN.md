@@ -131,7 +131,8 @@ the same model; text entry is reserved for free-form answers and preset names.
   single Advisor row uses a distinct icon and exposes severity-styled `nit`,
   `concern`, and `blocker` notes in a hover- and focus-accessible popover;
   subagent rows expose their full goal, lifecycle status, and final result in
-  the same way. The card wraps its content, independently caps its Todo and
+  the same way. Final results render sanitized GFM Markdown, matching completed
+  assistant replies. The card wraps its content, independently caps its Todo and
   Subagent lists, reserves transcript space and starts visible at wide widths.
   When the remaining Task canvas is constrained it starts hidden; its explicit
   toggle shows the card as an overlay without reserving transcript width. Todo

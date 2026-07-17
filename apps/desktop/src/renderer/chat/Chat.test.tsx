@@ -609,10 +609,11 @@ describe("chat renderer", () => {
     act(() => bridge.emit({ type: "tool-end", id: "todo-1", name: "todo", failed: false, todos: [{ id: "a", content: "Implement", status: "completed" }, { id: "b", content: "Verify", status: "in_progress" }] }));
     expect(screen.getByText("1 of 2 complete")).toBeTruthy();
     expect(screen.getByText("In progress")).toBeTruthy();
-    act(() => bridge.emit({ type: "subagent-end", index: 0, goal: "Inspect tests", result: "Found coverage" }));
+    act(() => bridge.emit({ type: "subagent-end", index: 0, goal: "Inspect tests", result: "**Found coverage**\n\n- Existing regression coverage" }));
     expect(screen.getByRole("button", { name: "Inspect tests — Completed" })).toBeTruthy();
     expect(screen.getByText("Final result")).toBeTruthy();
-    expect(screen.getByText("Found coverage")).toBeTruthy();
+    expect(screen.getByText("Found coverage").tagName).toBe("STRONG");
+    expect(screen.getByText("Existing regression coverage").closest("ul")).toBeTruthy();
 
     act(() => bridge.emit({ type: "advisor-note", severity: "concern", text: "Keep the detail surface keyboard accessible." }));
     act(() => bridge.emit({ type: "advisor-note", severity: "blocker", text: "Avoid rendering advisor text in the transcript." }));

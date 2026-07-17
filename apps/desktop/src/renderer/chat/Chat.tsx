@@ -361,7 +361,7 @@ const DashboardAgentHoverCard = ({
       </button>
     </HoverCardTrigger>
       <HoverCardContent
-        className="z-[var(--layer-dialog-popover)] max-h-[min(24rem,calc(100vh_-_2rem))] w-[min(22rem,calc(100vw_-_2rem))] overflow-auto [&_h3]:m-0 [&_h3]:text-control [&_h4]:mb-0 [&_h4]:mt-3 [&_h4]:text-caption [&_h4]:font-semibold [&_h4]:text-foreground-secondary [&_p]:m-0"
+        className="z-[var(--layer-dialog-popover)] max-h-[min(24rem,calc(100vh_-_2rem))] w-[min(22rem,calc(100vw_-_2rem))] overflow-auto [&>h3]:m-0 [&>h3]:text-control [&>h4]:mb-0 [&>h4]:mt-3 [&>h4]:text-caption [&>h4]:font-semibold [&>h4]:text-foreground-secondary [&>p]:m-0"
         side="left"
         align="start"
         sideOffset={10}
@@ -377,7 +377,7 @@ const SubagentDashboardRow = ({ subagent }: { readonly subagent: ActivityState["
     <DashboardAgentRow label={subagent.goal} status={SUBAGENT_STATUS_LABEL[subagent.status]} icon={<Bot />}>
       <p className="mb-1 text-caption font-semibold uppercase tracking-[0.04em] text-foreground-secondary">Subagent · {SUBAGENT_STATUS_LABEL[subagent.status]}</p>
       <h3>{subagent.goal}</h3>
-      {subagent.result === undefined ? null : <><h4>Final result</h4><p>{subagent.result}</p></>}
+      {subagent.result === undefined ? null : <><h4>Final result</h4><MarkdownMessage>{subagent.result}</MarkdownMessage></>}
     </DashboardAgentRow>
   </li>
 );
