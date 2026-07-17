@@ -52,6 +52,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Electron binary
+        uses: ./.github/actions/install-electron
+
       - name: Prepare release metadata
         id: metadata
         shell: bash

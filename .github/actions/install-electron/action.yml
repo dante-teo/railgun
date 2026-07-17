@@ -1,0 +1,17 @@
+name: Install Electron
+description: Download the desktop Electron binary with retries.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        max_attempts=3
+        for attempt in $(seq 1 "$max_attempts"); do
+          if pnpm --filter @dantea/railgun-desktop exec install-electron --no; then exit 0; fi
+          if [ "$attempt" -eq "$max_attempts" ]; then exit 1; fi
+          delay_seconds=$((attempt * 10))
+          echo "::warning::Electron download failed; retrying in ${delay_seconds}s (attempt $((attempt + 1)) of $max_attempts)."
+          sleep "$delay_seconds"
+        done

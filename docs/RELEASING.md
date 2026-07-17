@@ -26,6 +26,11 @@ prefix, which is recognized by the GitHub-backed updater.
 The release workflow signs, notarizes, staples, and validates arm64 and x64
 artifacts for two immutable channels:
 
+Before packaging either architecture, the workflow prefetches the Electron
+binary with up to three attempts. This avoids Electron's lazy download during
+the backend build; if all attempts fail, retry the release job after the
+artifact host is available again.
+
 - `direct` artifacts are uploaded to the GitHub release and may use the
   in-app updater, including automatic and **Railgun → Check for Updates…**
   checks. Their names retain the updater-required macOS target, for example
