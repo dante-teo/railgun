@@ -199,9 +199,26 @@ fails the stdout stream instead of retaining unbounded output; stderr remains
 best-effort. Malformed, non-object, oversized, unreadable, or partial-at-EOF
 stdout also fails that stream. Closing the transport finishes public streams
 but continues draining pipes so it cannot signal the active backend. Clean
-stdout EOF and all stderr EOF are normal. Initialization, request correlation,
-decoding, diagnostics retention, logging, and redaction remain the
-responsibility of later transport layers.
+stdout EOF and all stderr EOF are normal.
+
+`RailgunRPCClient` owns one transport/process generation above those raw
+streams. `start()` sends `initialize-<generation>` for RPC v1 with
+`clientName: "railgunx"`, requires `sessions`, `interaction.approval`, and
+`interaction.clarification`, retains all negotiated capabilities, then requires
+a successful `get_state` readiness probe within a 15-second startup budget.
+Ordinary callers provide a JSON-object payload with `type` and no `id`; the
+client assigns `request-<generation>-<sequence>`, correlates only the matched
+response, and returns its raw response object. Each call supplies its own
+timeout. Cancellation, timeout, malformed/mismatched responses, EOF, process
+exit, restart, and shutdown settle or discard only the affected generation's
+work; late and stale-generation frames are ignored.
+
+The client uses `RailgunTransportConfiguration.rpcCompatible`, which retains
+validated stdout bursts until the RPC reader consumes them. This is intentional:
+backends may emit several event frames before a correlated response. Frame and
+unfinished-buffer byte limits remain in force. DTO decoding, event
+normalization, diagnostics retention, logging, and redaction remain the
+responsibility of SWFT-017 and later layers.
 
 Stdout framing is byte-based: `\n` terminates a frame, blank lines are ignored,
 and the `\r` in a CRLF terminator is removed. Each `stdoutFrames` element is

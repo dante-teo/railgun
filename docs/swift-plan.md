@@ -230,7 +230,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 - [x] `SWFT-013` — Add Debug source-backend and mock-backend launch configurations. `[5h]`
 - [x] `SWFT-014` — Implement the backend `Process` lifecycle actor, pipes, graceful termination, and forced termination. `[8h]`
 - [x] `SWFT-015` — Implement bounded JSONL framing with frame, buffer, malformed-output, EOF, and stderr handling. `[8h]`
-- [ ] `SWFT-016` — Implement initialization, capabilities, request IDs, response matching, timeouts, and stale-generation rejection. `[8h]`
+- [x] `SWFT-016` — Implement initialization, capabilities, request IDs, response matching, timeouts, and stale-generation rejection. `[8h]`
 - [ ] `SWFT-017` — Port RPC DTOs, validation limits, redaction, and safe diagnostic summaries to Swift. `[8h]`
 - [ ] `SWFT-018` — Port event normalization for messages, tools, todos, advisor, MoA, subagents, queues, and context usage. `[8h]`
 - [ ] `SWFT-019` — Implement approval and clarification correlation, ordering, settlement, and invalid-response handling. `[6h]`

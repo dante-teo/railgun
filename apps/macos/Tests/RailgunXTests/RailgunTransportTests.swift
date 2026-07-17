@@ -9,7 +9,7 @@ final class RailgunTransportTests: XCTestCase {
             script: #"$| = 1; print STDOUT "{\"first\":"; select undef, undef, undef, 0.01; print STDOUT "1}\n{\"second\":2}\n\n{\"third\":3}\r\n";"#
         )
 
-        let frames = try await collectFrames(from: transport.transport)
+        let frames = try await Self.collectFrames(from: transport.transport)
 
         XCTAssertEqual(
             frames,
@@ -102,10 +102,8 @@ final class RailgunTransportTests: XCTestCase {
 
     func testCleanEOFAndPartialFinalFrameAreDistinct() async throws {
         let cleanTransport = try await startTransport(script: #"print STDOUT "{\"ok\":true}\n";"#)
-        XCTAssertEqual(
-            try await collectFrames(from: cleanTransport.transport),
-            [Data(#"{"ok":true}"#.utf8)]
-        )
+        let cleanFrames = try await Self.collectFrames(from: cleanTransport.transport)
+        XCTAssertEqual(cleanFrames, [Data(#"{"ok":true}"#.utf8)])
         _ = await cleanTransport.backend.waitForTermination()
 
         try await assertStdoutFailure(
@@ -120,13 +118,15 @@ final class RailgunTransportTests: XCTestCase {
             configuration: RailgunTransportConfiguration(stderrReadChunkBytes: 4)
         )
 
-        async let frames = collectFrames(from: transport.transport)
-        async let stderrChunks = collectStderrChunks(from: transport.transport)
-        XCTAssertEqual(try await frames, [Data(#"{"ready":true}"#.utf8)])
+        async let frames = Self.collectFrames(from: transport.transport)
+        async let stderrChunks = Self.collectStderrChunks(from: transport.transport)
+        let stdoutFrames = try await frames
+        XCTAssertEqual(stdoutFrames, [Data(#"{"ready":true}"#.utf8)])
         let stderr = await stderrChunks
         XCTAssertTrue(stderr.allSatisfy { $0.count <= 4 })
         XCTAssertEqual(stderr.reduce(into: Data()) { $0.append($1) }, Data("first second".utf8))
-        XCTAssertEqual((await transport.backend.waitForTermination())?.status, 0)
+        let termination = await transport.backend.waitForTermination()
+        XCTAssertEqual(termination?.status, 0)
     }
 
     func testCloseFinishesStreamsAndContinuesDrainingWithoutTerminatingTheBackend() async throws {
@@ -136,8 +136,8 @@ final class RailgunTransportTests: XCTestCase {
 
         await transport.transport.close()
 
-        _ = try await collectFrames(from: transport.transport)
-        _ = await collectStderrChunks(from: transport.transport)
+        _ = try await Self.collectFrames(from: transport.transport)
+        _ = await Self.collectStderrChunks(from: transport.transport)
         try await Task.sleep(for: .milliseconds(100))
         let state = await transport.backend.state
         guard case .running = state else {
@@ -145,7 +145,8 @@ final class RailgunTransportTests: XCTestCase {
         }
 
         await transport.backend.terminate(gracePeriod: .milliseconds(10))
-        XCTAssertEqual((await transport.backend.waitForTermination())?.reason, .uncaughtSignal)
+        let termination = await transport.backend.waitForTermination()
+        XCTAssertEqual(termination?.reason, .uncaughtSignal)
     }
 
     private func assertStdoutFailure(
@@ -156,7 +157,7 @@ final class RailgunTransportTests: XCTestCase {
         let transport = try await startTransport(script: script, configuration: configuration)
 
         do {
-            _ = try await collectFrames(from: transport.transport)
+            _ = try await Self.collectFrames(from: transport.transport)
             XCTFail("Expected stdout to fail with \(expected)")
         } catch let error as RailgunTransportError {
             XCTAssertEqual(error, expected)
@@ -178,7 +179,7 @@ final class RailgunTransportTests: XCTestCase {
         return (backend, RailgunTransport(pipes: pipes, configuration: configuration))
     }
 
-    private func collectFrames(from transport: RailgunTransport) async throws -> [Data] {
+    private static func collectFrames(from transport: RailgunTransport) async throws -> [Data] {
         var frames: [Data] = []
         for try await frame in transport.stdoutFrames {
             frames.append(frame)
@@ -186,7 +187,7 @@ final class RailgunTransportTests: XCTestCase {
         return frames
     }
 
-    private func collectStderrChunks(from transport: RailgunTransport) async -> [Data] {
+    private static func collectStderrChunks(from transport: RailgunTransport) async -> [Data] {
         var chunks: [Data] = []
         for await chunk in transport.stderrChunks {
             chunks.append(chunk)

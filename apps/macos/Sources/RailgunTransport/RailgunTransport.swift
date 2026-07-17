@@ -10,11 +10,18 @@ import Foundation
 public struct RailgunTransportConfiguration: Sendable, Equatable {
     public static let electronCompatible = Self()
 
+    /// Keeps every validated stdout frame until the RPC coordinator consumes
+    /// it. RPC output may legitimately contain a burst of events before its
+    /// correlated response, so a bounded queue would mistake that burst for a
+    /// stalled consumer.
+    public static let rpcCompatible = Self(usesUnboundedStdoutFrameBuffer: true)
+
     public let maximumStdoutFrameBytes: Int
     public let maximumStdoutBufferBytes: Int
     public let stdoutReadChunkBytes: Int
     public let stderrReadChunkBytes: Int
     public let stdoutFrameBufferCapacity: Int
+    public let usesUnboundedStdoutFrameBuffer: Bool
     public let stderrChunkBufferCapacity: Int
 
     public init(
@@ -23,6 +30,7 @@ public struct RailgunTransportConfiguration: Sendable, Equatable {
         stdoutReadChunkBytes: Int = 64 * 1024,
         stderrReadChunkBytes: Int = 64 * 1024,
         stdoutFrameBufferCapacity: Int = 1,
+        usesUnboundedStdoutFrameBuffer: Bool = false,
         stderrChunkBufferCapacity: Int = 64
     ) {
         precondition(maximumStdoutFrameBytes > 0, "The stdout frame limit must be positive.")
@@ -37,6 +45,7 @@ public struct RailgunTransportConfiguration: Sendable, Equatable {
         self.stdoutReadChunkBytes = stdoutReadChunkBytes
         self.stderrReadChunkBytes = stderrReadChunkBytes
         self.stdoutFrameBufferCapacity = stdoutFrameBufferCapacity
+        self.usesUnboundedStdoutFrameBuffer = usesUnboundedStdoutFrameBuffer
         self.stderrChunkBufferCapacity = stderrChunkBufferCapacity
     }
 }
@@ -83,9 +92,11 @@ public actor RailgunTransport {
         standardError = pipes.standardError
 
         var capturedStdoutContinuation: AsyncThrowingStream<Data, Error>.Continuation!
-        stdoutFrames = AsyncThrowingStream(
-            bufferingPolicy: .bufferingOldest(configuration.stdoutFrameBufferCapacity)
-        ) {
+        let stdoutBufferingPolicy: AsyncThrowingStream<Data, Error>.Continuation.BufferingPolicy =
+            configuration.usesUnboundedStdoutFrameBuffer
+                ? .unbounded
+                : .bufferingOldest(configuration.stdoutFrameBufferCapacity)
+        stdoutFrames = AsyncThrowingStream(bufferingPolicy: stdoutBufferingPolicy) {
             capturedStdoutContinuation = $0
         }
         stdoutContinuation = capturedStdoutContinuation
@@ -222,8 +233,10 @@ public actor RailgunTransport {
 
             switch stdoutContinuation.yield(Data(frame)) {
             case .dropped:
-                failStdout(.stdoutFrameBufferOverflow(limit: configuration.stdoutFrameBufferCapacity))
-                return
+                if !configuration.usesUnboundedStdoutFrameBuffer {
+                    failStdout(.stdoutFrameBufferOverflow(limit: configuration.stdoutFrameBufferCapacity))
+                    return
+                }
             case .enqueued, .terminated:
                 break
             @unknown default:
