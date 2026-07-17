@@ -66,9 +66,10 @@ not a second behavior path.
 
 ### App structure and concurrency
 
-Use the SwiftUI app lifecycle with a primary window, a `Settings` scene, native
-commands, state restoration, and a documented minimum window size. Feature
-state uses `@Observable @MainActor`. Process, transport, filesystem,
+Use the SwiftUI app lifecycle with a primary window, a `Settings` scene, the
+standard Settings command, state restoration, and a documented minimum window
+size. Feature commands are deferred to `SWFT-037`. Feature state uses
+`@Observable @MainActor`. Process, transport, filesystem,
 authentication, automation, and update work belongs in actors so ownership and
 cancellation are explicit.
 
@@ -201,7 +202,7 @@ eight hours.
 - [x] `SWFT-002` — Add reproducible XcodeGen generation and validation scripts; exclude generated projects from source control. `[4h]`
 - [x] `SWFT-003` — Configure SwiftPM and commit resolved pins for Swift Markdown and Sparkle. `[4h]`
 - [x] `SWFT-004` — Establish app, core, transport, services, `RailgunUI`, and test-support module boundaries. `[6h]`
-- [ ] `SWFT-005` — Build the SwiftUI lifecycle, primary window, Settings scene, commands, restoration, and minimum sizing. `[8h]`
+- [x] `SWFT-005` — Build the SwiftUI lifecycle, primary window, Settings scene, standard Settings command, restoration, and minimum sizing. `[8h]`
 - [ ] `SWFT-006` — Add semantic system color, typography, spacing, material, focus, and motion definitions without replacing native control styling. `[8h]`
 - [ ] `SWFT-007` — Design the new native Railgun icon system and deliver editable masters plus a 1024×1024 production source. `[8h]`
 - [ ] `SWFT-008` — Add the AppIcon asset catalog, required sizes, XcodeGen settings, and Dock/Finder/About/notification validation. `[6h]`

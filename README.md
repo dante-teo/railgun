@@ -109,6 +109,15 @@ The current scaffolding intentionally exposes no module APIs. Swift Markdown
 and Sparkle remain application packaging dependencies until a later milestone
 assigns an API owner.
 
+### Native lifecycle shell
+
+RailgunX currently provides one restorable primary SwiftUI scene, identified as
+`primary`. It opens at 1024×700, enforces a 760×520 content minimum, and remains
+user-resizable above that minimum. The native `Settings` scene provides the
+standard macOS Settings command; it is intentionally a non-interactive
+placeholder until the Task alpha. Feature commands and editable preferences are
+deferred to their assigned Swift milestones.
+
 Validate deterministic generation, clean-cache package resolution, the
 checked-in lockfile, build, and tests with:
 
