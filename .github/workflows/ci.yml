@@ -66,6 +66,9 @@ jobs:
       - name: Validate staged Node runtimes
         run: apps/macos/scripts/validate-node-runtime.sh
 
+      - name: Validate native backend staging
+        run: apps/macos/scripts/validate-backend.sh
+
       - name: Install Electron binary
         uses: ./.github/actions/install-electron
 

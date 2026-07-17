@@ -85,6 +85,9 @@ importers:
       '@types/write-file-atomic':
         specifier: ^4.0.3
         version: 4.0.3
+      node-gyp:
+        specifier: 12.4.0
+        version: 12.4.0
       tsx:
         specifier: ^4.19.2
         version: 4.23.0

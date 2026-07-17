@@ -7,6 +7,7 @@ generate_project="$script_dir/generate-project.sh"
 validate_app_icon="$script_dir/validate-app-icon-assets.sh"
 validate_legal_notices="$script_dir/generate-legal-notices.mjs"
 validate_node_runtime="$script_dir/validate-node-runtime.sh"
+validate_backend="$script_dir/validate-backend.sh"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -52,6 +53,7 @@ require_command xcodebuild
 require_command node
 "$validate_app_icon"
 "$validate_node_runtime"
+"$validate_backend"
 node "$validate_legal_notices" --check
 "$generate_project" "$first_output"
 "$generate_project" "$second_output"
@@ -78,6 +80,7 @@ fi
 build_scheme build
 
 "$validate_app_icon" "$derived_data/Build/Products/Debug/RailgunX.app"
+"$validate_backend" --app-bundle "$derived_data/Build/Products/Debug/RailgunX.app"
 
 if [[ ! -d "$sparkle_framework" ]]; then
   printf 'error: Sparkle.framework was not embedded in the generated app bundle.\n' >&2

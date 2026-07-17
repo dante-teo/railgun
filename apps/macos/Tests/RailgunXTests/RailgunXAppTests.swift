@@ -65,6 +65,32 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(runScript.contains("launch_arguments"))
     }
 
+    func testNativeBackendStagingContractUsesTheTargetArchitectureAndAtomicPayload() throws {
+        let stagingScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/stage-backend.sh")
+        let validationScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-backend.sh")
+        let projectURL = repositoryRoot.appendingPathComponent("apps/macos/project.yml")
+        let stagingScript = try String(contentsOf: stagingScriptURL, encoding: .utf8)
+        let validationScript = try String(contentsOf: validationScriptURL, encoding: .utf8)
+        let project = try String(contentsOf: projectURL, encoding: .utf8)
+
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: stagingScriptURL.path))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: validationScriptURL.path))
+        XCTAssertTrue(stagingScript.contains("\"$staged_node\" \"$pnpm_cli\" --dir \"$repository_root\""))
+        XCTAssertTrue(stagingScript.contains("node_gyp_script=\"$repository_root/node_modules/node-gyp/bin/node-gyp.js\""))
+        XCTAssertTrue(stagingScript.contains("npm_config_build_from_source=true"))
+        XCTAssertTrue(stagingScript.contains("--nodedir=\"$staged_node_root\""))
+        XCTAssertTrue(stagingScript.contains("optional native dependencies are"))
+        XCTAssertTrue(stagingScript.contains("sqlite-vec-darwin-$darwin_arch/vec0.dylib"))
+        XCTAssertTrue(stagingScript.contains("mv \"$staging_backend\" \"$output/backend\""))
+        XCTAssertTrue(validationScript.contains("for architecture in arm64 x86_64"))
+        XCTAssertTrue(validationScript.contains("better-sqlite3"))
+        XCTAssertTrue(validationScript.contains("sqliteVec.load(database)"))
+        XCTAssertTrue(project.contains("preBuildScripts:"))
+        XCTAssertTrue(project.contains("architecture=\"${CURRENT_ARCH:-}\""))
+        XCTAssertTrue(project.contains("--architecture \"$architecture\""))
+        XCTAssertTrue(project.contains("UNLOCALIZED_RESOURCES_FOLDER_PATH"))
+    }
+
     func testLegalNoticesAreBundledWithTheApplication() throws {
         XCTAssertNotNil(LegalNotices.noticesURL)
         XCTAssertNotNil(LegalNotices.manifestURL)

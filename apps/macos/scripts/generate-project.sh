@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
+repository_root="$(cd "$project_root/../.." && pwd)"
 version_file="$project_root/.xcodegen-version"
 lockfile="$project_root/Package.resolved"
 
@@ -57,6 +58,18 @@ seed_package_lockfile() {
   cp "$lockfile" "$generated_lockfile"
 }
 
+seed_backend_staging_inputs() {
+  local scripts_directory="$output_directory/scripts"
+  local runtime_directory="$output_directory/Runtime"
+
+  mkdir -p "$scripts_directory" "$runtime_directory"
+  cp "$project_root/scripts/stage-backend.sh" "$scripts_directory/stage-backend.sh"
+  cp "$project_root/scripts/stage-node-runtime.sh" "$scripts_directory/stage-node-runtime.sh"
+  cp "$project_root/Runtime/node-runtime.json" "$runtime_directory/node-runtime.json"
+  printf '%s\n' "$repository_root" > "$scripts_directory/.railgun-source-root"
+  chmod +x "$scripts_directory/stage-backend.sh" "$scripts_directory/stage-node-runtime.sh"
+}
+
 if [[ $# -ne 1 ]]; then
   usage
 fi
@@ -72,3 +85,4 @@ xcodegen generate \
   --project "$output_directory"
 
 seed_package_lockfile
+seed_backend_staging_inputs

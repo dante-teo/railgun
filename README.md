@@ -131,8 +131,50 @@ The complete distribution is staged at `build/runtime-arm64/node`. The command
 refuses to replace an existing `node` output and verifies the archive checksum,
 LICENSE, Node version, archive layout, and Mach-O architecture before staging.
 `validate-node-runtime.sh` exercises both `arm64` and `x86_64`; it runs from
-`validate-project.sh` and native CI. Adding the staged runtime to the app bundle
-and validating the bundled backend remain SWFT-012 work.
+`validate-project.sh` and native CI.
+
+### Native backend staging
+
+The production native backend is staged with the matching runtime and a fresh
+`better-sqlite3` build:
+
+```sh
+apps/macos/scripts/stage-backend.sh \
+  --architecture arm64 \
+  --output build/native-resources
+```
+
+The output layout is:
+
+```text
+build/native-resources/backend/node
+build/native-resources/backend/railgun/dist/backend.js
+build/native-resources/backend/railgun/node_modules/...
+```
+
+Each artifact is single-architecture. The stager deploys only the backend's
+production dependency closure, removes type-only automatic peers, stages the
+pinned Node 24 runtime, and invokes the direct exact root `node-gyp` dependency
+with that runtime's headers. It deletes any downloaded `better-sqlite3`
+prebuild before compiling, then loads both `better-sqlite3` and the
+architecture-specific `sqlite-vec` extension under the staged Node ABI. The
+production deploy runs under the staged runtime so pnpm selects optional native
+dependencies for the requested architecture. On Apple silicon, x86_64 staging
+requires Rosetta 2 and an Xcode Command Line Tools installation capable of
+running x86_64 build tools; both architectures also require `pnpm`, Python 3,
+`make`, and `clang++`.
+
+Validate both isolated architecture payloads with:
+
+```sh
+apps/macos/scripts/validate-backend.sh
+```
+
+The generated Xcode project runs the same stager in a pre-signing build phase,
+passing `CURRENT_ARCH` and the app's Resources directory. A Debug app therefore
+contains `Contents/Resources/backend/node` and
+`Contents/Resources/backend/railgun`; `validate-project.sh` validates that final
+bundle in addition to isolated staging.
 
 ### Native module boundaries
 

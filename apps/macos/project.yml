@@ -83,6 +83,27 @@ targets:
         # XcodeGen's generic Embed Frameworks phase cannot infer Sparkle's
         # binary-package .framework extension; embed it explicitly below.
         embed: false
+    preBuildScripts:
+      - name: Stage Railgun Backend
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          stage_script="${SRCROOT}/scripts/stage-backend.sh"
+          resources_directory="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+
+          if [[ ! -x "$stage_script" ]]; then
+            echo "error: backend staging script is missing or not executable: $stage_script" >&2
+            exit 1
+          fi
+
+          architecture="${CURRENT_ARCH:-}"
+          if [[ -z "$architecture" || "$architecture" == "undefined_arch" ]]; then
+            architecture="${ARCHS%% *}"
+          fi
+
+          "$stage_script" \
+            --architecture "$architecture" \
+            --output "$resources_directory"
     postBuildScripts:
       - name: Embed Sparkle Framework
         basedOnDependencyAnalysis: false

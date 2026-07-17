@@ -86,9 +86,12 @@ Bundled Railgun TypeScript backend
 ### Backend packaging and RPC
 
 Bundle a pinned Node 24 LTS runtime, the production backend, production
-dependencies, third-party licenses, and an architecture-matched
-`better-sqlite3`. Staging verifies runtime checksums, Node ABI compatibility,
-backend startup, and architecture before signing.
+dependencies, third-party licenses, and architecture-matched native modules
+including `better-sqlite3` and `sqlite-vec`. The production dependency deploy
+runs under the staged Node runtime so optional native packages match the
+artifact architecture. Staging verifies runtime checksums, Node ABI
+compatibility, native extension loading, backend startup, and architecture
+before signing.
 
 Initialize RPC v1 with `clientName: "railgunx"`. Preserve existing commands and
 capabilities. Transport must bound frames and buffers, reject malformed output,
@@ -223,7 +226,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 ### 2. Backend packaging and shared runtime
 
 - [x] `SWFT-011` — Add an architecture-aware staging script for the pinned Node 24 LTS runtime, checksums, and licenses. `[8h]`
-- [ ] `SWFT-012` — Deploy the backend and rebuild/verify `better-sqlite3` against the bundled Node ABI. `[8h]`
+- [x] `SWFT-012` — Deploy the production backend closure, select architecture-matched optional native packages, and rebuild/verify `better-sqlite3` and `sqlite-vec` against the bundled Node runtime. `[8h]`
 - [ ] `SWFT-013` — Add Debug source-backend and mock-backend launch configurations. `[5h]`
 - [ ] `SWFT-014` — Implement the backend `Process` lifecycle actor, pipes, graceful termination, and forced termination. `[8h]`
 - [ ] `SWFT-015` — Implement bounded JSONL framing with frame, buffer, malformed-output, EOF, and stderr handling. `[8h]`

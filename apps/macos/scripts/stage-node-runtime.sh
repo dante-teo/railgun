@@ -110,8 +110,9 @@ actual_archive_sha256="$(sha256 "$archive_path")"
 
 archive_root="${archive_name%.tar.xz}"
 if ! tar -tJf "$archive_path" | awk -v root="$archive_root" '
-  $0 != root && $0 != root "/" && index($0, root "/") != 1 { exit 1 }
-  $0 ~ /^\// || $0 ~ /(^|\/)\.\.?(\/|$)/ { exit 1 }
+  $0 != root && $0 != root "/" && index($0, root "/") != 1 { invalid = 1 }
+  $0 ~ /^\// || $0 ~ /(^|\/)\.\.?(\/|$)/ { invalid = 1 }
+  END { exit invalid }
 '; then
   fail "Node runtime archive has an unexpected or unsafe layout."
 fi
