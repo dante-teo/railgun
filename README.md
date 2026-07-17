@@ -188,9 +188,27 @@ active or latest process.
 `terminate()` closes stdin, sends `SIGTERM`, and sends `SIGKILL` only if that
 same process remains alive after its grace period (two seconds by default).
 `forceTerminate()` sends `SIGKILL` immediately; `shutdown()` combines graceful
-termination with waiting for the recorded result. This layer deliberately
-exposes raw pipes only: bounded JSONL framing, stderr handling, redaction, and
-RPC correlation belong to the following transport milestones.
+termination with waiting for the recorded result.
+
+`RailgunTransport` concurrently consumes those raw output pipes. It exposes
+validated stdout JSON-object frames as raw `Data` and opaque, bounded stderr
+chunks through independent async streams. Its Electron-compatible defaults cap
+each stdout frame at 4 MiB, an unfinished stdout buffer at 8 MiB, one queued
+stdout frame, and 64 queued stderr chunks. A slow stdout consumer therefore
+fails the stdout stream instead of retaining unbounded output; stderr remains
+best-effort. Malformed, non-object, oversized, unreadable, or partial-at-EOF
+stdout also fails that stream. Closing the transport finishes public streams
+but continues draining pipes so it cannot signal the active backend. Clean
+stdout EOF and all stderr EOF are normal. Initialization, request correlation,
+decoding, diagnostics retention, logging, and redaction remain the
+responsibility of later transport layers.
+
+Stdout framing is byte-based: `\n` terminates a frame, blank lines are ignored,
+and the `\r` in a CRLF terminator is removed. Each `stdoutFrames` element is
+the original JSON-object bytes; malformed JSON and syntactically valid
+non-object JSON are distinct terminal errors. `stderrChunks` is deliberately
+opaque and best-effort, so diagnostics policy can be added without changing
+the transport boundary.
 
 ### Native module boundaries
 
