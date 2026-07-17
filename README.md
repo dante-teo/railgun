@@ -168,6 +168,10 @@ SwiftUI materials; they do not replace native control styling. Continue to use
 native `Button`, `List`, `TextField`, `Toggle`, menus, sheets, and focus
 behavior without custom control chrome.
 
+The [native-first UI policy](docs/native-ui-policy.md) defines the required
+customization decision record, approved AppKit bridge inventory, shared
+component governance, and validation and retirement requirements.
+
 - `RailgunColorRole` provides accent, text, destructive, separator, canvas,
   and surface colors. Use its `color` value—for example,
   `RailgunColorRole.secondaryText.color`—rather than fixed color values.

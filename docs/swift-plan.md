@@ -119,6 +119,11 @@ Railgun only during final replacement.
 
 ## Native UI implementation contract
 
+The [native-first UI policy](native-ui-policy.md) is the operational reference
+for customization decisions, approved AppKit bridges, shared-component
+governance, validation, and retirement. This section records the roadmap-level
+contract it enforces.
+
 ### Native-first rule
 
 Start with native SwiftUI components: `NavigationSplitView`, `List`, `Table`,
@@ -208,7 +213,7 @@ eight hours.
 - [x] `SWFT-008` — Add the AppIcon asset catalog, required sizes, XcodeGen settings, and Dock/Finder/About/notification validation. `[6h]`
 - [x] `SWFT-009` — Add deterministic backend mocks, isolated temporary homes, fixtures, and XCTest helpers. `[8h]`
 - [x] `SWFT-010` — Record Swift dependency, Node runtime, artwork, and bundled-backend license notices. `[4h]`
-- [ ] `SWFT-081` — Create the native-first component policy, customization decision template, and inventory of approved AppKit bridges. `[5h]`
+- [x] `SWFT-081` — Create the native-first component policy, customization decision template, and inventory of approved AppKit bridges. `[5h]`
 - [ ] `SWFT-082` — Build the shared custom-component foundation with explicit variants, previews, accessibility contracts, and no feature-local substitutes. `[8h]`
 
 Milestone exit: the generated project builds reproducibly, launches a signed
