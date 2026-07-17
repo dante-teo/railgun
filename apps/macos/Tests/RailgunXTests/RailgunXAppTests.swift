@@ -123,8 +123,19 @@ final class RailgunXAppTests: XCTestCase {
             "--check"
         ]
         process.currentDirectoryURL = repositoryRoot
-        process.environment = ProcessInfo.processInfo.environment.merging(
-            ["RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES": "1"],
+        let inheritedEnvironment = ProcessInfo.processInfo.environment
+        let nodeSearchPath = [
+            inheritedEnvironment["PATH"],
+            "/opt/homebrew/bin",
+            "/usr/local/bin"
+        ]
+        .compactMap { $0 }
+        .joined(separator: ":")
+        process.environment = inheritedEnvironment.merging(
+            [
+                "PATH": nodeSearchPath,
+                "RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES": "1"
+            ],
             uniquingKeysWith: { _, replacement in replacement }
         )
 

@@ -74,6 +74,31 @@ explicit enums and configuration values for their supported variants; do not
 encode variants through feature-local modifier stacks or combinations of
 booleans.
 
+`RailgunCustomComponentRegistry.components` is the typed source of truth for
+these reusable custom components. It starts empty deliberately: native SwiftUI
+compositions in a feature do not need a registry entry, and no shared custom
+control should be added until it has completed the workflow below. Contract and
+registry declarations belong only in `Sources/RailgunUI`; the automated source
+audit enforces that ownership without restricting ordinary feature-local
+SwiftUI composition.
+
+Before introducing a reusable custom component:
+
+1. Complete the customization decision record above in the feature
+   documentation.
+2. Add a `RailgunCustomComponentSpecification` in `RailgunUI`, including its
+   stable ID, `RailgunUI` source path, supported variants and states,
+   customization rationale, macOS 15 native-API limitation, retirement
+   trigger, preview matrix, and accessibility contract.
+3. Register the specification in `RailgunCustomComponentRegistry.components`.
+4. Use `RailgunCustomComponentPreviewMatrixView` in the component's `#Preview`
+   declarations so every declared variant, state, appearance, accessibility
+   condition, and relevant width renders consistently. Declare every variant,
+   state, preview condition, and width exactly once; duplicate axes create
+   duplicate preview identities and are rejected by the validator.
+5. Add focused contract tests for the component before relying on it from a
+   feature.
+
 Use the existing `RailgunUI` semantic design roles for colors, typography,
 spacing, materials, focus, and motion. These roles support native appearance;
 they do not authorize replacement control styling. Feature code supplies
@@ -84,8 +109,11 @@ content and state, not component-local colors or arbitrary geometry.
 Every custom component must include documented previews for every supported
 variant, light and dark appearance, increased contrast, reduced transparency,
 reduced motion, long content, error, loading, disabled states, and relevant
-window widths. Interactive components must also have focused coverage of
-keyboard behavior, focus, VoiceOver, accessible names, and state changes.
+window widths. `RailgunCustomComponentValidator` checks this declaration
+deterministically in XCTest, including duplicate variants, states, preview
+conditions, and widths. Interactive components must also have focused coverage
+of keyboard behavior, focus, VoiceOver, accessible names, state changes, and
+reduced motion.
 
 When a supported native API becomes sufficient, migrate to it and remove the
 custom component or AppKit bridge. Update the decision record to show that the

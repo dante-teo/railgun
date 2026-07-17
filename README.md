@@ -129,8 +129,9 @@ dependencies. `RailgunX` is the application composition root:
 - `RailgunX` depends on Core, Transport, Services, and UI.
 
 `RailgunUI` currently exposes the shared native design definitions described
-below. Swift Markdown and Sparkle remain application packaging dependencies
-until a later milestone assigns an API owner.
+below, plus the empty custom-component registry and its contract foundation.
+Swift Markdown and Sparkle remain application packaging dependencies until a
+later milestone assigns an API owner.
 
 ### Native deterministic test infrastructure
 
@@ -172,6 +173,14 @@ The [native-first UI policy](docs/native-ui-policy.md) defines the required
 customization decision record, approved AppKit bridge inventory, shared
 component governance, and validation and retirement requirements.
 
+Reusable custom controls are an exception, not a replacement for native
+SwiftUI composition. Before adding one, complete the policy decision record,
+define and register a `RailgunCustomComponentSpecification` in `RailgunUI`,
+use `RailgunCustomComponentPreviewMatrixView` for its `#Preview` matrix, and
+add focused contract tests. `RailgunCustomComponentRegistry.components` starts
+empty by design; feature-local compositions using native SwiftUI controls do
+not belong in it.
+
 - `RailgunColorRole` provides accent, text, destructive, separator, canvas,
   and surface colors. Use its `color` value—for example,
   `RailgunColorRole.secondaryText.color`—rather than fixed color values.
@@ -187,6 +196,10 @@ component governance, and validation and retirement requirements.
 - `RailgunMotion.animation(reduceMotion:)` returns no animation when reduced
   motion is enabled. Pass SwiftUI's `accessibilityReduceMotion` environment
   value to it instead of branching on a global setting.
+- `RailgunCustomComponentValidator` provides deterministic contract failures
+  for XCTest, including required preview coverage, unique preview axes, and
+  interactive-accessibility requirements. Keep component contracts and the
+  registry in `RailgunUI`.
 
 ### Native lifecycle shell
 

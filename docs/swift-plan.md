@@ -214,7 +214,7 @@ eight hours.
 - [x] `SWFT-009` — Add deterministic backend mocks, isolated temporary homes, fixtures, and XCTest helpers. `[8h]`
 - [x] `SWFT-010` — Record Swift dependency, Node runtime, artwork, and bundled-backend license notices. `[4h]`
 - [x] `SWFT-081` — Create the native-first component policy, customization decision template, and inventory of approved AppKit bridges. `[5h]`
-- [ ] `SWFT-082` — Build the shared custom-component foundation with explicit variants, previews, accessibility contracts, and no feature-local substitutes. `[8h]`
+- [x] `SWFT-082` — Build the shared custom-component foundation with explicit variants, previews, accessibility contracts, and no feature-local substitutes. `[8h]`
 
 Milestone exit: the generated project builds reproducibly, launches a signed
 development shell, has its permanent icon source and assets, and provides
