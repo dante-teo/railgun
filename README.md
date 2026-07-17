@@ -171,6 +171,27 @@ contains `Contents/Resources/backend/node` and
 `Contents/Resources/backend/railgun`; `validate-project.sh` validates that final
 bundle in addition to isolated staging.
 
+### Native backend process lifecycle
+
+`RailgunTransport.BackendProcess` is the sole owner of one native backend child
+process and its standard-input, standard-output, and standard-error pipes.
+Start it with `BackendProcessLaunch`, which supplies the executable URL,
+arguments, optional working directory, and optional environment. A successful
+launch returns `BackendProcessPipes`; callers assign one input writer and one
+reader to each output pipe.
+
+The actor rejects concurrent launches, reports `idle`, `running`, or the most
+recent `exited` state, and can be reused after either a failed launch or a
+recorded exit. `waitForTermination()` returns the exit reason and status for the
+active or latest process.
+
+`terminate()` closes stdin, sends `SIGTERM`, and sends `SIGKILL` only if that
+same process remains alive after its grace period (two seconds by default).
+`forceTerminate()` sends `SIGKILL` immediately; `shutdown()` combines graceful
+termination with waiting for the recorded result. This layer deliberately
+exposes raw pipes only: bounded JSONL framing, stderr handling, redaction, and
+RPC correlation belong to the following transport milestones.
+
 ### Native module boundaries
 
 `apps/macos/project.yml` defines static-library modules and their one-way
