@@ -67,6 +67,8 @@ targets:
     platform: macOS
     sources:
       - path: Sources/RailgunX
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
     dependencies:
       - target: RailgunCore
       - target: RailgunTransport
@@ -105,6 +107,9 @@ targets:
         PRODUCT_NAME: RailgunX
         PRODUCT_BUNDLE_PACKAGE_TYPE: APPL
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleIconName: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: RailgunX
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
       configs:
         Debug:

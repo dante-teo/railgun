@@ -14,7 +14,8 @@ project_root="$repo_root/apps/macos"
 build_root="${RAILGUNX_BUILD_ROOT:-${TMPDIR:-/tmp}/railgunx}"
 project_dir="$build_root/project"
 derived_data_dir="$build_root/DerivedData"
-app_executable="$derived_data_dir/Build/Products/Debug/RailgunX.app/Contents/MacOS/RailgunX"
+app_bundle="$derived_data_dir/Build/Products/Debug/RailgunX.app"
+app_executable="$app_bundle/Contents/MacOS/RailgunX"
 
 require_command xcodebuild
 "$project_root/scripts/generate-project.sh" "$project_dir"
@@ -26,9 +27,16 @@ xcodebuild build \
   -destination 'platform=macOS' \
   -derivedDataPath "$derived_data_dir"
 
-if [[ ! -x "$app_executable" ]]; then
-  printf 'error: expected app executable was not produced at %s.\n' "$app_executable" >&2
+if [[ ! -d "$app_bundle" || ! -x "$app_executable" ]]; then
+  printf 'error: expected app bundle was not produced at %s.\n' "$app_bundle" >&2
   exit 1
 fi
 
-exec "$app_executable"
+launch_arguments=()
+if [[ "${RAILGUNX_BACKEND_MODE:-}" == "mock" ]]; then
+  launch_arguments=(--args --railgunx-backend-mode=mock)
+fi
+
+# Launch the bundle through LaunchServices so native About/Dock surfaces resolve
+# the current AppIcon instead of treating the executable as a standalone process.
+exec open -n -W "$app_bundle" "${launch_arguments[@]}"

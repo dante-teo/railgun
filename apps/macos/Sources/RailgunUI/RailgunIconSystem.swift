@@ -5,6 +5,13 @@ public enum RailgunIconAppearance: String, CaseIterable, Sendable {
     case dark
 }
 
+public enum RailgunIconPresentationSurface: String, CaseIterable, Sendable {
+    case dock
+    case finder
+    case about
+    case notification
+}
+
 public struct RailgunIconDesign: Equatable, Sendable {
     public let canvasSize: Int
     public let cornerRadius: Int
@@ -43,6 +50,9 @@ public struct RailgunIconDesign: Equatable, Sendable {
 }
 
 public enum RailgunIconSystem {
+    public static let appIconAssetName = "AppIcon"
+    public static let nativePresentationSurfaces = Set(RailgunIconPresentationSurface.allCases)
+
     public static let production = RailgunIconDesign(
         canvasSize: 1_024,
         cornerRadius: 224,

@@ -62,12 +62,6 @@ final class RailgunDesignSystemTests: XCTestCase {
     }
 
     func testMonochromeMasterPreservesProductionSilhouette() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let assetDirectory = repositoryRoot
             .appendingPathComponent("apps/macos/Resources/RailgunIcon")
         let production = try String(
@@ -93,5 +87,81 @@ final class RailgunDesignSystemTests: XCTestCase {
             XCTAssertTrue(production.contains(geometry), "Production source is missing \(geometry)")
             XCTAssertTrue(monochrome.contains(geometry), "Monochrome master is missing \(geometry)")
         }
+    }
+
+    func testAppIconCatalogContainsEveryRequiredMacOSRepresentation() throws {
+        let appIconDirectory = repositoryRoot
+            .appendingPathComponent("apps/macos/Resources/Assets.xcassets/AppIcon.appiconset")
+        let contents = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: appIconDirectory.appendingPathComponent("Contents.json"))
+        ) as? [String: Any]
+        let images = try XCTUnwrap(contents?["images"] as? [[String: String]])
+        let expectedRepresentations = [
+            (size: "16x16", scale: "1x", filename: "icon_16x16.png", pixels: 16),
+            (size: "16x16", scale: "2x", filename: "icon_16x16@2x.png", pixels: 32),
+            (size: "32x32", scale: "1x", filename: "icon_32x32.png", pixels: 32),
+            (size: "32x32", scale: "2x", filename: "icon_32x32@2x.png", pixels: 64),
+            (size: "128x128", scale: "1x", filename: "icon_128x128.png", pixels: 128),
+            (size: "128x128", scale: "2x", filename: "icon_128x128@2x.png", pixels: 256),
+            (size: "256x256", scale: "1x", filename: "icon_256x256.png", pixels: 256),
+            (size: "256x256", scale: "2x", filename: "icon_256x256@2x.png", pixels: 512),
+            (size: "512x512", scale: "1x", filename: "icon_512x512.png", pixels: 512),
+            (size: "512x512", scale: "2x", filename: "icon_512x512@2x.png", pixels: 1024)
+        ]
+
+        XCTAssertEqual(images.count, expectedRepresentations.count)
+        try expectedRepresentations.forEach { expected in
+            let image = try XCTUnwrap(images.first { $0["filename"] == expected.filename })
+            XCTAssertEqual(image["idiom"], "mac")
+            XCTAssertEqual(image["size"], expected.size)
+            XCTAssertEqual(image["scale"], expected.scale)
+            let imageData = try Data(contentsOf: appIconDirectory.appendingPathComponent(expected.filename))
+            XCTAssertEqual(
+                pngDimensions(imageData),
+                PNGDimensions(width: expected.pixels, height: expected.pixels)
+            )
+        }
+    }
+
+    func testProjectWiresTheAppIconForNativePresentationSurfaces() throws {
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"))
+        XCTAssertTrue(project.contains("INFOPLIST_KEY_CFBundleIconName: AppIcon"))
+    }
+
+    func testNativePresentationSurfacesUseTheBundleAppIcon() {
+        XCTAssertEqual(RailgunIconSystem.appIconAssetName, "AppIcon")
+        XCTAssertEqual(
+            RailgunIconSystem.nativePresentationSurfaces,
+            Set(RailgunIconPresentationSurface.allCases)
+        )
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private struct PNGDimensions: Equatable {
+        let width: Int
+        let height: Int
+    }
+
+    private func pngDimensions(_ data: Data) -> PNGDimensions {
+        guard data.count >= 24, Array(data.prefix(8)) == [137, 80, 78, 71, 13, 10, 26, 10] else {
+            return PNGDimensions(width: 0, height: 0)
+        }
+
+        let width = data[16..<20].reduce(0) { ($0 << 8) | Int($1) }
+        let height = data[20..<24].reduce(0) { ($0 << 8) | Int($1) }
+        return PNGDimensions(width: width, height: height)
     }
 }

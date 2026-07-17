@@ -32,8 +32,16 @@ enum BackendMode: Equatable {
     case real
     case mock
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self = environment["RAILGUNX_BACKEND_MODE"] == "mock" ? .mock : .real
+    private static let mockLaunchArgument = "--railgunx-backend-mode=mock"
+
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = CommandLine.arguments
+    ) {
+        self = environment["RAILGUNX_BACKEND_MODE"] == "mock"
+            || arguments.contains(Self.mockLaunchArgument)
+            ? .mock
+            : .real
     }
 
     var placeholderText: String {

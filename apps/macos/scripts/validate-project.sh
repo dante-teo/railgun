@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 generate_project="$script_dir/generate-project.sh"
+validate_app_icon="$script_dir/validate-app-icon-assets.sh"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -46,6 +47,7 @@ build_scheme() {
 }
 
 require_command xcodebuild
+"$validate_app_icon"
 "$generate_project" "$first_output"
 "$generate_project" "$second_output"
 
@@ -69,6 +71,8 @@ if ! diff -u "$lockfile" "$generated_lockfile"; then
 fi
 
 build_scheme build
+
+"$validate_app_icon" "$derived_data/Build/Products/Debug/RailgunX.app"
 
 if [[ ! -d "$sparkle_framework" ]]; then
   printf 'error: Sparkle.framework was not embedded in the generated app bundle.\n' >&2

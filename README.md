@@ -152,8 +152,12 @@ checked-in lockfile, build, and tests with:
 Launch the native scaffold with `./scripts/run.sh`, or use
 `./scripts/run-mock.sh` to select its deterministic mock-backend placeholder.
 Set `RAILGUNX_BUILD_ROOT` to retain the generated project and derived data in a
-specific location. This mock mode is limited to the native shell until the
-planned transport and backend integration land.
+specific location. Both scripts launch the built `.app` bundle through macOS
+LaunchServices so bundle metadata, including the AppIcon used by About, is
+resolved correctly. Because LaunchServices does not inherit shell environment
+variables, `run-mock.sh` forwards mock mode as the
+`--railgunx-backend-mode=mock` launch argument. This mock mode is limited to the
+native shell until the planned transport and backend integration land.
 
 Run the complete check suite from the repository root with:
 

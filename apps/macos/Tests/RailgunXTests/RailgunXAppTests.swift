@@ -36,4 +36,27 @@ final class RailgunXAppTests: XCTestCase {
     func testUnknownBackendModeUsesTheRealBackend() {
         XCTAssertEqual(BackendMode(environment: ["RAILGUNX_BACKEND_MODE": "unexpected"]), .real)
     }
+
+    func testMockBackendModeCanBeSelectedFromLaunchArguments() {
+        XCTAssertEqual(
+            BackendMode(environment: [:], arguments: ["RailgunX", "--railgunx-backend-mode=mock"]),
+            .mock
+        )
+    }
+
+    func testRunScriptLaunchesTheAppBundleThroughLaunchServices() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let runScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/run.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(runScript.contains("open -n -W \"$app_bundle\""))
+        XCTAssertTrue(runScript.contains("--railgunx-backend-mode=mock"))
+    }
 }
