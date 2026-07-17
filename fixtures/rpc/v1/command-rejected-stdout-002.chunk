@@ -1,0 +1,1 @@
+{"id":"reject-1","type":"response","command":"get_state","success":false,"error":"mock rejected get_state"}

@@ -32,11 +32,10 @@ if [[ ! -d "$app_bundle" || ! -x "$app_executable" ]]; then
   exit 1
 fi
 
-launch_arguments=()
 if [[ "${RAILGUNX_BACKEND_MODE:-}" == "mock" ]]; then
-  launch_arguments=(--args --railgunx-backend-mode=mock)
+  exec open -n -W "$app_bundle" --args --railgunx-backend-mode=mock
 fi
 
 # Launch the bundle through LaunchServices so native About/Dock surfaces resolve
 # the current AppIcon instead of treating the executable as a standalone process.
-exec open -n -W "$app_bundle" "${launch_arguments[@]}"
+exec open -n -W "$app_bundle"

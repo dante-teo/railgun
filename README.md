@@ -109,6 +109,34 @@ dependencies. `RailgunX` is the application composition root:
 below. Swift Markdown and Sparkle remain application packaging dependencies
 until a later milestone assigns an API owner.
 
+### Native deterministic test infrastructure
+
+Native tests must use `TemporaryRailgunHome` from `RailgunTestSupport` rather
+than the developer's real home directory. It creates an empty, unique
+`$HOME/.railgun`, exposes `environment` for process boundaries, and can be
+registered with XCTest teardown through `temporaryRailgunHome()`. Tests must
+never acquire the real client lock or read or write the real `~/.railgun`.
+
+The shared RPC v1 corpus is in `fixtures/rpc/v1/`. Its `manifest.json` is the
+source of truth for both Swift and desktop mock-backend contract tests. A
+scenario contains ordered steps; each step references an exact JSONL request,
+one or more raw stdout-chunk files, delay metadata, and an `open` or `eof`
+terminal state. Preserve those files and their byte boundaries—do not recreate
+the frames through JSON serialization in tests.
+
+The foundational scenarios cover successful initialization, a correlated
+command rejection, malformed stdout, delayed success, and EOF after readiness.
+The EOF scenario deliberately remains open after `initialize`; it returns a
+successful `get_state` response before EOF, matching the desktop
+`disconnect-after-ready` mock lifecycle.
+
+`RPCFixtureLoader` loads this corpus from the test bundle, so Swift tests must
+not derive repository-relative paths. `ScriptedMockBackend` validates the exact
+ordered JSONL input, records received data, and returns the declared raw chunks,
+timing metadata, and terminal state without launching a process or sleeping.
+When adding a foundational protocol case, update the manifest and raw files,
+then add or extend both the Swift and desktop contract tests.
+
 ### Native design foundations
 
 Use `RailgunUI` semantic roles when a SwiftUI feature needs an application

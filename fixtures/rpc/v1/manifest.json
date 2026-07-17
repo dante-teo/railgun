@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "initialize-success",
+      "steps": [
+        {
+          "requestFile": "initialize-success-request.jsonl",
+          "outputs": [
+            { "file": "initialize-success-stdout-001.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        }
+      ]
+    },
+    {
+      "id": "command-rejected",
+      "steps": [
+        {
+          "requestFile": "command-rejected-initialize-request.jsonl",
+          "outputs": [
+            { "file": "command-rejected-stdout-001.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        },
+        {
+          "requestFile": "command-rejected-request.jsonl",
+          "outputs": [
+            { "file": "command-rejected-stdout-002.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        }
+      ]
+    },
+    {
+      "id": "malformed-stdout",
+      "steps": [
+        {
+          "requestFile": "malformed-stdout-request.jsonl",
+          "outputs": [
+            { "file": "malformed-stdout-stdout-001.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        }
+      ]
+    },
+    {
+      "id": "delayed-success",
+      "steps": [
+        {
+          "requestFile": "delayed-success-request.jsonl",
+          "outputs": [
+            { "file": "delayed-success-stdout-001.chunk", "delayMilliseconds": 600 }
+          ],
+          "terminalState": "open"
+        }
+      ]
+    },
+    {
+      "id": "eof-after-initialize",
+      "steps": [
+        {
+          "requestFile": "eof-after-initialize-request.jsonl",
+          "outputs": [
+            { "file": "eof-after-initialize-stdout-001.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        },
+        {
+          "requestFile": "eof-after-initialize-ready-request.jsonl",
+          "outputs": [
+            { "file": "eof-after-initialize-stdout-002.chunk", "delayMilliseconds": 15 }
+          ],
+          "terminalState": "eof"
+        }
+      ]
+    }
+  ]
+}

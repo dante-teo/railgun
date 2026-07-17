@@ -1,0 +1,1 @@
+{"id":"initialize-1","type":"response","command":"initialize","success":true,"data":{"version":1,"capabilities":["sessions","interaction.approval","interaction.clarification","config","mcp","cron","memory","notes","dream","instructions","skills"]}}

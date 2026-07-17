@@ -58,5 +58,6 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(runScript.contains("open -n -W \"$app_bundle\""))
         XCTAssertTrue(runScript.contains("--railgunx-backend-mode=mock"))
+        XCTAssertFalse(runScript.contains("launch_arguments"))
     }
 }

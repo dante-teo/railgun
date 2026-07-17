@@ -1,0 +1,1 @@
+{"id":"delayed-1","type":"response","command":"get_state","success":true,"data":{"running":false,"model":"mock-model","messageCount":0,"todos":[],"protocolVersion":1,"sessionId":"mock-session","startedAt":"2026-07-14T09:00:00.000Z","persistence":"unsaved"}}
