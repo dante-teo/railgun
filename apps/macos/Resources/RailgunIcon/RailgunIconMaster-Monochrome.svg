@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Railgun monochrome icon master</title>
+  <desc>Monochrome segmented orbital rails frame a forward beam.</desc>
+  <rect x="64" y="64" width="896" height="896" rx="224" fill="#111827"/>
+  <rect x="65.5" y="65.5" width="893" height="893" rx="222.5" stroke="#F8FAFC" stroke-opacity="0.22" stroke-width="3"/>
+  <path d="M267 730A360 360 0 0 1 734 242" stroke="#F8FAFC" stroke-opacity="0.92" stroke-width="52" stroke-linecap="butt"/>
+  <path d="M790 312A360 360 0 0 1 320 782" stroke="#CBD5E1" stroke-opacity="0.96" stroke-width="52" stroke-linecap="butt"/>
+  <path d="M267 730A360 360 0 0 1 320 782" stroke="#FFFFFF" stroke-width="52" stroke-linecap="butt"/>
+  <path d="M734 216L816 298L772 342L690 260Z" fill="#FFFFFF"/>
+  <circle cx="512" cy="512" r="128" fill="#111827" stroke="#F8FAFC" stroke-width="40"/>
+  <path d="M459 565L279 745L322 788L504 606L686 424L745 279L600 337L459 478Z" fill="#1F2937" stroke="#CBD5E1" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M304 761L722 303L749 276L719 350L348 782Z" fill="#FFFFFF"/>
+  <path d="M347 743L710 347L724 304L694 363L377 758Z" fill="#CBD5E1"/>
+  <circle cx="512" cy="512" r="84" fill="#FFFFFF"/>
+  <circle cx="512" cy="512" r="66" fill="#111827"/>
+  <path d="M226 718L276 768" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+  <path d="M748 256L798 306" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+</svg>
