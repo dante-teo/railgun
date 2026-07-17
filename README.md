@@ -105,9 +105,33 @@ dependencies. `RailgunX` is the application composition root:
   `RailgunXTests` links it.
 - `RailgunX` depends on Core, Transport, Services, and UI.
 
-The current scaffolding intentionally exposes no module APIs. Swift Markdown
-and Sparkle remain application packaging dependencies until a later milestone
-assigns an API owner.
+`RailgunUI` currently exposes the shared native design definitions described
+below. Swift Markdown and Sparkle remain application packaging dependencies
+until a later milestone assigns an API owner.
+
+### Native design foundations
+
+Use `RailgunUI` semantic roles when a SwiftUI feature needs an application
+appearance decision. They map to macOS system colors, dynamic text styles, and
+SwiftUI materials; they do not replace native control styling. Continue to use
+native `Button`, `List`, `TextField`, `Toggle`, menus, sheets, and focus
+behavior without custom control chrome.
+
+- `RailgunColorRole` provides accent, text, destructive, separator, canvas,
+  and surface colors. Use its `color` value—for example,
+  `RailgunColorRole.secondaryText.color`—rather than fixed color values.
+- `RailgunTypographyRole` provides dynamic system fonts for body, emphasized
+  body, secondary text, titles, section titles, and captions. Apply its `font`
+  value so macOS accessibility settings remain effective.
+- `RailgunSpacing` defines the shared 4, 8, 12, 16, and 24 point scale through
+  its `points` value.
+- `RailgunMaterialRole` selects native regular, bar, thin, and ultra-thick
+  materials for content, sidebars, overlays, and HUD-style surfaces.
+- `RailgunFocusPolicy` deliberately preserves SwiftUI's standard focus effect;
+  do not draw a replacement focus ring.
+- `RailgunMotion.animation(reduceMotion:)` returns no animation when reduced
+  motion is enabled. Pass SwiftUI's `accessibilityReduceMotion` environment
+  value to it instead of branching on a global setting.
 
 ### Native lifecycle shell
 

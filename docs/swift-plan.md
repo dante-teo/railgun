@@ -203,7 +203,7 @@ eight hours.
 - [x] `SWFT-003` — Configure SwiftPM and commit resolved pins for Swift Markdown and Sparkle. `[4h]`
 - [x] `SWFT-004` — Establish app, core, transport, services, `RailgunUI`, and test-support module boundaries. `[6h]`
 - [x] `SWFT-005` — Build the SwiftUI lifecycle, primary window, Settings scene, standard Settings command, restoration, and minimum sizing. `[8h]`
-- [ ] `SWFT-006` — Add semantic system color, typography, spacing, material, focus, and motion definitions without replacing native control styling. `[8h]`
+- [x] `SWFT-006` — Add semantic system color, typography, spacing, material, focus, and motion definitions without replacing native control styling. `[8h]`
 - [ ] `SWFT-007` — Design the new native Railgun icon system and deliver editable masters plus a 1024×1024 production source. `[8h]`
 - [ ] `SWFT-008` — Add the AppIcon asset catalog, required sizes, XcodeGen settings, and Dock/Finder/About/notification validation. `[6h]`
 - [ ] `SWFT-009` — Add deterministic backend mocks, isolated temporary homes, fixtures, and XCTest helpers. `[8h]`
