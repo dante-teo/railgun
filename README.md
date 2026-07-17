@@ -97,8 +97,9 @@ intentionally refresh the lockfile after changing an exact version, run:
 RailgunX bundles `ThirdPartyNotices.md` and `LegalNoticeManifest.json` as app
 resources; no legal-notices UI is provided yet. The catalog records the locked
 Swift packages, Node 24 LTS licensing, first-party icon provenance, Railgun's
-MIT license, and the complete macOS production backend closure. Node's concrete
-archive, version, and checksums remain owned by SWFT-011.
+MIT license, and the complete macOS production backend closure. The concrete
+Node archive metadata and checksums are pinned in
+`apps/macos/Runtime/node-runtime.json` and are tracked legal inputs.
 
 After a root `pnpm-lock.yaml`, package-license, Swift pin, first-party license,
 or icon-source change, regenerate the catalog from an installed dependency tree:
@@ -114,6 +115,24 @@ by `validate-project.sh`: it compares the complete generated catalog when
 packages are installed, or validates the checked-in catalog's tracked-input and
 notice hashes in a clean checkout. Neither mode requires the ignored backend
 deployment directory.
+
+### Pinned Node runtime
+
+RailgunX stages Node.js `24.18.0` only from the official, checksum-pinned
+Darwin archives named in `apps/macos/Runtime/node-runtime.json`; runtime
+binaries are never committed. To stage one architecture into a caller-owned
+build directory, run:
+
+```sh
+apps/macos/scripts/stage-node-runtime.sh --architecture arm64 --output build/runtime-arm64
+```
+
+The complete distribution is staged at `build/runtime-arm64/node`. The command
+refuses to replace an existing `node` output and verifies the archive checksum,
+LICENSE, Node version, archive layout, and Mach-O architecture before staging.
+`validate-node-runtime.sh` exercises both `arm64` and `x86_64`; it runs from
+`validate-project.sh` and native CI. Adding the staged runtime to the app bundle
+and validating the bundled backend remain SWFT-012 work.
 
 ### Native module boundaries
 

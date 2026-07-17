@@ -16,7 +16,9 @@ const legalSourceDirectory = join(legalDirectory, 'Sources');
 const installedPackagesDirectory = join(repositoryDirectory, 'node_modules');
 const productionLockfilePath = join(repositoryDirectory, 'pnpm-lock.yaml');
 const packageResolvedPath = join(macosDirectory, 'Package.resolved');
+const runtimeManifestPath = join(macosDirectory, 'Runtime', 'node-runtime.json');
 const requireFromRepository = createRequire(join(repositoryDirectory, 'package.json'));
+const nodeRuntimeArchitectures = ['arm64', 'x86_64'];
 
 const hash = (content) => createHash('sha256').update(content).digest('hex');
 const normalized = (content) => `${content.replace(/\r\n/g, '\n').replace(/\n*$/, '')}\n`;
@@ -112,16 +114,7 @@ const swiftComponents = () => {
 
 const staticComponents = () => [
     ...swiftComponents(),
-    staticComponent({
-        identifier: 'nodejs-24-lts',
-        kind: 'node-runtime',
-        name: 'Node.js 24 LTS',
-        version: '24 LTS',
-        archive: 'Pending SWFT-011 runtime selection',
-        license: 'MIT',
-        sourceLocation: 'SWFT-011 runtime staging input (not yet selected)',
-        licenseSource: 'https://github.com/nodejs/node/blob/v24.x/LICENSE'
-    }),
+    nodeRuntimeComponent(),
     staticComponent({
         identifier: 'railgun-icon-artwork',
         kind: 'first-party-artwork',
@@ -144,6 +137,47 @@ const staticComponents = () => [
     })
 ];
 
+const nodeRuntimeManifest = () => {
+    const manifest = readJSON(runtimeManifestPath);
+    const runtimeLicenseSHA256 = hash(readFileSync(join(legalSourceDirectory, 'Node.js-LICENSE.txt')));
+    if (manifest.schemaVersion !== 1
+        || manifest.name !== 'Node.js'
+        || manifest.version !== '24.18.0'
+        || manifest.license?.path !== 'LICENSE'
+        || manifest.license?.sha256 !== runtimeLicenseSHA256
+        || !nodeRuntimeArchitectures.every((architecture) => {
+            const runtime = manifest.architectures?.[architecture];
+            return runtime
+                && typeof runtime.archive === 'string'
+                && typeof runtime.url === 'string'
+                && typeof runtime.sha256 === 'string'
+                && typeof runtime.machoArchitecture === 'string';
+        })) {
+        throw new Error('Node runtime manifest is malformed.');
+    }
+    return manifest;
+};
+
+const nodeRuntimeComponent = () => {
+    const runtime = nodeRuntimeManifest();
+    const archives = nodeRuntimeArchitectures.map((architecture) => runtime.architectures[architecture].archive);
+    const sourceMetadata = nodeRuntimeArchitectures.map((architecture) => {
+        const entry = runtime.architectures[architecture];
+        return `${architecture}: ${entry.url}#sha256=${entry.sha256}`;
+    });
+
+    return staticComponent({
+        identifier: 'nodejs-24-lts',
+        kind: 'node-runtime',
+        name: 'Node.js 24 LTS',
+        version: runtime.version,
+        archive: archives.join('; '),
+        license: 'MIT',
+        sourceLocation: `apps/macos/Runtime/node-runtime.json; ${sourceMetadata.join('; ')}`,
+        licenseSource: 'https://github.com/nodejs/node/blob/v24.18.0/LICENSE'
+    });
+};
+
 const trackedInputHashes = () => {
     const artworkPaths = [
         'apps/macos/Resources/RailgunIcon/RailgunIconMaster.svg',
@@ -161,6 +195,7 @@ const trackedInputHashes = () => {
     return {
         backendLockfileSHA256: hashFile(productionLockfilePath),
         packageResolvedSHA256: hashFile(packageResolvedPath),
+        nodeRuntimeManifestSHA256: hashFile(runtimeManifestPath),
         railgunLicenseSHA256: hashFile(join(repositoryDirectory, 'LICENSE')),
         legalSourceHashes,
         artworkHashes
@@ -305,7 +340,7 @@ const catalog = () => {
     const notices = normalized([
         '# RailgunX legal notices',
         '',
-        'This catalog is generated from the locked Swift packages and the pnpm production dependency closure for RailgunX. Node runtime archive selection is owned by SWFT-011.',
+        'This catalog is generated from the locked Swift packages and the pnpm production dependency closure for RailgunX. Node runtime inputs are pinned in apps/macos/Runtime/node-runtime.json.',
         '',
         ...components.flatMap(({ record, notice }) => [
             `## ${record.name} (${record.version})`,

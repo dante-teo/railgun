@@ -4,6 +4,7 @@
   "inputHashes": {
     "backendLockfileSHA256": "83e61237ccd0f562d0c1a3b686132fc9e21f0694a149c5916bc7adf8910ca88a",
     "packageResolvedSHA256": "f44102c79145d149f2d56aec9b4dd30fe0548fe0bc3345ef7cb0f0b2a2842b56",
+    "nodeRuntimeManifestSHA256": "3998d43bfd45138cc0b748b721620d5536ef18cc12dbf859ecc221301a4c811f",
     "railgunLicenseSHA256": "7951ebcac33ae6a213b04a66f97af7a24c1f65b807841fc641f0c97dba1b1b8b",
     "legalSourceHashes": {
       "Apache-2.0.txt": "170b3cf054f64ba86f14b91a94928350728487de3f860ffa07861805b446d8cb",
@@ -14,7 +15,7 @@
       "ISC.txt": "e98c16cdc4b43f528e1d02aad1558cfc62a8309a115af69f36bfb1dc11f7bc3c",
       "LGPL-3.0-or-later.txt": "d2db3fe538e9ecb8aac723a2bc51d27dfa81aa880ad3fc20c203966ec908dc6e",
       "MIT-0.txt": "6971720a15619a9a7252aa348e2617b0015579d275ca7a5ffa5ade27bc2f87ba",
-      "Node.js-LICENSE.txt": "afd0d1f666f5df1262ae415bd4046e60f4bdcf51410e3c364dd1bcae0eee2753",
+      "Node.js-LICENSE.txt": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5",
       "Sparkle-LICENSE.txt": "9e7bcd12660e7908bbc4b795f4cc439b6159ba19864d7a968a6e0f372b4c8de6",
       "Swift-CMark-COPYING.txt": "e097484e4ce78fa16751e88aa205ca1fe1f1d777c81f38ffa6fa88778a589f67",
       "WTFPL.txt": "455d924ba882643e211d7b070c8e8839babe012907e0ab3e556f3c355e95ccd3"
@@ -26,7 +27,7 @@
       "apps/macos/Resources/RailgunIcon/RailgunIcon-1024.png": "f01601d42e52f9e9270dc1b8298bdc3cf5e15cb58af0b9a335cd0bd2c20739d0"
     }
   },
-  "noticesSHA256": "e636c742bfabd811687240fab8a5ecbc935f3b5c1d59e91c61756e16d81dc769",
+  "noticesSHA256": "90f0f2caf73be82ed6537550cd40ec7a5bc0702d313b875b061eabeea3d70fca",
   "components": [
     {
       "identifier": "swift-markdown",
@@ -71,14 +72,14 @@
       "identifier": "nodejs-24-lts",
       "kind": "node-runtime",
       "name": "Node.js 24 LTS",
-      "version": "24 LTS",
+      "version": "24.18.0",
       "revision": null,
-      "archive": "Pending SWFT-011 runtime selection",
+      "archive": "node-v24.18.0-darwin-arm64.tar.xz; node-v24.18.0-darwin-x64.tar.xz",
       "copyright": null,
       "license": "MIT",
-      "sourceLocation": "SWFT-011 runtime staging input (not yet selected)",
-      "licenseSource": "https://github.com/nodejs/node/blob/v24.x/LICENSE",
-      "noticeContentSHA256": "4003c5bdfe2faa9f9ca2604fdb654a44797608c455249ea19d2686b4cb546394"
+      "sourceLocation": "apps/macos/Runtime/node-runtime.json; arm64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.xz#sha256=4477b9f78efb77744cf5eb57a0e9594dba66466b38b4e93fa9f35cb907a095a6; x86_64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-x64.tar.xz#sha256=4a3b6bc81542154430825128d9a279e8b364e8d90581544e506ef7579fd1ab6f",
+      "licenseSource": "https://github.com/nodejs/node/blob/v24.18.0/LICENSE",
+      "noticeContentSHA256": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5"
     },
     {
       "identifier": "railgun-icon-artwork",

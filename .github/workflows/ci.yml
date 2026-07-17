@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate staged Node runtimes
+        run: apps/macos/scripts/validate-node-runtime.sh
+
       - name: Install Electron binary
         uses: ./.github/actions/install-electron
 

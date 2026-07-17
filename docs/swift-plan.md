@@ -222,7 +222,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 
 ### 2. Backend packaging and shared runtime
 
-- [ ] `SWFT-011` — Add an architecture-aware staging script for the pinned Node 24 LTS runtime, checksums, and licenses. `[8h]`
+- [x] `SWFT-011` — Add an architecture-aware staging script for the pinned Node 24 LTS runtime, checksums, and licenses. `[8h]`
 - [ ] `SWFT-012` — Deploy the backend and rebuild/verify `better-sqlite3` against the bundled Node ABI. `[8h]`
 - [ ] `SWFT-013` — Add Debug source-backend and mock-backend launch configurations. `[5h]`
 - [ ] `SWFT-014` — Implement the backend `Process` lifecycle actor, pipes, graceful termination, and forced termination. `[8h]`

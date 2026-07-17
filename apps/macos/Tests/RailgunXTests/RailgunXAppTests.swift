@@ -84,8 +84,11 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(records["sparkle"]?.version, "2.9.4")
         XCTAssertEqual(records["sparkle"]?.revision, "b6496a74a087257ef5e6da1c5b29a447a60f5bd7")
 
-        XCTAssertEqual(records["nodejs-24-lts"]?.version, "24 LTS")
-        XCTAssertEqual(records["nodejs-24-lts"]?.archive, "Pending SWFT-011 runtime selection")
+        XCTAssertEqual(records["nodejs-24-lts"]?.version, "24.18.0")
+        XCTAssertEqual(
+            records["nodejs-24-lts"]?.archive,
+            "node-v24.18.0-darwin-arm64.tar.xz; node-v24.18.0-darwin-x64.tar.xz"
+        )
         XCTAssertEqual(records["railgun-icon-artwork"]?.copyright, "© 2026 Dante Teo")
         XCTAssertEqual(records["railgun"]?.license, "MIT")
     }

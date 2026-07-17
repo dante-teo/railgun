@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "name": "Node.js",
+  "version": "24.18.0",
+  "license": {
+    "path": "LICENSE",
+    "sha256": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5"
+  },
+  "architectures": {
+    "arm64": {
+      "archive": "node-v24.18.0-darwin-arm64.tar.xz",
+      "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.xz",
+      "sha256": "4477b9f78efb77744cf5eb57a0e9594dba66466b38b4e93fa9f35cb907a095a6",
+      "machoArchitecture": "arm64"
+    },
+    "x86_64": {
+      "archive": "node-v24.18.0-darwin-x64.tar.xz",
+      "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-x64.tar.xz",
+      "sha256": "4a3b6bc81542154430825128d9a279e8b364e8d90581544e506ef7579fd1ab6f",
+      "machoArchitecture": "x86_64"
+    }
+  }
+}
