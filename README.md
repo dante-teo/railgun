@@ -216,9 +216,25 @@ work; late and stale-generation frames are ignored.
 The client uses `RailgunTransportConfiguration.rpcCompatible`, which retains
 validated stdout bursts until the RPC reader consumes them. This is intentional:
 backends may emit several event frames before a correlated response. Frame and
-unfinished-buffer byte limits remain in force. DTO decoding, event
-normalization, diagnostics retention, logging, and redaction remain the
-responsibility of SWFT-017 and later layers.
+unfinished-buffer byte limits remain in force.
+
+`RailgunRPCCommand` provides the validated RPC v1 command envelope for new
+callers; it reserves correlation IDs for the client and validates command
+fields, pagination limits, MCP environment patches, and interaction bounds
+before encoding JSON. `RailgunRPCResponse`, `RailgunRPCInitializeResult`,
+`RailgunRPCSessionState`, and `RailgunRPCInteractionRequest` validate the
+received protocol data needed by the transport layer. Integer DTO fields use a
+non-trapping exact conversion, so malformed out-of-range backend numbers are
+rejected as malformed data rather than crashing the client. The raw request API
+remains available for fixture replay and forward-compatible protocol probes.
+
+`RailgunRPCRedactor` recursively removes credential-like fields, environment
+values, token forms, and filesystem paths before values are presented. Its
+diagnostic summaries include only bounded protocol metadata (`type`, response
+command, whether an ID is present, status, and success); they never include RPC
+payloads, tool details, environment values, or error bodies. Event
+normalization, diagnostics retention, and logging remain the responsibility of
+later protocol layers.
 
 Stdout framing is byte-based: `\n` terminates a frame, blank lines are ignored,
 and the `\r` in a CRLF terminator is removed. Each `stdoutFrames` element is

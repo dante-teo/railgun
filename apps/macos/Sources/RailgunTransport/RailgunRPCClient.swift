@@ -233,6 +233,27 @@ public actor RailgunRPCClient {
         )
     }
 
+    /// Sends a validated version 1 command and decodes its response envelope.
+    /// Prefer this overload for new call sites; the raw-data overload remains
+    /// available for fixture replay and forward-compatible transport probes.
+    public func request(_ command: RailgunRPCCommand, timeout: Duration) async throws -> RailgunRPCResponse {
+        let response = try await request(command.encodedData(), timeout: timeout)
+        do {
+            return try RailgunRPCResponse(data: response)
+        } catch {
+            throw RailgunRPCError.malformedResponse
+        }
+    }
+
+    /// Produces a bounded, redacted summary suitable for diagnostics. Raw RPC
+    /// payloads must never be written to logs or observable feature state.
+    public nonisolated static func safeDiagnosticSummary(for frame: Data) -> String {
+        guard let value = try? JSONDecoder().decode(RailgunJSONValue.self, from: frame) else {
+            return "malformed JSONL frame"
+        }
+        return RailgunRPCRedactor.diagnosticSummary(for: value)
+    }
+
     private func send(
         command: String,
         payload: [String: Any],
@@ -317,17 +338,15 @@ public actor RailgunRPCClient {
         guard let identifier = object["id"] as? String, let pending = pendingRequests[identifier] else {
             return
         }
-        guard let command = object["command"] as? String,
-              object["success"] is Bool
-        else {
+        guard let response = try? RailgunRPCResponse(data: frame) else {
             settle(identifier, with: .failure(.malformedResponse))
             return
         }
-        guard command == pending.command else {
+        guard response.command == pending.command else {
             settle(
                 identifier,
                 with: .failure(
-                    .mismatchedResponse(expectedCommand: pending.command, receivedCommand: command)
+                    .mismatchedResponse(expectedCommand: pending.command, receivedCommand: response.command)
                 )
             )
             return
@@ -342,7 +361,7 @@ public actor RailgunRPCClient {
     private func stdoutFailed(_ error: Error, for currentGeneration: Int) async {
         await endGeneration(
             currentGeneration,
-            error: .transportFailure(String(describing: error)),
+            error: .transportFailure(RailgunRPCRedactor.redact(text: String(describing: error))),
             terminateBackend: true
         )
     }
@@ -428,52 +447,48 @@ public actor RailgunRPCClient {
     }
 
     private func validateHandshake(in response: Data) throws -> RailgunRPCHandshake {
-        let object = try responseObject(from: response)
-        guard object["success"] as? Bool == true else {
-            throw RailgunRPCError.startupRejected(
-                command: "initialize",
-                reason: object["error"] as? String
-            )
-        }
-        guard let data = object["data"] as? [String: Any],
-              let version = data["version"] as? Int,
-              let capabilityValues = data["capabilities"] as? [String]
-        else {
+        let decoded = try successfulResponse(from: response, for: "initialize")
+        let initialize: RailgunRPCInitializeResult
+        do {
+            initialize = try RailgunRPCInitializeResult(data: decoded.data)
+        } catch {
             throw RailgunRPCError.malformedResponse
         }
-        guard version == configuration.protocolVersion else {
+        guard initialize.version == configuration.protocolVersion else {
             throw RailgunRPCError.protocolVersionMismatch(
                 expected: configuration.protocolVersion,
-                received: version
+                received: initialize.version
             )
         }
 
-        let capabilities = Set(capabilityValues)
-        let missingCapabilities = configuration.requiredCapabilities.subtracting(capabilities)
+        let missingCapabilities = configuration.requiredCapabilities.subtracting(initialize.capabilities)
         guard missingCapabilities.isEmpty else {
             throw RailgunRPCError.missingRequiredCapabilities(missingCapabilities)
         }
-        return RailgunRPCHandshake(protocolVersion: version, capabilities: capabilities)
+        return RailgunRPCHandshake(protocolVersion: initialize.version, capabilities: initialize.capabilities)
     }
 
     private func validateSuccessfulReadinessResponse(_ response: Data) throws {
-        let object = try responseObject(from: response)
-        guard object["success"] as? Bool == true else {
-            throw RailgunRPCError.startupRejected(
-                command: "get_state",
-                reason: object["error"] as? String
-            )
-        }
+        _ = try successfulResponse(from: response, for: "get_state")
     }
 
-    private func responseObject(from response: Data) throws -> [String: Any] {
-        guard let object = try? JSONSerialization.jsonObject(with: response),
-              let dictionary = object as? [String: Any],
-              dictionary["type"] as? String == "response"
-        else {
+    private func successfulResponse(
+        from response: Data,
+        for command: String
+    ) throws -> RailgunRPCResponse {
+        let decoded: RailgunRPCResponse
+        do {
+            decoded = try RailgunRPCResponse(data: response)
+        } catch {
             throw RailgunRPCError.malformedResponse
         }
-        return dictionary
+        guard decoded.success else {
+            throw RailgunRPCError.startupRejected(
+                command: command,
+                reason: decoded.error.map { RailgunRPCRedactor.redact(text: $0) }
+            )
+        }
+        return decoded
     }
 
     private func normalized(_ error: Error) -> RailgunRPCError {
