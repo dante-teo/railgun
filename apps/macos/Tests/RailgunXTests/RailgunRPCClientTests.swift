@@ -130,6 +130,11 @@ final class RailgunRPCClientTests: XCTestCase {
     func testEventBurstBeforeResponseDoesNotOverflowTheRPCReader() async throws {
         let client = RailgunRPCClient()
         _ = try await client.start(perlLaunch(script: responsiveBackendScript))
+        let events = client.events
+        let firstEvent = Task { () -> RailgunAgentEvent? in
+            var iterator = events.makeAsyncIterator()
+            return await iterator.next()
+        }
 
         let response = try await client.request(
             Data(#"{"type":"burst"}"#.utf8),
@@ -137,6 +142,8 @@ final class RailgunRPCClientTests: XCTestCase {
         )
 
         XCTAssertEqual(try responseObject(response)["command"] as? String, "burst")
+        let receivedEvent = await firstEvent.value
+        XCTAssertEqual(receivedEvent, .runStarted)
         await client.shutdown()
     }
 
@@ -244,7 +251,7 @@ final class RailgunRPCClientTests: XCTestCase {
       } elsif ($type eq "reject") {
         print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"reject\",\"success\":false,\"error\":\"mock rejected reject\"}\n";
       } elsif ($type eq "burst") {
-        print STDOUT "{\"type\":\"event\",\"event\":\"first\"}\n{\"type\":\"event\",\"event\":\"second\"}\n{\"type\":\"event\",\"event\":\"third\"}\n{\"id\":\"$id\",\"type\":\"response\",\"command\":\"burst\",\"success\":true}\n";
+        print STDOUT "{\"type\":\"agent_start\"}\n{\"type\":\"event\",\"event\":\"second\"}\n{\"type\":\"event\",\"event\":\"third\"}\n{\"id\":\"$id\",\"type\":\"response\",\"command\":\"burst\",\"success\":true}\n";
       } else {
         print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"$type\",\"success\":true}\n";
       }

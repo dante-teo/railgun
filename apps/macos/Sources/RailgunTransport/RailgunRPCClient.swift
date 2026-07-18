@@ -83,6 +83,12 @@ public actor RailgunRPCClient {
     private let backend: BackendProcess
     private let configuration: RailgunRPCConfiguration
     private let transportConfiguration: RailgunTransportConfiguration
+    private let eventContinuation: AsyncStream<RailgunAgentEvent>.Continuation
+
+    /// Normalized backend activity. The stream survives backend restarts and
+    /// uses a bounded newest-value buffer so an unobserved UI cannot stall RPC
+    /// response handling.
+    public nonisolated let events: AsyncStream<RailgunAgentEvent>
 
     private var transport: RailgunTransport?
     private var standardInput: FileHandle?
@@ -102,9 +108,18 @@ public actor RailgunRPCClient {
         configuration: RailgunRPCConfiguration = .version1,
         transportConfiguration: RailgunTransportConfiguration = .rpcCompatible
     ) {
+        let eventStream = AsyncStream<RailgunAgentEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(128)
+        )
         self.backend = backend
         self.configuration = configuration
         self.transportConfiguration = transportConfiguration
+        self.events = eventStream.stream
+        self.eventContinuation = eventStream.continuation
+    }
+
+    deinit {
+        eventContinuation.finish()
     }
 
     /// The most recently negotiated handshake while this client is ready.
@@ -332,7 +347,13 @@ public actor RailgunRPCClient {
 
     private func receive(_ frame: Data, from currentGeneration: Int) {
         guard activeGeneration == currentGeneration else { return }
-        guard let object = try? requestObject(from: frame), object["type"] as? String == "response" else {
+        guard let object = try? requestObject(from: frame) else {
+            return
+        }
+        guard object["type"] as? String == "response" else {
+            if let event = RailgunRPCEventNormalizer.normalize(frame) {
+                eventContinuation.yield(event)
+            }
             return
         }
         guard let identifier = object["id"] as? String, let pending = pendingRequests[identifier] else {
