@@ -83,6 +83,26 @@ Process, transport, filesystem, auth, automation, and update actors
 Bundled Railgun TypeScript backend
 ```
 
+### Task feature state
+
+The Task feature owns one app-scoped `@Observable @MainActor`
+`RailgunAppStore`. Its value state is partitioned into backend, session,
+transcript, controls, interaction, and activity domains. Every transition is a
+pure reducer action; RPC calls, stream consumption, and other effects dispatch
+actions around that boundary rather than being performed by reducers.
+
+Only normalized `RailgunAgentEvent` values and presentation-safe interaction
+requests enter the store. Tool input/output retained for Activity has already
+been redacted and bounded by transport. Session hydration preserves a single
+chronological order shared by transcript messages and activity entries, while
+open interactions remain arrival ordered and settle at every run boundary.
+
+An active run interrupted by backend failure or disconnection reduces through
+the transcript failure path: partial assistant text is marked failed and the
+original user request remains available for retry. A Stop request remains in
+force if a delayed `runStarted` event arrives, so later queue input stays
+blocked and the eventual partial response is marked stopped.
+
 ### Backend packaging and RPC
 
 Bundle a pinned Node 24 LTS runtime, the production backend, production
@@ -261,7 +281,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 
 ### 3. Task alpha
 
-- [ ] `SWFT-023` — Build the app store and pure reducers for backend, session, transcript, controls, interactions, and activity. `[8h]`
+- [x] `SWFT-023` — Build the app store and pure reducers for backend, session, transcript, controls, interactions, and activity. `[8h]`
 - [ ] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and inspector APIs. `[8h]`
 - [ ] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows. `[8h]`
 - [ ] `SWFT-026` — Implement chronological transcript assembly for restored messages, streaming, tools, errors, and run boundaries. `[8h]`

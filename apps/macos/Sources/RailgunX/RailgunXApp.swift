@@ -219,6 +219,9 @@ struct RailgunXApp: App {
 
     private let backendLaunchConfiguration: BackendLaunchConfiguration
     @State private var desktopClientStartup: DesktopClientStartup
+    // SWFT-024 observes this app-scoped store so scene lifecycle changes do
+    // not recreate feature state.
+    @State private var appStore = RailgunAppStore()
 
     init() {
         let backendLaunchConfiguration = BackendLaunchConfiguration()
