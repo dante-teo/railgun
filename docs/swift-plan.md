@@ -236,9 +236,9 @@ adequate native replacement, migrate to it and retire the custom implementation.
 
 ## Milestones and implementation checklist
 
-Checklist IDs are immutable and use `SWFT-001` through `SWFT-999`. Completed,
-removed, or superseded IDs are never reused or renumbered. New work receives a
-new ID.
+Checklist IDs are immutable and use `SWFT-001` through `SWFT-999`. Completed
+or removed IDs are never reused or renumbered. Superseded IDs remain retired.
+New work receives a new ID.
 
 Each remaining implementation item is a one-engineer-day work package,
 nominally eight engineering hours including focused tests and documentation.
@@ -295,7 +295,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-023` — Build the app store and pure reducers for backend, session, transcript, controls, interactions, and activity. `[8h]`
 - [x] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and an embedded Activity card. `[8h]`
 - [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
-- [ ] `SWFT-026` — Implement chronological transcript assembly for restored messages, streaming, tools, errors, and run boundaries. `[8h]`
+- [x] `SWFT-026` — Implement safe paginated transcript restoration and one chronological assembly for restored/live messages, tools, errors, and run boundaries. `[8h]`
 - [ ] `SWFT-027` — Build transcript virtualization and bottom-follow behavior, introducing custom scrolling only for behavior unavailable natively. `[8h]`
 - [ ] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
 - [ ] `SWFT-030` — Build tool activity and populate the embedded Activity card using native group, list, disclosure, and popover behavior with shared presentation variants. `[8h]`

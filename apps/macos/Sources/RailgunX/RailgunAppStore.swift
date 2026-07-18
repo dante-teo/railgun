@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 import RailgunTransport
 
@@ -35,7 +36,11 @@ final class RailgunAppStore {
     }
 
     func send(_ action: RailgunAppAction) {
-        state = RailgunAppReducer.reduce(state, action)
+        state = RailgunAppReducer.reduce(state, action.stamped(at: Self.currentTimestamp))
+    }
+
+    private static var currentTimestamp: Int {
+        Int(Date().timeIntervalSince1970 * 1_000)
     }
 }
 
@@ -46,7 +51,12 @@ enum RailgunAppAction: Equatable {
     case controls(RailgunControlsAction)
     case interaction(RailgunInteractionAction)
     case activity(RailgunActivityAction)
-    case agentEvent(RailgunAgentEvent)
+    case agentEvent(RailgunAgentEvent, at: Int? = nil)
+
+    fileprivate func stamped(at timestamp: Int) -> Self {
+        guard case let .agentEvent(event, at: nil) = self else { return self }
+        return .agentEvent(event, at: timestamp)
+    }
 }
 
 enum RailgunAppReducer {
@@ -101,23 +111,31 @@ enum RailgunAppReducer {
             var next = state
             next.activity = RailgunActivityReducer.reduce(state.activity, action)
             return next
-        case let .agentEvent(event):
-            return reduceAgentEvent(state, event)
+        case let .agentEvent(event, timestamp):
+            return reduceAgentEvent(state, event, timestamp: timestamp)
         }
     }
 
-    private static func reduceAgentEvent(_ state: RailgunAppState, _ event: RailgunAgentEvent) -> RailgunAppState {
+    private static func reduceAgentEvent(
+        _ state: RailgunAppState,
+        _ event: RailgunAgentEvent,
+        timestamp: Int?
+    ) -> RailgunAppState {
         switch event {
         case .runStarted:
             var next = reduce(state, .transcript(.runStarted))
             next.activity = RailgunActivityReducer.reduce(next.activity, .runStarted)
             return next
         case .runEnded:
-            return settleRun(reduce(state, .transcript(.runEnded)))
+            return settleRun(reduce(state, .transcript(.runEnded(at: timestamp))))
         case let .assistantDelta(text):
-            return reduce(state, .transcript(.assistantDelta(id: "assistant-\(state.transcript.nextOrder)", text: text)))
+            return reduce(state, .transcript(.assistantDelta(
+                id: "assistant-\(state.transcript.nextOrder)",
+                text: text,
+                at: timestamp
+            )))
         case .assistantCompleted:
-            var next = reduce(state, .transcript(.assistantCompleted))
+            var next = reduce(state, .transcript(.assistantCompleted(at: timestamp)))
             next.activity = RailgunActivityReducer.reduce(next.activity, .aggregationCompleted)
             return next
         case let .queueUpdated(steering, followUp):
@@ -146,8 +164,13 @@ enum RailgunAppReducer {
     }
 
     private static func reduceOrderedActivity(_ state: RailgunAppState, _ action: RailgunActivityAction) -> RailgunAppState {
+        let activity = RailgunActivityReducer.reduce(
+            state.activity,
+            action.withOrder(state.transcript.nextOrder)
+        )
+        guard activity != state.activity else { return state }
         var next = state
-        next.activity = RailgunActivityReducer.reduce(state.activity, action.withOrder(state.transcript.nextOrder))
+        next.activity = activity
         next.transcript.nextOrder += 1
         return next
     }
@@ -160,7 +183,7 @@ enum RailgunAppReducer {
                 .requestFailed(userID: activeRun.userID, text: activeRun.text, message: message)
             )
         } else {
-            next.transcript = RailgunTranscriptReducer.reduce(state.transcript, .runEnded)
+            next.transcript = RailgunTranscriptReducer.reduce(state.transcript, .runEnded(at: nil))
         }
         return settleRun(next)
     }
@@ -260,8 +283,15 @@ struct RailgunSessionState: Equatable {
 enum RailgunRestoredTranscriptEntry: Equatable {
     enum Role: Equatable { case user, assistant }
 
-    case message(role: Role, text: String, messageID: Int? = nil, branchable: Bool = false)
-    case tool(id: String, name: String, failed: Bool)
+    case message(
+        role: Role,
+        text: String,
+        messageID: Int? = nil,
+        branchable: Bool = false,
+        startedAt: Int? = nil,
+        completedAt: Int? = nil
+    )
+    case tool(id: String, name: String, failed: Bool, target: String? = nil)
 }
 
 enum RailgunSessionAction: Equatable {
@@ -385,15 +415,15 @@ enum RailgunTranscriptAction: Equatable {
     case retry
     case requestFailed(userID: String, text: String, message: String)
     case runStarted
-    case assistantDelta(id: String, text: String)
-    case assistantCompleted
+    case assistantDelta(id: String, text: String, at: Int? = nil)
+    case assistantCompleted(at: Int? = nil)
     case queueAccepted(id: String, kind: RailgunQueueKind, text: String)
     case queueUpdated(steering: [String], followUp: [String])
     case queueRejected(message: String)
     case stopRequested
     case stopFailed(message: String)
     case stopAcknowledged
-    case runEnded
+    case runEnded(at: Int? = nil)
     case reset
 }
 
@@ -427,19 +457,19 @@ enum RailgunTranscriptReducer {
             var next = state
             next.isRunning = true
             return next
-        case let .assistantDelta(id, text):
+        case let .assistantDelta(id, text, at):
             guard state.isRunning else { return state }
             var next = state
             if let last = state.messages.last, last.role == .assistant, last.status == .streaming {
                 next.messages[next.messages.count - 1].text += text
             } else {
-                next.messages.append(.init(id: id, role: .assistant, text: text, status: .streaming, order: state.nextOrder, messageID: nil, branchable: false, startedAt: nil, completedAt: nil))
+                next.messages.append(.init(id: id, role: .assistant, text: text, status: .streaming, order: state.nextOrder, messageID: nil, branchable: false, startedAt: at, completedAt: nil))
                 next.nextOrder += 1
             }
             return next
-        case .assistantCompleted:
+        case let .assistantCompleted(at):
             var next = state
-            finishLastAssistant(&next, status: .complete)
+            finishLastAssistant(&next, status: .complete, completedAt: at)
             return next
         case let .queueAccepted(id, kind, text):
             guard state.isRunning, !state.isStopping else { return state }
@@ -476,9 +506,9 @@ enum RailgunTranscriptReducer {
             var next = state
             next.queue = []
             return next
-        case .runEnded:
+        case let .runEnded(at):
             var next = state
-            finishLastAssistant(&next, status: state.isStopping ? .stopped : .complete)
+            finishLastAssistant(&next, status: state.isStopping ? .stopped : .complete, completedAt: at)
             next.queue = []
             next.isRunning = false
             next.isStopping = false
@@ -492,8 +522,8 @@ enum RailgunTranscriptReducer {
     static func hydrate(_ entries: [RailgunRestoredTranscriptEntry], isRunning: Bool) -> RailgunTranscriptState {
         var messages: [RailgunTranscriptMessage] = []
         for (offset, entry) in entries.enumerated() {
-            guard case let .message(role, text, messageID, branchable) = entry else { continue }
-            messages.append(.init(id: "restored-\(offset + 1)", role: role == .user ? .user : .assistant, text: text, status: .complete, order: offset + 1, messageID: messageID, branchable: branchable, startedAt: nil, completedAt: nil))
+            guard case let .message(role, text, messageID, branchable, startedAt, completedAt) = entry else { continue }
+            messages.append(.init(id: "restored-\(offset + 1)", role: role == .user ? .user : .assistant, text: text, status: .complete, order: offset + 1, messageID: messageID, branchable: branchable, startedAt: startedAt, completedAt: completedAt))
         }
         return .init(messages: messages, queue: [], isRunning: isRunning, isStopping: false, submissionError: nil, activeRun: nil, failedRun: nil, nextOrder: entries.count + 1)
     }
@@ -504,9 +534,14 @@ enum RailgunTranscriptReducer {
         return copy
     }
 
-    private static func finishLastAssistant(_ state: inout RailgunTranscriptState, status: RailgunMessageStatus) {
+    private static func finishLastAssistant(
+        _ state: inout RailgunTranscriptState,
+        status: RailgunMessageStatus,
+        completedAt: Int? = nil
+    ) {
         guard let index = state.messages.lastIndex(where: { $0.role == .assistant && $0.status == .streaming }) else { return }
         state.messages[index].status = status
+        state.messages[index].completedAt = completedAt ?? state.messages[index].completedAt
     }
 
     private static func reconcile(queue: [RailgunQueuedMessage], steering: [String], followUp: [String]) -> (remaining: [RailgunQueuedMessage], injected: [RailgunQueuedMessage]) {
@@ -819,8 +854,8 @@ enum RailgunActivityReducer {
     static func hydrate(_ transcript: [RailgunRestoredTranscriptEntry], todos: [RailgunTodo]) -> RailgunActivityState {
         var entries: [RailgunActivityEntry] = []
         for (offset, item) in transcript.enumerated() {
-            guard case let .tool(id, name, failed) = item else { continue }
-            entries.append(.tool(id: id, name: name, status: failed ? .error : .success, order: offset + 1, input: nil, output: nil))
+            guard case let .tool(id, name, failed, target) = item else { continue }
+            entries.append(.tool(id: id, name: name, status: failed ? .error : .success, order: offset + 1, input: target, output: nil))
         }
         return .init(entries: entries, todos: todos, isLoadingTodos: false, subagents: [], advisorNotes: [])
     }

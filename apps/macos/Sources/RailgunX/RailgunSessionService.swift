@@ -7,6 +7,13 @@ enum RailgunSessionServiceError: Error, Equatable, Sendable {
     case rejected(String)
 }
 
+struct RailgunRestoredSession: Equatable, Sendable {
+    let id: String
+    let transcript: [RailgunRestoredTranscriptEntry]
+    let todos: [RailgunTodo]
+    let isRunning: Bool
+}
+
 /// Owns session-management RPC effects. Reducers only receive its validated
 /// results, keeping backend response handling out of feature state.
 actor RailgunSessionService {
@@ -14,7 +21,15 @@ actor RailgunSessionService {
 
     private static let timeout: Duration = .seconds(15)
     private static let maximumSessions = 500
-    private static let maximumTextLength = 4_000
+    private static let maximumSummaryTextLength = 4_000
+    private static let maximumTranscriptEntries = 2_000
+    private static let maximumTranscriptPageEntries = 100
+    private static let maximumTranscriptTextLength = 100_000
+    private static let maximumToolNameLength = 128
+    private static let maximumToolTargetLength = 256
+    private static let maximumTodos = 256
+    private static let maximumTodoTextLength = 2_000
+    private static let maximumSafeInteger = 9_007_199_254_740_991
 
     private let request: Request
 
@@ -41,7 +56,7 @@ actor RailgunSessionService {
         return try await requestSessionID(from: RailgunRPCCommandType.sessionNew, fields: fields)
     }
 
-    func resume(_ sessionID: String) async throws {
+    func resume(_ sessionID: String) async throws -> RailgunRestoredSession {
         let fields: [String: RailgunJSONValue] = [
             "sessionId": .string(sessionID),
             "includeMessages": .bool(false),
@@ -51,6 +66,9 @@ actor RailgunSessionService {
             fields: fields
         )
         guard loadedID == sessionID else { throw RailgunSessionServiceError.invalidResponse }
+        let state = try await restoredState(expectedSessionID: sessionID)
+        let transcript = try await transcript(for: sessionID)
+        return .init(id: sessionID, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
     }
 
     func archive(_ sessionID: String) async throws -> String {
@@ -117,7 +135,7 @@ actor RailgunSessionService {
 
     private func validText(_ value: RailgunJSONValue?, allowsEmpty: Bool = false) -> String? {
         guard let text = value?.stringValue,
-              text.count <= Self.maximumTextLength,
+              text.count <= Self.maximumSummaryTextLength,
               allowsEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
         return text
@@ -127,6 +145,141 @@ actor RailgunSessionService {
         guard let message, !message.isEmpty else { return "The task request was rejected." }
         let redacted = RailgunRPCRedactor.redact(text: message)
         return String(redacted.prefix(240))
+    }
+
+    private func restoredState(expectedSessionID: String) async throws -> (todos: [RailgunTodo], isRunning: Bool) {
+        let response = try await perform(.getState)
+        guard let object = response.data?.objectValue,
+              let sessionID = object["sessionId"]?.stringValue,
+              sessionID == expectedSessionID,
+              let isRunning = object["running"]?.boolValue,
+              let todoValue = object["todos"],
+              case let .array(todoValues) = todoValue,
+              todoValues.count <= Self.maximumTodos
+        else { throw RailgunSessionServiceError.invalidResponse }
+        return (try todoValues.map(parseTodo), isRunning)
+    }
+
+    private func transcript(for sessionID: String) async throws -> [RailgunRestoredTranscriptEntry] {
+        var entries: [RailgunRestoredTranscriptEntry] = []
+        var cursor = 0
+
+        while entries.count < Self.maximumTranscriptEntries {
+            let response = try await perform(.sessionTranscript, fields: [
+                "sessionId": .string(sessionID),
+                "cursor": .number(Double(cursor)),
+                "limit": .number(Double(Self.maximumTranscriptPageEntries)),
+            ])
+            guard let object = response.data?.objectValue,
+                  object["sessionId"]?.stringValue == sessionID,
+                  let messageValue = object["messages"],
+                  case let .array(values) = messageValue,
+                  values.count <= Self.maximumTranscriptPageEntries
+            else { throw RailgunSessionServiceError.invalidResponse }
+
+            let page = try values.map(parseTranscriptEntry)
+            guard entries.count + page.count <= Self.maximumTranscriptEntries else {
+                throw RailgunSessionServiceError.invalidResponse
+            }
+            entries.append(contentsOf: page)
+
+            guard let nextCursor = object["nextCursor"] else { return entries }
+            guard !page.isEmpty else { throw RailgunSessionServiceError.invalidResponse }
+            guard let next = safeNonNegativeInteger(nextCursor), next > cursor else {
+                throw RailgunSessionServiceError.invalidResponse
+            }
+            cursor = next
+        }
+        throw RailgunSessionServiceError.invalidResponse
+    }
+
+    private func parseTranscriptEntry(_ value: RailgunJSONValue) throws -> RailgunRestoredTranscriptEntry {
+        guard let object = value.objectValue, let role = object["role"]?.stringValue else {
+            throw RailgunSessionServiceError.invalidResponse
+        }
+        switch role {
+        case "user", "assistant":
+            let messageID = try optionalPositiveInteger(object["messageId"])
+            let startedAt = try optionalTimestamp(object["startedAt"])
+            let completedAt = try optionalTimestamp(object["completedAt"])
+            let branchable = try optionalBranchable(object["branchable"])
+            guard let text = object["text"]?.stringValue,
+                  !text.isEmpty,
+                  text.count <= Self.maximumTranscriptTextLength,
+                  !(role == "user" && completedAt != nil),
+                  !(role == "assistant" && startedAt != nil),
+                  !(branchable && (role != "assistant" || messageID == nil))
+            else { throw RailgunSessionServiceError.invalidResponse }
+            return .message(
+                role: role == "user" ? .user : .assistant,
+                text: text,
+                messageID: messageID,
+                branchable: branchable,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        case "tool":
+            let target = try optionalText(object["target"], maximumLength: Self.maximumToolTargetLength)
+            guard let id = object["id"]?.stringValue, isValidIdentifier(id),
+                  let name = object["name"]?.stringValue,
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  name.count <= Self.maximumToolNameLength,
+                  let failed = object["failed"]?.boolValue
+            else { throw RailgunSessionServiceError.invalidResponse }
+            return .tool(id: id, name: name, failed: failed, target: target)
+        default:
+            throw RailgunSessionServiceError.invalidResponse
+        }
+    }
+
+    private func parseTodo(_ value: RailgunJSONValue) throws -> RailgunTodo {
+        guard let object = value.objectValue,
+              let id = object["id"]?.stringValue, isValidIdentifier(id),
+              let content = object["content"]?.stringValue,
+              !content.isEmpty, content.count <= Self.maximumTodoTextLength,
+              let rawStatus = object["status"]?.stringValue,
+              let status = RailgunTodoStatus(rawValue: rawStatus)
+        else { throw RailgunSessionServiceError.invalidResponse }
+        return .init(id: id, content: content, status: status)
+    }
+
+    private func optionalPositiveInteger(_ value: RailgunJSONValue?) throws -> Int? {
+        guard let value else { return nil }
+        guard let integer = value.integerValue, integer > 0, integer <= Self.maximumSafeInteger else {
+            throw RailgunSessionServiceError.invalidResponse
+        }
+        return integer
+    }
+
+    private func optionalTimestamp(_ value: RailgunJSONValue?) throws -> Int? {
+        guard let value else { return nil }
+        guard let integer = safeNonNegativeInteger(value) else {
+            throw RailgunSessionServiceError.invalidResponse
+        }
+        return integer
+    }
+
+    private func optionalBranchable(_ value: RailgunJSONValue?) throws -> Bool {
+        guard let value else { return false }
+        guard value == .bool(true) else { throw RailgunSessionServiceError.invalidResponse }
+        return true
+    }
+
+    private func optionalText(_ value: RailgunJSONValue?, maximumLength: Int) throws -> String? {
+        guard let value else { return nil }
+        guard let text = value.stringValue,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              text.count <= maximumLength
+        else { throw RailgunSessionServiceError.invalidResponse }
+        return text
+    }
+
+    private func safeNonNegativeInteger(_ value: RailgunJSONValue) -> Int? {
+        guard let integer = value.integerValue,
+              integer >= 0,
+              integer <= Self.maximumSafeInteger
+        else { return nil }
+        return integer
     }
 }
 
@@ -165,8 +318,13 @@ final class RailgunSessionCoordinator {
 
     func resume(_ sessionID: String) async {
         do {
-            try await service.resume(sessionID)
-            store.send(.session(.hydrated(activeSessionID: sessionID, transcript: [], todos: [], isRunning: false)))
+            let restored = try await service.resume(sessionID)
+            store.send(.session(.hydrated(
+                activeSessionID: restored.id,
+                transcript: restored.transcript,
+                todos: restored.todos,
+                isRunning: restored.isRunning
+            )))
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }

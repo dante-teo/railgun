@@ -119,9 +119,9 @@ final class RailgunAppStoreTests: XCTestCase {
             .session(.hydrated(
                 activeSessionID: "session-1",
                 transcript: [
-                    .message(role: .user, text: "Find it"),
-                    .tool(id: "tool-1", name: "read_file", failed: false),
-                    .message(role: .assistant, text: "Found it", messageID: 22, branchable: true),
+                    .message(role: .user, text: "Find it", messageID: 20, startedAt: 10),
+                    .tool(id: "tool-1", name: "read_file", failed: false, target: "notes.md"),
+                    .message(role: .assistant, text: "Found it", messageID: 22, branchable: true, completedAt: 20),
                 ],
                 todos: [RailgunTodo(id: "todo-1", content: "Ship it", status: .inProgress)],
                 isRunning: false
@@ -131,9 +131,12 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertEqual(state.session.activeSessionID, "session-1")
         XCTAssertEqual(state.transcript.messages.map(\.order), [1, 3])
         XCTAssertEqual(state.transcript.messages.last?.messageID, 22)
+        XCTAssertEqual(state.transcript.messages.first?.startedAt, 10)
+        XCTAssertEqual(state.transcript.messages.last?.completedAt, 20)
+        XCTAssertEqual(state.transcript.nextOrder, 4)
         XCTAssertEqual(
             state.activity.entries,
-            [.tool(id: "tool-1", name: "read_file", status: .success, order: 2, input: nil, output: nil)]
+            [.tool(id: "tool-1", name: "read_file", status: .success, order: 2, input: "notes.md", output: nil)]
         )
         XCTAssertEqual(state.activity.todos, [RailgunTodo(id: "todo-1", content: "Ship it", status: .inProgress)])
     }
@@ -182,6 +185,20 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertFalse(state.transcript.isRunning)
     }
 
+    func testDuplicateActivityStartDoesNotConsumeAChronologySlot() {
+        var state = RailgunAppState.initial
+        state = RailgunAppReducer.reduce(state, .agentEvent(.toolStarted(id: "tool", name: "read_file", input: nil)))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.toolStarted(id: "tool", name: "read_file", input: nil)))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.runStarted))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.assistantDelta("answer")))
+
+        XCTAssertEqual(state.activity.entries, [
+            .tool(id: "tool", name: "read_file", status: .running, order: 1, input: nil, output: nil),
+        ])
+        XCTAssertEqual(state.transcript.messages.last?.order, 2)
+        XCTAssertEqual(state.transcript.nextOrder, 3)
+    }
+
     func testRunEndSettlesStreamingAssistantExactlyOnce() {
         var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
         state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))
@@ -215,5 +232,28 @@ final class RailgunAppStoreTests: XCTestCase {
 
         XCTAssertTrue(state.transcript.queue.isEmpty)
         XCTAssertEqual(state.transcript.messages.last?.status, .stopped)
+    }
+
+    func testLiveAssistantKeepsOneStreamingMessageAndRecordsBoundaries() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 10)))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.assistantDelta("partial"), at: 20))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.assistantDelta(" output"), at: 21))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.assistantCompleted, at: 30))
+
+        XCTAssertEqual(state.transcript.messages.map(\.text), ["start", "partial output"])
+        XCTAssertEqual(state.transcript.messages.last?.startedAt, 20)
+        XCTAssertEqual(state.transcript.messages.last?.completedAt, 30)
+        XCTAssertEqual(state.transcript.messages.last?.status, .complete)
+        XCTAssertEqual(state.transcript.nextOrder, 3)
+    }
+
+    func testRunEndCompletesUnfinishedAssistantWithItsBoundaryTimestamp() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 10)))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.assistantDelta("partial"), at: 20))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.runEnded, at: 30))
+
+        XCTAssertEqual(state.transcript.messages.last?.status, .complete)
+        XCTAssertEqual(state.transcript.messages.last?.completedAt, 30)
+        XCTAssertFalse(state.transcript.isRunning)
     }
 }

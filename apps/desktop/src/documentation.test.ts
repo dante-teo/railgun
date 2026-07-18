@@ -64,14 +64,24 @@ describe("desktop documentation", () => {
     expect(normalizedSwiftPlan).toContain("New work receives a new ID.");
 
     const tasks = [...swiftPlan.matchAll(/^- \[[ x]\] `(SWFT-\d{3})` — .* `\[(\d+)h\]`$/gmu)];
-    const taskIds = tasks.map(([, id]) => id);
+    const taskIds = tasks.flatMap((match) => {
+      const id = match[1];
+      return id ? [id] : [];
+    });
     const estimates = tasks.map(([, , estimate]) => Number(estimate));
+    const retiredSection = ((swiftPlan.split("### Superseded checklist IDs", 2)[1] ?? "")
+      .split("## Test and acceptance contract", 2)[0]) ?? "";
+    const retiredIds = [...retiredSection.matchAll(/`(SWFT-\d{3})`/gmu)].flatMap((match) => {
+      const id = match[1];
+      return id ? [id] : [];
+    });
 
-    expect(tasks).toHaveLength(84);
     expect(new Set(taskIds).size).toBe(taskIds.length);
-    expect(new Set(taskIds)).toEqual(
-      new Set(Array.from({ length: 84 }, (_, index) => `SWFT-${String(index + 1).padStart(3, "0")}`)),
-    );
+    expect(new Set(retiredIds).size).toBe(retiredIds.length);
+    expect([...taskIds, ...retiredIds].every((id) => {
+      const value = Number(id.slice("SWFT-".length));
+      return value >= 1 && value <= 999;
+    })).toBe(true);
     expect(estimates.every((estimate) => estimate <= 8)).toBe(true);
   });
 });

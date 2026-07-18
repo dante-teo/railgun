@@ -182,6 +182,33 @@ struct BackendLaunchConfiguration: Equatable {
     }
 }
 
+/// Cancels the event-consumption task even when the runtime is released off
+/// the main actor during teardown.
+private final class RailgunEventObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+
+    func replace(with nextTask: Task<Void, Never>) {
+        lock.lock()
+        let previousTask = task
+        task = nextTask
+        lock.unlock()
+        previousTask?.cancel()
+    }
+
+    func cancel() {
+        lock.lock()
+        let activeTask = task
+        task = nil
+        lock.unlock()
+        activeTask?.cancel()
+    }
+
+    deinit {
+        cancel()
+    }
+}
+
 @MainActor
 @Observable
 final class RailgunBackendRuntime {
@@ -192,6 +219,7 @@ final class RailgunBackendRuntime {
     private let store: RailgunAppStore
     private var isStarting = false
     private nonisolated let terminationObservationTask: Task<Void, Never>
+    private nonisolated let eventObservation = RailgunEventObservation()
 
     init(
         configuration: BackendLaunchConfiguration,
@@ -217,6 +245,7 @@ final class RailgunBackendRuntime {
 
     deinit {
         terminationObservationTask.cancel()
+        eventObservation.cancel()
     }
 
     func start() async {
@@ -232,6 +261,7 @@ final class RailgunBackendRuntime {
         do {
             let handshake = try await client.start(launch)
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
+            observeEvents()
             await sessionCoordinator.refresh()
         } catch let error as RailgunRPCError {
             if case .authenticationRequired = error {
@@ -245,7 +275,18 @@ final class RailgunBackendRuntime {
     }
 
     func shutdown() async {
+        eventObservation.cancel()
         await client.shutdown()
+    }
+
+    private func observeEvents() {
+        let task = Task { @MainActor [weak store, client] in
+            for await event in client.events {
+                guard !Task.isCancelled, let store else { return }
+                store.send(.agentEvent(event))
+            }
+        }
+        eventObservation.replace(with: task)
     }
 }
 
