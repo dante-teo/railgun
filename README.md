@@ -226,7 +226,11 @@ client assigns `request-<generation>-<sequence>`, correlates only the matched
 response, and returns its raw response object. Each call supplies its own
 timeout. Cancellation, timeout, malformed/mismatched responses, EOF, process
 exit, restart, and shutdown settle or discard only the affected generation's
-work; late and stale-generation frames are ignored.
+work; late and stale-generation frames are ignored. An unexpected EOF, transport
+failure, or process exit after readiness also emits one
+`unexpectedTerminations` event. The native app uses that event to leave the
+Task shell, mark the backend disconnected, and offer a retry instead of
+presenting unavailable task controls.
 
 The client uses `RailgunTransportConfiguration.rpcCompatible`, which retains
 validated stdout bursts until the RPC reader consumes them. This is intentional:
@@ -424,9 +428,12 @@ equivalent `RAILGUNX_*` environment values, which keeps LaunchServices launches
 deterministic. A source-root value may be the repository directory itself or a
 generated `.railgun-source-root` marker. Xcode generates shared `RailgunX
 Source Backend` and `RailgunX Mock Backend` Debug schemes that use that marker
-instead of embedding a developer-specific path. These selections remain
-native-shell placeholders until the planned transport and backend integration
-land.
+instead of embedding a developer-specific path. Both selections launch a live
+RPC backend: after a successful readiness probe, RailgunX loads active and
+archived tasks and enables new, resume, archive, and restore operations. A
+backend launch, authentication, or later connection failure replaces the task
+shell with an actionable status and retry control; rejected task operations are
+shown next to the task detail area.
 
 Run the complete check suite from the repository root with:
 

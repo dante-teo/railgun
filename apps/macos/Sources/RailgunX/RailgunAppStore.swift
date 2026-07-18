@@ -63,18 +63,27 @@ enum RailgunAppReducer {
             }
         case let .session(action):
             let session = RailgunSessionReducer.reduce(state.session, action)
-            guard case let .hydrated(activeSessionID, transcript, todos, isRunning) = action else {
+            switch action {
+            case let .hydrated(activeSessionID, transcript, todos, isRunning):
+                var next = state
+                next.session = session
+                next.transcript = RailgunTranscriptReducer.hydrate(transcript, isRunning: isRunning)
+                next.activity = RailgunActivityReducer.hydrate(transcript, todos: todos)
+                next.session.activeSessionID = activeSessionID
+                next.interactions = .initial
+                return next
+            case .created:
+                var next = state
+                next.session = session
+                next.transcript = .initial
+                next.activity = .initial
+                next.interactions = .initial
+                return next
+            default:
                 var next = state
                 next.session = session
                 return next
             }
-            var next = state
-            next.session = session
-            next.transcript = RailgunTranscriptReducer.hydrate(transcript, isRunning: isRunning)
-            next.activity = RailgunActivityReducer.hydrate(transcript, todos: todos)
-            next.session.activeSessionID = activeSessionID
-            next.interactions = .initial
-            return next
         case let .transcript(action):
             var next = state
             next.transcript = RailgunTranscriptReducer.reduce(state.transcript, action)
@@ -199,12 +208,31 @@ enum RailgunBackendReducer {
     }
 }
 
-struct RailgunSessionSummary: Equatable, Identifiable {
+struct RailgunSessionSummary: Equatable, Identifiable, Sendable {
     let id: String
     let model: String
     let startedAt: String
     let messageCount: Int
     let firstUserPreview: String
+    /// A newly-created session has no saved checkpoint yet, so it must not be
+    /// represented as a persisted sidebar entry.
+    let isPersisted: Bool
+
+    init(
+        id: String,
+        model: String,
+        startedAt: String,
+        messageCount: Int,
+        firstUserPreview: String,
+        isPersisted: Bool = true
+    ) {
+        self.id = id
+        self.model = model
+        self.startedAt = startedAt
+        self.messageCount = messageCount
+        self.firstUserPreview = firstUserPreview
+        self.isPersisted = isPersisted
+    }
 
     var displayTitle: String {
         firstUserPreview.isEmpty ? "Untitled Task" : firstUserPreview
@@ -216,12 +244,16 @@ struct RailgunSessionState: Equatable {
     var sessions: [RailgunSessionSummary]
     var archivedSessions: [RailgunSessionSummary]
     var isLoading: Bool
+    var error: String? = nil
+    var activeSession: RailgunSessionSummary? = nil
 
     static let initial = Self(activeSessionID: nil, sessions: [], archivedSessions: [], isLoading: false)
 
     var selectedSession: RailgunSessionSummary? {
         guard let activeSessionID else { return nil }
-        return sessions.first(where: { $0.id == activeSessionID })
+        return activeSession?.id == activeSessionID
+            ? activeSession
+            : sessions.first(where: { $0.id == activeSessionID })
     }
 }
 
@@ -236,8 +268,10 @@ enum RailgunSessionAction: Equatable {
     case loading
     case loaded([RailgunSessionSummary])
     case archivedLoaded([RailgunSessionSummary])
+    case created(id: String, model: String?)
     case selected(String?)
     case hydrated(activeSessionID: String, transcript: [RailgunRestoredTranscriptEntry], todos: [RailgunTodo], isRunning: Bool)
+    case failed(message: String)
 }
 
 enum RailgunSessionReducer {
@@ -246,27 +280,64 @@ enum RailgunSessionReducer {
         case .loading:
             var next = state
             next.isLoading = true
+            next.error = nil
             return next
         case let .loaded(sessions):
             var next = state
             next.sessions = sessions
             next.isLoading = false
+            next.error = nil
+            next.activeSession = activeSession(for: next.activeSessionID, in: sessions, preserving: state.activeSession)
             return next
         case let .archivedLoaded(sessions):
             var next = state
             next.archivedSessions = sessions
             next.isLoading = false
+            next.error = nil
+            return next
+        case let .created(id, model):
+            var next = state
+            next.activeSessionID = id
+            next.activeSession = .init(
+                id: id,
+                model: model ?? "Default model",
+                startedAt: "Just now",
+                messageCount: 0,
+                firstUserPreview: "",
+                isPersisted: false
+            )
+            next.isLoading = false
+            next.error = nil
             return next
         case let .selected(id):
             var next = state
             next.activeSessionID = id
+            next.activeSession = activeSession(for: id, in: state.sessions, preserving: nil)
             return next
         case let .hydrated(id, _, _, _):
             var next = state
             next.activeSessionID = id
+            next.activeSession = activeSession(for: id, in: state.sessions, preserving: state.activeSession)
             next.isLoading = false
+            next.error = nil
+            return next
+        case let .failed(message):
+            var next = state
+            next.isLoading = false
+            next.error = message
             return next
         }
+    }
+
+    private static func activeSession(
+        for id: String?,
+        in sessions: [RailgunSessionSummary],
+        preserving existing: RailgunSessionSummary?
+    ) -> RailgunSessionSummary? {
+        guard let id else { return nil }
+        if let saved = sessions.first(where: { $0.id == id }) { return saved }
+        guard let existing, existing.id == id, !existing.isPersisted else { return nil }
+        return existing
     }
 }
 

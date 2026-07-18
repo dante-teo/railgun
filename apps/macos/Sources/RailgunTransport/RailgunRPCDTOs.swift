@@ -42,22 +42,22 @@ public enum RailgunJSONValue: Sendable, Equatable, Codable {
         }
     }
 
-    var objectValue: [String: RailgunJSONValue]? {
+    public var objectValue: [String: RailgunJSONValue]? {
         guard case let .object(value) = self else { return nil }
         return value
     }
 
-    var stringValue: String? {
+    public var stringValue: String? {
         guard case let .string(value) = self else { return nil }
         return value
     }
 
-    var boolValue: Bool? {
+    public var boolValue: Bool? {
         guard case let .bool(value) = self else { return nil }
         return value
     }
 
-    var integerValue: Int? {
+    public var integerValue: Int? {
         guard case let .number(value) = self,
               value.isFinite,
               value.rounded() == value

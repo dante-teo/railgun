@@ -223,6 +223,88 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(launchConfiguration.mockScenario, "ready-idle")
     }
 
+    func testMockBackendLaunchUsesTheBuiltSourceMockWithTheRequestedScenario() throws {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=ready-idle",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+
+        let launch = try XCTUnwrap(configuration.desktopRPCLaunch(resourcesDirectory: repositoryRoot))
+
+        XCTAssertEqual(launch.executableURL.path, "/usr/bin/env")
+        XCTAssertEqual(
+            launch.arguments,
+            ["node", repositoryRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs").path, "ready-idle"]
+        )
+        XCTAssertEqual(launch.currentDirectoryURL, repositoryRoot.standardizedFileURL)
+        XCTAssertEqual(launch.environment?["RAILGUN_DESKTOP_RPC"], "1")
+    }
+
+    func testMockRuntimeStartsAndLoadsSavedSessions() async {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=ready-idle",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(configuration: configuration, store: store)
+
+        await runtime.start()
+
+        XCTAssertEqual(store.state.backend.phase, .ready)
+        XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
+        XCTAssertFalse(store.state.session.archivedSessions.isEmpty)
+
+        await runtime.shutdown()
+    }
+
+    func testMockRuntimeMarksTheBackendDisconnectedAfterPostStartupTermination() async {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=disconnect-after-ready",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(configuration: configuration, store: store)
+
+        await runtime.start()
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(store.state.backend.phase, .disconnected("The connection to the backend was lost."))
+
+        await runtime.shutdown()
+    }
+
+    func testBackendPresentationOnlyShowsTheTaskShellWhenReady() {
+        XCTAssertEqual(RailgunBackendPresentation(phase: .starting), .starting)
+        XCTAssertEqual(RailgunBackendPresentation(phase: .ready), .ready)
+        XCTAssertEqual(
+            RailgunBackendPresentation(phase: .authenticationRequired),
+            .authenticationRequired
+        )
+        XCTAssertEqual(
+            RailgunBackendPresentation(phase: .failed("Launch failed")),
+            .unavailable(title: "Backend Unavailable", message: "Launch failed")
+        )
+        XCTAssertEqual(
+            RailgunBackendPresentation(phase: .disconnected("Connection lost")),
+            .unavailable(title: "Backend Disconnected", message: "Connection lost")
+        )
+    }
+
     func testShellLaunchersForwardExplicitBackendArgumentsThroughLaunchServices() throws {
         let runScript = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/run.sh"),

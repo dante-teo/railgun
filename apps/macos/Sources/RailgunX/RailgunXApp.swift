@@ -145,6 +145,112 @@ struct BackendLaunchConfiguration: Equatable {
             ? sourceRootURL
             : nil
     }
+
+    func desktopRPCLaunch(resourcesDirectory: URL) -> BackendProcessLaunch? {
+        switch mode {
+        case .bundled:
+            return RailgunBundledBackendLaunchFactory(resourcesDirectory: resourcesDirectory).desktopRPCLaunch()
+        case .source:
+            guard let sourceRoot else { return nil }
+            return sourceLaunch(
+                root: sourceRoot,
+                script: sourceRoot.appendingPathComponent("dist/backend.js"),
+                arguments: ["desktop"]
+            )
+        case .mock:
+            guard let sourceRoot, let mockScenario else { return nil }
+            return sourceLaunch(
+                root: sourceRoot,
+                script: sourceRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs"),
+                arguments: [mockScenario]
+            )
+        }
+    }
+
+    private func sourceLaunch(root: URL, script: URL, arguments: [String]) -> BackendProcessLaunch? {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/env"),
+              FileManager.default.fileExists(atPath: script.path)
+        else { return nil }
+        var environment = ProcessInfo.processInfo.environment
+        environment["RAILGUN_DESKTOP_RPC"] = "1"
+        return BackendProcessLaunch(
+            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: ["node", script.path] + arguments,
+            currentDirectoryURL: root,
+            environment: environment
+        )
+    }
+}
+
+@MainActor
+@Observable
+final class RailgunBackendRuntime {
+    let sessionCoordinator: RailgunSessionCoordinator
+
+    private let client: RailgunRPCClient
+    private let launch: BackendProcessLaunch?
+    private let store: RailgunAppStore
+    private var isStarting = false
+    private var terminationObservationTask: Task<Void, Never>?
+
+    init(
+        configuration: BackendLaunchConfiguration,
+        store: RailgunAppStore,
+        resourcesDirectory: URL = Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")
+    ) {
+        let client = RailgunRPCClient()
+        self.client = client
+        self.store = store
+        self.launch = configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory)
+        self.sessionCoordinator = RailgunSessionCoordinator(
+            store: store,
+            service: RailgunSessionService(rpcClient: client)
+        )
+        terminationObservationTask = Task { [weak self, client] in
+            for await _ in client.unexpectedTerminations {
+                guard let self else { return }
+                self.recordUnexpectedTermination()
+            }
+        }
+    }
+
+    deinit {
+        terminationObservationTask?.cancel()
+    }
+
+    func start() async {
+        guard !isStarting else { return }
+        guard let launch else {
+            store.send(.backend(.failed(message: "The selected backend could not be launched.")))
+            return
+        }
+        isStarting = true
+        defer { isStarting = false }
+
+        store.send(.backend(.starting))
+        do {
+            let handshake = try await client.start(launch)
+            store.send(.backend(.ready(capabilities: handshake.capabilities)))
+            await sessionCoordinator.refresh()
+        } catch let error as RailgunRPCError {
+            if case .authenticationRequired = error {
+                store.send(.backend(.authenticationRequired))
+            } else {
+                store.send(.backend(.failed(message: "The backend could not be started.")))
+            }
+        } catch {
+            store.send(.backend(.failed(message: "The backend could not be started.")))
+        }
+    }
+
+    func shutdown() async {
+        await client.shutdown()
+    }
+
+    private func recordUnexpectedTermination() {
+        guard case .ready = store.state.backend.phase else { return }
+        store.send(.backend(.disconnected(message: "The connection to the backend was lost.")))
+    }
 }
 
 @MainActor
@@ -222,6 +328,28 @@ enum RailgunTaskDetailPresentation: Equatable {
     }
 }
 
+enum RailgunBackendPresentation: Equatable {
+    case starting
+    case ready
+    case authenticationRequired
+    case unavailable(title: String, message: String)
+
+    init(phase: RailgunBackendPhase) {
+        switch phase {
+        case .starting:
+            self = .starting
+        case .ready:
+            self = .ready
+        case .authenticationRequired:
+            self = .authenticationRequired
+        case let .failed(message):
+            self = .unavailable(title: "Backend Unavailable", message: message)
+        case let .disconnected(message):
+            self = .unavailable(title: "Backend Disconnected", message: message)
+        }
+    }
+}
+
 private enum RailgunTaskSymbol {
     static let activity = "rectangle.3.group"
 }
@@ -231,11 +359,13 @@ struct RailgunTaskShell: View {
     static let sidebarMinimumWidth: CGFloat = 180
 
     @Bindable private var appStore: RailgunAppStore
+    private let sessionCoordinator: RailgunSessionCoordinator
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
 
-    init(appStore: RailgunAppStore) {
+    init(appStore: RailgunAppStore, sessionCoordinator: RailgunSessionCoordinator) {
         _appStore = Bindable(appStore)
+        self.sessionCoordinator = sessionCoordinator
     }
 
     var body: some View {
@@ -254,6 +384,37 @@ struct RailgunTaskShell: View {
         .navigationTitle("Task")
         .toolbar {
             ToolbarItem {
+                Button {
+                    Task { await sessionCoordinator.create(modelID: appStore.state.controls.activeModelID) }
+                } label: {
+                    Label("New Task", systemImage: "square.and.pencil")
+                }
+            }
+            ToolbarItem {
+                Button(role: .destructive) {
+                    guard let sessionID = appStore.state.session.activeSessionID else { return }
+                    Task { await sessionCoordinator.archive(sessionID) }
+                } label: {
+                    Label("Archive Task", systemImage: "archivebox")
+                }
+                .disabled(appStore.state.session.selectedSession?.isPersisted != true)
+            }
+            ToolbarItem {
+                Menu {
+                    if appStore.state.session.archivedSessions.isEmpty {
+                        Text("No Archived Tasks")
+                    } else {
+                        ForEach(appStore.state.session.archivedSessions) { session in
+                            Button("Restore \(session.displayTitle)") {
+                                Task { await sessionCoordinator.restore(session.id) }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Archived Tasks", systemImage: "archivebox.fill")
+                }
+            }
+            ToolbarItem {
                 Toggle(isOn: $isActivityCardVisible) {
                     Label("Activity", systemImage: RailgunTaskSymbol.activity)
                 }
@@ -266,9 +427,16 @@ struct RailgunTaskShell: View {
     private var selectedSessionID: Binding<String?> {
         Binding(
             get: { appStore.state.session.activeSessionID },
-            set: { appStore.send(.session(.selected($0))) }
+            set: { selection in
+                guard let selection else {
+                    appStore.send(.session(.selected(nil)))
+                    return
+                }
+                Task { await sessionCoordinator.resume(selection) }
+            }
         )
     }
+
 }
 
 private struct RailgunTaskDetailArea: View {
@@ -276,13 +444,25 @@ private struct RailgunTaskDetailArea: View {
     let isActivityCardVisible: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
-            RailgunTaskDetail(session: session)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(alignment: .leading, spacing: 12) {
+            if let error = session.error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityIdentifier("session-operation-error")
+            }
 
-            if isActivityCardVisible {
-                RailgunActivityCard()
-                    .frame(minWidth: 260, idealWidth: 300, maxWidth: 320)
+            HStack(alignment: .top, spacing: 20) {
+                RailgunTaskDetail(session: session)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isActivityCardVisible {
+                    RailgunActivityCard()
+                        .frame(minWidth: 260, idealWidth: 300, maxWidth: 320)
+                }
             }
         }
         .padding(20)
@@ -370,6 +550,31 @@ private struct RailgunActivityCard: View {
     }
 }
 
+private struct RailgunBackendStatusView: View {
+    let title: String
+    let message: String
+    let systemImage: String
+    let retryTitle: String
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: systemImage)
+                .font(.system(size: 42))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.title2)
+            Text(message)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 460)
+            Button(retryTitle, action: retry)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 @main
 struct RailgunXApp: App {
     static let lifecycleConfiguration = AppLifecycleConfiguration.primary
@@ -378,11 +583,17 @@ struct RailgunXApp: App {
     // SWFT-024 observes this app-scoped store so scene lifecycle changes do
     // not recreate feature state.
     @State private var appStore = RailgunAppStore()
+    @State private var backendRuntime: RailgunBackendRuntime
 
     init() {
         let backendLaunchConfiguration = BackendLaunchConfiguration()
+        let appStore = RailgunAppStore()
+        _appStore = State(initialValue: appStore)
         _desktopClientStartup = State(
             initialValue: DesktopClientStartup(backendConfiguration: backendLaunchConfiguration)
+        )
+        _backendRuntime = State(
+            initialValue: RailgunBackendRuntime(configuration: backendLaunchConfiguration, store: appStore)
         )
     }
 
@@ -396,7 +607,7 @@ struct RailgunXApp: App {
                 case .acquiring:
                     ProgressView("Checking for another Railgun desktop client…")
                 case .ready:
-                    RailgunTaskShell(appStore: appStore)
+                    backendContent
                 case let .conflict(record):
                     ContentUnavailableView(
                         "Railgun is already in use",
@@ -419,9 +630,13 @@ struct RailgunXApp: App {
             )
             .task {
                 await desktopClientStartup.acquire()
+                if desktopClientStartup.status == .ready {
+                    await backendRuntime.start()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                 Task {
+                    await backendRuntime.shutdown()
                     await desktopClientStartup.release()
                 }
             }
@@ -439,5 +654,35 @@ struct RailgunXApp: App {
                 description: Text("Settings will arrive with the Task alpha.")
             )
         }
+    }
+
+    @ViewBuilder
+    private var backendContent: some View {
+        switch RailgunBackendPresentation(phase: appStore.state.backend.phase) {
+        case .starting:
+            ProgressView("Starting the Railgun backend…")
+        case .ready:
+            RailgunTaskShell(appStore: appStore, sessionCoordinator: backendRuntime.sessionCoordinator)
+        case .authenticationRequired:
+            RailgunBackendStatusView(
+                title: "Authentication Required",
+                message: "RailgunX could not authenticate with the configured backend. Update your credentials, then try again.",
+                systemImage: "key.fill",
+                retryTitle: "Try Again",
+                retry: restartBackend
+            )
+        case let .unavailable(title, message):
+            RailgunBackendStatusView(
+                title: title,
+                message: message,
+                systemImage: "exclamationmark.triangle.fill",
+                retryTitle: "Retry",
+                retry: restartBackend
+            )
+        }
+    }
+
+    private func restartBackend() {
+        Task { await backendRuntime.start() }
     }
 }

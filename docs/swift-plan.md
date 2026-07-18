@@ -283,7 +283,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 
 - [x] `SWFT-023` — Build the app store and pure reducers for backend, session, transcript, controls, interactions, and activity. `[8h]`
 - [x] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and an embedded Activity card. `[8h]`
-- [ ] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows. `[8h]`
+- [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
 - [ ] `SWFT-026` — Implement chronological transcript assembly for restored messages, streaming, tools, errors, and run boundaries. `[8h]`
 - [ ] `SWFT-027` — Build transcript virtualization and bottom-follow behavior, introducing custom scrolling only for behavior unavailable natively. `[8h]`
 - [ ] `SWFT-028` — Render completed Markdown natively with Swift Markdown while keeping streaming fragments plain. `[8h]`

@@ -110,6 +110,7 @@ public actor RailgunRPCClient {
     private let transportConfiguration: RailgunTransportConfiguration
     private let eventContinuation: AsyncStream<RailgunAgentEvent>.Continuation
     private let interactionContinuation: AsyncStream<RailgunRPCInteraction>.Continuation
+    private let unexpectedTerminationContinuation: AsyncStream<Void>.Continuation
 
     /// Normalized backend activity. The stream survives backend restarts and
     /// uses a bounded newest-value buffer so an unobserved UI cannot stall RPC
@@ -121,6 +122,10 @@ public actor RailgunRPCClient {
     /// cannot be delivered is safely denied rather than left unresolved.
     /// Backend request identifiers never enter this stream.
     public nonisolated let interactions: AsyncStream<RailgunRPCInteraction>
+
+    /// Emits when a ready backend generation ends without an explicit client
+    /// shutdown. Consumers can use this to update connection presentation.
+    public nonisolated let unexpectedTerminations: AsyncStream<Void>
 
     private var transport: RailgunTransport?
     private var standardInput: FileHandle?
@@ -160,11 +165,18 @@ public actor RailgunRPCClient {
         )
         self.interactions = interactionStream.stream
         self.interactionContinuation = interactionStream.continuation
+
+        let unexpectedTerminationStream = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.unexpectedTerminations = unexpectedTerminationStream.stream
+        self.unexpectedTerminationContinuation = unexpectedTerminationStream.continuation
     }
 
     deinit {
         eventContinuation.finish()
         interactionContinuation.finish()
+        unexpectedTerminationContinuation.finish()
     }
 
     /// The most recently negotiated handshake while this client is ready.
@@ -662,11 +674,15 @@ public actor RailgunRPCClient {
     }
 
     private func stdoutEnded(for currentGeneration: Int) async {
-        await endGeneration(currentGeneration, error: .backendTerminated, terminateBackend: true)
+        await endUnexpectedly(
+            currentGeneration,
+            error: .backendTerminated,
+            terminateBackend: true
+        )
     }
 
     private func stdoutFailed(_ error: Error, for currentGeneration: Int) async {
-        await endGeneration(
+        await endUnexpectedly(
             currentGeneration,
             error: .transportFailure(RailgunRPCRedactor.redact(text: String(describing: error))),
             terminateBackend: true
@@ -674,7 +690,30 @@ public actor RailgunRPCClient {
     }
 
     private func backendDidTerminate(generation currentGeneration: Int) async {
-        await endGeneration(currentGeneration, error: .backendTerminated, terminateBackend: false)
+        await endUnexpectedly(
+            currentGeneration,
+            error: .backendTerminated,
+            terminateBackend: false
+        )
+    }
+
+    private func endUnexpectedly(
+        _ currentGeneration: Int,
+        error: RailgunRPCError,
+        terminateBackend: Bool
+    ) async {
+        guard activeGeneration == currentGeneration else { return }
+        let wasReady: Bool
+        if case .ready = lifecycle {
+            wasReady = true
+        } else {
+            wasReady = false
+        }
+
+        await endGeneration(currentGeneration, error: error, terminateBackend: terminateBackend)
+        if wasReady {
+            unexpectedTerminationContinuation.yield(())
+        }
     }
 
     private func timeoutRequest(_ identifier: String) {
