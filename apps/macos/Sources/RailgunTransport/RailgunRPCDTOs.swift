@@ -288,6 +288,37 @@ public enum RailgunRPCDTOError: Error, Sendable, Equatable {
     case malformedInteraction
 }
 
+/// The user-facing category of a pending backend interaction.
+public enum RailgunRPCInteractionKind: String, Sendable, Equatable {
+    case approval
+    case clarification
+}
+
+/// A presentation-safe interaction request.
+///
+/// `id` is an opaque client-side correlation identifier. It deliberately does
+/// not contain the backend request identifier, which remains transport-owned.
+public enum RailgunRPCInteraction: Sendable, Equatable {
+    case approval(id: String, command: String)
+    case clarification(id: String, question: String, choices: [String]?)
+
+    public var id: String {
+        switch self {
+        case let .approval(id, _), let .clarification(id, _, _):
+            id
+        }
+    }
+
+    public var kind: RailgunRPCInteractionKind {
+        switch self {
+        case .approval:
+            .approval
+        case .clarification:
+            .clarification
+        }
+    }
+}
+
 /// A decoded RPC response envelope. The `data` member remains extensible while
 /// command-specific DTOs decode only the fields they consume.
 public struct RailgunRPCResponse: Sendable, Equatable {
@@ -364,7 +395,7 @@ public enum RailgunRPCInteractionRequest: Sendable, Equatable {
               let type = object["type"]?.stringValue,
               let requestID = object["requestId"]?.stringValue,
               requestID.count <= RailgunRPCValidationLimits.backendInteractionRequestID,
-              !requestID.isEmpty
+              !requestID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { throw RailgunRPCDTOError.malformedInteraction }
         switch type {
         case "approval_request":

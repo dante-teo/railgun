@@ -106,6 +106,14 @@ tool detail, todo text, advisor text, MoA previews, and subagent text are
 redacted and bounded before delivery. A malformed todo snapshot withholds only
 the snapshot while retaining its containing tool completion event.
 
+Approval and clarification requests travel on a separate presentation-safe
+stream. Each request receives an opaque client correlation ID while its backend
+request ID stays transport-private. Open requests preserve arrival order and
+settle on run end, restart, shutdown, or disconnection. The stream retains its
+oldest bounded queue; a newer request that cannot be delivered is safely denied
+and removed rather than leaving the backend blocked. Malformed requests,
+including blank IDs, take the same safe denial or abort path.
+
 ### Shared data and client exclusion
 
 RailgunX reads and writes the existing `~/.railgun` data directly. It does not
@@ -241,7 +249,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 - [x] `SWFT-016` — Implement initialization, capabilities, request IDs, response matching, timeouts, and stale-generation rejection. `[8h]`
 - [x] `SWFT-017` — Port RPC DTOs, validation limits, redaction, and safe diagnostic summaries to Swift. `[8h]`
 - [x] `SWFT-018` — Port event normalization for messages, tools, todos, advisor, MoA, subagents, queues, and context usage. `[8h]`
-- [ ] `SWFT-019` — Implement approval and clarification correlation, ordering, settlement, and invalid-response handling. `[6h]`
+- [x] `SWFT-019` — Implement approval and clarification correlation, ordering, settlement, and invalid-response handling. `[6h]`
 - [ ] `SWFT-020` — Add the shared desktop-client lock to RailgunX and Classic, including stale-lock recovery and conflict UI. `[8h]`
 - [ ] `SWFT-021` — Implement login/logout helpers using the bundled backend and coordinated restart. `[6h]`
 - [ ] `SWFT-022` — Verify packaged backend startup, SQLite loading, authentication startup, crash, restart, and shutdown on both architectures. `[8h]`

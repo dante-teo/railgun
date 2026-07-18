@@ -228,6 +228,16 @@ non-trapping exact conversion, so malformed out-of-range backend numbers are
 rejected as malformed data rather than crashing the client. The raw request API
 remains available for fixture replay and forward-compatible protocol probes.
 
+Approval and clarification requests are emitted through the client's separate
+`interactions` stream with opaque client correlation IDs; backend request IDs
+never reach presentation state. The stream preserves arrival order for its
+oldest 128 requests. If it cannot admit a newer request, the client safely
+denies that request and removes its correlation state, preventing the backend
+from waiting on an unreachable prompt. Duplicate requests are ignored; blank
+or otherwise malformed request IDs use the safe denial or abort path. A failed
+interaction response remains pending for retry, while run end, restart,
+shutdown, and disconnection settle every pending interaction.
+
 `RailgunRPCRedactor` recursively removes credential-like fields, environment
 values, token forms, and filesystem paths before values are presented. Its
 diagnostic summaries include only bounded protocol metadata (`type`, response

@@ -50,6 +50,9 @@ final class RailgunRPCClientTests: XCTestCase {
         """#.utf8))
         XCTAssertEqual(interaction, .clarification(requestID: "request-1", question: "Choose one", choices: ["Safe", "Fast"]))
         XCTAssertThrowsError(try RailgunRPCInteractionRequest.validateClarificationAnswer("   "))
+        XCTAssertThrowsError(try RailgunRPCInteractionRequest(data: Data(#"""
+        {"type":"approval_request","requestId":"   ","command":"run safely"}
+        """#.utf8)))
 
         let sensitive = try JSONDecoder().decode(RailgunJSONValue.self, from: Data(#"""
         {"type":"response","id":"Bearer backend-secret","command":"get_state","success":false,"data":{"token":"plain-secret","path":"/Users/ava/private.txt"}}
@@ -144,6 +147,118 @@ final class RailgunRPCClientTests: XCTestCase {
         XCTAssertEqual(try responseObject(response)["command"] as? String, "burst")
         let receivedEvent = await firstEvent.value
         XCTAssertEqual(receivedEvent, .runStarted)
+        await client.shutdown()
+    }
+
+    func testInteractionsAreRedactedCorrelatedAndEmittedInArrivalOrder() async throws {
+        let client = RailgunRPCClient()
+        _ = try await client.start(perlLaunch(script: interactionBackendScript))
+        let interactions = client.interactions
+        let received = Task { () -> [RailgunRPCInteraction] in
+            var iterator = interactions.makeAsyncIterator()
+            return await [iterator.next(), iterator.next()].compactMap { $0 }
+        }
+
+        _ = try await client.request(Data(#"{"type":"interactions"}"#.utf8), timeout: .seconds(1))
+        let prompts = await received.value
+
+        XCTAssertEqual(prompts.count, 2)
+        guard case let .approval(id: approvalID, command: command) = prompts[0] else {
+            return XCTFail("Expected the approval to arrive first")
+        }
+        XCTAssertEqual(command, "Bearer [REDACTED] run")
+        XCTAssertNotEqual(approvalID, "backend-approval")
+        XCTAssertFalse(String(describing: prompts).contains("backend-approval"))
+        XCTAssertEqual(
+            prompts[1],
+            .clarification(id: prompts[1].id, question: "Which path?", choices: ["Fast", "Safe"])
+        )
+
+        try await client.respondToApproval(id: approvalID, approved: true)
+        try await client.respondToClarification(id: prompts[1].id, answer: "Fast")
+        let pendingInteractionCount = await client.pendingInteractionCount
+        XCTAssertEqual(pendingInteractionCount, 0)
+        await client.shutdown()
+    }
+
+    func testInteractionsRejectInvalidOrMismatchedResponsesAndSettleOnRunEnd() async throws {
+        let client = RailgunRPCClient()
+        _ = try await client.start(perlLaunch(script: interactionBackendScript))
+        let interactions = client.interactions
+        let firstInteraction = Task { () -> RailgunRPCInteraction? in
+            var iterator = interactions.makeAsyncIterator()
+            return await iterator.next()
+        }
+
+        _ = try await client.request(Data(#"{"type":"retry_interaction"}"#.utf8), timeout: .seconds(1))
+        let firstPrompt = await firstInteraction.value
+        let prompt = try XCTUnwrap(firstPrompt)
+        guard case let .approval(id, _) = prompt else { return XCTFail("Expected an approval") }
+
+        do {
+            try await client.respondToApproval(id: id, approved: true)
+            XCTFail("Expected an invalid interaction response")
+        } catch let error as RailgunRPCError {
+            XCTAssertEqual(error, .invalidInteractionResponse)
+        }
+        let pendingAfterInvalidResponse = await client.pendingInteractionCount
+        XCTAssertEqual(pendingAfterInvalidResponse, 1)
+
+        do {
+            try await client.respondToClarification(id: id, answer: "Fast")
+            XCTFail("Expected an interaction-kind mismatch")
+        } catch let error as RailgunRPCError {
+            XCTAssertEqual(error, .mismatchedInteractionKind(expected: .approval, received: .clarification))
+        }
+
+        try await client.respondToApproval(id: id, approved: true)
+        let pendingAfterSettlement = await client.pendingInteractionCount
+        XCTAssertEqual(pendingAfterSettlement, 0)
+
+        let staleInteraction = Task { () -> RailgunRPCInteraction? in
+            var iterator = interactions.makeAsyncIterator()
+            return await iterator.next()
+        }
+        _ = try await client.request(Data(#"{"type":"settle_interaction"}"#.utf8), timeout: .seconds(1))
+        let stalePromptValue = await staleInteraction.value
+        let stalePrompt = try XCTUnwrap(stalePromptValue)
+        let pendingAfterRunEnd = await client.pendingInteractionCount
+        XCTAssertEqual(pendingAfterRunEnd, 0)
+        do {
+            try await client.respondToApproval(id: stalePrompt.id, approved: false)
+            XCTFail("Expected a settled interaction to be rejected")
+        } catch let error as RailgunRPCError {
+            XCTAssertEqual(error, .unknownInteraction)
+        }
+        await client.shutdown()
+    }
+
+    func testMalformedInteractionsAreSafelySettledBeforeLaterRequests() async throws {
+        let client = RailgunRPCClient()
+        _ = try await client.start(perlLaunch(script: interactionBackendScript))
+
+        _ = try await client.request(Data(#"{"type":"invalid_interactions"}"#.utf8), timeout: .seconds(1))
+        let response = try await client.request(Data(#"{"type":"verify_invalid_settlement"}"#.utf8), timeout: .seconds(1))
+
+        XCTAssertTrue(try RailgunRPCResponse(data: response).success)
+        let pendingInteractionCount = await client.pendingInteractionCount
+        XCTAssertEqual(pendingInteractionCount, 0)
+        await client.shutdown()
+    }
+
+    func testInteractionQueueOverflowSafelyDeniesTheDroppedPrompt() async throws {
+        let client = RailgunRPCClient()
+        _ = try await client.start(perlLaunch(script: interactionBackendScript))
+        let interactions = client.interactions
+
+        _ = try await client.request(Data(#"{"type":"overflow_interactions"}"#.utf8), timeout: .seconds(1))
+        let pendingInteractionCount = await client.pendingInteractionCount
+        XCTAssertEqual(pendingInteractionCount, 128)
+
+        var iterator = interactions.makeAsyncIterator()
+        let firstPromptValue = await iterator.next()
+        let firstPrompt = try XCTUnwrap(firstPromptValue)
+        XCTAssertEqual(firstPrompt, .approval(id: firstPrompt.id, command: "overflow 1"))
         await client.shutdown()
     }
 
@@ -269,5 +384,78 @@ final class RailgunRPCClientTests: XCTestCase {
     $| = 1;
     <STDIN>;
     print STDOUT "{\"id\":\"initialize-1\",\"type\":\"response\",\"command\":\"initialize\",\"success\":true,\"data\":{\"version\":1,\"capabilities\":[\"sessions\",\"interaction.approval\",\"interaction.clarification\"]}}\n";
+    """#
+
+    private let interactionBackendScript = #"""
+    $| = 1;
+    my $invalid_settlements = 0;
+    my $invalid_interactions_request_id;
+    my $overflow_interactions_request_id;
+    my $retry_attempts = 0;
+    while (<STDIN>) {
+      my ($id) = /"id"\s*:\s*"([^"]+)"/;
+      my ($type) = /"type"\s*:\s*"([^"]+)"/;
+      my ($request_id) = /"requestId"\s*:\s*"([^"]+)"/;
+      if ($type eq "initialize") {
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"initialize\",\"success\":true,\"data\":{\"version\":1,\"capabilities\":[\"sessions\",\"interaction.approval\",\"interaction.clarification\"]}}\n";
+      } elsif ($type eq "interactions") {
+        print STDOUT "{\"type\":\"approval_request\",\"requestId\":\"backend-approval\",\"command\":\"Bearer sk-secret-token run\"}\n";
+        print STDOUT "{\"type\":\"clarification_request\",\"requestId\":\"backend-clarification\",\"question\":\"Which path?\",\"choices\":[\"Fast\",\"Safe\"]}\n";
+        print STDOUT "{\"type\":\"approval_request\",\"requestId\":\"backend-approval\",\"command\":\"duplicate request\"}\n";
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"interactions\",\"success\":true}\n";
+      } elsif ($type eq "retry_interaction") {
+        print STDOUT "{\"type\":\"approval_request\",\"requestId\":\"retry-approval\",\"command\":\"run safely\"}\n";
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"retry_interaction\",\"success\":true}\n";
+      } elsif ($type eq "settle_interaction") {
+        print STDOUT "{\"type\":\"approval_request\",\"requestId\":\"settle-approval\",\"command\":\"run safely\"}\n";
+        print STDOUT "{\"type\":\"agent_end\"}\n";
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"settle_interaction\",\"success\":true}\n";
+      } elsif ($type eq "invalid_interactions") {
+        $invalid_interactions_request_id = $id;
+        print STDOUT "{\"type\":\"clarification_request\",\"requestId\":\"invalid-clarification\",\"question\":\"" . ("x" x 8001) . "\"}\n";
+        print STDOUT "{\"type\":\"approval_request\",\"command\":\"missing request identifier\"}\n";
+        print STDOUT "{\"type\":\"approval_request\",\"requestId\":\"   \",\"command\":\"whitespace request identifier\"}\n";
+      } elsif ($type eq "overflow_interactions") {
+        $overflow_interactions_request_id = $id;
+        for my $index (1 .. 129) {
+          print STDOUT "{\"type\":\"approval_request\",\"requestId\":\"overflow-$index\",\"command\":\"overflow $index\"}\n";
+        }
+      } elsif ($type eq "approval_response") {
+        if ($request_id eq "overflow-129") {
+          print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"approval_response\",\"success\":true}\n";
+          print STDOUT "{\"id\":\"$overflow_interactions_request_id\",\"type\":\"response\",\"command\":\"overflow_interactions\",\"success\":true}\n";
+        } elsif ($request_id eq "backend-approval" || $request_id eq "retry-approval") {
+          $retry_attempts++ if $request_id eq "retry-approval";
+          if ($request_id eq "retry-approval" && $retry_attempts == 1) {
+            print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"approval_response\",\"success\":true,\"data\":{\"unexpected\":true}}\n";
+          } else {
+            print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"approval_response\",\"success\":true}\n";
+          }
+        } else {
+          print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"approval_response\",\"success\":false,\"error\":\"wrong request ID\"}\n";
+        }
+      } elsif ($type eq "clarification_response") {
+        if ($request_id eq "backend-clarification") {
+          print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"clarification_response\",\"success\":true}\n";
+        } elsif ($request_id eq "invalid-clarification") {
+          $invalid_settlements++;
+          print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"clarification_response\",\"success\":true}\n";
+          if ($invalid_settlements == 3) {
+            print STDOUT "{\"id\":\"$invalid_interactions_request_id\",\"type\":\"response\",\"command\":\"invalid_interactions\",\"success\":true}\n";
+          }
+        }
+      } elsif ($type eq "abort") {
+        $invalid_settlements++;
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"abort\",\"success\":true}\n";
+        if ($invalid_settlements == 3) {
+          print STDOUT "{\"id\":\"$invalid_interactions_request_id\",\"type\":\"response\",\"command\":\"invalid_interactions\",\"success\":true}\n";
+        }
+      } elsif ($type eq "verify_invalid_settlement") {
+        my $success = $invalid_settlements == 3 ? "true" : "false";
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"verify_invalid_settlement\",\"success\":$success" . ($success eq "true" ? "" : ",\"error\":\"invalid interactions were not settled\"") . "}\n";
+      } else {
+        print STDOUT "{\"id\":\"$id\",\"type\":\"response\",\"command\":\"$type\",\"success\":true}\n";
+      }
+    }
     """#
 }

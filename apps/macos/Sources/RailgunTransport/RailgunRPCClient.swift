@@ -7,6 +7,7 @@ public struct RailgunRPCConfiguration: Sendable, Equatable {
     public let protocolVersion: Int
     public let clientName: String
     public let startupDeadline: Duration
+    public let interactionResponseDeadline: Duration
     public let requiredCapabilities: Set<String>
     public let terminationGracePeriod: Duration
 
@@ -14,6 +15,7 @@ public struct RailgunRPCConfiguration: Sendable, Equatable {
         protocolVersion: Int = 1,
         clientName: String = "railgunx",
         startupDeadline: Duration = .seconds(15),
+        interactionResponseDeadline: Duration = .seconds(15),
         requiredCapabilities: Set<String> = [
             "sessions",
             "interaction.approval",
@@ -24,12 +26,14 @@ public struct RailgunRPCConfiguration: Sendable, Equatable {
         precondition(protocolVersion > 0, "The protocol version must be positive.")
         precondition(!clientName.isEmpty, "The client name must not be empty.")
         precondition(startupDeadline > .zero, "The startup deadline must be positive.")
+        precondition(interactionResponseDeadline > .zero, "The interaction response deadline must be positive.")
         precondition(!requiredCapabilities.isEmpty, "At least one capability must be required.")
         precondition(terminationGracePeriod >= .zero, "The termination grace period cannot be negative.")
 
         self.protocolVersion = protocolVersion
         self.clientName = clientName
         self.startupDeadline = startupDeadline
+        self.interactionResponseDeadline = interactionResponseDeadline
         self.requiredCapabilities = requiredCapabilities
         self.terminationGracePeriod = terminationGracePeriod
     }
@@ -61,6 +65,10 @@ public enum RailgunRPCError: Error, Sendable, Equatable {
     case transportFailure(String)
     case cancelled
     case timeout
+    case unknownInteraction
+    case mismatchedInteractionKind(expected: RailgunRPCInteractionKind, received: RailgunRPCInteractionKind)
+    case interactionResponseInFlight
+    case invalidInteractionResponse
 }
 
 /// Coordinates one generation of the Railgun RPC backend.
@@ -69,6 +77,8 @@ public enum RailgunRPCError: Error, Sendable, Equatable {
 /// correlation. It intentionally returns raw response objects: command DTOs
 /// and event normalization are owned by higher-level protocol features.
 public actor RailgunRPCClient {
+    private static let declinedClarificationAnswer = "[user declined to answer]"
+
     private enum Lifecycle {
         case starting
         case ready
@@ -80,15 +90,27 @@ public actor RailgunRPCClient {
         let timeoutTask: Task<Void, Never>
     }
 
+    private struct PendingInteraction {
+        let kind: RailgunRPCInteractionKind
+        let backendRequestID: String
+    }
+
     private let backend: BackendProcess
     private let configuration: RailgunRPCConfiguration
     private let transportConfiguration: RailgunTransportConfiguration
     private let eventContinuation: AsyncStream<RailgunAgentEvent>.Continuation
+    private let interactionContinuation: AsyncStream<RailgunRPCInteraction>.Continuation
 
     /// Normalized backend activity. The stream survives backend restarts and
     /// uses a bounded newest-value buffer so an unobserved UI cannot stall RPC
     /// response handling.
     public nonisolated let events: AsyncStream<RailgunAgentEvent>
+
+    /// Presentation-safe approval and clarification requests in backend arrival
+    /// order. The queue retains the oldest 128 prompts; a newer prompt that
+    /// cannot be delivered is safely denied rather than left unresolved.
+    /// Backend request identifiers never enter this stream.
+    public nonisolated let interactions: AsyncStream<RailgunRPCInteraction>
 
     private var transport: RailgunTransport?
     private var standardInput: FileHandle?
@@ -101,6 +123,11 @@ public actor RailgunRPCClient {
     private var pendingRequests: [String: PendingRequest] = [:]
     private var requestIDsAwaitingSettlement: Set<String> = []
     private var cancelledRequestIDs: Set<String> = []
+    private var pendingInteractions: [String: PendingInteraction] = [:]
+    private var correlationIDsByBackendRequestID: [String: String] = [:]
+    private var submittingInteractionIDs: Set<String> = []
+    private var nextInteractionSequence = 0
+    private var interactionEpoch = 0
     private var handshake: RailgunRPCHandshake?
 
     public init(
@@ -116,15 +143,27 @@ public actor RailgunRPCClient {
         self.transportConfiguration = transportConfiguration
         self.events = eventStream.stream
         self.eventContinuation = eventStream.continuation
+
+        let interactionStream = AsyncStream<RailgunRPCInteraction>.makeStream(
+            bufferingPolicy: .bufferingOldest(128)
+        )
+        self.interactions = interactionStream.stream
+        self.interactionContinuation = interactionStream.continuation
     }
 
     deinit {
         eventContinuation.finish()
+        interactionContinuation.finish()
     }
 
     /// The most recently negotiated handshake while this client is ready.
     public var negotiatedHandshake: RailgunRPCHandshake? {
         handshake
+    }
+
+    /// The number of unresolved approval or clarification prompts.
+    public var pendingInteractionCount: Int {
+        pendingInteractions.count
     }
 
     /// Starts a new backend generation and waits for initialize plus get_state.
@@ -260,6 +299,34 @@ public actor RailgunRPCClient {
         }
     }
 
+    /// Resolves an approval request using its opaque client-side identifier.
+    public func respondToApproval(id: String, approved: Bool) async throws {
+        try validateInteractionCorrelationID(id)
+        try await respondToInteraction(
+            id: id,
+            expectedKind: .approval,
+            command: RailgunRPCCommand(
+                type: .approvalResponse,
+                fields: ["requestId": .string(try backendRequestID(for: id, expectedKind: .approval)), "approved": .bool(approved)]
+            )
+        )
+    }
+
+    /// Resolves a clarification request using its opaque client-side
+    /// identifier. The answer is validated before it crosses the boundary.
+    public func respondToClarification(id: String, answer: String) async throws {
+        try validateInteractionCorrelationID(id)
+        let validAnswer = try RailgunRPCInteractionRequest.validateClarificationAnswer(answer)
+        try await respondToInteraction(
+            id: id,
+            expectedKind: .clarification,
+            command: RailgunRPCCommand(
+                type: .clarificationResponse,
+                fields: ["requestId": .string(try backendRequestID(for: id, expectedKind: .clarification)), "answer": .string(validAnswer)]
+            )
+        )
+    }
+
     /// Produces a bounded, redacted summary suitable for diagnostics. Raw RPC
     /// payloads must never be written to logs or observable feature state.
     public nonisolated static func safeDiagnosticSummary(for frame: Data) -> String {
@@ -351,7 +418,11 @@ public actor RailgunRPCClient {
             return
         }
         guard object["type"] as? String == "response" else {
+            receiveInteractionOrSettleInvalidFrame(frame, generation: currentGeneration)
             if let event = RailgunRPCEventNormalizer.normalize(frame) {
+                if event == .runEnded {
+                    settleInteractions()
+                }
                 eventContinuation.yield(event)
             }
             return
@@ -373,6 +444,196 @@ public actor RailgunRPCClient {
             return
         }
         settle(identifier, with: .success(frame))
+    }
+
+    private func receiveInteractionOrSettleInvalidFrame(_ frame: Data, generation: Int) {
+        if let request = try? RailgunRPCInteractionRequest(data: frame) {
+            receiveInteraction(request)
+            return
+        }
+        guard let command = invalidInteractionSettlementCommand(from: frame) else { return }
+        let epoch = interactionEpoch
+        Task { [weak self] in
+            await self?.settleInteractionSafely(command, generation: generation, epoch: epoch)
+        }
+    }
+
+    private func receiveInteraction(_ request: RailgunRPCInteractionRequest) {
+        guard let currentGeneration = activeGeneration else { return }
+        let backendRequestID: String
+        let kind: RailgunRPCInteractionKind
+        let content: (String, [String]?)
+        switch request {
+        case let .approval(requestID, command):
+            backendRequestID = requestID
+            kind = .approval
+            content = (boundedInteractionText(command, limit: RailgunRPCValidationLimits.interactionText), nil)
+        case let .clarification(requestID, question, choices):
+            backendRequestID = requestID
+            kind = .clarification
+            content = (
+                boundedInteractionText(question, limit: RailgunRPCValidationLimits.interactionText),
+                choices?.map { boundedInteractionText($0, limit: RailgunRPCValidationLimits.interactionChoice) }
+            )
+        }
+
+        guard correlationIDsByBackendRequestID[backendRequestID] == nil else { return }
+        let correlationID = nextInteractionID()
+        let interaction: RailgunRPCInteraction = switch kind {
+        case .approval:
+            .approval(id: correlationID, command: content.0)
+        case .clarification:
+            .clarification(id: correlationID, question: content.0, choices: content.1)
+        }
+        pendingInteractions[interaction.id] = PendingInteraction(
+            kind: interaction.kind,
+            backendRequestID: backendRequestID
+        )
+        correlationIDsByBackendRequestID[backendRequestID] = interaction.id
+        switch interactionContinuation.yield(interaction) {
+        case .enqueued:
+            break
+        case .dropped, .terminated:
+            guard let dropped = removePendingInteraction(id: interaction.id),
+                  let command = interactionSettlementCommand(
+                      kind: dropped.kind,
+                      backendRequestID: dropped.backendRequestID
+                  )
+            else { return }
+            let epoch = interactionEpoch
+            Task { [weak self] in
+                await self?.settleInteractionSafely(command, generation: currentGeneration, epoch: epoch)
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func respondToInteraction(
+        id: String,
+        expectedKind: RailgunRPCInteractionKind,
+        command: RailgunRPCCommand
+    ) async throws {
+        guard let pending = pendingInteractions[id] else {
+            throw RailgunRPCError.unknownInteraction
+        }
+        guard pending.kind == expectedKind else {
+            throw RailgunRPCError.mismatchedInteractionKind(expected: pending.kind, received: expectedKind)
+        }
+        guard submittingInteractionIDs.insert(id).inserted else {
+            throw RailgunRPCError.interactionResponseInFlight
+        }
+        defer { submittingInteractionIDs.remove(id) }
+
+        let response = try await request(command, timeout: configuration.interactionResponseDeadline)
+        guard response.success, response.data == nil else {
+            throw RailgunRPCError.invalidInteractionResponse
+        }
+        _ = removePendingInteraction(id: id)
+    }
+
+    private func backendRequestID(
+        for id: String,
+        expectedKind: RailgunRPCInteractionKind
+    ) throws -> String {
+        guard let pending = pendingInteractions[id] else {
+            throw RailgunRPCError.unknownInteraction
+        }
+        guard pending.kind == expectedKind else {
+            throw RailgunRPCError.mismatchedInteractionKind(expected: pending.kind, received: expectedKind)
+        }
+        return pending.backendRequestID
+    }
+
+    private func validateInteractionCorrelationID(_ id: String) throws {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              id.count <= RailgunRPCValidationLimits.interactionCorrelationID
+        else {
+            throw RailgunRPCError.unknownInteraction
+        }
+    }
+
+    private func invalidInteractionSettlementCommand(from frame: Data) -> RailgunRPCCommand? {
+        guard let value = try? JSONDecoder().decode(RailgunJSONValue.self, from: frame),
+              let object = value.objectValue,
+              let type = object["type"]?.stringValue,
+              type == "approval_request" || type == "clarification_request"
+        else { return nil }
+
+        let kind: RailgunRPCInteractionKind? = switch type {
+        case "approval_request": .approval
+        case "clarification_request": .clarification
+        default: nil
+        }
+        if let requestID = object["requestId"]?.stringValue,
+           let kind,
+           let command = interactionSettlementCommand(kind: kind, backendRequestID: requestID) {
+            return command
+        }
+        return try? RailgunRPCCommand(type: .abort)
+    }
+
+    private func interactionSettlementCommand(
+        kind: RailgunRPCInteractionKind,
+        backendRequestID: String
+    ) -> RailgunRPCCommand? {
+        switch kind {
+        case .approval:
+            try? RailgunRPCCommand(
+                type: .approvalResponse,
+                fields: ["requestId": .string(backendRequestID), "approved": .bool(false)]
+            )
+        case .clarification:
+            try? RailgunRPCCommand(
+                type: .clarificationResponse,
+                fields: ["requestId": .string(backendRequestID), "answer": .string(Self.declinedClarificationAnswer)]
+            )
+        }
+    }
+
+    private func settleInteractionSafely(
+        _ command: RailgunRPCCommand,
+        generation: Int,
+        epoch: Int
+    ) async {
+        guard activeGeneration == generation, interactionEpoch == epoch else { return }
+        do {
+            let response = try await request(command, timeout: configuration.interactionResponseDeadline)
+            guard response.success, response.data == nil else {
+                throw RailgunRPCError.invalidInteractionResponse
+            }
+        } catch {
+            guard command.type != .abort, activeGeneration == generation, interactionEpoch == epoch else { return }
+            _ = try? await request(
+                RailgunRPCCommand(type: .abort),
+                timeout: configuration.interactionResponseDeadline
+            )
+        }
+    }
+
+    @discardableResult
+    private func removePendingInteraction(id: String) -> PendingInteraction? {
+        guard let pending = pendingInteractions.removeValue(forKey: id) else { return nil }
+        correlationIDsByBackendRequestID.removeValue(forKey: pending.backendRequestID)
+        return pending
+    }
+
+    private func nextInteractionID() -> String {
+        nextInteractionSequence += 1
+        return "interaction-\(generation)-\(nextInteractionSequence)-\(UUID().uuidString.lowercased())"
+    }
+
+    private func boundedInteractionText(_ text: String, limit: Int) -> String {
+        let redacted = RailgunRPCRedactor.redact(text: text)
+        guard redacted.count > limit else { return redacted }
+        return String(redacted.prefix(max(0, limit - 1))) + "…"
+    }
+
+    private func settleInteractions() {
+        interactionEpoch += 1
+        pendingInteractions.removeAll()
+        correlationIDsByBackendRequestID.removeAll()
+        submittingInteractionIDs.removeAll()
     }
 
     private func stdoutEnded(for currentGeneration: Int) async {
@@ -427,6 +688,7 @@ public actor RailgunRPCClient {
         lifecycle = nil
         handshake = nil
         standardInput = nil
+        settleInteractions()
         let pending = pendingRequests
         pendingRequests.removeAll()
         requestIDsAwaitingSettlement.subtract(pending.keys)
