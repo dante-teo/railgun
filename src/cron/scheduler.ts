@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { DevinProvider, DevinModel } from "widevin";
+import type { DevinMessage, DevinProvider, DevinModel } from "widevin";
 import type { AppConfig } from "../config.js";
 import { CRON_LOGS_PATH, CRON_OUTPUT_PATH } from "../paths.js";
 import { createAgentSession } from "../agent/agentSession.js";
@@ -9,23 +10,51 @@ import { createTodoStore } from "../tools/todo.js";
 import { resolveSystemPrompt } from "../skills.js";
 import { loadJobs, saveJobs, isDue } from "./jobs.js";
 import type { CronJob } from "./jobs.js";
-import { snapshotOutputs, verifyOutputs, writeRunReport } from "./artifacts.js";
+import { snapshotOutputs, updateRunReport, verifyOutputs, writeRunReport } from "./artifacts.js";
 import type { OutputVerification } from "./artifacts.js";
 import { createRuntimeContext } from "../runtime.js";
+import type { SessionStore, ScheduledRunStatus } from "../persistence/sessionStore.js";
 
 export interface CronJobResult {
   readonly jobId: string;
   readonly ok: boolean;
   readonly text: string;
   readonly error?: unknown;
-  readonly status?: "completed" | "incomplete" | "failed";
+  readonly status?: ScheduledRunStatus;
 }
-
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 const errMsg = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
+
+const createScheduledDeliveryHistory = (
+  history: readonly DevinMessage[],
+  runPrompt: string,
+  status: ScheduledRunStatus,
+  failureReason: string | null,
+): readonly DevinMessage[] => {
+  if (status === "completed") return history;
+  const syntheticText = status === "incomplete"
+    ? `Scheduled task incomplete: ${failureReason ?? "no result was produced"}.`
+    : `Scheduled task failed: ${failureReason ?? "the run did not complete"}.`;
+  if (history.length === 0) {
+    return [
+      { role: "user", content: runPrompt },
+      { role: "assistant", content: [{ type: "text", text: syntheticText }] },
+    ];
+  }
+  const hasAssistantText = history.some(message =>
+    message.role === "assistant"
+    && message.content.some(part => part.type === "text" && part.text.trim() !== ""));
+  const finalMessage = history.at(-1);
+  if (hasAssistantText || finalMessage?.role !== "assistant") return history;
+  const replacement: DevinMessage = {
+    ...finalMessage,
+    content: [{ type: "text", text: syntheticText }],
+  };
+  return [...history.slice(0, -1), replacement];
+};
 
 // ─── log-path helpers ─────────────────────────────────────────────────────────
 // All date arithmetic uses UTC calendar days (ISO 8601 date strings) for
@@ -108,7 +137,12 @@ export const runCronJob = async (
   systemPrompt: readonly string[],
   config: AppConfig,
   log: (msg: string) => void,
-  options: { readonly reportRoot?: string; readonly now?: () => Date } = {},
+  options: {
+    readonly reportRoot?: string;
+    readonly now?: () => Date;
+    readonly sessionStore?: SessionStore;
+    readonly randomId?: () => string;
+  } = {},
 ): Promise<CronJobResult> => {
   const startTime = Date.now();
   const timestamp = (options.now ?? (() => new Date()))();
@@ -118,13 +152,14 @@ export const runCronJob = async (
   const approvalMode = config.approvalMode ?? "manual";
   const confirmShellCommand = async (): Promise<boolean> => approvalMode === "off";
 
+  const todoStore = createTodoStore();
   const agentSession = createAgentSession({
     devin,
     model: model.id,
     contextWindow: model.contextWindow,
     systemPrompt: resolveSystemPrompt(systemPrompt),
     confirmShellCommand,
-    todoStore: createTodoStore(),
+    todoStore,
     commandApprovalMode: approvalMode,
     ...(config.operationTimeoutMs !== undefined ? { operationTimeoutMs: config.operationTimeoutMs } : {}),
     iterationBudget: () => IterationBudget.create(30),
@@ -176,16 +211,18 @@ export const runCronJob = async (
     ? job.prompt
     : `${job.prompt}\n\nRequired output contract: write and verify each of these absolute paths during this run:\n${requiredOutputs.map(path => `- ${path}`).join("\n")}`;
   let verification: readonly OutputVerification[] = [];
-  let status: "completed" | "incomplete" | "failed" = "failed";
+  let status: ScheduledRunStatus = "failed";
   let finalText = "";
   let failureReason: string | null = null;
   let resultError: unknown;
+  let history: readonly DevinMessage[] = [];
 
   try {
     const before = await snapshotOutputs(requiredOutputs);
     const outcome = await agentSession.run({ history: [], text: runPrompt });
     verification = await verifyOutputs(requiredOutputs, before);
     if (outcome.ok) {
+      history = outcome.messages;
       finalText = outcome.assistantText.trim();
       const outputFailure = verification.find(item => !item.satisfied);
       failureReason = outcome.stopReason === "iteration_limit"
@@ -198,6 +235,7 @@ export const runCronJob = async (
       status = failureReason === null ? "completed" : "incomplete";
       if (failureReason !== null) resultError = new Error(failureReason);
     } else if ("aborted" in outcome) {
+      history = outcome.messages;
       finalText = outcome.assistantText.trim();
       failureReason = "aborted";
       resultError = new Error("aborted");
@@ -213,17 +251,57 @@ export const runCronJob = async (
     status = "failed";
   }
 
+  const createRunReport = () => ({
+    jobId: job.id,
+    schedule: job.schedule,
+    prompt: job.prompt,
+    status,
+    durationMs: Date.now() - startTime,
+    turnCount,
+    toolCallCount,
+    verification,
+    finalResponse: finalText || (status === "failed" ? text.trim() : ""),
+    failureReason,
+    timestamp,
+  });
+  let reportPath: string | undefined;
   try {
-    await writeRunReport(options.reportRoot ?? CRON_OUTPUT_PATH, {
-      jobId: job.id, schedule: job.schedule, prompt: job.prompt, status,
-      durationMs: Date.now() - startTime, turnCount, toolCallCount, verification,
-      finalResponse: finalText || (status === "failed" ? text.trim() : ""), failureReason, timestamp,
-    });
+    reportPath = await writeRunReport(options.reportRoot ?? CRON_OUTPUT_PATH, createRunReport());
   } catch (error) {
     status = "failed";
     failureReason = `failed to write run report: ${errMsg(error)}`;
     resultError = error;
     log(`${pfx} ${failureReason}`);
+  }
+
+  if (options.sessionStore !== undefined) {
+    const deliveryHistory = createScheduledDeliveryHistory(history, runPrompt, status, failureReason);
+    const sessionId = `cron-${(options.randomId ?? randomUUID)()}`;
+    try {
+      options.sessionStore.createScheduledSession({
+        id: sessionId,
+        model: model.id,
+        startedAt: timestamp.toISOString(),
+        messages: deliveryHistory,
+        todos: todoStore.read(),
+        jobId: job.id,
+        title: job.prompt,
+        status,
+      });
+      log(`${pfx} delivered task session ${sessionId}`);
+    } catch (error) {
+      status = "failed";
+      failureReason = `failed to deliver task session: ${errMsg(error)}`;
+      resultError = error;
+      log(`${pfx} ${failureReason}`);
+      if (reportPath !== undefined) {
+        try {
+          await updateRunReport(reportPath, createRunReport());
+        } catch (reportError) {
+          log(`${pfx} failed to update run report after delivery failure: ${errMsg(reportError)}`);
+        }
+      }
+    }
   }
 
   const summary = status === "completed" ? "completed in" : status === "incomplete" ? "incomplete after" : "failed after";
@@ -270,14 +348,23 @@ export const startScheduler = async (
   model: DevinModel,
   systemPrompt: readonly string[],
   config: AppConfig,
-  options: { interval?: number; signal?: AbortSignal; log?: (msg: string) => void; reportRoot?: string } = {},
+  options: {
+    interval?: number;
+    signal?: AbortSignal;
+    log?: (msg: string) => void;
+    reportRoot?: string;
+    sessionStore?: SessionStore;
+  } = {},
 ): Promise<void> => {
   const interval = options.interval ?? 60_000;
   const signal = options.signal ?? new AbortController().signal;
   const log = options.log ?? createCronLogger();
   const runId = `run-${process.pid}-${Date.now()}`;
   const runJob = (job: CronJob): Promise<CronJobResult> =>
-    runCronJob(job, devin, model, systemPrompt, config, log, { ...(options.reportRoot ? { reportRoot: options.reportRoot } : {}) });
+    runCronJob(job, devin, model, systemPrompt, config, log, {
+      ...(options.reportRoot ? { reportRoot: options.reportRoot } : {}),
+      ...(options.sessionStore === undefined ? {} : { sessionStore: options.sessionStore }),
+    });
 
   log(`Cron scheduler started [${runId}]. Checking every ${interval / 1000}s...`);
   log(`Cron logs directory: ~/.railgun/cron/logs/`);

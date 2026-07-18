@@ -72,7 +72,8 @@ public enum RailgunRPCCommandType: String, Sendable, CaseIterable, Codable {
     case getMessages = "get_messages", setModel = "set_model", getAvailableModels = "get_available_models"
     case compact, setAutoCompaction = "set_auto_compaction", approvalResponse = "approval_response"
     case clarificationResponse = "clarification_response", sessionNew = "session_new", sessionList = "session_list"
-    case sessionListArchived = "session_list_archived", sessionLoad = "session_load", sessionArchive = "session_archive"
+    case sessionListArchived = "session_list_archived", sessionDeliveryCursor = "session_delivery_cursor"
+    case sessionLoad = "session_load", sessionArchive = "session_archive"
     case sessionUnarchive = "session_unarchive", sessionSave = "session_save", sessionBranch = "session_branch"
     case sessionFork = "session_fork", sessionRecentMessages = "session_recent_messages"
     case sessionTranscript = "session_transcript", configGet = "config_get", configUpdate = "config_update"
@@ -275,7 +276,7 @@ public struct RailgunRPCCommand: Sendable, Equatable {
             try requiredString("fileId")
             guard fields["content"]?.stringValue != nil else { throw RailgunRPCDTOError.invalidField("content", "must be a string") }
         case .abort, .getState, .getMessages, .getAvailableModels, .compact, .sessionList, .sessionListArchived,
-             .sessionSave, .configGet, .mcpList, .dreamRun, .instructionFilesList, .skillsList:
+             .sessionDeliveryCursor, .sessionSave, .configGet, .mcpList, .dreamRun, .instructionFilesList, .skillsList:
             break
         }
     }

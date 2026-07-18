@@ -65,6 +65,7 @@ describe("preload desktop bridge", () => {
       "onBackendSnapshot",
       "onDreamProgress",
       "onInteractionRequest",
+      "onSessionList",
       "onSessionSnapshot",
       "openExternal",
       "previewFile",
@@ -349,6 +350,29 @@ describe("preload desktop bridge", () => {
 
     cleanup();
     expect(removeListener).toHaveBeenCalledWith(DESKTOP_IPC.backendSnapshot, handler);
+  });
+
+  it("validates pushed scheduled session lists and removes the exact listener", () => {
+    const api = createDesktopApi({ invoke, on, removeListener });
+    const listener = vi.fn();
+    const cleanup = api.onSessionList(listener);
+    const handler = on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.sessionList)?.[1] as
+      (event: unknown, value: unknown) => void;
+    const scheduled = [{
+      id: "cron-1",
+      model: "model",
+      startedAtLocal: "today",
+      messageCount: 2,
+      firstUserPreview: "Daily summary",
+      delivery: { kind: "scheduled", jobId: "job-1", title: "Daily summary", status: "completed", unread: true },
+    }];
+
+    handler({}, [{ ...scheduled[0], rawPrompt: "private" }]);
+    handler({}, scheduled);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(scheduled);
+    cleanup();
+    expect(removeListener).toHaveBeenCalledWith(DESKTOP_IPC.sessionList, handler);
   });
 
   it("accepts only closed app commands and removes the exact listener", () => {

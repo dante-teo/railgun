@@ -53,7 +53,7 @@ export interface BackendSupervisorOptions {
 export type BackendRpcCommand = Readonly<{ type: string; [key: string]: unknown }>;
 
 const DESKTOP_RPC_VERSION = 1;
-const REQUIRED_CAPABILITIES = ["sessions", "interaction.approval", "interaction.clarification"] as const;
+const REQUIRED_CAPABILITIES = ["sessions", "interaction.approval", "interaction.clarification", "session.delivery"] as const;
 const DESKTOP_RPC_ENV = "RAILGUN_DESKTOP_RPC";
 
 const appendBounded = <T>(values: readonly T[], value: T, limit: number): readonly T[] =>

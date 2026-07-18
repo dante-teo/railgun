@@ -12,9 +12,11 @@ root: the bundled backend is intentionally private and has no release version.
 
 ```sh
 pnpm run typecheck
+pnpm run build
 pnpm --filter @dantea/railgun-desktop typecheck
 pnpm run test
 pnpm --filter @dantea/railgun-desktop test
+pnpm --filter @dantea/railgun-desktop package
 pnpm release:version patch
 git push origin main --tags
 ```

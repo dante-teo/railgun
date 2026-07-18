@@ -113,11 +113,19 @@ describe("desktop boundary schemas", () => {
   it("accepts only bounded sanitized desktop session payloads", () => {
     const summary = { id: "session-1", model: "model-a", startedAtLocal: "today", messageCount: 2, firstUserPreview: "Hello" };
     expect(SessionSummaryListSchema.parse([summary])).toEqual([summary]);
+    const scheduled = {
+      ...summary,
+      firstUserPreview: "Daily summary",
+      delivery: { kind: "scheduled", jobId: "job-1", title: "Daily summary", status: "incomplete", unread: true },
+    } as const;
+    expect(SessionSummaryListSchema.parse([scheduled])).toEqual([scheduled]);
     const archived = { ...summary, archivedAt: "2026-07-15T08:00:00.000Z" };
     expect(ArchivedSessionSummaryListSchema.parse([archived])).toEqual([archived]);
     expect(() => ArchivedSessionSummaryListSchema.parse([{ ...archived, token: "private" }])).toThrow();
     const session = { id: "session-1", startedAt: "2026-07-14T08:00:00.000Z", model: "model-a", messageCount: 2, running: false, checkpoint: { state: "saved" }, transcript: [{ role: "user", text: "Hello", messageId: 42 }], todos: [] };
     expect(SessionSnapshotSchema.parse(session)).toEqual(session);
+    expect(SessionSnapshotSchema.parse({ ...session, delivery: { ...scheduled.delivery, unread: false } }))
+      .toMatchObject({ delivery: { kind: "scheduled", status: "incomplete", unread: false } });
     expect(() => SessionSnapshotSchema.parse({ ...session, rawMessages: [{ role: "tool", content: "secret" }] })).toThrow();
     expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "tool", text: "secret" }] })).toThrow();
     expect(() => SessionSnapshotSchema.parse({ ...session, transcript: [{ role: "user", text: "Hello", messageId: 0 }] })).toThrow();

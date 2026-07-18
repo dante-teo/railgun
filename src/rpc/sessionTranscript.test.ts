@@ -50,6 +50,21 @@ describe("RPC session transcript", () => {
     ]);
   });
 
+  it("hides only the initial scheduled trigger while retaining assistant output and later follow-ups", () => {
+    const page = createRpcTranscriptPage("cron-run", [
+      { role: "user", content: "Hidden scheduled prompt" },
+      { role: "assistant", content: [{ type: "text", text: "Scheduled result" }] },
+      { role: "user", content: "Visible follow-up" },
+      { role: "assistant", content: [{ type: "text", text: "Follow-up result" }] },
+    ], 0, 100, [1, 2, 3, 4], true);
+
+    expect(page.messages).toEqual([
+      { role: "assistant", text: "Scheduled result", messageId: 2, branchable: true },
+      { role: "user", text: "Visible follow-up", messageId: 3 },
+      { role: "assistant", text: "Follow-up result", messageId: 4, branchable: true },
+    ]);
+  });
+
   it("marks only complete assistant boundaries as branchable", () => {
     const page = createRpcTranscriptPage("saved", [
       { role: "user", content: "Question" },

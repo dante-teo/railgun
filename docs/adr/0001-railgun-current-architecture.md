@@ -69,6 +69,17 @@ session leaf or creating a new session. The desktop receives only textual
 user/assistant history, normalized todos, and bounded metadata; provider
 messages, tool arguments, and tool results stay in the backend.
 
+Each attempted cron run produces a separate scheduler-originated session after
+the run settles. SQLite `session_deliveries` rows provide a monotonic delivery
+sequence, job and status metadata, and unread state without changing existing
+interactive sessions. Delivery is atomic with session creation and retains
+valid agent history and todos; a synthetic assistant result keeps hard and
+empty failures resumable. Delivered sessions survive cron-definition removal
+and preserve their metadata through follow-ups, branches, archival, and
+restoration. Session summary responses remain bounded to the newest 500
+entries; when recurring deliveries overflow active capacity, the oldest
+scheduled deliveries move to Archive rather than being deleted.
+
 Railgun always uses the current user's home directory as its workspace. There
 is no project picker, project-local extension loading, or per-project trust
 database. Extensions load from the global Railgun extensions directory. MCP
@@ -105,6 +116,15 @@ support concurrent cards, keep Stop available, and settle on cancellation,
 restart, exit, shutdown, or disconnection. Malformed interaction frames use a
 safe denial or abort path.
 
+Scheduled delivery metadata crosses the RPC and preload boundaries through
+strict additive schemas. Electron main polls a lightweight monotonic delivery
+cursor while the backend is ready and pushes a newly validated session list
+only when it advances. The renderer updates its navigation without stealing
+focus. Loading and other internal operations are side-effect free; only
+successful activation after model preparation marks a scheduled session read.
+Presentation hides only the initial scheduler trigger while preserving it in
+backend history for follow-ups.
+
 The file browser is read-only and rooted at the user's home directory. Main
 validates path segments, rejects traversal and escaping symlinks, caps
 directory and preview sizes, and returns only text or normalized supported
@@ -119,6 +139,11 @@ todos, tool activity, advisor notes, delegated work, model/context controls,
 session navigation, and an optional read-only Files pane. Scheduled provides
 cron CRUD and readable five-field schedule validation. Settings provides
 General, Agent, Trust, Knowledge, Provider, MCP, and Diagnostics sections.
+
+Each scheduled attempt appears as an unread Task without changing the active
+task or sending a macOS notification. Scheduled indicators are exposed in the
+sidebar and task palette, the prompt supplies the task title, and incomplete or
+failed attempts show an inline warning until the user chooses how to continue.
 
 The renderer uses shared semantic tokens and a restrained macOS Liquid Glass
 hierarchy. The floating sidebar and toolbar communicate structure; transcripts,

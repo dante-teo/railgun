@@ -432,9 +432,11 @@ Run the complete check suite from the repository root with:
 
 ```sh
 pnpm run typecheck
+pnpm run build
 pnpm run test
 pnpm --filter @dantea/railgun-desktop typecheck
 pnpm --filter @dantea/railgun-desktop test
+pnpm --filter @dantea/railgun-desktop package
 ./apps/macos/scripts/validate-project.sh
 xcodebuild test -project apps/macos/RailgunX.xcodeproj -scheme RailgunX \
   -destination 'platform=macOS,arch=arm64'

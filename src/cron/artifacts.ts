@@ -67,12 +67,16 @@ const renderReport = (report: RunReport): string => [
   "", "## Failure reason", "", report.failureReason ?? "None.", "",
 ].join("\n");
 
+export const updateRunReport = async (path: string, report: RunReport): Promise<void> => {
+  await writeFileAtomic(path, renderReport(report), { encoding: "utf8", mode: 0o600 });
+};
+
 export const writeRunReport = async (root: string, report: RunReport): Promise<string> => {
   const directory = reportDirectory(root, report.jobId);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const filename = `${report.timestamp.toISOString().replace(/[:]/g, "-")}-${randomUUID().slice(0, 8)}.md`;
   const path = join(directory, filename);
-  await writeFileAtomic(path, renderReport(report), { encoding: "utf8", mode: 0o600 });
+  await updateRunReport(path, report);
   const reports = (await readdir(directory)).filter(name => name.endsWith(".md")).sort().reverse();
   await Promise.all(reports.slice(50).map(name => rm(join(directory, name))));
   return path;

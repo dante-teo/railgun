@@ -80,4 +80,21 @@ describe("AppSidebar", () => {
     expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull();
     expect(screen.queryByRole("img", { name: "Agent completed" })).toBeNull();
   });
+
+  it("exposes scheduled and unread task indicators with accessible semantics", () => {
+    const scheduled: SessionSummary = {
+      id: "cron-1",
+      model: "Model A",
+      startedAtLocal: "today",
+      messageCount: 2,
+      firstUserPreview: "Daily summary",
+      delivery: { kind: "scheduled", jobId: "job-1", title: "Daily summary", status: "incomplete", unread: true },
+    };
+    render(<AppSidebar area="chat" {...commonProps} sessions={[scheduled]} activeSessionId="cron-1" />);
+
+    const task = screen.getByRole("button", { name: "Unread scheduled task: Daily summary" });
+    expect(task.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("img", { name: "Scheduled task" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Unread" })).toBeTruthy();
+  });
 });

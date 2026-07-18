@@ -130,6 +130,14 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     listSessions: async () => SessionSummaryListSchema.parse(
       await transport.invoke(DESKTOP_IPC.listSessions),
     ),
+    onSessionList: (listener) => {
+      const handler = (_event: unknown, payload: unknown): void => {
+        const result = SessionSummaryListSchema.safeParse(payload);
+        if (result.success) listener(result.data);
+      };
+      transport.on(DESKTOP_IPC.sessionList, handler);
+      return () => transport.removeListener(DESKTOP_IPC.sessionList, handler);
+    },
     listArchivedSessions: async () => ArchivedSessionSummaryListSchema.parse(
       await transport.invoke(DESKTOP_IPC.listArchivedSessions),
     ),

@@ -100,6 +100,9 @@ const fakeStore = (sessions: readonly SessionSummary[] = []): SessionStore => ({
     todos: [],
   } : undefined),
   saveCheckpoint: vi.fn(checkpoint => checkpoint),
+  createScheduledSession: vi.fn(checkpoint => checkpoint),
+  markSessionRead: vi.fn(),
+  latestDeliveryCursor: vi.fn(() => 0),
   branch: vi.fn(),
   branchWithSummary: vi.fn(async () => {}),
   forkSession: vi.fn(() => "forked-id"),
@@ -426,10 +429,11 @@ describe("dispatchCli — cron mode", () => {
     expect(deps.runCronScheduler).not.toHaveBeenCalled();
   });
 
-  it("does not call createStore, runRepl, or runOneShot for cron mode", async () => {
+  it("opens the shared session store for the scheduler lifecycle without starting interactive modes", async () => {
     const deps = dependencies();
     await dispatchCli({ kind: "cron" }, deps);
-    expect(deps.createStore).not.toHaveBeenCalled();
+    expect(deps.createStore).toHaveBeenCalledOnce();
+    expect(vi.mocked(deps.createStore).mock.results[0]?.value.close).toHaveBeenCalledOnce();
     expect(deps.runRepl).not.toHaveBeenCalled();
     expect(deps.runOneShot).not.toHaveBeenCalled();
   });
@@ -440,13 +444,14 @@ describe("dispatchCli — cron mode", () => {
     vi.mocked(deps.loadConfig).mockResolvedValue(config);
     await dispatchCli({ kind: "cron" }, deps);
     expect(deps.loadConfig).toHaveBeenCalledOnce();
-    const [calledDevin, calledModel, calledPrompt, calledConfig, calledSignal] =
+    const [calledDevin, calledModel, calledPrompt, calledConfig, calledSignal, calledStore] =
       vi.mocked(deps.runCronScheduler).mock.calls[0] ?? [];
     expect(calledDevin).toBe(fakeSession.devin);
     expect(calledModel).toBe(fakeSession.model);
     expect(calledPrompt).toBe(fakeSession.systemPrompt);
     expect(calledConfig).toEqual(config);
     expect(calledSignal).toBeInstanceOf(AbortSignal);
+    expect(calledStore).toBe(vi.mocked(deps.createStore).mock.results[0]?.value);
   });
 });
 

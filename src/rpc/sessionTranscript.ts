@@ -115,10 +115,14 @@ const truncateUtf8 = (text: string, maxBytes: number): string => {
 const transcriptEntries = (
   history: readonly unknown[],
   messageIds: readonly number[] | undefined,
+  hideInitialUser: boolean,
 ): readonly RpcTranscriptEntry[] => {
   const failures = toolFailureByCallId(history);
+  const hiddenHistoryIndex = hideInitialUser
+    ? history.findIndex(source => record(source)?.role === "user")
+    : -1;
   return history.flatMap((source, historyIndex) => {
-    const message = transcriptMessage(source);
+    const message = historyIndex === hiddenHistoryIndex ? undefined : transcriptMessage(source);
     const messageId = messageIds?.[historyIndex];
     const textEntry = message === undefined ? [] : [{
       role: message.role,
@@ -139,9 +143,10 @@ export const createRpcTranscriptPage = (
   cursor = 0,
   limit = RPC_TRANSCRIPT_PAGE_LIMIT,
   messageIds?: readonly number[],
+  hideInitialUser = false,
 ): RpcTranscriptPage => {
   const messages: RpcTranscriptEntry[] = [];
-  const entries = transcriptEntries(history, messageIds);
+  const entries = transcriptEntries(history, messageIds, hideInitialUser);
   let next = cursor;
   while (next < entries.length && messages.length < limit) {
     const candidate = entries[next]!;

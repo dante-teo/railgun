@@ -315,12 +315,20 @@ export const SessionIdSchema = z.string().trim().min(1).max(DESKTOP_SESSION_LIMI
 export const SessionContextMenuResultSchema = z.enum(["fork"]).nullable();
 export const PersistenceMessageIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const sessionModel = z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.model);
+export const SessionDeliverySchema = z.strictObject({
+  kind: z.literal("scheduled"),
+  jobId: z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.id),
+  title: z.string().trim().min(1).max(DESKTOP_SESSION_LIMITS.preview),
+  status: z.enum(["completed", "incomplete", "failed"]),
+  unread: z.boolean(),
+});
 export const SessionSummarySchema = z.strictObject({
   id: SessionIdSchema,
   model: sessionModel,
   startedAtLocal: z.string().trim().min(1).max(500),
   messageCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   firstUserPreview: z.string().max(DESKTOP_SESSION_LIMITS.preview),
+  delivery: SessionDeliverySchema.optional(),
 });
 export const SessionSummaryListSchema = z.array(SessionSummarySchema).max(DESKTOP_SESSION_LIMITS.sessions).readonly();
 export const ArchivedSessionSummarySchema = SessionSummarySchema.extend({
@@ -373,6 +381,7 @@ export const SessionSnapshotSchema = z.strictObject({
   checkpoint: CheckpointStatusSchema,
   transcript: z.array(RestoredTranscriptEntrySchema).max(DESKTOP_SESSION_LIMITS.messages).readonly(),
   todos: z.array(RestoredTodoSchema).max(DESKTOP_SESSION_LIMITS.todos).readonly(),
+  delivery: SessionDeliverySchema.optional(),
 });
 
 export const ChatModelIdSchema = z.string().trim().min(1).max(DESKTOP_CONTROL_LIMITS.modelId);

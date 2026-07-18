@@ -45,7 +45,8 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
             helperLaunch: helperLaunch
         )
 
-        XCTAssertEqual(try await service.login(), .ready)
+        let loginResult = try await service.login()
+        XCTAssertEqual(loginResult, .ready)
         let response = try await rpc.request(Data(#"{"type":"list_sessions"}"#.utf8), timeout: .seconds(1))
         XCTAssertEqual(try responseObject(response)["id"] as? String, "request-2-1")
         await rpc.shutdown()
@@ -99,7 +100,8 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
         }
 
         await service.shutdown()
-        XCTAssertEqual(await login.value, .shuttingDown)
+        let loginError = await login.value
+        XCTAssertEqual(loginError, .shuttingDown)
     }
 
     func testLogoutAcceptsAFileAuthenticationRequiredRestartButLoginRequiresReady() async throws {
@@ -114,10 +116,8 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
             desktopLaunch: fileAuthenticationRequiredLaunch,
             helperLaunch: BackendProcessLaunch(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
         )
-        XCTAssertEqual(
-            try await logoutService.logout(),
-            .authenticationRequired(source: .file)
-        )
+        let logoutResult = try await logoutService.logout()
+        XCTAssertEqual(logoutResult, .authenticationRequired(source: .file))
 
         let loginRPC = RailgunRPCClient()
         _ = try await loginRPC.start(perlLaunch(script: responsiveBackendScript))
@@ -183,7 +183,7 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
     $| = 1;
     print "{\"type\":\"startup_status\",\"status\":\"authentication_required\",\"credential_source\":\"\#(source.rawValue)\"}\n";
     sleep 1;
-    """
+    """#
     }
 
     private let responsiveBackendScript = #"""
@@ -199,5 +199,5 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
         print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"$type\",\"success\":true,\"data\":{}}\n";
       }
     }
-    """
+    """#
 }

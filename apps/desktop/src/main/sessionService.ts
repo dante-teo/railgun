@@ -8,6 +8,7 @@ import {
   RestoredTranscriptEntrySchema,
   RestoredTodoSchema,
   PersistenceMessageIdSchema,
+  SessionDeliverySchema,
 } from "../shared/schemas";
 import type { ArchivedSessionSummary, SessionSnapshot, SessionSummary } from "../shared/types";
 import type { BackendRpcCommand } from "./backendSupervisor";
@@ -16,6 +17,9 @@ type Call = <T>(command: BackendRpcCommand, validate: (data: unknown) => T) => P
 
 const rawSummaryList = z.strictObject({ sessions: SessionSummaryListSchema });
 const rawArchivedSummaryList = z.strictObject({ sessions: ArchivedSessionSummaryListSchema });
+const rawDeliveryCursor = z.strictObject({
+  cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
 const rawMutation = z.strictObject({
   sessionId: SessionIdSchema,
 });
@@ -41,6 +45,7 @@ const rawState = z.strictObject({
   startedAt: z.string().datetime(),
   persistence: z.enum(["unsaved", "saved", "error"]),
   checkpointError: z.string().max(DESKTOP_SESSION_LIMITS.checkpointError).optional(),
+  delivery: SessionDeliverySchema.optional(),
 });
 
 export const createSessionService = (call: Call) => {
@@ -75,11 +80,14 @@ export const createSessionService = (call: Call) => {
             : { state: "unsaved" },
       transcript,
       todos: state.todos,
+      ...(state.delivery === undefined ? {} : { delivery: state.delivery }),
     });
   };
   return {
     list: async (): Promise<readonly SessionSummary[]> => (await call({ type: "session_list" }, value => rawSummaryList.parse(value))).sessions,
     listArchived: async (): Promise<readonly ArchivedSessionSummary[]> => (await call({ type: "session_list_archived" }, value => rawArchivedSummaryList.parse(value))).sessions,
+    deliveryCursor: async (): Promise<number> =>
+      (await call({ type: "session_delivery_cursor" }, value => rawDeliveryCursor.parse(value))).cursor,
     create: async (): Promise<SessionSnapshot> => {
       const result = await call({ type: "session_new" }, value => rawMutation.parse(value));
       const next = await snapshot();

@@ -108,6 +108,9 @@ const fakeSessionStore = (): SessionStore => ({
   unarchiveSession: vi.fn(),
   pruneArchivedSessions: vi.fn(() => 0),
   saveCheckpoint: vi.fn(checkpoint => checkpoint),
+  createScheduledSession: vi.fn(checkpoint => checkpoint),
+  markSessionRead: vi.fn(),
+  latestDeliveryCursor: vi.fn(() => 0),
   branch: vi.fn(),
   branchWithSummary: vi.fn(async () => {}),
   forkSession: vi.fn(() => "fork-id"),
@@ -278,8 +281,105 @@ describe("runRpcMode", () => {
     sendAndClose(stdin, { id: "init", type: "initialize", version: 1 }, { id: "state", type: "get_state" });
     await runPromise;
 
-    expect(getLines().find(line => line["id"] === "init")).toMatchObject({ success: true, data: { version: 1, capabilities: expect.arrayContaining(["sessions", "memory", "notes"]) } });
+    expect(getLines().find(line => line["id"] === "init")).toMatchObject({ success: true, data: { version: 1, capabilities: expect.arrayContaining(["sessions", "memory", "notes", "session.delivery"]) } });
     expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { sessionId: "session-1", startedAt: "2026-01-02T03:04:05.000Z", persistence: "unsaved" } });
+  });
+
+  it("returns the delivery cursor and exposes read scheduled metadata with an agent-first transcript", async () => {
+    const store = fakeSessionStore();
+    vi.mocked(store.latestDeliveryCursor).mockReturnValue(17);
+    vi.mocked(store.loadSession).mockReturnValue({
+      id: "cron-saved",
+      model: "test-model",
+      startedAt: "2026-07-18T01:02:03.000Z",
+      messages: [
+        { role: "user", content: "Hidden trigger" },
+        { role: "assistant", content: [{ type: "text", text: "Scheduled result" }] },
+        { role: "user", content: "Visible follow-up" },
+        { role: "assistant", content: [{ type: "text", text: "Follow-up result" }] },
+      ],
+      todos: [],
+      delivery: {
+        kind: "scheduled",
+        jobId: "job-1",
+        title: "Daily result",
+        status: "incomplete",
+        unread: true,
+      },
+    });
+    vi.mocked(store.getActiveBranchMessageIds).mockReturnValue([1, 2, 3, 4]);
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const runPromise = runRpcMode({
+      session: fakeSession(fakeProvider([])),
+      config: fakeConfig(),
+      stdin,
+      stdout,
+      sessionStore: store,
+    });
+
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    send(stdin, { id: "cursor", type: "session_delivery_cursor" });
+    send(stdin, { id: "load", type: "session_load", sessionId: "cron-saved", includeMessages: false });
+    await waitForLine(getLines, line => line["id"] === "load");
+    send(stdin, { id: "state", type: "get_state" });
+    sendAndClose(stdin, { id: "transcript", type: "session_transcript", sessionId: "cron-saved" });
+    await runPromise;
+
+    expect(getLines().find(line => line["id"] === "cursor")).toMatchObject({ success: true, data: { cursor: 17 } });
+    expect(getLines().find(line => line["id"] === "state")).toMatchObject({
+      data: { delivery: { kind: "scheduled", jobId: "job-1", title: "Daily result", status: "incomplete", unread: false } },
+    });
+    expect(getLines().find(line => line["id"] === "transcript")).toMatchObject({ data: { messages: [
+      { role: "assistant", text: "Scheduled result" },
+      { role: "user", text: "Visible follow-up" },
+      { role: "assistant", text: "Follow-up result" },
+    ] } });
+    expect(store.markSessionRead).toHaveBeenCalledOnce();
+    expect(store.markSessionRead).toHaveBeenCalledWith("cron-saved");
+  });
+
+  it("keeps a scheduled session unread when model preparation prevents activation", async () => {
+    const store = fakeSessionStore();
+    vi.mocked(store.loadSession).mockReturnValue({
+      id: "cron-unavailable",
+      model: "unavailable-model",
+      startedAt: "2026-07-18T01:02:03.000Z",
+      messages: [
+        { role: "user", content: "Hidden trigger" },
+        { role: "assistant", content: [{ type: "text", text: "Scheduled result" }] },
+      ],
+      todos: [],
+      delivery: {
+        kind: "scheduled",
+        jobId: "job-1",
+        title: "Daily result",
+        status: "completed",
+        unread: true,
+      },
+    });
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const getLines = collectOutput(stdout);
+    const runPromise = runRpcMode({
+      session: fakeSession(fakeProvider([])),
+      config: fakeConfig(),
+      stdin,
+      stdout,
+      sessionStore: store,
+      resolveModelRuntime: vi.fn(async () => { throw new Error("model unavailable"); }),
+    });
+
+    send(stdin, { id: "init", type: "initialize", version: 1 });
+    sendAndClose(stdin, { id: "load", type: "session_load", sessionId: "cron-unavailable" });
+    await runPromise;
+
+    expect(getLines().find(line => line["id"] === "load")).toMatchObject({
+      success: false,
+      error: expect.stringContaining("model unavailable"),
+    });
+    expect(store.markSessionRead).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported initialization without leaving legacy mode", async () => {

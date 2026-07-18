@@ -71,6 +71,7 @@ import { createBackgroundAutomationService, createUnavailableAutomationService }
 import { createUpdateCheckDialog } from "./updateCheckDialog";
 import { createUpdateService } from "./updateService";
 import { DesktopClientLock, DesktopClientLockConflictError } from "./desktopClientLock";
+import { createSessionDeliveryMonitor } from "./sessionDeliveryMonitor";
 import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 
 protocol.registerSchemesAsPrivileged([{
@@ -231,6 +232,7 @@ interface RendererPushPayloads {
   [DESKTOP_IPC.agentEvent]: DesktopAgentEvent;
   [DESKTOP_IPC.interactionRequest]: import("../shared/types").DesktopInteractionRequest;
   [DESKTOP_IPC.sessionSnapshot]: SessionSnapshot;
+  [DESKTOP_IPC.sessionList]: readonly import("../shared/types").SessionSummary[];
   [DESKTOP_IPC.dreamProgress]: import("../shared/types").DreamProgress;
 }
 
@@ -256,6 +258,17 @@ const broadcastSnapshot = (snapshot: BackendSnapshot): void => {
 const broadcastSessionSnapshot = (snapshot: SessionSnapshot): void => {
   sendToRailgunWindows(DESKTOP_IPC.sessionSnapshot, SessionSnapshotSchema.parse(snapshot));
 };
+
+const sessionDeliveryMonitor = createSessionDeliveryMonitor({
+  getSnapshot: () => supervisor.getSnapshot(),
+  subscribe: listener => supervisor.subscribe(listener),
+  getCursor: () => sessionService.deliveryCursor(),
+  listSessions: () => sessionService.list(),
+  emit: sessions => sendToRailgunWindows(
+    DESKTOP_IPC.sessionList,
+    [...SessionSummaryListSchema.parse(sessions)],
+  ),
+});
 
 const registerIpc = (): void => {
   ipcMain.handle(DESKTOP_IPC.getBackendSnapshot, (event) => {
@@ -564,6 +577,7 @@ const createWindow = (initialCommand?: AppCommand): BrowserWindow => {
 
 registerIpc();
 supervisor.subscribe(broadcastSnapshot);
+sessionDeliveryMonitor.start();
 supervisor.subscribeBackendEvents((value) => {
   const progress = DreamProgressSchema.safeParse(value);
   if (progress.success) sendToRailgunWindows(DESKTOP_IPC.dreamProgress, progress.data);
@@ -624,6 +638,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  sessionDeliveryMonitor.stop();
   interactionBroker.settle();
   authentication.shutdown();
   supervisor.shutdown();

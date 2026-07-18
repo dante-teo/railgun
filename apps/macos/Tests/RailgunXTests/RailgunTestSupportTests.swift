@@ -55,6 +55,7 @@ final class RailgunTestSupportTests: XCTestCase {
             corpus.scenarios.map(\.id),
             [
                 "initialize-success",
+                "delivery-cursor",
                 "command-rejected",
                 "malformed-stdout",
                 "delayed-success",

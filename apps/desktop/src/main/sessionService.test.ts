@@ -21,6 +21,26 @@ describe("desktop session service", () => {
     expect(call).toHaveBeenCalledWith({ type: "session_load", sessionId: "saved-1", includeMessages: false });
   });
 
+  it("validates the lightweight delivery cursor and scheduled active metadata", async () => {
+    const delivery = {
+      kind: "scheduled",
+      jobId: "job-1",
+      title: "Daily summary",
+      status: "failed",
+      unread: false,
+    } as const;
+    const service = createSessionService(async (command, validate) => validate(
+      command.type === "session_delivery_cursor"
+        ? { cursor: 9 }
+        : command.type === "get_state"
+          ? { ...state, delivery }
+          : { sessionId: "saved-1", messages: [{ role: "assistant", text: "Result" }] },
+    ));
+
+    await expect(service.deliveryCursor()).resolves.toBe(9);
+    await expect(service.snapshot()).resolves.toMatchObject({ delivery, transcript: [{ role: "assistant", text: "Result" }] });
+  });
+
   it("rejects mismatched session activation", async () => {
     const service = createSessionService(async (command, validate) => validate(command.type === "session_load" ? { sessionId: "other" } : {}));
     await expect(service.resume("expected")).rejects.toThrow(/mismatched/u);

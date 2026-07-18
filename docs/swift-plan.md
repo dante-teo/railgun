@@ -305,6 +305,7 @@ update feeds.
 - [ ] `SWFT-050` — Build create/edit forms with native fields, cron validation, and schedule summaries. `[8h]`
 - [ ] `SWFT-051` — Port launch-agent generation, enable, disable, repair, and status inspection to Swift. `[8h]`
 - [ ] `SWFT-052` — Build Background Automation settings while retaining job definitions under Scheduled. `[6h]`
+- [ ] `SWFT-084` — Add scheduled-task delivery parity: monitor the delivery cursor, preserve scheduled metadata and bounded overflow behavior, present unread state and agent-first transcripts, and mark deliveries read only after successful activation. `[8h]`
 
 Milestone exit: remaining Task session operations, safe Files behavior,
 Scheduled definitions, and background automation management match the backend
@@ -390,9 +391,11 @@ Validate the existing repository and documentation from the repository root:
 
 ```sh
 pnpm run typecheck
+pnpm run build
 pnpm run test
 pnpm --filter @dantea/railgun-desktop typecheck
 pnpm --filter @dantea/railgun-desktop test
+pnpm --filter @dantea/railgun-desktop package
 ```
 
 The native CI contract will run the checked-in equivalents of:

@@ -1,4 +1,4 @@
-import { Archive, Check, Clock, LoaderCircle, Settings, SquarePen } from "lucide-react";
+import { Archive, CalendarClock, Check, Clock, LoaderCircle, Settings, SquarePen } from "lucide-react";
 import { useState } from "react";
 import type { BackendPhase, SessionSummary } from "../../shared/types";
 import { Button } from "../components/ui/button";
@@ -54,7 +54,14 @@ export const AppSidebar = ({ area, phase, sessions, sessionsLoading, sessionsErr
             : sessionsError !== undefined ? <div className="mx-2 my-3 text-caption text-foreground-secondary" role="alert"><p>{sessionsError}</p><Button size="sm" variant="ghost" onClick={onRetrySessions}>Retry</Button></div>
               : sessions.length === 0 ? <p className="mx-2 my-3 text-caption text-foreground-secondary">No saved tasks</p>
                 : sessions.map(session => <div key={session.id} className={cn("group flex w-full items-center gap-1 rounded-sm text-foreground hover:bg-[var(--material-sidebar-control-hover)] focus-within:bg-[var(--material-sidebar-control-hover)]", activeSessionId === session.id && "bg-accent text-accent-foreground")}>
-                  <button type="button" className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden border-0 bg-transparent p-2 text-left text-inherit [&>span]:truncate [&>span]:text-caption [&>span]:text-foreground-secondary [&>strong]:truncate [&>strong]:text-control [&>strong]:font-medium" aria-current={activeSessionId === session.id ? "true" : undefined} disabled={busy} onContextMenu={event => { event.preventDefault(); onOpenSessionMenu(session.id); }} onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onOpenSessionMenu(session.id); } }} onClick={() => onResumeSession(session.id)}><strong>{session.firstUserPreview || "Untitled chat"}</strong><span>{session.model} · {session.startedAtLocal}</span></button>
+                  <button type="button" className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden border-0 bg-transparent p-2 text-left text-inherit" aria-current={activeSessionId === session.id ? "page" : undefined} aria-label={session.delivery === undefined ? undefined : `${session.delivery.unread ? "Unread " : ""}scheduled task: ${session.firstUserPreview || "Untitled chat"}`} disabled={busy} onContextMenu={event => { event.preventDefault(); onOpenSessionMenu(session.id); }} onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onOpenSessionMenu(session.id); } }} onClick={() => onResumeSession(session.id)}>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {session.delivery === undefined ? null : <CalendarClock className="size-3.5 shrink-0 text-foreground-secondary" role="img" aria-label="Scheduled task" />}
+                      <strong className="truncate text-control font-medium">{session.firstUserPreview || "Untitled chat"}</strong>
+                      {session.delivery?.unread === true ? <span className="size-2 shrink-0 rounded-full bg-primary" role="status" aria-label="Unread" title="Unread" /> : null}
+                    </span>
+                    <span className="truncate text-caption text-foreground-secondary">{session.model} · {session.startedAtLocal}</span>
+                  </button>
                   {sessionActivity?.sessionId === session.id ? <SessionActivityIndicator state={sessionActivity.state} /> : null}
                   <Button type="button" variant="ghost" size="icon" className="mr-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" aria-label={`Archive ${session.firstUserPreview || "Untitled chat"}`} title={`Archive ${session.firstUserPreview || "Untitled chat"}`} disabled={busy || running} onClick={event => { event.stopPropagation(); onArchiveSession(session.id); }}><Archive aria-hidden="true" /></Button>
                 </div>)}

@@ -304,7 +304,7 @@ if (scenario.behavior === "authentication-required") {
       const sendHandshake = (): void => respond(type, command.id, {
         data: {
           version: 1,
-          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "notes", "dream", "instructions", "skills"],
+          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "notes", "dream", "instructions", "skills", "session.delivery"],
         },
       });
       setTimeout(sendHandshake, scenario.behavior === "delayed-startup" ? 600 : 5);
@@ -347,6 +347,10 @@ if (scenario.behavior === "authentication-required") {
         messageCount: session.messages.length, firstUserPreview: firstUserPreview(session),
       }));
       setTimeout(() => respond(type, command.id, { data: { sessions } }), 25);
+      return;
+    }
+    if (type === "session_delivery_cursor") {
+      respond(type, command.id, { data: { cursor: 0 } });
       return;
     }
     if (type === "session_list_archived") {

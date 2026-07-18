@@ -21,6 +21,13 @@ final class RailgunRPCClientTests: XCTestCase {
         XCTAssertEqual(encoded["cursor"] as? Int, 10)
         XCTAssertEqual(encoded["limit"] as? Int, 50)
 
+        let deliveryCursor = try RailgunRPCCommand(type: .sessionDeliveryCursor)
+        let encodedDeliveryCursor = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: deliveryCursor.encodedData()) as? [String: Any]
+        )
+        XCTAssertEqual(encodedDeliveryCursor["type"] as? String, "session_delivery_cursor")
+        XCTAssertEqual(encodedDeliveryCursor.count, 1)
+
         XCTAssertThrowsError(
             try RailgunRPCCommand(type: .memoryList, fields: ["limit": .number(101)])
         )
@@ -383,7 +390,7 @@ final class RailgunRPCClientTests: XCTestCase {
         print <<'STARTUP_STATUS';
         \#(frame)
         STARTUP_STATUS
-        """
+        """#
     }
 
     private func responseObject(_ data: Data) throws -> [String: Any] {

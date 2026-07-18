@@ -28,7 +28,7 @@ const initializationResponse = (generation: number, overrides: Record<string, un
   type: "response",
   command: "initialize",
   success: true,
-  data: { version: 1, capabilities: ["sessions", "interaction.approval", "interaction.clarification"] },
+  data: { version: 1, capabilities: ["sessions", "interaction.approval", "interaction.clarification", "session.delivery"] },
   ...overrides,
 });
 

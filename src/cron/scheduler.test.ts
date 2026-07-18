@@ -7,6 +7,7 @@ import type { AppConfig } from "../config.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { createSessionStore } from "../persistence/sessionStore.js";
 // ---------------------------------------------------------------------------
 // Shared fakes
 // ---------------------------------------------------------------------------
@@ -195,6 +196,110 @@ describe("runCronJob", () => {
     const log = vi.fn();
     await runTestCron(makeJob(), devin, fakeModel, [], baseConfig, log);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Running cron job:"));
+  });
+
+  it("delivers completed, incomplete, and failed attempts as unique resumable scheduled sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "railgun-cron-delivery-"));
+    const store = createSessionStore(join(root, "state.db"));
+    try {
+      const completed = await runCronJob(
+        makeJob({ id: "complete", prompt: "  Daily   summary  " }),
+        fakeProvider([
+          [
+            { type: "toolcall_delta", id: "todo-1", delta: JSON.stringify({ todos: [{ id: "one", content: "Summarize", status: "completed" }] }) },
+            { type: "toolcall_end", id: "todo-1", name: "todo", arguments: { todos: [{ id: "one", content: "Summarize", status: "completed" }] } },
+          ],
+          [{ type: "text_delta", delta: "Summary complete." }],
+        ]),
+        fakeModel,
+        [],
+        baseConfig,
+        vi.fn(),
+        { reportRoot: join(root, "reports"), sessionStore: store, randomId: () => "completed-id" },
+      );
+      const incomplete = await runCronJob(
+        makeJob({ id: "incomplete", prompt: "Empty response" }),
+        fakeProvider([[]]),
+        fakeModel,
+        [],
+        baseConfig,
+        vi.fn(),
+        { reportRoot: join(root, "reports"), sessionStore: store, randomId: () => "incomplete-id" },
+      );
+      const failed = await runCronJob(
+        makeJob({ id: "failed", prompt: "Hard failure" }),
+        fakeProvider([{ throws: new Error("provider unavailable") }]),
+        fakeModel,
+        [],
+        baseConfig,
+        vi.fn(),
+        { reportRoot: join(root, "reports"), sessionStore: store, randomId: () => "failed-id" },
+      );
+
+      expect(completed).toMatchObject({ ok: true, status: "completed" });
+      expect(incomplete).toMatchObject({ ok: false, status: "incomplete" });
+      expect(failed).toMatchObject({ ok: false, status: "failed" });
+      expect(store.listSessions().map(session => session.id)).toEqual([
+        "cron-failed-id",
+        "cron-incomplete-id",
+        "cron-completed-id",
+      ]);
+
+      const completedSession = store.loadSession("cron-completed-id");
+      expect(completedSession?.messages).toMatchObject([
+        { role: "user", content: "Daily   summary" },
+        { role: "assistant" },
+        { role: "tool" },
+        { role: "assistant", content: [{ type: "text", text: "Summary complete." }] },
+      ]);
+      expect(completedSession?.todos).toEqual([{ id: "one", content: "Summarize", status: "completed" }]);
+      expect(completedSession?.delivery).toMatchObject({ jobId: "complete", title: "Daily summary", status: "completed" });
+
+      expect(store.loadSession("cron-incomplete-id")?.messages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: [{ type: "text", text: expect.stringContaining("incomplete") }],
+      });
+      expect(store.loadSession("cron-failed-id")?.messages).toEqual([
+        { role: "user", content: "Hard failure" },
+        { role: "assistant", content: [{ type: "text", text: "Scheduled task failed: provider unavailable." }] },
+      ]);
+    } finally {
+      store.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("marks the cron attempt failed and does not claim delivery when session persistence fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "railgun-cron-delivery-failure-"));
+    const store = createSessionStore(join(root, "state.db"));
+    store.db.exec(`CREATE TRIGGER reject_cron_delivery BEFORE INSERT ON session_deliveries
+      BEGIN SELECT RAISE(ABORT, 'delivery unavailable'); END`);
+    const log = vi.fn();
+    try {
+      const result = await runCronJob(
+        makeJob(),
+        fakeProvider([[{ type: "text_delta", delta: "4" }]]),
+        fakeModel,
+        [],
+        baseConfig,
+        log,
+        { reportRoot: join(root, "reports"), sessionStore: store, randomId: () => "rejected" },
+      );
+
+      expect(result).toMatchObject({ ok: false, status: "failed" });
+      expect(String(result.error)).toContain("delivery unavailable");
+      expect(store.listSessions()).toEqual([]);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("failed to deliver task session"));
+      expect(log).not.toHaveBeenCalledWith(expect.stringContaining("delivered task session cron-rejected"));
+      const jobDirectories = await readdir(join(root, "reports"));
+      const reports = await readdir(join(root, "reports", jobDirectories[0]!));
+      const report = await readFile(join(root, "reports", jobDirectories[0]!, reports[0]!), "utf8");
+      expect(report).toContain("- Status: failed");
+      expect(report).toContain("failed to deliver task session: delivery unavailable");
+    } finally {
+      store.close();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

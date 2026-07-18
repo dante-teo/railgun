@@ -67,10 +67,10 @@ describe("desktop documentation", () => {
     const taskIds = tasks.map(([, id]) => id);
     const estimates = tasks.map(([, , estimate]) => Number(estimate));
 
-    expect(tasks).toHaveLength(83);
+    expect(tasks).toHaveLength(84);
     expect(new Set(taskIds).size).toBe(taskIds.length);
     expect(new Set(taskIds)).toEqual(
-      new Set(Array.from({ length: 83 }, (_, index) => `SWFT-${String(index + 1).padStart(3, "0")}`)),
+      new Set(Array.from({ length: 84 }, (_, index) => `SWFT-${String(index + 1).padStart(3, "0")}`)),
     );
     expect(estimates.every((estimate) => estimate <= 8)).toBe(true);
   });

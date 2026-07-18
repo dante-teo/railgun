@@ -14,6 +14,25 @@
       ]
     },
     {
+      "id": "delivery-cursor",
+      "steps": [
+        {
+          "requestFile": "delivery-cursor-initialize-request.jsonl",
+          "outputs": [
+            { "file": "delivery-cursor-initialize-stdout-001.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        },
+        {
+          "requestFile": "delivery-cursor-request.jsonl",
+          "outputs": [
+            { "file": "delivery-cursor-stdout-001.chunk", "delayMilliseconds": 0 }
+          ],
+          "terminalState": "open"
+        }
+      ]
+    },
+    {
       "id": "command-rejected",
       "steps": [
         {

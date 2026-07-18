@@ -91,7 +91,14 @@ export interface CliDependencies {
   now: () => Date;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
-  runCronScheduler: (devin: DevinProvider, model: DevinModel, systemPrompt: readonly string[], config: AppConfig, signal: AbortSignal) => Promise<void>;
+  runCronScheduler: (
+    devin: DevinProvider,
+    model: DevinModel,
+    systemPrompt: readonly string[],
+    config: AppConfig,
+    signal: AbortSignal,
+    store: SessionStore,
+  ) => Promise<void>;
   runCronInstall: () => void;
   runCronUninstall: () => void;
   runCronStatus: () => DaemonStatus;
@@ -170,8 +177,8 @@ const defaultDependencies: CliDependencies = {
   now: () => new Date(),
   stdout: console.log,
   stderr: console.error,
-  runCronScheduler: (devin, model, systemPrompt, config, signal) =>
-    startScheduler(devin, model, systemPrompt, config, { signal }),
+  runCronScheduler: (devin, model, systemPrompt, config, signal, store) =>
+    startScheduler(devin, model, systemPrompt, config, { signal, sessionStore: store }),
   runCronInstall: () => installDaemon(),
   runCronUninstall: () => uninstallDaemon(),
   runCronStatus: () => statusDaemon(),
@@ -471,7 +478,8 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
     process.on("SIGINT", onSignal);
     process.on("SIGTERM", onSignal);
     try {
-      await dependencies.runCronScheduler(session.devin, session.model, session.systemPrompt, config, controller.signal);
+      await withStore(dependencies, store =>
+        dependencies.runCronScheduler(session.devin, session.model, session.systemPrompt, config, controller.signal, store));
     } finally {
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);

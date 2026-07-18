@@ -62,10 +62,10 @@ describe("createSessionStore", () => {
 
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(6);
+    expect(db.pragma("user_version", { simple: true })).toBe(7);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '%_fts%' AND name NOT LIKE 'notes\\_vec\\_%' ESCAPE '\\' AND name != 'sqlite_sequence' ORDER BY name").pluck().all())
-      .toEqual(["memories", "messages", "notes", "notes_vec", "sessions"]);
+      .toEqual(["memories", "messages", "notes", "notes_vec", "session_deliveries", "sessions"]);
     db.close();
 
     const reopened = createSessionStore(path);
@@ -155,6 +155,147 @@ describe("createSessionStore", () => {
     expect(summaries[0]).toMatchObject({ model: "model-a", messageCount: 2 });
     expect(summaries[0]?.firstUserPreview).toBe("A preview that is deliberately much longer than the configured display…");
     expect(summaries[0]?.startedAtLocal).toBe(new Date("2026-07-10T00:00:00.000Z").toLocaleString());
+    store.close();
+  });
+
+  it("atomically creates unread scheduled sessions with monotonic delivery ordering and normalized titles", () => {
+    let current = new Date("2026-07-10T10:00:00.000Z");
+    const store = createSessionStore(path, { now: () => current });
+    const scheduled = (id: string, jobId: string, title: string, status: "completed" | "incomplete" | "failed") =>
+      store.createScheduledSession({
+        ...checkpoint({ id, startedAt: current.toISOString() }),
+        jobId,
+        title,
+        status,
+      });
+
+    const first = scheduled("cron-first", "job-a", "  Daily   project\nsummary  ", "completed");
+    expect(first.delivery).toEqual({
+      kind: "scheduled",
+      jobId: "job-a",
+      title: "Daily project summary",
+      status: "completed",
+      unread: true,
+    });
+    expect(store.latestDeliveryCursor()).toBe(1);
+
+    current = new Date("2026-07-10T11:00:00.000Z");
+    scheduled("cron-second", "job-b", "Check blockers", "incomplete");
+    expect(store.latestDeliveryCursor()).toBe(2);
+    expect(store.listSessions().map(session => session.id)).toEqual(["cron-second", "cron-first"]);
+    expect(store.listSessions()[0]).toMatchObject({
+      firstUserPreview: "Check blockers",
+      delivery: { status: "incomplete", unread: true },
+    });
+    store.close();
+  });
+
+  it("keeps scheduled loads unread until explicitly marked and preserves metadata across checkpoints and archiving", () => {
+    let current = new Date("2026-07-10T10:00:00.000Z");
+    const store = createSessionStore(path, { now: () => current });
+    const delivered = store.createScheduledSession({
+      ...checkpoint({ id: "cron-read" }),
+      jobId: "job-read",
+      title: "Read me",
+      status: "failed",
+    });
+    expect(delivered.delivery?.unread).toBe(true);
+
+    current = new Date("2026-07-10T10:05:00.000Z");
+    expect(store.loadSession("cron-read")?.delivery?.unread).toBe(true);
+    expect(store.listSessions()[0]?.delivery?.unread).toBe(true);
+    store.markSessionRead("cron-read");
+    expect(store.loadSession("cron-read")?.delivery?.unread).toBe(false);
+    expect(store.listSessions()[0]?.delivery?.unread).toBe(false);
+
+    const appended = [
+      ...messages,
+      { role: "user", content: "Follow up" },
+      { role: "assistant", content: [{ type: "text" as const, text: "Continued" }] },
+    ] satisfies readonly DevinMessage[];
+    store.saveCheckpoint(checkpoint({ id: "cron-read", messages: appended }));
+    expect(store.listSessions()[0]?.delivery).toMatchObject({
+      jobId: "job-read",
+      title: "Read me",
+      status: "failed",
+      unread: false,
+    });
+
+    store.archiveSession("cron-read");
+    expect(store.listArchivedSessions()[0]?.delivery).toMatchObject({ jobId: "job-read", unread: false });
+    store.unarchiveSession("cron-read");
+    expect(store.listSessions()[0]?.delivery).toMatchObject({ jobId: "job-read", unread: false });
+    store.close();
+  });
+
+  it("bounds active and archived summaries to the RPC list limit", () => {
+    const store = createSessionStore(path);
+    for (let index = 0; index <= 500; index += 1) {
+      store.createScheduledSession({
+        ...checkpoint({ id: `cron-${String(index)}` }),
+        jobId: `job-${String(index)}`,
+        title: `Delivery ${String(index)}`,
+        status: "completed",
+      });
+    }
+
+    const active = store.listSessions();
+    expect(active).toHaveLength(500);
+    expect(active[0]?.id).toBe("cron-500");
+    expect(active.at(-1)?.id).toBe("cron-1");
+    expect(store.listArchivedSessions().map(session => session.id)).toEqual(["cron-0"]);
+
+    for (const session of active) {
+      store.archiveSession(session.id);
+    }
+    expect(store.listArchivedSessions()).toHaveLength(500);
+    store.close();
+  });
+
+  it("does not clear unread state during internal loads, recent-message lookup, or forking", () => {
+    const store = createSessionStore(path);
+    store.createScheduledSession({
+      ...checkpoint({ id: "cron-internal" }),
+      jobId: "job-internal",
+      title: "Stay unread",
+      status: "completed",
+    });
+
+    expect(store.loadSession("cron-internal")?.delivery?.unread).toBe(true);
+    expect(store.getRecentMessages("cron-internal")).not.toEqual([]);
+    expect(store.forkSession("cron-internal")).toMatch(/^fork-/u);
+    expect(store.listSessions().find(session => session.id === "cron-internal")?.delivery?.unread).toBe(true);
+    store.close();
+  });
+
+  it("normalizes scheduled job IDs to the desktop delivery bound", () => {
+    const store = createSessionStore(path);
+    const created = store.createScheduledSession({
+      ...checkpoint({ id: "cron-long-job-id" }),
+      jobId: `  ${"job".repeat(100)}  `,
+      title: "Bound metadata",
+      status: "completed",
+    });
+
+    expect(created.delivery?.jobId).toHaveLength(256);
+    expect(created.delivery?.jobId.startsWith("job")).toBe(true);
+    expect(store.listSessions()[0]?.delivery?.jobId).toBe(created.delivery?.jobId);
+    store.close();
+  });
+
+  it("rolls back a scheduled session when delivery insertion fails", () => {
+    const store = createSessionStore(path);
+    store.db.exec(`CREATE TRIGGER reject_delivery BEFORE INSERT ON session_deliveries
+      BEGIN SELECT RAISE(ABORT, 'injected delivery failure'); END`);
+
+    expect(() => store.createScheduledSession({
+      ...checkpoint({ id: "cron-rollback" }),
+      jobId: "job-a",
+      title: "Rollback",
+      status: "failed",
+    })).toThrow(/injected delivery failure/u);
+    expect(store.listSessions()).toEqual([]);
+    expect(store.latestDeliveryCursor()).toBe(0);
     store.close();
   });
 
@@ -278,7 +419,7 @@ describe("schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a v1 database to v6 by adding the memories table, branching columns, notes tables, notes_vec, and archiving", () => {
+  it("migrates a v1 database to v7 by adding session deliveries and prior storage features", () => {
     // Bootstrap a v1-era database manually (no memories table, user_version = 1).
     const bootstrap = new Database(path);
     bootstrap.exec(`
@@ -310,7 +451,7 @@ describe("schema migration", () => {
     store.close();
 
     const db = new Database(path, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(6);
+    expect(db.pragma("user_version", { simple: true })).toBe(7);
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories'").pluck().all()
     ).toEqual(["memories"]);
@@ -321,6 +462,7 @@ describe("schema migration", () => {
     expect(sessCols.some(c => c.name === "current_leaf_id")).toBe(true);
     expect(sessCols.some(c => c.name === "archived_at")).toBe(true);
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'sessions_archived_at'").pluck().all()).toEqual(["sessions_archived_at"]);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_deliveries'").pluck().all()).toEqual(["session_deliveries"]);
     const tableNames = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('notes', 'notes_fts', 'notes_vec')")
       .pluck().all() as string[];
@@ -342,7 +484,7 @@ describe("notes schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a fresh database to v6 with notes, notes_fts, notes_vec, and archive metadata", () => {
+  it("migrates a fresh database to v7 with notes, delivery, and archive metadata", () => {
     const path = join(dir, "state.db");
     const store = createSessionStore(path);
     store.close();
@@ -350,7 +492,7 @@ describe("notes schema migration", () => {
     const db = new Database(path);
     try {
       const version = db.pragma("user_version", { simple: true }) as number;
-      expect(version).toBe(6);
+      expect(version).toBe(7);
 
       const tables = db
         .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'shadow') AND name IN ('notes', 'notes_fts', 'notes_vec')")

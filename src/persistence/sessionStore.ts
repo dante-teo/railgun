@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
@@ -10,9 +10,12 @@ import { STATE_PATH } from "../paths.js";
 import { summarizeMessages } from "./branchSummarizer.js";
 
 const PREVIEW_LIMIT = 71;
+const DELIVERY_TITLE_LIMIT = 500;
+const DELIVERY_JOB_ID_LIMIT = 256;
 const TODO_STATUSES = new Set<TodoStatus>(["pending", "in_progress", "completed", "cancelled"]);
 
 export const DEFAULT_STATE_PATH = STATE_PATH;
+export const SESSION_SUMMARY_LIMIT = 500;
 
 export interface SessionCheckpoint {
   id: string;
@@ -22,7 +25,25 @@ export interface SessionCheckpoint {
   todos: TodoState;
 }
 
-export interface PersistedSession extends SessionCheckpoint {}
+export type ScheduledRunStatus = "completed" | "incomplete" | "failed";
+
+export interface SessionDelivery {
+  readonly kind: "scheduled";
+  readonly jobId: string;
+  readonly title: string;
+  readonly status: ScheduledRunStatus;
+  readonly unread: boolean;
+}
+
+export interface ScheduledSessionCheckpoint extends SessionCheckpoint {
+  readonly jobId: string;
+  readonly title: string;
+  readonly status: ScheduledRunStatus;
+}
+
+export interface PersistedSession extends SessionCheckpoint {
+  readonly delivery?: SessionDelivery;
+}
 
 export interface SessionSummary {
   id: string;
@@ -30,6 +51,7 @@ export interface SessionSummary {
   startedAtLocal: string;
   messageCount: number;
   firstUserPreview: string;
+  delivery?: SessionDelivery;
 }
 
 export interface ArchivedSessionSummary extends SessionSummary {
@@ -51,6 +73,9 @@ export interface SessionStore {
   unarchiveSession(id: string): void;
   pruneArchivedSessions(retentionDays: number): number;
   saveCheckpoint(checkpoint: SessionCheckpoint): PersistedSession;
+  createScheduledSession(checkpoint: ScheduledSessionCheckpoint): PersistedSession;
+  markSessionRead(id: string): void;
+  latestDeliveryCursor(): number;
   branch(sessionId: string, messageId: number): void;
   branchWithSummary(sessionId: string, messageId: number, devin: DevinProvider, model: string): Promise<void>;
   forkSession(sessionId: string): string;
@@ -86,6 +111,16 @@ interface MessageRow {
   response_id: string | null;
   created_at: string;
   parent_id: number | null;
+}
+
+interface DeliveryRow {
+  sequence: number;
+  session_id: string;
+  job_id: string;
+  title: string;
+  run_status: ScheduledRunStatus;
+  delivered_at: string;
+  read_at: string | null;
 }
 
 type UserMessage = DevinMessage & { role: "user" };
@@ -289,7 +324,21 @@ const assertSessionMetadata = (checkpoint: SessionCheckpoint): void => {
   if (!Number.isFinite(Date.parse(checkpoint.startedAt))) throw new Error("session start time is invalid");
 };
 
-const decodePersistedSession = (session: SessionRow, rows: readonly MessageRow[]): PersistedSession => {
+const deliveryMetadata = (delivery: DeliveryRow | undefined): SessionDelivery | undefined => delivery === undefined
+  ? undefined
+  : {
+    kind: "scheduled",
+    jobId: delivery.job_id,
+    title: delivery.title,
+    status: delivery.run_status,
+    unread: delivery.read_at === null,
+  };
+
+const decodePersistedSession = (
+  session: SessionRow,
+  rows: readonly MessageRow[],
+  delivery?: DeliveryRow,
+): PersistedSession => {
   try {
     assertSessionMetadata({ ...session, startedAt: session.started_at, messages: [], todos: [] });
     rows.forEach((row, index) => {
@@ -308,6 +357,7 @@ const decodePersistedSession = (session: SessionRow, rows: readonly MessageRow[]
       startedAt: session.started_at,
       messages: visibleMessages,
       todos: decodeTodos(session.todos_json),
+      ...(delivery === undefined ? {} : { delivery: deliveryMetadata(delivery)! }),
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -322,6 +372,22 @@ export const makeSessionPreview = (messages: readonly DevinMessage[]): string =>
   const firstUser = messages.find(isUserMessage);
   const collapsed = firstUser ? contentText(firstUser.content).replace(/\s+/g, " ").trim() : "";
   return collapsed.length <= PREVIEW_LIMIT ? collapsed : `${collapsed.slice(0, PREVIEW_LIMIT - 1).trimEnd()}…`;
+};
+
+export const normalizeScheduledTitle = (title: string): string => {
+  const normalized = title.replace(/\s+/gu, " ").trim();
+  if (normalized === "") throw new Error("scheduled session title cannot be empty");
+  return normalized.length <= DELIVERY_TITLE_LIMIT
+    ? normalized
+    : `${normalized.slice(0, DELIVERY_TITLE_LIMIT - 1).trimEnd()}…`;
+};
+
+const normalizeScheduledJobId = (jobId: string): string => {
+  const normalized = jobId.trim();
+  if (normalized === "") throw new Error("scheduled job id cannot be empty");
+  if (normalized.length <= DELIVERY_JOB_ID_LIMIT) return normalized;
+  const suffix = createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  return `${normalized.slice(0, DELIVERY_JOB_ID_LIMIT - suffix.length - 1).trimEnd()}-${suffix}`;
 };
 
 interface SessionIdRow { id: string }
@@ -486,6 +552,21 @@ const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
     ALTER TABLE sessions ADD COLUMN archived_at TEXT NULL;
     CREATE INDEX sessions_archived_at ON sessions(archived_at DESC, id DESC);
   `),
+
+  // 6 → 7: scheduler-originated sessions and monotonic delivery cursor.
+  (db) => db.exec(`
+    CREATE TABLE IF NOT EXISTS session_deliveries (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+      job_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      run_status TEXT NOT NULL CHECK (run_status IN ('completed', 'incomplete', 'failed')),
+      delivered_at TEXT NOT NULL,
+      read_at TEXT NULL
+    );
+    CREATE INDEX IF NOT EXISTS session_deliveries_delivered_at
+      ON session_deliveries(delivered_at DESC, sequence DESC);
+  `),
 ];
 
 const initializeSchema = (db: Database.Database): void => {
@@ -512,15 +593,39 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH, options: { readonl
 
   const now = options.now ?? (() => new Date());
   const selectSession   = db.prepare("SELECT id, model, started_at, todos_json, current_leaf_id, archived_at FROM sessions WHERE id = ?");
+  const selectDelivery = db.prepare(`
+    SELECT sequence, session_id, job_id, title, run_status, delivered_at, read_at
+    FROM session_deliveries WHERE session_id = ?`);
   const selectAllSessions = db.prepare(`
-    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, s.archived_at, COUNT(m.id) AS message_count
+    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, s.archived_at, COUNT(m.id) AS message_count,
+      d.sequence AS delivery_sequence, d.job_id AS delivery_job_id, d.title AS delivery_title,
+      d.run_status AS delivery_run_status, d.delivered_at AS delivery_delivered_at, d.read_at AS delivery_read_at
     FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-    WHERE s.archived_at IS NULL GROUP BY s.id ORDER BY s.started_at DESC, s.id DESC`);
+    LEFT JOIN session_deliveries d ON d.session_id = s.id
+    WHERE s.archived_at IS NULL GROUP BY s.id
+    ORDER BY COALESCE(d.delivered_at, s.started_at) DESC, COALESCE(d.sequence, 0) DESC, s.id DESC
+    LIMIT ${SESSION_SUMMARY_LIMIT}`);
   const selectArchivedSessions = db.prepare(`
-    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, s.archived_at, COUNT(m.id) AS message_count
+    SELECT s.id, s.model, s.started_at, s.todos_json, s.current_leaf_id, s.archived_at, COUNT(m.id) AS message_count,
+      d.sequence AS delivery_sequence, d.job_id AS delivery_job_id, d.title AS delivery_title,
+      d.run_status AS delivery_run_status, d.delivered_at AS delivery_delivered_at, d.read_at AS delivery_read_at
     FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-    WHERE s.archived_at IS NOT NULL GROUP BY s.id ORDER BY s.archived_at DESC, s.id DESC`);
+    LEFT JOIN session_deliveries d ON d.session_id = s.id
+    WHERE s.archived_at IS NOT NULL GROUP BY s.id ORDER BY s.archived_at DESC, s.id DESC
+    LIMIT ${SESSION_SUMMARY_LIMIT}`);
   const insertSession   = db.prepare("INSERT INTO sessions (id, model, started_at, todos_json) VALUES (?, ?, ?, ?)");
+  const insertDelivery = db.prepare(`
+    INSERT INTO session_deliveries (session_id, job_id, title, run_status, delivered_at, read_at)
+    VALUES (?, ?, ?, ?, ?, NULL)`);
+  const markRead = db.prepare("UPDATE session_deliveries SET read_at = ? WHERE session_id = ? AND read_at IS NULL");
+  const selectLatestDeliveryCursor = db.prepare("SELECT COALESCE(MAX(sequence), 0) AS cursor FROM session_deliveries");
+  const selectActiveSessionCount = db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE archived_at IS NULL");
+  const selectOldestActiveScheduledSessions = db.prepare(`
+    SELECT s.id FROM sessions s
+    JOIN session_deliveries d ON d.session_id = s.id
+    WHERE s.archived_at IS NULL AND s.id <> @sessionId
+    ORDER BY d.delivered_at ASC, d.sequence ASC
+    LIMIT @limit`);
   const updateTodos     = db.prepare("UPDATE sessions SET todos_json = ? WHERE id = ?");
   const updateLeaf      = db.prepare("UPDATE sessions SET current_leaf_id = ? WHERE id = ?");
   const archive = db.prepare("UPDATE sessions SET archived_at = ? WHERE id = ? AND archived_at IS NULL");
@@ -566,7 +671,8 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH, options: { readonl
   const loadSession = (id: string): PersistedSession | undefined => {
     const session = selectSession.get(id) as SessionRow | undefined;
     if (!session || session.archived_at !== null) return undefined;
-    return decodePersistedSession(session, getBranch(id));
+    const delivery = selectDelivery.get(id) as DeliveryRow | undefined;
+    return decodePersistedSession(session, getBranch(id), delivery);
   };
 
   const saveTransaction = db.transaction((
@@ -622,17 +728,64 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH, options: { readonl
     updateTodos.run(todosJson, checkpoint.id);
   });
 
-  interface ListSessionRow extends SessionRow { message_count: number }
+  interface ListSessionRow extends SessionRow {
+    message_count: number;
+    delivery_sequence: number | null;
+    delivery_job_id: string | null;
+    delivery_title: string | null;
+    delivery_run_status: ScheduledRunStatus | null;
+    delivery_delivered_at: string | null;
+    delivery_read_at: string | null;
+  }
+  const rowDelivery = (session: ListSessionRow): DeliveryRow | undefined =>
+    session.delivery_sequence === null
+      ? undefined
+      : {
+        sequence: session.delivery_sequence,
+        session_id: session.id,
+        job_id: session.delivery_job_id!,
+        title: session.delivery_title!,
+        run_status: session.delivery_run_status!,
+        delivered_at: session.delivery_delivered_at!,
+        read_at: session.delivery_read_at,
+      };
   const sessionSummary = (session: ListSessionRow): SessionSummary => {
-    const persisted = decodePersistedSession(session, getBranch(session.id));
+    const delivery = rowDelivery(session);
+    const persisted = decodePersistedSession(session, getBranch(session.id), delivery);
     return {
       id: session.id,
       model: session.model,
       startedAtLocal: new Date(session.started_at).toLocaleString(),
       messageCount: session.message_count,
-      firstUserPreview: makeSessionPreview(persisted.messages),
+      firstUserPreview: delivery?.title ?? makeSessionPreview(persisted.messages),
+      ...(persisted.delivery === undefined ? {} : { delivery: persisted.delivery }),
     };
   };
+
+  const createScheduledTransaction = db.transaction((
+    checkpoint: ScheduledSessionCheckpoint,
+    encoded: readonly Omit<MessageRow, "id">[],
+    todosJson: string,
+    title: string,
+    deliveredAt: string,
+  ): PersistedSession => {
+    if (!checkpoint.id.startsWith("cron-")) throw new Error("scheduled session id must start with cron-");
+    if ((selectSession.get(checkpoint.id) as SessionRow | undefined) !== undefined) {
+      throw new Error(`session ${checkpoint.id} already exists`);
+    }
+    saveTransaction(checkpoint, encoded, todosJson);
+    insertDelivery.run(checkpoint.id, checkpoint.jobId, title, checkpoint.status, deliveredAt);
+    const activeCount = (selectActiveSessionCount.get() as { count: number }).count;
+    const overflow = Math.max(0, activeCount - SESSION_SUMMARY_LIMIT);
+    const oldestScheduled = selectOldestActiveScheduledSessions.all({
+      sessionId: checkpoint.id,
+      limit: overflow,
+    }) as SessionIdRow[];
+    oldestScheduled.forEach(({ id }) => { archive.run(deliveredAt, id); });
+    const session = selectSession.get(checkpoint.id) as SessionRow;
+    const delivery = selectDelivery.get(checkpoint.id) as DeliveryRow;
+    return decodePersistedSession(session, getBranch(checkpoint.id), delivery);
+  });
 
   return {
     db,
@@ -672,6 +825,31 @@ export const createSessionStore = (path = DEFAULT_STATE_PATH, options: { readonl
       saveTransaction(checkpoint, encoded, todosJson);
       return loadSession(checkpoint.id)!;
     },
+
+    createScheduledSession: checkpoint => {
+      assertSessionMetadata(checkpoint);
+      if (!["completed", "incomplete", "failed"].includes(checkpoint.status)) {
+        throw new Error("scheduled run status is invalid");
+      }
+      const deliveredAt = now().toISOString();
+      const jobId = normalizeScheduledJobId(checkpoint.jobId);
+      const title = normalizeScheduledTitle(checkpoint.title);
+      const encoded = checkpoint.messages.map((message, ordinal) =>
+        encodeMessage(checkpoint.id, ordinal, message, deliveredAt, null));
+      validateTranscript(checkpoint.messages);
+      const todosJson = encodeTodos(checkpoint.todos);
+      return createScheduledTransaction({ ...checkpoint, jobId }, encoded, todosJson, title, deliveredAt);
+    },
+
+    markSessionRead: id => {
+      const session = selectSession.get(id) as SessionRow | undefined;
+      if (session === undefined) throw new Error(`session ${id} not found`);
+      const delivery = selectDelivery.get(id) as DeliveryRow | undefined;
+      if (delivery === undefined || delivery.read_at !== null) return;
+      markRead.run(now().toISOString(), id);
+    },
+
+    latestDeliveryCursor: () => (selectLatestDeliveryCursor.get() as { cursor: number }).cursor,
 
     branch: (sessionId, messageId) => {
       if (!selectMessage.get(messageId, sessionId)) {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DevinMessage, DevinProvider } from "widevin";
-import type { SessionStore } from "../persistence/sessionStore.js";
+import type { SessionDelivery, SessionStore } from "../persistence/sessionStore.js";
 import { createTodoStore } from "../tools/todo.js";
 import type { TodoStore } from "../tools/todo.js";
 import type { RpcCommand, RpcPersistenceStatus } from "./types.js";
@@ -8,7 +8,7 @@ import { createRpcTranscriptPage } from "./sessionTranscript.js";
 
 type SessionCommand = Extract<RpcCommand, { type:
   "session_new" | "session_list" | "session_list_archived" | "session_load" | "session_archive" | "session_unarchive" | "session_save" |
-  "session_branch" | "session_fork" | "session_recent_messages" | "session_transcript" }>;
+  "session_branch" | "session_fork" | "session_recent_messages" | "session_transcript" | "session_delivery_cursor" }>;
 
 export interface RpcActiveSession {
   readonly id: string;
@@ -18,6 +18,7 @@ export interface RpcActiveSession {
   todoStore: TodoStore;
   persistence: RpcPersistenceStatus;
   checkpointError?: string;
+  readonly delivery?: SessionDelivery;
 }
 
 export interface RpcSessionHandler {
@@ -67,6 +68,7 @@ export const createRpcSessionHandler = (options: {
       history: persisted.messages,
       todoStore: createTodoStore(persisted.todos),
       persistence: "saved",
+      ...(persisted.delivery === undefined ? {} : { delivery: persisted.delivery }),
     };
   };
   const loadActivePersistedSession = (sessionId: string): NonNullable<ReturnType<SessionStore["loadSession"]>> => {
@@ -106,11 +108,19 @@ export const createRpcSessionHandler = (options: {
         return { sessionId: active.id };
       case "session_list": return { sessions: requireStore().listSessions() };
       case "session_list_archived": return { sessions: requireStore().listArchivedSessions() };
+      case "session_delivery_cursor": return { cursor: requireStore().latestDeliveryCursor() };
       case "session_load": {
         guardIdle("load a session");
         const persisted = loadActivePersistedSession(command.sessionId);
         await options.prepareModel?.(persisted.model);
-        activate(persisted);
+        const activated = persisted.delivery?.unread === true
+          ? {
+            ...persisted,
+            delivery: { ...persisted.delivery, unread: false },
+          }
+          : persisted;
+        if (persisted.delivery?.unread === true) requireStore().markSessionRead(persisted.id);
+        activate(activated);
         return {
           sessionId: persisted.id,
           ...(command.includeMessages === false ? {} : { messages: persisted.messages }),
@@ -181,7 +191,14 @@ export const createRpcSessionHandler = (options: {
         const messageIds = selected.persistence === "saved"
           ? requireStore().getActiveBranchMessageIds(selected.id)
           : undefined;
-        return createRpcTranscriptPage(selected.id, selected.history, command.cursor, command.limit, messageIds);
+        return createRpcTranscriptPage(
+          selected.id,
+          selected.history,
+          command.cursor,
+          command.limit,
+          messageIds,
+          selected.delivery?.kind === "scheduled",
+        );
       }
     }
   };

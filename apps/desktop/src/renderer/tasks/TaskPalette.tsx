@@ -5,6 +5,7 @@ import { Dialog } from "../components/ui/dialog";
 import { PaletteContent, PaletteHeader, PaletteList, PaletteOption, PaletteSearch, PaletteState } from "../components/palette";
 import { useListboxNavigation } from "../components/use-listbox-navigation";
 import { filterSessions } from "./filterSessions";
+import { CalendarClock } from "lucide-react";
 
 interface TaskPaletteProps {
   readonly open: boolean;
@@ -76,7 +77,14 @@ export const TaskPalette = ({
                   onMouseMove={() => { if (!disabled) navigation.setActiveIndex(index); }}
                   onClick={() => select(session)}
                 >
-                  <span className="grid min-w-0 gap-0.5"><strong className="truncate font-medium">{session.firstUserPreview || "Untitled task"}</strong><small className="truncate text-caption text-foreground-secondary">{session.model} · {session.startedAtLocal}</small></span>
+                  <span className="grid min-w-0 gap-0.5">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {session.delivery === undefined ? null : <CalendarClock className="size-3.5 shrink-0 text-foreground-secondary" role="img" aria-label="Scheduled task" />}
+                      <strong className="truncate font-medium">{session.firstUserPreview || "Untitled task"}</strong>
+                      {session.delivery?.unread === true ? <span className="size-2 shrink-0 rounded-full bg-primary" role="status" aria-label="Unread" title="Unread" /> : null}
+                    </span>
+                    <small className="truncate text-caption text-foreground-secondary">{session.model} · {session.startedAtLocal}</small>
+                  </span>
                   {session.id === activeSessionId ? <small className="text-caption text-foreground-secondary">Current</small> : null}
                 </PaletteOption>)}
       </PaletteList>

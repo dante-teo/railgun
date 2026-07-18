@@ -57,7 +57,7 @@ const MANAGEMENT_COMMANDS = new Set<string>([
 ]);
 
 const SESSION_COMMANDS = new Set<string>([
-  "session_new", "session_list", "session_list_archived", "session_load", "session_archive", "session_unarchive", "session_save", "session_branch", "session_fork", "session_recent_messages", "session_transcript",
+  "session_new", "session_list", "session_list_archived", "session_load", "session_archive", "session_unarchive", "session_save", "session_branch", "session_fork", "session_recent_messages", "session_transcript", "session_delivery_cursor",
 ]);
 const MUTATING_MANAGEMENT_COMMANDS = new Set<string>([
   "config_update", "mcp_upsert", "mcp_remove", "cron_add", "cron_update", "cron_remove",
@@ -300,6 +300,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
           startedAt: selected.startedAt,
           persistence: selected.persistence,
           ...(selected.checkpointError === undefined ? {} : { checkpointError: selected.checkpointError }),
+          ...(selected.delivery === undefined ? {} : { delivery: selected.delivery }),
         }),
       });
       return;

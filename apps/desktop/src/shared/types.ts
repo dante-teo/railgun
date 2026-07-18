@@ -15,6 +15,7 @@ import type {
   MoAPresetSummarySchema,
   AdvisorControlSchema,
   SessionSummarySchema,
+  SessionDeliverySchema,
   SessionSnapshotSchema,
   ArchivedSessionSummarySchema,
   CheckpointStatusSchema,
@@ -56,6 +57,7 @@ export type MoAPresetSummary = z.infer<typeof MoAPresetSummarySchema>;
 export type AdvisorControl = z.infer<typeof AdvisorControlSchema>;
 export type ContextUsageEvent = Extract<DesktopAgentEvent, { type: "context-usage" }>;
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+export type SessionDelivery = z.infer<typeof SessionDeliverySchema>;
 export type ArchivedSessionSummary = z.infer<typeof ArchivedSessionSummarySchema>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 export type CheckpointStatus = z.infer<typeof CheckpointStatusSchema>;
@@ -116,6 +118,7 @@ export interface RailgunDesktopApi extends KnowledgeDesktopApi {
   revealFile: (pathSegments: readonly string[]) => Promise<void>;
   startNewChat: () => Promise<SessionSnapshot>;
   listSessions: () => Promise<readonly SessionSummary[]>;
+  onSessionList: (listener: (sessions: readonly SessionSummary[]) => void) => () => void;
   listArchivedSessions: () => Promise<readonly ArchivedSessionSummary[]>;
   archiveSession: (sessionId: string) => Promise<SessionSnapshot>;
   unarchiveSession: (sessionId: string) => Promise<void>;
@@ -176,6 +179,7 @@ export const DESKTOP_IPC = {
   forkSession: "sessions:fork",
   showSessionContextMenu: "sessions:context-menu",
   sessionSnapshot: "sessions:snapshot",
+  sessionList: "sessions:list-updated",
   getChatControls: "agent:get-chat-controls",
   setChatModel: "agent:set-chat-model",
   updateAgentControls: "agent:update-controls",

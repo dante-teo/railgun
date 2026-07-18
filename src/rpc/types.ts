@@ -1,5 +1,6 @@
 import type { DevinMessage, DevinModel } from "widevin";
 import type { TodoState } from "../tools/todo.js";
+import type { SessionDelivery } from "../persistence/sessionStore.js";
 
 export const RPC_PROTOCOL_VERSION = 1 as const;
 
@@ -15,6 +16,7 @@ export const RPC_PROTOCOL_CAPABILITIES = Object.freeze([
   "dream",
   "instructions",
   "skills",
+  "session.delivery",
 ] as const);
 
 export type RpcCapability = typeof RPC_PROTOCOL_CAPABILITIES[number];
@@ -45,6 +47,7 @@ export type RpcCommand =
   | { id?: string; type: "session_fork"; sessionId?: string; includeMessages?: boolean }
   | { id?: string; type: "session_recent_messages"; sessionId?: string; limit?: number }
   | { id?: string; type: "session_transcript"; sessionId: string; cursor?: number; limit?: number }
+  | { id?: string; type: "session_delivery_cursor" }
   | { id?: string; type: "config_get" }
   | { id?: string; type: "config_update"; patch: Record<string, unknown> }
   | { id?: string; type: "mcp_list" }
@@ -94,6 +97,7 @@ export interface RpcSessionState {
   readonly startedAt?: string;
   readonly persistence?: RpcPersistenceStatus;
   readonly checkpointError?: string;
+  readonly delivery?: SessionDelivery;
 }
 
 export interface RpcApprovalRequest {

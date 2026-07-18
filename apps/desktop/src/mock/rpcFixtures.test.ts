@@ -83,6 +83,21 @@ describe("shared RPC fixture contract", () => {
     }
   });
 
+  it("keeps the delivery cursor capability aligned with the desktop mock backend", async () => {
+    const manifest = await loadManifest();
+    const scenario = manifest.scenarios.find(({ id }) => id === "delivery-cursor");
+    if (scenario === undefined) throw new Error("Missing delivery-cursor fixture");
+
+    const child = startMock("ready-idle");
+    const nextLine = createLineReader(child.stdout);
+    try {
+      await sendStep(child, nextLine, scenario.steps[0]!);
+      await sendStep(child, nextLine, scenario.steps[1]!);
+    } finally {
+      child.kill();
+    }
+  });
+
   it("disconnects only after the ready-state response", async () => {
     const manifest = await loadManifest();
     const scenario = manifest.scenarios.find(({ id }) => id === "eof-after-initialize");

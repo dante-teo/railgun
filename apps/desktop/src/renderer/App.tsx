@@ -7,6 +7,7 @@ import { Button, InsetIconButton } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { Checkbox } from "./components/ui/checkbox";
 import { ConfirmDialog } from "./components/ui/confirm-dialog";
+import { InlineAlert } from "./components/ui/feedback";
 import { ErrorState, LoadingState } from "./components/ui/state";
 import { CommandPalette } from "./commands/CommandPalette";
 import { commandFromKeyboardEvent, createCommandRegistry } from "./commands/commandRegistry";
@@ -133,7 +134,12 @@ export const App = (): React.JSX.Element => {
       setControlsResetKey(key => key + 1);
       void loadSessions();
     });
-    return () => { active = false; unsubscribeSnapshot(); unsubscribeSession(); };
+    const unsubscribeSessionList = window.railgunDesktop.onSessionList((next) => {
+      setSessions(next);
+      setSessionsError(undefined);
+      setSessionsLoading(false);
+    });
+    return () => { active = false; unsubscribeSnapshot(); unsubscribeSession(); unsubscribeSessionList(); };
   }, []);
 
   useEffect(() => {
@@ -185,6 +191,7 @@ export const App = (): React.JSX.Element => {
     try {
       setOperationError(undefined);
       activateSessionSnapshot(await window.railgunDesktop.resumeSession(sessionId));
+      await loadSessions();
     } catch (error) {
       setOperationError(errorMessage(error, "Unable to resume the session"));
     } finally { setSessionOperation(false); }
@@ -364,6 +371,11 @@ export const App = (): React.JSX.Element => {
       onClick={() => setFilesPaneVisible(true)}
     ><PanelRightOpen aria-hidden="true" /></Button>;
   const firstUserMessage = activeSession?.transcript.find((entry): entry is RestoredTranscriptMessage => entry.role === "user");
+  const scheduledWarning = activeSession?.delivery?.status === "incomplete"
+    ? { variant: "warning" as const, title: "Scheduled task incomplete", detail: "The scheduled run settled without completing all requested work." }
+    : activeSession?.delivery?.status === "failed"
+      ? { variant: "destructive" as const, title: "Scheduled task failed", detail: "The scheduled run failed. You can continue this task with a follow-up." }
+      : undefined;
   const toolbarActions = <div className="content-toolbar-actions pointer-events-auto absolute right-[calc(var(--toolbar-surface-right)+var(--space-7))] top-[var(--titlebar-control-center-y)] z-[var(--layer-titlebar-action)] flex -translate-y-1/2 items-center gap-2 [-webkit-app-region:no-drag]">
     <div className="text-caption text-foreground-secondary [&_details]:relative [&_details_span]:absolute [&_details_span]:right-0 [&_details_span]:top-[calc(100%_+_var(--space-2))] [&_details_span]:w-64 [&_details_span]:rounded-sm [&_details_span]:border [&_details_span]:border-border [&_details_span]:bg-popover [&_details_span]:p-2 [&_details_span]:text-foreground [&_details_span]:shadow-popover [&_summary]:cursor-default">{running || activeSession?.checkpoint.state === "pending" ? "Saving…" : activeSession?.checkpoint.state === "saved" ? "Saved" : activeSession?.checkpoint.state === "error" ? <details><summary>Save failed</summary><span>{activeSession.checkpoint.detail}</span></details> : "Not saved"}</div>
     {filesPaneVisible
@@ -375,9 +387,13 @@ export const App = (): React.JSX.Element => {
   } as CSSProperties;
   const chatContent = <section className="relative grid size-full min-w-0 overflow-hidden bg-transparent" style={chatContentStyle}>
           <header className="content-toolbar relative z-[var(--layer-titlebar-control)] col-start-1 row-start-1 flex w-full self-start bg-transparent pb-2 pr-[var(--titlebar-actions-safe-width)] pt-[calc(var(--titlebar-control-center-y)_-_0.875rem)]">
-            <div className="ml-[var(--toolbar-content-left)] min-w-0 flex-1 transition-[margin-left] duration-standard ease-standard"><h1 className="m-0 max-w-full truncate text-[0.9375rem] font-semibold tracking-[-0.01em]">{firstUserMessage?.text.slice(0, 500) ?? "New Task"}</h1><p className="mb-0 mt-0.5 text-caption text-foreground-secondary">{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
+            <div className="ml-[var(--toolbar-content-left)] min-w-0 flex-1 transition-[margin-left] duration-standard ease-standard"><h1 className="m-0 max-w-full truncate text-[0.9375rem] font-semibold tracking-[-0.01em]">{activeSession?.delivery?.title ?? firstUserMessage?.text.slice(0, 500) ?? "New Task"}</h1><p className="mb-0 mt-0.5 text-caption text-foreground-secondary">{activeSession?.model ?? (snapshot.mode === "mock" ? "Mock backend" : "Devin provider")}</p></div>
           </header>
-          {operationError === undefined ? null : <div className="z-[3] col-start-1 row-start-1 mx-[max(var(--space-7),calc((100%_-_var(--container-content))/2))] mb-2 mt-[var(--transcript-top-inset)] self-start rounded-sm border border-destructive/45 px-3 py-2 text-control text-destructive" role="alert">{operationError}</div>}
+          {operationError === undefined && scheduledWarning === undefined ? null
+            : <div className="z-[3] col-start-1 row-start-1 mx-[max(var(--space-7),calc((100%_-_var(--container-content))/2))] mt-[var(--transcript-top-inset)] grid gap-2 self-start">
+              {operationError === undefined ? null : <InlineAlert variant="destructive">{operationError}</InlineAlert>}
+              {scheduledWarning === undefined ? null : <InlineAlert variant={scheduledWarning.variant} title={scheduledWarning.title}>{scheduledWarning.detail}</InlineAlert>}
+            </div>}
           <Transcript
             controller={chat}
             snapshot={snapshot}

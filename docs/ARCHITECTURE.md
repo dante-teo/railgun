@@ -18,6 +18,32 @@ restarts after unexpected crashes; Dream is a midnight one-shot task. Missing
 credentials cause either background entry to exit normally without browser
 authentication.
 
+The scheduler shares the SQLite session store for its full lifecycle. After
+each cron attempt settles and its report is generated, it atomically creates a
+new `cron-<uuid>` session and `session_deliveries` row. The delivery row owns
+the ordered cursor, RPC-bounded job ID, normalized title, run status, delivery
+time, and read time; its session reference cascades on session deletion.
+Oversized job IDs are deterministically normalized before persistence so one
+valid cron definition cannot invalidate the complete desktop session list.
+Valid agent history and todos are retained, while hard or empty failures
+receive a synthetic assistant result so every delivered transcript remains
+resumable. A delivery persistence failure fails the cron attempt, atomically
+revises the run report with that final failure, and is logged without claiming
+successful delivery.
+
+RPC capability `session.delivery` exposes optional scheduled-delivery metadata
+on session summaries and active state plus a lightweight
+`session_delivery_cursor` command. Successfully activating a scheduled session
+marks it read; internal loads remain side-effect free. Its initial scheduler
+prompt remains in provider history for follow-up context but is omitted from
+the renderer transcript; later user messages are visible. Electron main polls
+the cursor every two seconds while the backend is ready and broadcasts a
+schema-validated session list only after it advances. Preload validates that
+push again, and the renderer updates navigation without changing the active
+task. Scheduled delivery overflow is archived oldest-first, and active and
+archived summary queries expose the newest 500 entries, matching the validated
+desktop boundary without deleting older persisted sessions.
+
 Desktop release configuration is owned by `apps/desktop/package.json`. The
 release pipeline publishes direct builds only. Direct releases retain
 `darwin-arm64` or `darwin-x64` in their GitHub ZIP artifact names so the

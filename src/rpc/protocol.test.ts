@@ -13,6 +13,8 @@ describe("parseRpcCommand", () => {
       .toEqual({ type: "session_branch", messageId: 12, summarize: true, includeMessages: false });
     expect(parseRpcCommand({ type: "session_fork", sessionId: "saved", includeMessages: false }))
       .toEqual({ type: "session_fork", sessionId: "saved", includeMessages: false });
+    expect(parseRpcCommand({ type: "session_delivery_cursor" }))
+      .toEqual({ type: "session_delivery_cursor" });
     expect(parseRpcCommand({ type: "cron_list", cursor: 2, limit: 1, editableOnly: true, maxPromptLength: 8_000 }))
       .toEqual({ type: "cron_list", cursor: 2, limit: 1, editableOnly: true, maxPromptLength: 8_000 });
     expect(parseRpcCommand({ type: "cron_add", schedule: "0 9 * * *", prompt: "Run", includeJob: false }))

@@ -58,6 +58,7 @@ const sessionApi = {
   forkSession: async () => desktopSession,
   showSessionContextMenu: vi.fn(async () => null as "fork" | null),
   onSessionSnapshot: () => () => undefined,
+  onSessionList: () => () => undefined,
 };
 const unusedControlMutation = async () => ({ controls: chatControls, persistence: "session-only" as const });
 const controlApi = {
@@ -154,6 +155,77 @@ describe("desktop shell", () => {
     expect(readStoredArea({ getItem: () => JSON.stringify({ version: 1, area: "obsolete" }) })).toBe("chat");
   });
 
+  it("pushes unread scheduled tasks without stealing focus, then clears unread and presents failures when opened", async () => {
+    let sessionListListener: ((sessions: readonly import("../shared/types").SessionSummary[]) => void) | undefined;
+    const unread = {
+      id: "cron-1",
+      model: "mock-model",
+      startedAtLocal: "today",
+      messageCount: 2,
+      firstUserPreview: "Daily summary",
+      delivery: { kind: "scheduled" as const, jobId: "job-1", title: "Daily summary", status: "failed" as const, unread: true },
+    };
+    let currentSessions = [] as readonly import("../shared/types").SessionSummary[];
+    const listSessions = vi.fn(async () => currentSessions);
+    const scheduledSnapshot: SessionSnapshot = {
+      id: "cron-1",
+      startedAt: "2026-07-18T01:02:03.000Z",
+      model: "mock-model",
+      messageCount: 2,
+      running: false,
+      checkpoint: { state: "saved" },
+      transcript: [{ role: "assistant", text: "Scheduled task failed: provider unavailable.", messageId: 2, branchable: true }],
+      todos: [],
+      delivery: { ...unread.delivery, unread: false },
+    };
+    const resumeSession = vi.fn(async () => {
+      currentSessions = [{ ...unread, delivery: { ...unread.delivery, unread: false } }];
+      return scheduledSnapshot;
+    });
+    const api: RailgunDesktopApi = {
+      ...knowledgeApi,
+      getBackendSnapshot: async () => snapshot("ready"),
+      restartBackend: async () => snapshot("starting"),
+      onBackendSnapshot: () => () => undefined,
+      listMockScenarios: async () => [],
+      selectMockScenario: async () => snapshot("ready"),
+      sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
+      abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
+      ...fileApi,
+      startNewChat: async () => desktopSession,
+      ...sessionApi,
+      listSessions,
+      resumeSession,
+      onSessionList: listener => { sessionListListener = listener; return () => undefined; },
+      ...controlApi,
+      onAgentEvent: () => () => undefined,
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
+      onAppCommand: () => () => undefined,
+    };
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
+
+    render(<App />);
+    const newTask = await screen.findByRole("button", { name: "New Task" });
+    newTask.focus();
+    currentSessions = [unread];
+    act(() => sessionListListener?.(currentSessions));
+
+    const deliveredTask = screen.getByRole("button", { name: "Unread scheduled task: Daily summary" });
+    expect(document.activeElement).toBe(newTask);
+    expect(screen.getByRole("heading", { name: "New Task" })).toBeTruthy();
+
+    fireEvent.click(deliveredTask);
+    await waitFor(() => expect(resumeSession).toHaveBeenCalledWith("cron-1"));
+    expect(await screen.findByRole("heading", { name: "Daily summary" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Scheduled task failed");
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Unread" })).toBeNull());
+  });
+
   it("migrates the retired Knowledge route into Settings", async () => {
     window.localStorage.setItem("railgun.desktop.route", JSON.stringify({ version: 1, area: "knowledge" }));
     let backendListener: ((next: BackendSnapshot) => void) | undefined;
@@ -223,7 +295,7 @@ describe("desktop shell", () => {
         { id: "older", model: "other", startedAtLocal: "yesterday", messageCount: 2, firstUserPreview: "Older chat" },
       ],
       listArchivedSessions: async () => [], archiveSession: async () => desktopSession, unarchiveSession: async () => undefined,
-      resumeSession, branchSession, forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, ...controlApi,
+      resumeSession, branchSession, forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, onSessionList: () => () => undefined, ...controlApi,
       onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
     };
@@ -298,7 +370,7 @@ describe("desktop shell", () => {
       ],
       listArchivedSessions: async () => [], archiveSession: async () => desktopSession, unarchiveSession: async () => undefined,
       resumeSession: async () => desktopSession, branchSession: async () => desktopSession,
-      forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, ...controlApi,
+      forkSession, showSessionContextMenu, onSessionSnapshot: () => () => undefined, onSessionList: () => () => undefined, ...controlApi,
       onAgentEvent: () => () => undefined, respondToApproval: async () => undefined, respondToClarification: async () => undefined,
       onInteractionRequest: () => () => undefined, onAppCommand: () => () => undefined,
     };
@@ -342,6 +414,7 @@ describe("desktop shell", () => {
       listSessions: async () => [{ id: "status-task", model: "mock-model", startedAtLocal: "today", messageCount: 1, firstUserPreview: "Status task" }],
       ...controlApi,
       onSessionSnapshot: (listener) => { sessionListeners.add(listener); return () => sessionListeners.delete(listener); },
+      onSessionList: () => () => undefined,
       onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
       respondToApproval: async () => undefined,
       respondToClarification: async () => undefined,
@@ -387,6 +460,7 @@ describe("desktop shell", () => {
       ...sessionApi,
       ...controlApi,
       onSessionSnapshot: (listener) => { sessionListeners.add(listener); return () => sessionListeners.delete(listener); },
+      onSessionList: () => () => undefined,
       listArchivedSessions: async () => [], archiveSession: async () => desktopSession, unarchiveSession: async () => undefined,
       onAgentEvent: (listener) => { agentListeners.add(listener); return () => agentListeners.delete(listener); },
       respondToApproval: async () => undefined,

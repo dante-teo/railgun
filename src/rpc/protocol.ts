@@ -65,7 +65,8 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     case "prompt": case "steer": case "follow_up":
       return { ...base, type, message: nonEmpty(value.message, "message") };
     case "abort": case "get_state": case "get_messages": case "get_available_models": case "compact":
-    case "session_list": case "session_list_archived": case "session_save": case "config_get": case "mcp_list": case "skills_list":
+    case "session_list": case "session_list_archived": case "session_save": case "session_delivery_cursor":
+    case "config_get": case "mcp_list": case "skills_list":
     case "dream_run": case "instruction_files_list":
       return { ...base, type };
     case "set_model": return { ...base, type, modelId: nonEmpty(value.modelId, "modelId") };
