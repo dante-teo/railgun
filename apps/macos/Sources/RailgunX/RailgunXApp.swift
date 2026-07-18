@@ -84,17 +84,6 @@ struct BackendLaunchConfiguration: Equatable {
         }
     }
 
-    var placeholderText: String {
-        switch mode {
-        case .bundled:
-            "RailgunX Bundled Backend"
-        case .source:
-            "RailgunX Source Backend"
-        case .mock:
-            "RailgunX Mock Backend"
-        }
-    }
-
     private static func configurationValue(
         named name: String,
         environmentKey: String,
@@ -213,11 +202,178 @@ final class DesktopClientStartup {
     }
 }
 
+enum RailgunTaskDetailPresentation: Equatable {
+    case loading
+    case empty
+    case selectionRequired
+    case selected(RailgunSessionSummary)
+    case staleSelection(String)
+
+    init(session: RailgunSessionState) {
+        if session.isLoading {
+            self = .loading
+        } else if let activeSessionID = session.activeSessionID {
+            self = session.selectedSession.map(Self.selected) ?? .staleSelection(activeSessionID)
+        } else if session.sessions.isEmpty {
+            self = .empty
+        } else {
+            self = .selectionRequired
+        }
+    }
+}
+
+private enum RailgunTaskSymbol {
+    static let activity = "rectangle.3.group"
+}
+
+struct RailgunTaskShell: View {
+    static let activityCardDefaultVisibility = false
+    static let sidebarMinimumWidth: CGFloat = 180
+
+    @Bindable private var appStore: RailgunAppStore
+    @SceneStorage("railgun.task.activityCard.isPresented")
+    private var isActivityCardVisible = activityCardDefaultVisibility
+
+    init(appStore: RailgunAppStore) {
+        _appStore = Bindable(appStore)
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            RailgunTaskSidebar(
+                session: appStore.state.session,
+                selection: selectedSessionID
+            )
+            .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
+        } detail: {
+            RailgunTaskDetailArea(
+                session: appStore.state.session,
+                isActivityCardVisible: isActivityCardVisible
+            )
+        }
+        .navigationTitle("Task")
+        .toolbar {
+            ToolbarItem {
+                Toggle(isOn: $isActivityCardVisible) {
+                    Label("Activity", systemImage: RailgunTaskSymbol.activity)
+                }
+                .toggleStyle(.button)
+                .help(isActivityCardVisible ? "Hide Activity" : "Show Activity")
+            }
+        }
+    }
+
+    private var selectedSessionID: Binding<String?> {
+        Binding(
+            get: { appStore.state.session.activeSessionID },
+            set: { appStore.send(.session(.selected($0))) }
+        )
+    }
+}
+
+private struct RailgunTaskDetailArea: View {
+    let session: RailgunSessionState
+    let isActivityCardVisible: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 20) {
+            RailgunTaskDetail(session: session)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if isActivityCardVisible {
+                RailgunActivityCard()
+                    .frame(minWidth: 260, idealWidth: 300, maxWidth: 320)
+            }
+        }
+        .padding(20)
+    }
+}
+
+private struct RailgunTaskSidebar: View {
+    let session: RailgunSessionState
+    let selection: Binding<String?>
+
+    var body: some View {
+        List(selection: selection) {
+            if session.isLoading {
+                ProgressView("Loading tasks…")
+            } else if session.sessions.isEmpty {
+                ContentUnavailableView(
+                    "No Tasks",
+                    systemImage: "tray",
+                    description: Text("Tasks will appear here when they are available.")
+                )
+            } else {
+                ForEach(session.sessions) { summary in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(summary.displayTitle)
+                            .lineLimit(1)
+                        Text("\(summary.model) • \(summary.startedAt)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .tag(summary.id)
+                }
+            }
+        }
+    }
+}
+
+private struct RailgunTaskDetail: View {
+    let session: RailgunSessionState
+
+    var body: some View {
+        switch RailgunTaskDetailPresentation(session: session) {
+        case .loading:
+            ProgressView("Loading tasks…")
+        case .empty:
+            ContentUnavailableView(
+                "No Tasks Yet",
+                systemImage: "text.badge.plus",
+                description: Text("Create and restore tasks in a later Task milestone.")
+            )
+        case .selectionRequired:
+            ContentUnavailableView(
+                "Select a Task",
+                systemImage: "sidebar.leading",
+                description: Text("Choose a task from the sidebar to continue.")
+            )
+        case let .selected(summary):
+            ContentUnavailableView(
+                summary.displayTitle,
+                systemImage: "checkmark.circle",
+                description: Text("Task details will appear in a later Task milestone.")
+            )
+        case .staleSelection:
+            ContentUnavailableView(
+                "Task Unavailable",
+                systemImage: "exclamationmark.triangle",
+                description: Text("The selected task is no longer available.")
+            )
+        }
+    }
+}
+
+private struct RailgunActivityCard: View {
+    var body: some View {
+        GroupBox {
+            ContentUnavailableView(
+                "No Activity Yet",
+                systemImage: RailgunTaskSymbol.activity,
+                description: Text("Activity details will appear here in a later Task milestone.")
+            )
+            .frame(maxWidth: .infinity, minHeight: 220)
+        } label: {
+            Label("Activity", systemImage: RailgunTaskSymbol.activity)
+        }
+    }
+}
+
 @main
 struct RailgunXApp: App {
     static let lifecycleConfiguration = AppLifecycleConfiguration.primary
 
-    private let backendLaunchConfiguration: BackendLaunchConfiguration
     @State private var desktopClientStartup: DesktopClientStartup
     // SWFT-024 observes this app-scoped store so scene lifecycle changes do
     // not recreate feature state.
@@ -225,7 +381,6 @@ struct RailgunXApp: App {
 
     init() {
         let backendLaunchConfiguration = BackendLaunchConfiguration()
-        self.backendLaunchConfiguration = backendLaunchConfiguration
         _desktopClientStartup = State(
             initialValue: DesktopClientStartup(backendConfiguration: backendLaunchConfiguration)
         )
@@ -241,7 +396,7 @@ struct RailgunXApp: App {
                 case .acquiring:
                     ProgressView("Checking for another Railgun desktop client…")
                 case .ready:
-                    Text(backendLaunchConfiguration.placeholderText)
+                    RailgunTaskShell(appStore: appStore)
                 case let .conflict(record):
                     ContentUnavailableView(
                         "Railgun is already in use",

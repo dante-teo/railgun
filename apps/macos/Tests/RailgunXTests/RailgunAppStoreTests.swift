@@ -4,6 +4,96 @@ import RailgunTransport
 
 @MainActor
 final class RailgunAppStoreTests: XCTestCase {
+    func testSessionListPreservesBackendOrderAndSupportsSelectionClearing() {
+        let first = RailgunSessionSummary(
+            id: "first",
+            model: "gpt-5",
+            startedAt: "2026-07-19 09:00",
+            messageCount: 2,
+            firstUserPreview: "First task"
+        )
+        let second = RailgunSessionSummary(
+            id: "second",
+            model: "gpt-5-mini",
+            startedAt: "2026-07-19 10:00",
+            messageCount: 1,
+            firstUserPreview: "Second task"
+        )
+
+        var state = RailgunAppReducer.reduce(.initial, .session(.loading))
+        state = RailgunAppReducer.reduce(state, .session(.loaded([second, first])))
+        state = RailgunAppReducer.reduce(state, .session(.selected("first")))
+
+        XCTAssertFalse(state.session.isLoading)
+        XCTAssertEqual(state.session.sessions.map(\.id), ["second", "first"])
+        XCTAssertEqual(state.session.selectedSession, first)
+
+        state = RailgunAppReducer.reduce(state, .session(.selected(nil)))
+
+        XCTAssertNil(state.session.activeSessionID)
+        XCTAssertNil(state.session.selectedSession)
+    }
+
+    func testSessionSummaryUsesUntitledTaskForAnEmptyPreview() {
+        let summary = RailgunSessionSummary(
+            id: "session-1",
+            model: "gpt-5",
+            startedAt: "2026-07-19 09:00",
+            messageCount: 0,
+            firstUserPreview: ""
+        )
+
+        XCTAssertEqual(summary.displayTitle, "Untitled Task")
+    }
+
+    func testTaskDetailPresentationHandlesLoadingEmptySelectedAndStaleSelections() {
+        let summary = RailgunSessionSummary(
+            id: "session-1",
+            model: "gpt-5",
+            startedAt: "2026-07-19 09:00",
+            messageCount: 1,
+            firstUserPreview: "Inspect the task shell"
+        )
+
+        XCTAssertEqual(
+            RailgunTaskDetailPresentation(session: .init(
+                activeSessionID: nil,
+                sessions: [],
+                archivedSessions: [],
+                isLoading: true
+            )),
+            .loading
+        )
+        XCTAssertEqual(RailgunTaskDetailPresentation(session: .initial), .empty)
+        XCTAssertEqual(
+            RailgunTaskDetailPresentation(session: .init(
+                activeSessionID: "session-1",
+                sessions: [summary],
+                archivedSessions: [],
+                isLoading: false
+            )),
+            .selected(summary)
+        )
+        XCTAssertEqual(
+            RailgunTaskDetailPresentation(session: .init(
+                activeSessionID: "missing",
+                sessions: [summary],
+                archivedSessions: [],
+                isLoading: false
+            )),
+            .staleSelection("missing")
+        )
+        XCTAssertEqual(
+            RailgunTaskDetailPresentation(session: .init(
+                activeSessionID: nil,
+                sessions: [summary],
+                archivedSessions: [],
+                isLoading: false
+            )),
+            .selectionRequired
+        )
+    }
+
     func testStoreRoutesNormalizedRunEventsWithoutRetainingRawBackendData() {
         let store = RailgunAppStore()
 

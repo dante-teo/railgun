@@ -205,6 +205,10 @@ struct RailgunSessionSummary: Equatable, Identifiable {
     let startedAt: String
     let messageCount: Int
     let firstUserPreview: String
+
+    var displayTitle: String {
+        firstUserPreview.isEmpty ? "Untitled Task" : firstUserPreview
+    }
 }
 
 struct RailgunSessionState: Equatable {
@@ -214,6 +218,11 @@ struct RailgunSessionState: Equatable {
     var isLoading: Bool
 
     static let initial = Self(activeSessionID: nil, sessions: [], archivedSessions: [], isLoading: false)
+
+    var selectedSession: RailgunSessionSummary? {
+        guard let activeSessionID else { return nil }
+        return sessions.first(where: { $0.id == activeSessionID })
+    }
 }
 
 enum RailgunRestoredTranscriptEntry: Equatable {

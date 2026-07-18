@@ -282,7 +282,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 ### 3. Task alpha
 
 - [x] `SWFT-023` — Build the app store and pure reducers for backend, session, transcript, controls, interactions, and activity. `[8h]`
-- [ ] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and inspector APIs. `[8h]`
+- [x] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and an embedded Activity card. `[8h]`
 - [ ] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows. `[8h]`
 - [ ] `SWFT-026` — Implement chronological transcript assembly for restored messages, streaming, tools, errors, and run boundaries. `[8h]`
 - [ ] `SWFT-027` — Build transcript virtualization and bottom-follow behavior, introducing custom scrolling only for behavior unavailable natively. `[8h]`
@@ -293,7 +293,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [ ] `SWFT-032` — Implement prompt, steering, follow-up, Stop, FIFO acknowledgement, and run settlement. `[8h]`
 - [ ] `SWFT-033` — Build approval and clarification with native buttons, fields, pickers, focus, and keyboard handling. `[8h]`
 - [ ] `SWFT-034` — Implement model selection, persistence, MoA, advisor, context usage, and compaction with native menus and sheets. `[8h]`
-- [ ] `SWFT-035` — Build the Activity inspector using native inspector, list, disclosure, and popover behavior. `[8h]`
+- [ ] `SWFT-035` — Populate the embedded Activity card using native GroupBox, list, disclosure, and popover behavior. `[8h]`
 - [ ] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and restart recovery surfaces. `[6h]`
 - [ ] `SWFT-037` — Add menu-bar commands and shortcuts for Task, Settings, sidebar, Stop, and retry. `[6h]`
 

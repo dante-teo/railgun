@@ -20,8 +20,16 @@ final class RailgunXAppTests: XCTestCase {
 
     func testModuleBoundariesCompile() {}
 
-    func testPlaceholderWindowUsesProductName() {
+    func testPrimaryWindowUsesProductName() {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration.primaryWindowTitle, "RailgunX")
+    }
+
+    func testTaskShellDefaultsTheActivityCardToHidden() {
+        XCTAssertFalse(RailgunTaskShell.activityCardDefaultVisibility)
+    }
+
+    func testTaskShellUsesANativeMinimumSidebarWidth() {
+        XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
     func testAppUsesThePrimaryLifecycleConfiguration() {
@@ -156,10 +164,6 @@ final class RailgunXAppTests: XCTestCase {
             ).mode,
             .bundled
         )
-        XCTAssertEqual(
-            BackendLaunchConfiguration(environment: [:], arguments: []).placeholderText,
-            "RailgunX Bundled Backend"
-        )
     }
 
     func testBackendLaunchArgumentsTakePrecedenceOverEnvironment() {
@@ -169,7 +173,6 @@ final class RailgunXAppTests: XCTestCase {
         )
 
         XCTAssertEqual(configuration.mode, .source)
-        XCTAssertEqual(configuration.placeholderText, "RailgunX Source Backend")
         XCTAssertNil(configuration.mockScenario)
     }
 
@@ -196,7 +199,6 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertEqual(configuration.mode, .source)
         XCTAssertEqual(configuration.sourceRoot, repositoryRoot.standardizedFileURL)
-        XCTAssertEqual(configuration.placeholderText, "RailgunX Source Backend")
     }
 
     func testMockBackendUsesReadyIdleByDefaultAndAcceptsLaunchMetadata() {
@@ -219,7 +221,6 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(defaultConfiguration.mode, .mock)
         XCTAssertEqual(defaultConfiguration.mockScenario, BackendLaunchConfiguration.defaultMockScenario)
         XCTAssertEqual(launchConfiguration.mockScenario, "ready-idle")
-        XCTAssertEqual(launchConfiguration.placeholderText, "RailgunX Mock Backend")
     }
 
     func testShellLaunchersForwardExplicitBackendArgumentsThroughLaunchServices() throws {
