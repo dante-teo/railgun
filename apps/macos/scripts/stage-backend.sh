@@ -111,12 +111,11 @@ staged_node_root="$staging_backend/node"
 [[ -x "$staged_node" ]] || fail "staged Node executable is missing."
 
 printf 'deploying the production backend dependency closure\n'
-# Run pnpm with the staged runtime so optional native dependencies are
-# selected for the requested artifact architecture, rather than the host
-# architecture (which is arm64 when building x86_64 on Apple silicon).
-pnpm_cli="$(command -v pnpm)"
+# Put the staged runtime first so pnpm's launcher resolves it through
+# /usr/bin/env. Invoke the launcher normally because pnpm installations may
+# expose either a JavaScript entry point or a shell shim.
 PATH="$staged_node_root/bin:$PATH" \
-  "$staged_node" "$pnpm_cli" --dir "$repository_root" \
+  pnpm --dir "$repository_root" \
   --filter @dantea/railgun deploy --prod "$deployed_railgun"
 
 [[ -f "$deployed_railgun/dist/backend.js" ]] || fail "production backend deployment is missing dist/backend.js."
