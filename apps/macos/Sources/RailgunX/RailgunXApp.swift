@@ -155,27 +155,48 @@ struct BackendLaunchConfiguration: Equatable {
             return sourceLaunch(
                 root: sourceRoot,
                 script: sourceRoot.appendingPathComponent("dist/backend.js"),
-                arguments: ["desktop"]
+                arguments: ["desktop"],
+                resourcesDirectory: resourcesDirectory
             )
         case .mock:
             guard let sourceRoot, let mockScenario else { return nil }
             return sourceLaunch(
                 root: sourceRoot,
                 script: sourceRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs"),
-                arguments: [mockScenario]
+                arguments: [mockScenario],
+                resourcesDirectory: resourcesDirectory
             )
         }
     }
 
-    private func sourceLaunch(root: URL, script: URL, arguments: [String]) -> BackendProcessLaunch? {
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/env"),
-              FileManager.default.fileExists(atPath: script.path)
-        else { return nil }
+    private func sourceLaunch(
+        root: URL,
+        script: URL,
+        arguments: [String],
+        resourcesDirectory: URL
+    ) -> BackendProcessLaunch? {
+        guard FileManager.default.fileExists(atPath: script.path) else { return nil }
+
+        let bundledNode = resourcesDirectory.appendingPathComponent("backend/node/bin/node")
+        let executableURL: URL
+        let launchArguments: [String]
+        if FileManager.default.isExecutableFile(atPath: bundledNode.path) {
+            executableURL = bundledNode
+            launchArguments = [script.path] + arguments
+        } else {
+            let environmentExecutable = URL(fileURLWithPath: "/usr/bin/env")
+            guard FileManager.default.isExecutableFile(atPath: environmentExecutable.path) else {
+                return nil
+            }
+            executableURL = environmentExecutable
+            launchArguments = ["node", script.path] + arguments
+        }
+
         var environment = ProcessInfo.processInfo.environment
         environment["RAILGUN_DESKTOP_RPC"] = "1"
         return BackendProcessLaunch(
-            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-            arguments: ["node", script.path] + arguments,
+            executableURL: executableURL,
+            arguments: launchArguments,
             currentDirectoryURL: root,
             environment: environment
         )
@@ -387,6 +408,17 @@ enum RailgunBackendPresentation: Equatable {
     }
 }
 
+enum RailgunArchivedTasksSettingsPresentation: Equatable {
+    case empty
+    case tasks([RailgunSessionSummary])
+
+    init(session: RailgunSessionState) {
+        self = session.archivedSessions.isEmpty
+            ? .empty
+            : .tasks(session.archivedSessions)
+    }
+}
+
 private enum RailgunTaskSymbol {
     static let activity = "rectangle.3.group"
 }
@@ -394,6 +426,10 @@ private enum RailgunTaskSymbol {
 struct RailgunTaskShell: View {
     static let activityCardDefaultVisibility = false
     static let sidebarMinimumWidth: CGFloat = 180
+
+    static func isArchiveActionDisabled(for session: RailgunSessionState) -> Bool {
+        session.selectedSession?.isPersisted != true
+    }
 
     @Bindable private var appStore: RailgunAppStore
     private let sessionCoordinator: RailgunSessionCoordinator
@@ -415,42 +451,30 @@ struct RailgunTaskShell: View {
         } detail: {
             RailgunTaskDetailArea(
                 session: appStore.state.session,
+                transcript: appStore.state.transcript,
                 isActivityCardVisible: isActivityCardVisible
             )
         }
         .navigationTitle("Task")
+        .toolbarRole(.editor)
         .toolbar {
-            ToolbarItem {
-                Button {
-                    Task { await sessionCoordinator.create(modelID: appStore.state.controls.activeModelID) }
-                } label: {
-                    Label("New Task", systemImage: "square.and.pencil")
-                }
-            }
-            ToolbarItem {
-                Button(role: .destructive) {
-                    guard let sessionID = appStore.state.session.activeSessionID else { return }
-                    Task { await sessionCoordinator.archive(sessionID) }
-                } label: {
-                    Label("Archive Task", systemImage: "archivebox")
-                }
-                .disabled(appStore.state.session.selectedSession?.isPersisted != true)
-            }
-            ToolbarItem {
-                Menu {
-                    if appStore.state.session.archivedSessions.isEmpty {
-                        Text("No Archived Tasks")
-                    } else {
-                        ForEach(appStore.state.session.archivedSessions) { session in
-                            Button("Restore \(session.displayTitle)") {
-                                Task { await sessionCoordinator.restore(session.id) }
-                            }
-                        }
+            ToolbarItem{
+                ControlGroup {
+                    Button {
+                        Task { await sessionCoordinator.create(modelID: appStore.state.controls.activeModelID) }
+                    } label: {
+                        Label("New Task", systemImage: "square.and.pencil")
                     }
-                } label: {
-                    Label("Archived Tasks", systemImage: "archivebox.fill")
+                    Button(role: .destructive) {
+                        guard let sessionID = appStore.state.session.activeSessionID else { return }
+                        Task { await sessionCoordinator.archive(sessionID) }
+                    } label: {
+                        Label("Archive Task", systemImage: "archivebox")
+                    }
+                    .disabled(Self.isArchiveActionDisabled(for: appStore.state.session))
                 }
             }
+
             ToolbarItem {
                 Toggle(isOn: $isActivityCardVisible) {
                     Label("Activity", systemImage: RailgunTaskSymbol.activity)
@@ -478,6 +502,7 @@ struct RailgunTaskShell: View {
 
 private struct RailgunTaskDetailArea: View {
     let session: RailgunSessionState
+    let transcript: RailgunTranscriptState
     let isActivityCardVisible: Bool
 
     var body: some View {
@@ -493,7 +518,7 @@ private struct RailgunTaskDetailArea: View {
             }
 
             HStack(alignment: .top, spacing: 20) {
-                RailgunTaskDetail(session: session)
+                RailgunTaskDetail(session: session, transcript: transcript)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if isActivityCardVisible {
@@ -539,6 +564,7 @@ private struct RailgunTaskSidebar: View {
 
 private struct RailgunTaskDetail: View {
     let session: RailgunSessionState
+    let transcript: RailgunTranscriptState
 
     var body: some View {
         switch RailgunTaskDetailPresentation(session: session) {
@@ -557,11 +583,7 @@ private struct RailgunTaskDetail: View {
                 description: Text("Choose a task from the sidebar to continue.")
             )
         case let .selected(summary):
-            ContentUnavailableView(
-                summary.displayTitle,
-                systemImage: "checkmark.circle",
-                description: Text("Task details will appear in a later Task milestone.")
-            )
+            RailgunTranscriptViewport(sessionID: summary.id, transcript: transcript)
         case .staleSelection:
             ContentUnavailableView(
                 "Task Unavailable",
@@ -609,6 +631,65 @@ private struct RailgunBackendStatusView: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct RailgunSettingsView: View {
+    @Bindable private var appStore: RailgunAppStore
+    private let sessionCoordinator: RailgunSessionCoordinator
+
+    init(appStore: RailgunAppStore, sessionCoordinator: RailgunSessionCoordinator) {
+        _appStore = Bindable(appStore)
+        self.sessionCoordinator = sessionCoordinator
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Archived Tasks")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            if let error = appStore.state.session.error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("archived-task-error")
+            }
+
+            switch RailgunArchivedTasksSettingsPresentation(session: appStore.state.session) {
+            case .empty:
+                ContentUnavailableView(
+                    "No Archived Tasks",
+                    systemImage: "archivebox",
+                    description: Text("Tasks you archive will appear here.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case let .tasks(tasks):
+                List(tasks) { task in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(task.displayTitle)
+                                .lineLimit(1)
+                            Text("\(task.model) • \(task.startedAt)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Button("Restore") {
+                            Task { await sessionCoordinator.restore(task.id) }
+                        }
+                        .accessibilityIdentifier("restore-archived-task-\(task.id)")
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listStyle(.inset)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 520, minHeight: 360)
     }
 }
 
@@ -685,10 +766,9 @@ struct RailgunXApp: App {
         .windowResizability(Self.lifecycleConfiguration.primaryWindowResizability.swiftUIValue)
 
         Settings {
-            ContentUnavailableView(
-                "Settings",
-                systemImage: "gear",
-                description: Text("Settings will arrive with the Task alpha.")
+            RailgunSettingsView(
+                appStore: appStore,
+                sessionCoordinator: backendRuntime.sessionCoordinator
             )
         }
     }

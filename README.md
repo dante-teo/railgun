@@ -401,9 +401,20 @@ not belong in it.
 RailgunX currently provides one restorable primary SwiftUI scene, identified as
 `primary`. It opens at 1024×700, enforces a 760×520 content minimum, and remains
 user-resizable above that minimum. The native `Settings` scene provides the
-standard macOS Settings command; it is intentionally a non-interactive
-placeholder until the Task alpha. Feature commands and editable preferences are
-deferred to their assigned Swift milestones.
+standard macOS Settings command and lists archived tasks with native Restore
+actions. The richer searchable preferences and archive-management surfaces
+remain deferred to their assigned Swift milestones.
+
+A selected, hydrated task renders its restored and live messages in a native
+`ScrollView` and `LazyVStack`. Messages are selectable plain text until the
+Markdown milestone: user messages use a compact framed treatment, while
+assistant messages remain unframed. Tool, advisor, MoA, and subagent activity is
+intentionally withheld from this transcript until the activity milestone. The
+transcript opens at the latest message, follows content and viewport-size
+changes while within four points of the bottom, and preserves the reader's
+position after they scroll away. New output then exposes a native **Jump to
+Latest** button. The system scrollbar is suppressed in favor of the
+feature-local, accessibility-hidden dash rail on the transcript's left edge.
 
 Validate deterministic generation, clean-cache package resolution, the
 checked-in lockfile, legal notices, build, and tests with:
@@ -422,11 +433,12 @@ macOS LaunchServices so bundle metadata, including the AppIcon used by About, is
 resolved correctly.
 
 Bundled mode uses the pinned Node runtime staged inside the app. Source and mock
-modes instead launch their repository scripts with `/usr/bin/env node`, so
-`node` must be available on the launched process's `PATH`; verify that with
-`command -v node` when diagnosing a source/mock startup failure. The mock script
-is produced by the desktop backend-assets or packaging checks. Generate it
-directly when needed with:
+modes also prefer that staged runtime when launching their repository scripts,
+so LaunchServices and XCTest do not depend on inheriting a developer shell's
+`PATH`. The launch configuration retains `/usr/bin/env node` only as a fallback
+when used without a staged app resource. The mock script is produced by the
+desktop backend-assets or packaging checks. Generate it directly when needed
+with:
 
 ```sh
 pnpm --filter @dantea/railgun-desktop build:backend-assets
@@ -446,10 +458,13 @@ generated `.railgun-source-root` marker. Xcode generates shared `RailgunX
 Source Backend` and `RailgunX Mock Backend` Debug schemes that use that marker
 instead of embedding a developer-specific path. Both selections launch a live
 RPC backend: after a successful readiness probe, RailgunX loads active and
-archived tasks and enables new, resume, archive, and restore operations. A
-backend launch, authentication, or later connection failure replaces the task
-shell with an actionable status and retry control; rejected task operations are
-shown next to the task detail area.
+archived tasks and enables new, resume, archive, and restore operations.
+**Archive Task** is enabled only for a selected persisted task; unsaved new
+tasks cannot invoke a backend operation that will be rejected. Restore actions
+live in Settings rather than the Task toolbar. A backend launch,
+authentication, or later connection failure replaces the task shell with an
+actionable status and retry control; rejected task operations are shown next to
+the task detail area.
 
 Run the complete check suite from the repository root with:
 

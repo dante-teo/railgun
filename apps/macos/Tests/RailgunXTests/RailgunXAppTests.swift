@@ -32,6 +32,63 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
+    func testArchiveToolbarActionRequiresAPersistedSelectedSession() {
+        let persisted = RailgunSessionSummary(
+            id: "selected",
+            model: "gpt-5",
+            startedAt: "Today",
+            messageCount: 1,
+            firstUserPreview: "Archive this"
+        )
+        let unsaved = RailgunSessionSummary(
+            id: "unsaved",
+            model: "gpt-5",
+            startedAt: "Today",
+            messageCount: 0,
+            firstUserPreview: "",
+            isPersisted: false
+        )
+
+        XCTAssertTrue(RailgunTaskShell.isArchiveActionDisabled(for: .initial))
+        XCTAssertFalse(RailgunTaskShell.isArchiveActionDisabled(for: .init(
+            activeSessionID: persisted.id,
+            sessions: [persisted],
+            archivedSessions: [],
+            isLoading: false
+        )))
+        XCTAssertTrue(RailgunTaskShell.isArchiveActionDisabled(for: .init(
+            activeSessionID: unsaved.id,
+            sessions: [],
+            archivedSessions: [],
+            isLoading: false,
+            activeSession: unsaved
+        )))
+    }
+
+    func testSettingsPresentsArchivedTasksForRestoration() {
+        let archived = RailgunSessionSummary(
+            id: "archived",
+            model: "gpt-5",
+            startedAt: "Yesterday",
+            messageCount: 3,
+            firstUserPreview: "Restore this"
+        )
+
+        XCTAssertEqual(
+            RailgunArchivedTasksSettingsPresentation(session: .initial),
+            .empty
+        )
+        XCTAssertEqual(
+            RailgunArchivedTasksSettingsPresentation(session: .init(
+                activeSessionID: nil,
+                sessions: [],
+                archivedSessions: [archived],
+                isLoading: false
+            )),
+            .tasks([archived])
+        )
+    }
+
     func testAppUsesThePrimaryLifecycleConfiguration() {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration, .primary)
     }
@@ -245,6 +302,44 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(launch.environment?["RAILGUN_DESKTOP_RPC"], "1")
     }
 
+    func testMockBackendLaunchPrefersTheBundledNodeRuntime() throws {
+        let resourcesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("railgunx-bundled-node-\(UUID().uuidString)", isDirectory: true)
+        let bundledNode = resourcesDirectory.appendingPathComponent("backend/node/bin/node")
+        defer { try? FileManager.default.removeItem(at: resourcesDirectory) }
+
+        try FileManager.default.createDirectory(
+            at: bundledNode.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(FileManager.default.createFile(atPath: bundledNode.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: bundledNode.path
+        )
+
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=ready-idle",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+
+        let launch = try XCTUnwrap(configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory))
+
+        XCTAssertEqual(launch.executableURL, bundledNode)
+        XCTAssertEqual(
+            launch.arguments,
+            [
+                repositoryRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs").path,
+                "ready-idle",
+            ]
+        )
+    }
+
     func testMockRuntimeStartsAndLoadsSavedSessions() async {
         let configuration = BackendLaunchConfiguration(
             environment: [:],
@@ -346,11 +441,12 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: stagingScriptURL.path))
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: validationScriptURL.path))
-        XCTAssertTrue(stagingScript.contains("\"$staged_node\" \"$pnpm_cli\" --dir \"$repository_root\""))
+        XCTAssertTrue(stagingScript.contains("PATH=\"$staged_node_root/bin:$PATH\""))
+        XCTAssertTrue(stagingScript.contains("pnpm --dir \"$repository_root\""))
         XCTAssertTrue(stagingScript.contains("node_gyp_script=\"$repository_root/node_modules/node-gyp/bin/node-gyp.js\""))
         XCTAssertTrue(stagingScript.contains("npm_config_build_from_source=true"))
         XCTAssertTrue(stagingScript.contains("--nodedir=\"$staged_node_root\""))
-        XCTAssertTrue(stagingScript.contains("optional native dependencies are"))
+        XCTAssertTrue(stagingScript.contains("rm -rf \"$deployed_railgun/node_modules/@types\""))
         XCTAssertTrue(stagingScript.contains("sqlite-vec-darwin-$darwin_arch/vec0.dylib"))
         XCTAssertTrue(stagingScript.contains("mv \"$staging_backend\" \"$output/backend\""))
         XCTAssertTrue(validationScript.contains("for architecture in arm64 x86_64"))

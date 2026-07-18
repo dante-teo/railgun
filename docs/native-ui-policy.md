@@ -61,10 +61,41 @@ and accessibility behavior.
 | Advanced composer (`NSTextView`) | Dynamic sizing; paste; text selection; focus; submit versus newline handling; VoiceOver behavior. | Encapsulate the text view behind a SwiftUI-facing API and retain native editing, focus, selection, keyboard, and VoiceOver semantics. |
 | Quick Look | Native preview behavior for validated local files. | Use only validated local URLs and retain the platform preview interaction. |
 | Precise window coordination | Window behavior that supported SwiftUI presentation or scene APIs cannot provide. | Minimize the AppKit surface and preserve standard window, focus, and keyboard behavior. |
+| Transcript system-scroller suppressor | Hide the enclosing `NSScrollView`'s vertical system scroller after SwiftUI indicator-hiding APIs have been applied. | Change only scroller visibility; retain SwiftUI scrolling, keyboard input, selection, focus, VoiceOver semantics, and scroll geometry. |
 
 Future bridges require a decision record with documented proof that macOS 15
 SwiftUI cannot meet the requirement. They are not approved merely for visual
 control, convenience, or parity with a non-native implementation.
+
+### Transcript system-scroller suppressor
+
+- **Unmet requirement:** The Task transcript must use the compact left dash
+  rail without also showing a visually conflicting system scrollbar.
+- **Native APIs evaluated:** The transcript applies both
+  `ScrollView(.vertical, showsIndicators: false)` and
+  `.scrollIndicators(.hidden)`. The vertical `NSScroller` remained visible in
+  the built app, so those APIs did not satisfy the requirement.
+- **Deployment-target limitation:** macOS 15 SwiftUI does not expose the
+  enclosing `NSScrollView` or a stronger system-scroller visibility contract.
+  The adapter therefore locates only that enclosing scroll view and disables
+  its vertical scroller.
+- **Accessibility and interaction contract:** The adapter does not replace the
+  `ScrollView`, scrolling physics, keyboard navigation, focus, selectable
+  transcript text, VoiceOver structure, or `ScrollGeometry`. The dash rail is
+  decorative and accessibility-hidden; **Jump to Latest** remains a native
+  button.
+- **Supported variants:** The adapter has no visual variants. The SwiftUI dash
+  rail appears only for overflowing content, uses semantic foreground styles,
+  tracks position with four active dashes, and caps the rail at 24 dashes.
+- **Shared ownership:** This is feature-local to the Task transcript because it
+  enforces that viewport's specific replacement-indicator contract. It is not
+  a reusable control and does not belong in `RailgunUI` or its custom-component
+  registry.
+- **Retirement trigger:** Remove the adapter and AppKit import when supported
+  SwiftUI indicator-hiding APIs reliably suppress the vertical system scroller
+  across RailgunX's deployment targets, or if the product returns to the native
+  scroller. Keep the SwiftUI transcript and its tests unchanged during that
+  migration.
 
 ## Shared-component governance
 

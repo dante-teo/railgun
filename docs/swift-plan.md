@@ -296,7 +296,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and an embedded Activity card. `[8h]`
 - [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
 - [x] `SWFT-026` — Implement safe paginated transcript restoration and one chronological assembly for restored/live messages, tools, errors, and run boundaries. `[8h]`
-- [ ] `SWFT-027` — Build transcript virtualization and bottom-follow behavior, introducing custom scrolling only for behavior unavailable natively. `[8h]`
+- [x] `SWFT-027` — Build the native lazy transcript viewport, four-point bottom-follow behavior, Jump to Latest cue, and feature-local left dash position rail. `[8h]`
 - [ ] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
 - [ ] `SWFT-030` — Build tool activity and populate the embedded Activity card using native group, list, disclosure, and popover behavior with shared presentation variants. `[8h]`
 - [ ] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
@@ -326,7 +326,7 @@ update feeds.
 
 ### 5. Remaining Task, Files, and Scheduled parity
 
-- [ ] `SWFT-045` — Implement archived-task browsing, unarchive, native context menus, and filtering. `[8h]`
+- [ ] `SWFT-045` — Expand the minimal Settings restore list into full archived-task browsing with native context menus and filtering. `[8h]`
 - [ ] `SWFT-046` — Implement branch selection and authoritative reloads, preserving selection and chronological transcript state across backend responses. `[8h]`
 - [ ] `SWFT-087` — Implement summarization and fork workflows, including progress, failure, cancellation, and authoritative post-operation reloads. `[8h]`
 - [ ] `SWFT-047` — Build the home-rooted file tree using native outline/list behavior and filesystem protections. `[8h]`
