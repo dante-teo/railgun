@@ -73,6 +73,11 @@ Generated Xcode projects are disposable. Create one explicitly with:
 ./apps/macos/scripts/generate-project.sh /tmp/railgunx-project
 ```
 
+Do not treat an existing `apps/macos/RailgunX.xcodeproj` as source-controlled
+or authoritative. Local `apps/macos/*.xcodeproj` directories are ignored and
+can become stale as Swift files are added. Generate a fresh project before
+using Xcode directly; the validation script below does this automatically.
+
 RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
 `0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
 `apps/macos/Package.resolved` is the reviewed source-controlled lockfile;
@@ -416,6 +421,17 @@ data in a specific location. All launchers open the built `.app` bundle through
 macOS LaunchServices so bundle metadata, including the AppIcon used by About, is
 resolved correctly.
 
+Bundled mode uses the pinned Node runtime staged inside the app. Source and mock
+modes instead launch their repository scripts with `/usr/bin/env node`, so
+`node` must be available on the launched process's `PATH`; verify that with
+`command -v node` when diagnosing a source/mock startup failure. The mock script
+is produced by the desktop backend-assets or packaging checks. Generate it
+directly when needed with:
+
+```sh
+pnpm --filter @dantea/railgun-desktop build:backend-assets
+```
+
 For a custom source root or mock scenario, invoke the common launcher directly:
 
 ```sh
@@ -445,9 +461,14 @@ pnpm --filter @dantea/railgun-desktop typecheck
 pnpm --filter @dantea/railgun-desktop test
 pnpm --filter @dantea/railgun-desktop package
 ./apps/macos/scripts/validate-project.sh
-xcodebuild test -project apps/macos/RailgunX.xcodeproj -scheme RailgunX \
-  -destination 'platform=macOS,arch=arm64'
 ```
+
+`validate-project.sh` validates both backend architectures, generates the
+project twice to check determinism, resolves the locked Swift packages in a
+clean cache, builds the app, validates the bundle, and runs the generated
+project's XCTest suite. A separate test against a local
+`apps/macos/RailgunX.xcodeproj` is intentionally omitted because that ignored
+project may be stale.
 
 ## Documentation
 

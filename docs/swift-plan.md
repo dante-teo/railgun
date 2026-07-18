@@ -418,14 +418,17 @@ pnpm --filter @dantea/railgun-desktop test
 pnpm --filter @dantea/railgun-desktop package
 ```
 
-The native CI contract will run the checked-in equivalents of:
+Run the native CI contract with:
 
 ```sh
-xcodegen generate --spec apps/macos/project.yml
-xcodebuild -resolvePackageDependencies -project apps/macos/RailgunX.xcodeproj
-xcodebuild build -project apps/macos/RailgunX.xcodeproj -scheme RailgunX -destination 'platform=macOS'
-xcodebuild test -project apps/macos/RailgunX.xcodeproj -scheme RailgunX -destination 'platform=macOS'
+./apps/macos/scripts/validate-project.sh
 ```
+
+The validator generates two fresh disposable projects to check XcodeGen
+determinism, resolves the source-controlled Swift package lockfile in a clean
+cache, builds and inspects the app bundle, and runs XCTest. It does not rely on
+an `apps/macos/RailgunX.xcodeproj`; that ignored local artifact can be stale
+after sources change.
 
 Release verification must additionally exercise generated icon assets, nested
 code signatures, Gatekeeper assessment, notarization and stapling, packaged

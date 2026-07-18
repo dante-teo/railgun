@@ -142,7 +142,7 @@ private func summary(id: String, preview: String) -> RailgunJSONValue {
 }
 
 private func response(for command: RailgunRPCCommandType, data: RailgunJSONValue) throws -> RailgunRPCResponse {
-    try .init(data: JSONEncoder().encode(.object([
+    try .init(data: JSONEncoder().encode(RailgunJSONValue.object([
         "type": .string("response"),
         "command": .string(command.rawValue),
         "success": .bool(true),

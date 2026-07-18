@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Limits and read sizes used by ``RailgunTransport``.
@@ -188,7 +189,7 @@ public actor RailgunTransport {
         Task.detached {
             do {
                 while !Task.isCancelled {
-                    guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else {
+                    guard let data = try readFromPipe(handle, upToCount: chunkSize) else {
                         guard !Task.isCancelled else { return }
                         await endOfFile()
                         return
@@ -198,6 +199,27 @@ public actor RailgunTransport {
             } catch {
                 guard !Task.isCancelled else { return }
                 await readFailed(error)
+            }
+        }
+    }
+
+    private static func readFromPipe(_ handle: FileHandle, upToCount count: Int) throws -> Data? {
+        // A persistent backend rarely fills an entire read chunk. POSIX read
+        // returns available pipe bytes immediately instead of waiting for the
+        // requested byte count or EOF.
+        var buffer = [UInt8](repeating: 0, count: count)
+        while true {
+            let bytesRead = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(handle.fileDescriptor, bytes.baseAddress, count)
+            }
+            if bytesRead > 0 {
+                return Data(buffer.prefix(bytesRead))
+            }
+            if bytesRead == 0 {
+                return nil
+            }
+            if errno != EINTR {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
             }
         }
     }

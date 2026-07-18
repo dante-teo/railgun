@@ -104,6 +104,13 @@ public actor BackendProcess {
         let standardInput = Pipe()
         let standardOutput = Pipe()
         let standardError = Pipe()
+        // The backend may exit between an RPC lifecycle check and its write.
+        // Surface that race as EPIPE instead of terminating the app.
+        _ = Darwin.fcntl(
+            standardInput.fileHandleForWriting.fileDescriptor,
+            F_SETNOSIGPIPE,
+            1
+        )
 
         process.executableURL = launch.executableURL
         process.arguments = launch.arguments

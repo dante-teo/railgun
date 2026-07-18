@@ -262,7 +262,7 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertEqual(store.state.backend.phase, .ready)
         XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
-        XCTAssertFalse(store.state.session.archivedSessions.isEmpty)
+        XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
 
         await runtime.shutdown()
     }

@@ -441,7 +441,11 @@ public actor RailgunRPCClient {
 
         var jsonLine = requestData
         jsonLine.append(UInt8(ascii: "\n"))
-        standardInput?.write(jsonLine)
+        do {
+            try standardInput?.write(contentsOf: jsonLine)
+        } catch {
+            settle(identifier, with: .failure(.backendTerminated))
+        }
     }
 
     private func receive(_ frame: Data, from currentGeneration: Int) {

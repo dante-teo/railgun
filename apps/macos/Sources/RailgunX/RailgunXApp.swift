@@ -191,7 +191,7 @@ final class RailgunBackendRuntime {
     private let launch: BackendProcessLaunch?
     private let store: RailgunAppStore
     private var isStarting = false
-    private var terminationObservationTask: Task<Void, Never>?
+    private nonisolated let terminationObservationTask: Task<Void, Never>
 
     init(
         configuration: BackendLaunchConfiguration,
@@ -206,16 +206,17 @@ final class RailgunBackendRuntime {
             store: store,
             service: RailgunSessionService(rpcClient: client)
         )
-        terminationObservationTask = Task { [weak self, client] in
+        terminationObservationTask = Task { @MainActor [weak store, client] in
             for await _ in client.unexpectedTerminations {
-                guard let self else { return }
-                self.recordUnexpectedTermination()
+                guard let store else { return }
+                guard case .ready = store.state.backend.phase else { continue }
+                store.send(.backend(.disconnected(message: "The connection to the backend was lost.")))
             }
         }
     }
 
     deinit {
-        terminationObservationTask?.cancel()
+        terminationObservationTask.cancel()
     }
 
     func start() async {
@@ -245,11 +246,6 @@ final class RailgunBackendRuntime {
 
     func shutdown() async {
         await client.shutdown()
-    }
-
-    private func recordUnexpectedTermination() {
-        guard case .ready = store.state.backend.phase else { return }
-        store.send(.backend(.disconnected(message: "The connection to the backend was lost.")))
     }
 }
 

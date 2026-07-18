@@ -178,7 +178,7 @@ final class RailgunAppStoreTests: XCTestCase {
             [.tool(id: "tool", name: "read_file", status: .success, order: 1, input: "safe", output: "done")]
         )
         XCTAssertEqual(state.activity.subagents.first?.status, .interrupted)
-        XCTAssertEqual(state.backend.phase, .disconnected)
+        XCTAssertEqual(state.backend.phase, .disconnected("Connection lost"))
         XCTAssertFalse(state.transcript.isRunning)
     }
 

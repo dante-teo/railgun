@@ -331,7 +331,10 @@ final class RailgunRPCClientTests: XCTestCase {
             _ = try await missingCapabilityClient.start(perlLaunch(script: missingCapabilitiesScript))
             XCTFail("Expected initialize to reject missing required capabilities")
         } catch let error as RailgunRPCError {
-            XCTAssertEqual(error, .missingRequiredCapabilities(requiredCapabilities))
+            XCTAssertEqual(
+                error,
+                .missingRequiredCapabilities(["interaction.approval", "interaction.clarification"])
+            )
         }
 
         let eofClient = RailgunRPCClient()
@@ -390,7 +393,7 @@ final class RailgunRPCClientTests: XCTestCase {
         print <<'STARTUP_STATUS';
         \#(frame)
         STARTUP_STATUS
-        """#
+        """# + "\n"
     }
 
     private func responseObject(_ data: Data) throws -> [String: Any] {

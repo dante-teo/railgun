@@ -6,7 +6,8 @@ import RailgunTransport
 final class RailgunTransportTests: XCTestCase {
     func testFramesFragmentedCoalescedBlankAndCRLFJSONL() async throws {
         let transport = try await startTransport(
-            script: #"$| = 1; print STDOUT "{\"first\":"; select undef, undef, undef, 0.01; print STDOUT "1}\n{\"second\":2}\n\n{\"third\":3}\r\n";"#
+            script: #"$| = 1; print STDOUT "{\"first\":"; select undef, undef, undef, 0.01; print STDOUT "1}\n{\"second\":2}\n\n{\"third\":3}\r\n";"#,
+            configuration: RailgunTransportConfiguration(stdoutFrameBufferCapacity: 3)
         )
 
         let frames = try await Self.collectFrames(from: transport.transport)
@@ -81,7 +82,7 @@ final class RailgunTransportTests: XCTestCase {
 
     func testBoundedStdoutQueueFailsWhenAConsumerFallsBehind() async throws {
         let transport = try await startTransport(
-            script: #"print STDOUT "{}\n{}\n"; select undef, undef, undef, 0.2;"#,
+            script: #"$| = 1; print STDOUT "{}\n{}\n"; select undef, undef, undef, 0.2;"#,
             configuration: RailgunTransportConfiguration(stdoutFrameBufferCapacity: 1)
         )
         try await Task.sleep(for: .milliseconds(50))
