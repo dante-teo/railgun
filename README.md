@@ -171,6 +171,15 @@ Validate both isolated architecture payloads with:
 apps/macos/scripts/validate-backend.sh
 ```
 
+In addition to checking architecture, production dependencies, and direct
+`better-sqlite3` / `sqlite-vec` loading, this starts each packaged backend in
+an isolated temporary home. It verifies the machine-readable
+authentication-required startup path without credentials, then uses a
+validation-only provider loader to exercise RPC `initialize` and `get_state`,
+creation of the SQLite state database, forced-crash recovery, restart, and
+graceful stdin-close shutdown. The validation never reads a developer's
+credentials or modifies `~/.railgun`.
+
 The generated Xcode project runs the same stager in a pre-signing build phase,
 passing `CURRENT_ARCH` and the app's Resources directory. A Debug app therefore
 contains `Contents/Resources/backend/node` and
@@ -426,6 +435,7 @@ pnpm run typecheck
 pnpm run test
 pnpm --filter @dantea/railgun-desktop typecheck
 pnpm --filter @dantea/railgun-desktop test
+./apps/macos/scripts/validate-project.sh
 xcodebuild test -project apps/macos/RailgunX.xcodeproj -scheme RailgunX \
   -destination 'platform=macOS,arch=arm64'
 ```

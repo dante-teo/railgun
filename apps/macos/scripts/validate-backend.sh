@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 stage_backend="$script_dir/stage-backend.sh"
+lifecycle_validation="$script_dir/validate-packaged-backend-lifecycle.mjs"
 
 fail() {
   printf 'error: %s\n' "$*" >&2
@@ -47,6 +48,7 @@ elif [[ $# -ne 0 ]]; then
 fi
 
 [[ -x "$stage_backend" ]] || fail "backend staging script is missing or not executable."
+[[ -f "$lifecycle_validation" ]] || fail "packaged backend lifecycle validation script is missing."
 for command in file mktemp node pnpm rm; do
   require_command "$command"
 done
@@ -145,6 +147,8 @@ validate_payload() {
     database.close();
     process.stdout.write(`loaded better-sqlite3 with Node ABI ${abi}\n`);
   ' "$railgun/node_modules/better-sqlite3" "$railgun/node_modules/sqlite-vec"
+
+  node "$lifecycle_validation" "$node_binary" "$entrypoint" "$architecture"
 }
 
 for architecture in arm64 x86_64; do

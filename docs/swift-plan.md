@@ -253,7 +253,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 - [x] `SWFT-019` — Implement approval and clarification correlation, ordering, settlement, and invalid-response handling. `[6h]`
 - [x] `SWFT-020` — Add the shared desktop-client lock to RailgunX and Classic, including stale-lock recovery and conflict UI. `[8h]`
 - [x] `SWFT-021` — Implement login/logout helpers using the bundled backend and coordinated restart. `[6h]`
-- [ ] `SWFT-022` — Verify packaged backend startup, SQLite loading, authentication startup, crash, restart, and shutdown on both architectures. `[8h]`
+- [x] `SWFT-022` — Verify packaged backend startup, SQLite loading, authentication startup, crash, restart, and shutdown on both architectures. `[8h]`
 
 Milestone exit: both architectures run the bundled backend through RPC v1,
 authentication and recovery work, malformed or stale transport data is safely
@@ -406,8 +406,9 @@ xcodebuild test -project apps/macos/RailgunX.xcodeproj -scheme RailgunX -destina
 
 Release verification must additionally exercise generated icon assets, nested
 code signatures, Gatekeeper assessment, notarization and stapling, packaged
-backend startup, SQLite loading, both architecture-specific Sparkle feeds, and
-clean install/update behavior.
+backend authentication startup, SQLite loading, forced crash/restart, graceful
+shutdown, both architecture-specific Sparkle feeds, and clean install/update
+behavior.
 
 ## Alpha and cutover criteria
 

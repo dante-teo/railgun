@@ -252,9 +252,13 @@ final class RailgunXAppTests: XCTestCase {
     func testNativeBackendStagingContractUsesTheTargetArchitectureAndAtomicPayload() throws {
         let stagingScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/stage-backend.sh")
         let validationScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-backend.sh")
+        let lifecycleValidationScriptURL = repositoryRoot.appendingPathComponent(
+            "apps/macos/scripts/validate-packaged-backend-lifecycle.mjs"
+        )
         let projectURL = repositoryRoot.appendingPathComponent("apps/macos/project.yml")
         let stagingScript = try String(contentsOf: stagingScriptURL, encoding: .utf8)
         let validationScript = try String(contentsOf: validationScriptURL, encoding: .utf8)
+        let lifecycleValidationScript = try String(contentsOf: lifecycleValidationScriptURL, encoding: .utf8)
         let project = try String(contentsOf: projectURL, encoding: .utf8)
 
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: stagingScriptURL.path))
@@ -269,6 +273,12 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(validationScript.contains("for architecture in arm64 x86_64"))
         XCTAssertTrue(validationScript.contains("better-sqlite3"))
         XCTAssertTrue(validationScript.contains("sqliteVec.load(database)"))
+        XCTAssertTrue(validationScript.contains("validate-packaged-backend-lifecycle.mjs"))
+        XCTAssertTrue(lifecycleValidationScript.contains("authentication_required"))
+        XCTAssertTrue(lifecycleValidationScript.contains("SIGKILL"))
+        XCTAssertTrue(lifecycleValidationScript.contains("stdin.end()"))
+        XCTAssertTrue(lifecycleValidationScript.contains("initialize"))
+        XCTAssertTrue(lifecycleValidationScript.contains("get_state"))
         XCTAssertTrue(project.contains("preBuildScripts:"))
         XCTAssertTrue(project.contains("architecture=\"${CURRENT_ARCH:-}\""))
         XCTAssertTrue(project.contains("--architecture \"$architecture\""))
