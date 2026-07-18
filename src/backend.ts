@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { AuthenticationRequiredError, CredentialRejectedError, DESKTOP_RPC_ENV } from "./auth.js";
-import { dispatchCli, establishHomeWorkingDirectory } from "./cli.js";
+import { desktopAuthenticationRequiredFrame, dispatchCli, establishHomeWorkingDirectory } from "./cli.js";
 import type { CliMode } from "./cli.js";
 import { isCliEntryPoint } from "./cliEntryPoint.js";
 
@@ -43,6 +43,15 @@ const cliMode = (mode: BackendMode): CliMode => {
 const isBackgroundAuthenticationFailure = (error: unknown): boolean =>
   error instanceof AuthenticationRequiredError || error instanceof CredentialRejectedError;
 
+/// The private backend entry point, rather than the general CLI entry point,
+/// owns desktop RPC startup. Preserve its machine-readable authentication
+/// signal so native clients can distinguish it from an ordinary backend exit.
+export const backendAuthenticationRequiredFrame = (
+  mode: BackendMode,
+  error: unknown,
+): string | undefined =>
+  mode.kind === "desktop" ? desktopAuthenticationRequiredFrame(error, true) : undefined;
+
 export const runBackend = async (mode: BackendMode, dependencies: BackendDependencies = {}): Promise<void> => {
   const dispatch = dependencies.dispatch ?? dispatchCli;
   (dependencies.establishHome ?? establishHomeWorkingDirectory)();
@@ -57,7 +66,14 @@ export const runBackend = async (mode: BackendMode, dependencies: BackendDepende
 
 const isEntryPoint = isCliEntryPoint(process.argv[1], fileURLToPath(import.meta.url));
 if (isEntryPoint) {
-  runBackend(parseBackendArgs(process.argv.slice(2))).catch((error: unknown) => {
+  const mode = parseBackendArgs(process.argv.slice(2));
+  runBackend(mode).catch((error: unknown) => {
+    const startupFrame = backendAuthenticationRequiredFrame(mode, error);
+    if (startupFrame !== undefined) {
+      console.log(startupFrame);
+      process.exitCode = 1;
+      return;
+    }
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });

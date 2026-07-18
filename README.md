@@ -259,6 +259,39 @@ non-object JSON are distinct terminal errors. `stderrChunks` is deliberately
 opaque and best-effort, so diagnostics policy can be added without changing
 the transport boundary.
 
+### Native authentication and restart coordination
+
+`RailgunBundledBackendLaunchFactory` launches the staged
+`Contents/Resources/backend/node/bin/node` runtime with the staged
+`backend/railgun/dist/backend.js` entry point. Desktop RPC launches run the
+`desktop` command with `RAILGUN_DESKTOP_RPC=1`; login and logout helpers run
+the corresponding command from the user's home directory with that variable
+removed. All launches preserve inherited environment values, including an
+environment-managed `DEVIN_TOKEN`.
+
+`RailgunAuthenticationService` serializes login and logout. It leaves an
+active RPC generation running while the browser-backed helper runs, drains both
+helper output streams without retaining or exposing OAuth and credential
+details, and restarts RPC only after a zero exit status. Helper launch and exit
+failures are intentionally redacted; they leave the current RPC backend in
+place. Service shutdown terminates an active helper and prevents a restart.
+
+When the private bundled backend's `desktop` entry point cannot authenticate,
+it emits exactly one JSONL startup frame before exiting:
+
+```json
+{"type":"startup_status","status":"authentication_required","credential_source":"file"}
+```
+
+`credential_source` is either `file` or `environment`. `RailgunRPCClient`
+recognizes only the documented type, status, and source values and surfaces a
+typed authentication failure; malformed, unknown, and unrelated startup frames
+retain ordinary safe transport handling. After logout, a file-backed
+authentication-required restart is an expected outcome. An environment-backed
+failure still requires the user to update the inherited `DEVIN_TOKEN` and
+relaunch. Native presentation and controls remain deferred to `SWFT-036` and
+`SWFT-057`.
+
 ### Native module boundaries
 
 `apps/macos/project.yml` defines static-library modules and their one-way
@@ -393,6 +426,8 @@ pnpm run typecheck
 pnpm run test
 pnpm --filter @dantea/railgun-desktop typecheck
 pnpm --filter @dantea/railgun-desktop test
+xcodebuild test -project apps/macos/RailgunX.xcodeproj -scheme RailgunX \
+  -destination 'platform=macOS,arch=arm64'
 ```
 
 ## Documentation

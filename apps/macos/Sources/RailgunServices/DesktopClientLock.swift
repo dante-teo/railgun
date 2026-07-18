@@ -95,7 +95,7 @@ public actor DesktopClientLock {
         identity: DesktopClientLockIdentity = .railgunX,
         processID: Int32 = getpid(),
         startTime: String = ISO8601DateFormatter().string(from: Date()),
-        isProcessLive: (@escaping @Sendable (Int32) -> Bool)? = nil
+        isProcessLive: (@Sendable (Int32) -> Bool)? = nil
     ) {
         precondition(processID > 0, "The client PID must be positive.")
         self.fileURL = directory.appendingPathComponent(Self.filename, isDirectory: false)

@@ -336,11 +336,54 @@ final class RailgunRPCClientTests: XCTestCase {
         }
     }
 
+    func testStartupAuthenticationRequiredReportsTheTypedCredentialSource() async {
+        for source in [RailgunRPCCredentialSource.file, .environment] {
+            let client = RailgunRPCClient()
+            do {
+                _ = try await client.start(perlLaunch(script: startupStatusScript(source: source)))
+                XCTFail("Expected authentication-required startup to fail")
+            } catch let error as RailgunRPCError {
+                XCTAssertEqual(error, .authenticationRequired(source: source))
+            } catch {
+                XCTFail("Expected a typed RPC error, received \(error)")
+            }
+        }
+    }
+
+    func testMalformedOrUnrelatedStartupStatusFramesRetainSafeStartupHandling() async throws {
+        let malformedFrames = [
+            #"{"type":"startup_status","status":"authentication_required"}"#,
+            #"{"type":"startup_status","status":"authentication_required","credential_source":"unknown"}"#,
+            #"{"type":"startup_status","status":"ready","credential_source":"file"}"#,
+        ]
+
+        for frame in malformedFrames {
+            let client = RailgunRPCClient()
+            _ = try await client.start(perlLaunch(script: startupStatusScript(frame: frame) + responsiveBackendScript))
+            await client.shutdown()
+        }
+    }
+
     private func perlLaunch(script: String) -> BackendProcessLaunch {
         BackendProcessLaunch(
             executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
             arguments: ["-e", script]
         )
+    }
+
+    private func startupStatusScript(source: RailgunRPCCredentialSource) -> String {
+        startupStatusScript(
+            frame: #"{"type":"startup_status","status":"authentication_required","credential_source":"\#(source.rawValue)"}"#
+        )
+    }
+
+    private func startupStatusScript(frame: String) -> String {
+        #"""
+        $| = 1;
+        print <<'STARTUP_STATUS';
+        \#(frame)
+        STARTUP_STATUS
+        """
     }
 
     private func responseObject(_ data: Data) throws -> [String: Any] {

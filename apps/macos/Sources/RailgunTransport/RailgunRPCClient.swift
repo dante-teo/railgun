@@ -50,6 +50,15 @@ public struct RailgunRPCHandshake: Sendable, Equatable {
     }
 }
 
+/// The credential location reported by a backend that cannot authenticate.
+///
+/// This deliberately models only the values emitted by the bundled backend.
+/// Unknown values are treated as ordinary, ignored startup frames.
+public enum RailgunRPCCredentialSource: String, Sendable, Equatable {
+    case file
+    case environment
+}
+
 /// Failures reported by ``RailgunRPCClient``.
 public enum RailgunRPCError: Error, Sendable, Equatable {
     case alreadyStarted
@@ -57,6 +66,7 @@ public enum RailgunRPCError: Error, Sendable, Equatable {
     case invalidRequestPayload
     case requestPayloadContainsID
     case startupRejected(command: String, reason: String?)
+    case authenticationRequired(source: RailgunRPCCredentialSource)
     case protocolVersionMismatch(expected: Int, received: Int)
     case missingRequiredCapabilities(Set<String>)
     case malformedResponse
@@ -129,6 +139,7 @@ public actor RailgunRPCClient {
     private var nextInteractionSequence = 0
     private var interactionEpoch = 0
     private var handshake: RailgunRPCHandshake?
+    private var startupFailure: RailgunRPCError?
 
     public init(
         backend: BackendProcess = BackendProcess(),
@@ -186,6 +197,7 @@ public actor RailgunRPCClient {
         activeGeneration = currentGeneration
         lifecycle = .starting
         nextRequestSequence = 0
+        startupFailure = nil
 
         readerTask = Task { [weak self, currentTransport] in
             do {
@@ -357,6 +369,9 @@ public actor RailgunRPCClient {
         requestData: Data,
         timeout: Duration
     ) async throws -> Data {
+        if let startupFailure {
+            throw startupFailure
+        }
         requestIDsAwaitingSettlement.insert(identifier)
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
@@ -382,6 +397,11 @@ public actor RailgunRPCClient {
         timeout: Duration,
         continuation: CheckedContinuation<Data, Error>
     ) {
+        if let startupFailure {
+            requestIDsAwaitingSettlement.remove(identifier)
+            continuation.resume(throwing: startupFailure)
+            return
+        }
         guard activeGeneration != nil, standardInput != nil else {
             requestIDsAwaitingSettlement.remove(identifier)
             continuation.resume(throwing: RailgunRPCError.backendTerminated)
@@ -414,6 +434,11 @@ public actor RailgunRPCClient {
 
     private func receive(_ frame: Data, from currentGeneration: Int) {
         guard activeGeneration == currentGeneration else { return }
+        guard startupFailure == nil else { return }
+        if let source = authenticationRequiredSource(from: frame) {
+            failStartup(with: .authenticationRequired(source: source))
+            return
+        }
         guard let object = try? requestObject(from: frame) else {
             return
         }
@@ -656,6 +681,14 @@ public actor RailgunRPCClient {
         settle(identifier, with: .failure(.timeout))
     }
 
+    /// Fails every startup request immediately, preserving the specific cause
+    /// until ``start(_:)`` finishes generation cleanup.
+    private func failStartup(with error: RailgunRPCError) {
+        startupFailure = error
+        let pendingRequestIDs = Array(pendingRequests.keys)
+        pendingRequestIDs.forEach { settle($0, with: .failure(error)) }
+    }
+
     private func cancelRequest(_ identifier: String) {
         guard requestIDsAwaitingSettlement.contains(identifier) else { return }
         guard pendingRequests[identifier] != nil else {
@@ -687,6 +720,7 @@ public actor RailgunRPCClient {
         activeGeneration = nil
         lifecycle = nil
         handshake = nil
+        startupFailure = nil
         standardInput = nil
         settleInteractions()
         let pending = pendingRequests
@@ -749,6 +783,20 @@ public actor RailgunRPCClient {
             throw RailgunRPCError.missingRequiredCapabilities(missingCapabilities)
         }
         return RailgunRPCHandshake(protocolVersion: initialize.version, capabilities: initialize.capabilities)
+    }
+
+    /// Recognizes only the private startup frame emitted for authentication
+    /// failures. Nonconforming frames continue through normal event handling.
+    private func authenticationRequiredSource(from frame: Data) -> RailgunRPCCredentialSource? {
+        guard let value = try? JSONDecoder().decode(RailgunJSONValue.self, from: frame),
+              let object = value.objectValue,
+              object["type"]?.stringValue == "startup_status",
+              object["status"]?.stringValue == "authentication_required",
+              let rawSource = object["credential_source"]?.stringValue
+        else {
+            return nil
+        }
+        return RailgunRPCCredentialSource(rawValue: rawSource)
     }
 
     private func validateSuccessfulReadinessResponse(_ response: Data) throws {
