@@ -68,10 +68,10 @@ not a second behavior path.
 
 Use the SwiftUI app lifecycle with a primary window, a `Settings` scene, the
 standard Settings command, state restoration, and a documented minimum window
-size. Feature commands are deferred to `SWFT-037`. Feature state uses
-`@Observable @MainActor`. Process, transport, filesystem,
-authentication, automation, and update work belongs in actors so ownership and
-cancellation are explicit.
+size. Feature commands are implemented with the work package that owns their
+behavior. Feature state uses `@Observable @MainActor`. Process, transport,
+filesystem, authentication, automation, and update work belongs in actors so
+ownership and cancellation are explicit.
 
 The high-level boundary is:
 
@@ -236,10 +236,21 @@ adequate native replacement, migrate to it and retire the custom implementation.
 
 ## Milestones and implementation checklist
 
-Checklist IDs are immutable and use `SWFT-001` through `SWFT-999`. Completed or
-removed IDs are never reused or renumbered. New work receives a new ID. Tasks
-target approximately five engineering hours and must be split before exceeding
-eight hours.
+Checklist IDs are immutable and use `SWFT-001` through `SWFT-999`. Completed,
+removed, or superseded IDs are never reused or renumbered. New work receives a
+new ID.
+
+Each remaining implementation item is a one-engineer-day work package,
+nominally eight engineering hours including focused tests and documentation.
+Related sub-day changes belong in one vertical work package rather than
+receiving separate IDs. Work forecast to exceed one day is split at a testable
+behavior boundary before implementation. Completed items retain their original
+historical estimates.
+
+Audit work packages are time-boxed to one engineer-day. They produce verified
+fixes that fit inside the time box and new checklist IDs for material findings
+that do not. Release gates are unestimated conditions, not implementation work
+packages.
 
 ### 1. Project foundation and visual identity
 
@@ -286,16 +297,15 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
 - [ ] `SWFT-026` — Implement chronological transcript assembly for restored messages, streaming, tools, errors, and run boundaries. `[8h]`
 - [ ] `SWFT-027` — Build transcript virtualization and bottom-follow behavior, introducing custom scrolling only for behavior unavailable natively. `[8h]`
-- [ ] `SWFT-028` — Render completed Markdown natively with Swift Markdown while keeping streaming fragments plain. `[8h]`
-- [ ] `SWFT-029` — Add encapsulated variants for code blocks and tables while retaining native text selection and scrolling. `[8h]`
-- [ ] `SWFT-030` — Build tool activity using native disclosure controls with shared presentation variants. `[8h]`
-- [ ] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline, focus, and VoiceOver. `[8h]`
-- [ ] `SWFT-032` — Implement prompt, steering, follow-up, Stop, FIFO acknowledgement, and run settlement. `[8h]`
+- [ ] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
+- [ ] `SWFT-030` — Build tool activity and populate the embedded Activity card using native group, list, disclosure, and popover behavior with shared presentation variants. `[8h]`
+- [ ] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
+- [ ] `SWFT-032` — Implement prompt, steering, follow-up, FIFO acknowledgement, and the Task, Settings, and sidebar menu commands that route those workflows. `[8h]`
+- [ ] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`
 - [ ] `SWFT-033` — Build approval and clarification with native buttons, fields, pickers, focus, and keyboard handling. `[8h]`
-- [ ] `SWFT-034` — Implement model selection, persistence, MoA, advisor, context usage, and compaction with native menus and sheets. `[8h]`
-- [ ] `SWFT-035` — Populate the embedded Activity card using native GroupBox, list, disclosure, and popover behavior. `[8h]`
-- [ ] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and restart recovery surfaces. `[6h]`
-- [ ] `SWFT-037` — Add menu-bar commands and shortcuts for Task, Settings, sidebar, Stop, and retry. `[6h]`
+- [ ] `SWFT-034` — Implement model selection and persistence plus MoA and advisor controls with native menus, mutation guards, and focused state tests. `[8h]`
+- [ ] `SWFT-086` — Implement context-usage presentation and compaction workflows, including availability, progress, completion, failure, and restored-session behavior. `[8h]`
+- [ ] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and restart recovery surfaces, including the retry command. `[8h]`
 
 Milestone exit: the native app supports the core Task journey, restoration,
 streaming, tools, interactions, stop/recovery, and accessibility through a
@@ -304,11 +314,10 @@ production-shaped backend package.
 ### 4. Signed side-by-side alpha and CI/CD
 
 - [ ] `SWFT-038` — Configure Hardened Runtime, entitlements, nested Node/addon signing, and Developer ID export. `[8h]`
-- [ ] `SWFT-039` — Integrate Sparkle with architecture-specific HTTPS appcasts and EdDSA verification. `[8h]`
+- [ ] `SWFT-039` — Integrate Sparkle, generate signed architecture-specific HTTPS appcasts with EdDSA verification, and leave Classic’s update channels unchanged. `[8h]`
 - [ ] `SWFT-040` — Add version injection, archive export, notarization, stapling, ZIP creation, and verification scripts. `[8h]`
-- [ ] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate RailgunX assets. `[6h]`
+- [ ] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate RailgunX assets and packaged-bundle structure. `[8h]`
 - [ ] `SWFT-042` — Extend publishing to release signed arm64 and x86_64 RailgunX builds beside Electron builds. `[8h]`
-- [ ] `SWFT-043` — Generate signed Sparkle appcasts without changing Classic’s update channels. `[8h]`
 - [ ] `SWFT-044` — Add packaged signature, Gatekeeper, notarization, backend, icon, and updater smoke checks. `[8h]`
 
 Milestone exit: RailgunX ships as an independently updatable, signed and
@@ -318,14 +327,14 @@ update feeds.
 ### 5. Remaining Task, Files, and Scheduled parity
 
 - [ ] `SWFT-045` — Implement archived-task browsing, unarchive, native context menus, and filtering. `[8h]`
-- [ ] `SWFT-046` — Implement branch selection, summarization, fork, and authoritative reloads. `[8h]`
+- [ ] `SWFT-046` — Implement branch selection and authoritative reloads, preserving selection and chronological transcript state across backend responses. `[8h]`
+- [ ] `SWFT-087` — Implement summarization and fork workflows, including progress, failure, cancellation, and authoritative post-operation reloads. `[8h]`
 - [ ] `SWFT-047` — Build the home-rooted file tree using native outline/list behavior and filesystem protections. `[8h]`
 - [ ] `SWFT-048` — Add native text/image preview, safe Quick Look, and Reveal in Finder. `[8h]`
-- [ ] `SWFT-049` — Build Scheduled list, loading, empty, error, delete, and refresh states. `[6h]`
-- [ ] `SWFT-050` — Build create/edit forms with native fields, cron validation, and schedule summaries. `[8h]`
-- [ ] `SWFT-051` — Port launch-agent generation, enable, disable, repair, and status inspection to Swift. `[8h]`
-- [ ] `SWFT-052` — Build Background Automation settings while retaining job definitions under Scheduled. `[6h]`
-- [ ] `SWFT-084` — Add scheduled-task delivery parity: monitor the delivery cursor, preserve scheduled metadata and bounded overflow behavior, present unread state and agent-first transcripts, and mark deliveries read only after successful activation. `[8h]`
+- [ ] `SWFT-049` — Build Scheduled browsing and create/edit/delete workflows with native states and fields, cron validation, schedule summaries, and refresh behavior. `[8h]`
+- [ ] `SWFT-051` — Port launch-agent generation, enable, disable, repair, and status inspection to Swift and expose the controls in Background Automation settings. `[8h]`
+- [ ] `SWFT-084` — Monitor the scheduled-delivery cursor and preserve scheduled metadata, ordering, and bounded-overflow behavior across refresh and restart. `[8h]`
+- [ ] `SWFT-088` — Present scheduled-delivery unread state and agent-first transcripts, activating deliveries safely and marking them read only after successful activation. `[8h]`
 
 Milestone exit: remaining Task session operations, safe Files behavior,
 Scheduled definitions, and background automation management match the backend
@@ -333,17 +342,15 @@ contract and Classic's supported behavior.
 
 ### 6. Settings, provider, and knowledge parity
 
-- [ ] `SWFT-053` — Build Settings using native navigation, search, forms, sections, controls, and dirty-edit confirmation. `[8h]`
-- [ ] `SWFT-054` — Implement General model, timeout, and archive-retention settings. `[6h]`
+- [ ] `SWFT-053` — Build the native Settings shell and implement General and Trust forms, including search, model, timeout, archive retention, approval mode, smart review, mutation guards, and dirty-edit confirmation. `[8h]`
 - [ ] `SWFT-055` — Implement Agent MoA/advisor settings and mutation guards. `[8h]`
-- [ ] `SWFT-056` — Implement Trust approval mode and smart-review settings. `[6h]`
 - [ ] `SWFT-057` — Implement provider status, sign-in/out, environment-token messaging, and recovery. `[8h]`
-- [ ] `SWFT-058` — Implement redacted MCP list, editing, secret replacement, and removal. `[8h]`
+- [ ] `SWFT-058` — Implement the redacted MCP list, status and detail presentation, refresh, and guarded removal. `[8h]`
+- [ ] `SWFT-089` — Implement MCP create/edit workflows with serialized configuration mutation, explicit secret replacement, unknown-field preservation, validation, and discard protection. `[8h]`
 - [ ] `SWFT-059` — Implement Memories list, search, create, edit, and delete. `[8h]`
-- [ ] `SWFT-060` — Implement note-folder import plus keyword and semantic search. `[8h]`
-- [ ] `SWFT-061` — Implement Dream progress and completion/skip results. `[6h]`
-- [ ] `SWFT-062` — Implement instruction-file status, editing, shadowing, save, and discard protection. `[8h]`
-- [ ] `SWFT-063` — Implement read-only skill list, detail, metadata, and Markdown presentation. `[6h]`
+- [ ] `SWFT-060` — Implement validated note-folder import, import results, and keyword search with bounded result presentation. `[8h]`
+- [ ] `SWFT-090` — Implement semantic search and Dream progress, completion, skip, failure, and recovery presentation. `[8h]`
+- [ ] `SWFT-062` — Implement instruction-file status, editing, shadowing, save, and discard protection plus the read-only skill list, metadata, detail, and Markdown presentation. `[8h]`
 - [ ] `SWFT-064` — Implement bounded diagnostics, health, mock scenarios, and restart controls. `[8h]`
 
 Milestone exit: native Settings, provider access, MCP, knowledge, instructions,
@@ -352,33 +359,50 @@ backend state.
 
 ### 7. Apple-quality hardening
 
-- [ ] `SWFT-065` — Audit macOS 15 fallbacks and macOS 26 Liquid Glass usage. `[8h]`
-- [ ] `SWFT-066` — Audit typography, symbols, native controls, toolbar, sidebar, menus, icon treatment, resizing, and full screen. `[8h]`
+- [ ] `SWFT-065` — Audit macOS 15 fallbacks, macOS 26 Liquid Glass usage, and every custom component; remove unnecessary customization, consolidate variants, and document retained exceptions. `[8h]`
+- [ ] `SWFT-066` — Audit typography, symbols, native controls, toolbar, sidebar, menus, icon treatment, compact-to-full-screen resizing, and multi-display behavior. `[8h]`
 - [ ] `SWFT-067` — Complete keyboard, VoiceOver, focus, contrast, Reduce Motion, Reduce Transparency, and Increase Contrast support. `[8h]`
-- [ ] `SWFT-068` — Test compact, default, wide, full-screen, and multi-display layouts. `[6h]`
 - [ ] `SWFT-069` — Measure and optimize large transcripts, streaming, scrolling, Markdown, and memory use. `[8h]`
 - [ ] `SWFT-070` — Test malformed transport, crashes, stale responses, restart, cancellation, authentication failure, and termination. `[8h]`
 - [ ] `SWFT-071` — Review filesystem, URL, process, secret, diagnostic, update, and release security boundaries. `[8h]`
 - [ ] `SWFT-072` — Run native unit, integration, UI, accessibility, packaged, arm64, and x86_64 verification. `[8h]`
-- [ ] `SWFT-083` — Audit every custom component, remove unnecessary customization, consolidate duplicate variants, and document retained exceptions. `[8h]`
 
 Milestone exit: the app meets the native quality, accessibility, performance,
 recovery, security, layout, and dual-architecture acceptance contracts below.
 
 ### 8. Rename and retirement
 
-- [ ] `SWFT-073` — Maintain a feature-parity matrix and close every replacement-blocking gap. `[5h]`
-- [ ] `SWFT-074` — Run one bounded public-beta feedback and remediation cycle. `[8h]`
-- [ ] `SWFT-075` — Rename Electron to **Railgun Classic** while retaining `sh.railgun.desktop`. `[6h]`
-- [ ] `SWFT-076` — Rename RailgunX to **Railgun** while retaining `io.anvia.railgun` and the new icon. `[5h]`
+- [ ] `SWFT-075` — Rename Electron to **Railgun Classic** and RailgunX to **Railgun**, retaining their existing bundle identities, shared-data exclusion, and the native icon. `[8h]`
 - [ ] `SWFT-077` — Update artifacts, Sparkle presentation, documentation, links, and screenshots. `[8h]`
 - [ ] `SWFT-078` — Move the Homebrew `railgun` Cask to native Railgun and optionally add a temporary Classic Cask. `[8h]`
-- [ ] `SWFT-079` — Announce Classic’s support deadline and remove its release jobs afterward. `[6h]`
-- [ ] `SWFT-080` — Remove Electron only after parity, shared-data verification, and the retirement window. `[8h]`
+- [ ] `SWFT-080` — Remove Electron code, packaging, dependencies, and release jobs after the retirement gates authorize removal. `[8h]`
+
+Release gates:
+
+- `SWFT-073` — The maintained feature-parity matrix has no replacement-blocking gaps.
+- `SWFT-074` — One bounded public-beta cycle is complete and every blocking finding has been remediated through separately estimated work.
+- `SWFT-079` — Classic’s support deadline has been announced and the published retirement window has elapsed.
 
 Milestone exit: native Railgun owns the stable name, bundle identity, icon,
 direct distribution, and Homebrew Cask; Classic has completed its announced
 support window and no longer ships.
+
+### Superseded checklist IDs
+
+These IDs remain retired for traceability and are never reused:
+
+- `SWFT-029` was consolidated into `SWFT-028`.
+- `SWFT-035` was consolidated into `SWFT-030`.
+- `SWFT-037` was distributed across `SWFT-031`, `SWFT-032`, `SWFT-036`, and `SWFT-085`.
+- `SWFT-043` was consolidated into `SWFT-039`.
+- `SWFT-050` was consolidated into `SWFT-049`.
+- `SWFT-052` was consolidated into `SWFT-051`.
+- `SWFT-054` and `SWFT-056` were consolidated into `SWFT-053`.
+- `SWFT-061` was consolidated into `SWFT-090`.
+- `SWFT-063` was consolidated into `SWFT-062`.
+- `SWFT-068` was consolidated into `SWFT-066`.
+- `SWFT-076` was consolidated into `SWFT-075`.
+- `SWFT-083` was consolidated into `SWFT-065`.
 
 ## Test and acceptance contract
 
