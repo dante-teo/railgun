@@ -1,5 +1,5 @@
 import { app, autoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, session, shell } from "electron";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { userInfo } from "node:os";
 import { BackendSupervisor, createBackendChildFactory } from "./backendSupervisor";
 import { createInteractionBroker } from "./interactionBroker";
@@ -70,6 +70,7 @@ import { createDesktopDiagnosticSink } from "./desktopDiagnostics";
 import { createBackgroundAutomationService, createUnavailableAutomationService } from "./backgroundAutomation";
 import { createUpdateCheckDialog } from "./updateCheckDialog";
 import { createUpdateService } from "./updateService";
+import { DesktopClientLock, DesktopClientLockConflictError } from "./desktopClientLock";
 import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 
 protocol.registerSchemesAsPrivileged([{
@@ -97,6 +98,9 @@ app.on("web-contents-created", (_event, contents) => {
 });
 
 const backendMode: BackendMode = process.env.RAILGUN_DESKTOP_BACKEND_MODE === "mock" ? "mock" : "real";
+const desktopClientLock = backendMode === "mock"
+  ? undefined
+  : new DesktopClientLock({ directory: join(app.getPath("home"), ".railgun") });
 const backendRuntime: BackendRuntime = app.isPackaged
   ? {
     kind: "packaged",
@@ -570,6 +574,21 @@ supervisor.subscribeBackendEvents((value) => {
 });
 
 void app.whenReady().then(() => {
+  try {
+    desktopClientLock?.acquire();
+  } catch (error) {
+    const detail = error instanceof DesktopClientLockConflictError
+      ? `${error.record.clientName} (PID ${error.record.pid}) is using your Railgun data. Quit it before opening Railgun Classic.`
+      : "The shared desktop-client lock could not be verified safely. Close any other Railgun desktop client and try again.";
+    void dialog.showMessageBox({
+      type: "error",
+      title: "Railgun is already in use",
+      message: "Railgun Classic can’t safely open your data.",
+      detail,
+    }).finally(() => app.quit());
+    return;
+  }
+
   if (updates.enabled && app.isPackaged) {
     updates.expectAutomaticCheck();
     updateElectronApp({
@@ -608,4 +627,5 @@ app.on("before-quit", () => {
   interactionBroker.settle();
   authentication.shutdown();
   supervisor.shutdown();
+  desktopClientLock?.release();
 });

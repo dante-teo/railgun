@@ -3,6 +3,7 @@ import RailgunCore
 import RailgunServices
 import RailgunTransport
 import RailgunUI
+import Observation
 import SwiftUI
 
 enum PrimaryWindowResizability: Equatable {
@@ -157,22 +158,115 @@ struct BackendLaunchConfiguration: Equatable {
     }
 }
 
+@MainActor
+@Observable
+final class DesktopClientStartup {
+    enum Status: Equatable {
+        case acquiring
+        case ready
+        case conflict(DesktopClientLockRecord)
+        case unavailable
+    }
+
+    private let lock: DesktopClientLock?
+    private var didAcquire = false
+    private(set) var status: Status
+
+    init(
+        backendConfiguration: BackendLaunchConfiguration,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
+        // Mock runs are deterministic test and preview infrastructure. They do
+        // not touch the user's shared data or participate in its real lock.
+        guard backendConfiguration.mode != .mock else {
+            self.lock = nil
+            self.status = .ready
+            return
+        }
+
+        self.lock = DesktopClientLock(
+            directory: homeDirectory.appendingPathComponent(".railgun", isDirectory: true)
+        )
+        self.status = .acquiring
+    }
+
+    func acquire() async {
+        guard !didAcquire, let lock else { return }
+        didAcquire = true
+        do {
+            _ = try await lock.acquire()
+            status = .ready
+        } catch let error as DesktopClientLockError {
+            switch error {
+            case let .conflict(record):
+                status = .conflict(record)
+            case .invalidExistingLock, .filesystem:
+                status = .unavailable
+            }
+        } catch {
+            status = .unavailable
+        }
+    }
+
+    func release() async {
+        await lock?.release()
+    }
+}
+
 @main
 struct RailgunXApp: App {
     static let lifecycleConfiguration = AppLifecycleConfiguration.primary
 
-    private let backendLaunchConfiguration = BackendLaunchConfiguration()
+    private let backendLaunchConfiguration: BackendLaunchConfiguration
+    @State private var desktopClientStartup: DesktopClientStartup
+
+    init() {
+        let backendLaunchConfiguration = BackendLaunchConfiguration()
+        self.backendLaunchConfiguration = backendLaunchConfiguration
+        _desktopClientStartup = State(
+            initialValue: DesktopClientStartup(backendConfiguration: backendLaunchConfiguration)
+        )
+    }
 
     var body: some Scene {
         WindowGroup(
             Self.lifecycleConfiguration.primaryWindowTitle,
             id: Self.lifecycleConfiguration.primaryWindowRestorationIdentifier
         ) {
-            Text(backendLaunchConfiguration.placeholderText)
-                .frame(
-                    minWidth: Self.lifecycleConfiguration.primaryWindowMinimumSize.width,
-                    minHeight: Self.lifecycleConfiguration.primaryWindowMinimumSize.height
-                )
+            Group {
+                switch desktopClientStartup.status {
+                case .acquiring:
+                    ProgressView("Checking for another Railgun desktop client…")
+                case .ready:
+                    Text(backendLaunchConfiguration.placeholderText)
+                case let .conflict(record):
+                    ContentUnavailableView(
+                        "Railgun is already in use",
+                        systemImage: "lock.fill",
+                        description: Text(
+                            "\(record.clientName) (PID \(record.pid)) is using your Railgun data. Quit it before opening RailgunX."
+                        )
+                    )
+                case .unavailable:
+                    ContentUnavailableView(
+                        "RailgunX can’t safely open your data",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text("The shared desktop-client lock could not be verified. Close any other Railgun desktop client and try again.")
+                    )
+                }
+            }
+            .frame(
+                minWidth: Self.lifecycleConfiguration.primaryWindowMinimumSize.width,
+                minHeight: Self.lifecycleConfiguration.primaryWindowMinimumSize.height
+            )
+            .task {
+                await desktopClientStartup.acquire()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                Task {
+                    await desktopClientStartup.release()
+                }
+            }
         }
         .defaultSize(
             width: Self.lifecycleConfiguration.primaryWindowDefaultSize.width,

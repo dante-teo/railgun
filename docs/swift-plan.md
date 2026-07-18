@@ -118,10 +118,11 @@ including blank IDs, take the same safe denial or abort path.
 
 RailgunX reads and writes the existing `~/.railgun` data directly. It does not
 copy, transform, or silently repair shared data. Before starting an interactive
-backend, RailgunX acquires a cross-client lock containing PID, bundle ID, client
-name, and start time. Railgun Classic must participate in the same lock
-protocol. Both clients detect live conflicts, recover only demonstrably stale
-locks, and present a clear conflict UI instead of starting a second backend.
+backend, RailgunX acquires the [shared desktop-client lock](desktop-client-lock.md)
+containing PID, bundle ID, client name, and start time. Railgun Classic must
+participate in the same lock protocol. Both clients detect live conflicts,
+recover only demonstrably stale locks, and present a clear conflict UI instead
+of starting a second backend.
 
 ### Signing, updates, and distribution
 
@@ -250,7 +251,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 - [x] `SWFT-017` — Port RPC DTOs, validation limits, redaction, and safe diagnostic summaries to Swift. `[8h]`
 - [x] `SWFT-018` — Port event normalization for messages, tools, todos, advisor, MoA, subagents, queues, and context usage. `[8h]`
 - [x] `SWFT-019` — Implement approval and clarification correlation, ordering, settlement, and invalid-response handling. `[6h]`
-- [ ] `SWFT-020` — Add the shared desktop-client lock to RailgunX and Classic, including stale-lock recovery and conflict UI. `[8h]`
+- [x] `SWFT-020` — Add the shared desktop-client lock to RailgunX and Classic, including stale-lock recovery and conflict UI. `[8h]`
 - [ ] `SWFT-021` — Implement login/logout helpers using the bundled backend and coordinated restart. `[6h]`
 - [ ] `SWFT-022` — Verify packaged backend startup, SQLite loading, authentication startup, crash, restart, and shutdown on both architectures. `[8h]`
 

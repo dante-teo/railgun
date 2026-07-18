@@ -28,6 +28,111 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration, .primary)
     }
 
+    func testDesktopClientLockCreatesAndReleasesTheSharedLockRecord() async throws {
+        let home = try temporaryRailgunHome()
+        let lock = DesktopClientLock(
+            directory: home.railgunDirectory,
+            identity: .railgunX,
+            processID: ProcessInfo.processInfo.processIdentifier,
+            startTime: "2026-07-18T12:00:00Z"
+        )
+
+        let record = try await lock.acquire()
+
+        XCTAssertEqual(record.pid, ProcessInfo.processInfo.processIdentifier)
+        XCTAssertEqual(record.bundleID, "io.anvia.railgun")
+        XCTAssertEqual(record.clientName, "RailgunX")
+        XCTAssertEqual(record.startTime, "2026-07-18T12:00:00Z")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lock.fileURL.path))
+
+        await lock.release()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lock.fileURL.path))
+    }
+
+    func testDesktopClientLockRecoversOnlyAStaleValidRecord() async throws {
+        let home = try temporaryRailgunHome()
+        let lock = DesktopClientLock(
+            directory: home.railgunDirectory,
+            identity: .railgunX,
+            processID: ProcessInfo.processInfo.processIdentifier,
+            startTime: "2026-07-18T12:00:00Z",
+            isProcessLive: { $0 == ProcessInfo.processInfo.processIdentifier }
+        )
+        let staleRecord = DesktopClientLockRecord(
+            pid: 99_999,
+            bundleID: "sh.railgun.desktop",
+            clientName: "Railgun Classic",
+            startTime: "2026-07-18T11:00:00Z"
+        )
+        try staleRecord.encodedData().write(to: lock.fileURL)
+        try staleRecord.encodedData().write(
+            to: home.railgunDirectory.appendingPathComponent("desktop-client.lock.recovery")
+        )
+
+        let record = try await lock.acquire()
+
+        XCTAssertEqual(record.clientName, "RailgunX")
+        XCTAssertEqual(try DesktopClientLockRecord(data: Data(contentsOf: lock.fileURL)), record)
+        await lock.release()
+    }
+
+    func testDesktopClientLockRejectsLiveAndMalformedRecordsWithoutDeletingThem() async throws {
+        let home = try temporaryRailgunHome()
+        let lock = DesktopClientLock(
+            directory: home.railgunDirectory,
+            identity: .railgunX,
+            processID: ProcessInfo.processInfo.processIdentifier,
+            startTime: "2026-07-18T12:00:00Z",
+            isProcessLive: { $0 == 4242 }
+        )
+        let liveRecord = DesktopClientLockRecord(
+            pid: 4242,
+            bundleID: "sh.railgun.desktop",
+            clientName: "Railgun Classic",
+            startTime: "2026-07-18T11:00:00Z"
+        )
+        try liveRecord.encodedData().write(to: lock.fileURL)
+
+        do {
+            _ = try await lock.acquire()
+            XCTFail("Expected the live Classic lock to block RailgunX")
+        } catch let error as DesktopClientLockError {
+            XCTAssertEqual(error, .conflict(liveRecord))
+        }
+        XCTAssertEqual(try DesktopClientLockRecord(data: Data(contentsOf: lock.fileURL)), liveRecord)
+
+        try Data("not JSON".utf8).write(to: lock.fileURL)
+        do {
+            _ = try await lock.acquire()
+            XCTFail("Expected an unreadable lock to remain in place")
+        } catch let error as DesktopClientLockError {
+            XCTAssertEqual(error, .invalidExistingLock)
+        }
+        XCTAssertEqual(try Data(contentsOf: lock.fileURL), Data("not JSON".utf8))
+    }
+
+    func testDesktopClientLockNeverRemovesAReplacementWhenReleasing() async throws {
+        let home = try temporaryRailgunHome()
+        let lock = DesktopClientLock(
+            directory: home.railgunDirectory,
+            identity: .railgunX,
+            processID: ProcessInfo.processInfo.processIdentifier,
+            startTime: "2026-07-18T12:00:00Z"
+        )
+        let replacement = DesktopClientLockRecord(
+            pid: 4242,
+            bundleID: "sh.railgun.desktop",
+            clientName: "Railgun Classic",
+            startTime: "2026-07-18T12:01:00Z"
+        )
+        _ = try await lock.acquire()
+        try replacement.encodedData().write(to: lock.fileURL)
+
+        await lock.release()
+
+        XCTAssertEqual(try DesktopClientLockRecord(data: Data(contentsOf: lock.fileURL)), replacement)
+    }
+
     func testPrimaryWindowLifecycleConfiguration() {
         let configuration = AppLifecycleConfiguration.primary
 

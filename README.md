@@ -128,6 +128,12 @@ LICENSE, Node version, archive layout, and Mach-O architecture before staging.
 `validate-node-runtime.sh` exercises both `arm64` and `x86_64`; it runs from
 `validate-project.sh` and native CI.
 
+### Shared desktop-client lock
+
+RailgunX and Railgun Classic coordinate access to `~/.railgun` through the
+shared desktop-client lock. Preserve its record and stale-recovery rules when
+changing either client; see the [lock protocol](docs/desktop-client-lock.md).
+
 ### Native backend staging
 
 The production native backend is staged with the matching runtime and a fresh
@@ -393,6 +399,7 @@ pnpm --filter @dantea/railgun-desktop test
 
 - [Product overview](docs/PRODUCT.md)
 - [Desktop architecture](docs/ARCHITECTURE.md)
+- [Shared desktop-client lock protocol](docs/desktop-client-lock.md)
 - [Design system and interaction contracts](docs/DESIGN.md)
 - [Swift implementation plan](docs/swift-plan.md)
 - [Current architecture ADR](docs/adr/0001-railgun-current-architecture.md)
