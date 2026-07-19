@@ -175,8 +175,8 @@ and `inspector`.
 Retain system text scaling, control sizes, focus behavior, keyboard navigation,
 menu integration, accessibility semantics, animations, materials, and platform
 spacing unless a requirement explicitly demands otherwise. Railgun's approved
-application typography may supply custom font faces through SwiftUI text styles;
-do not recreate system controls, menus, dialogs, sidebars, toolbars, forms, or
+application typography may supply custom font faces through SwiftUI text styles.
+Do not recreate system controls, menus, dialogs, sidebars, toolbars, forms, or
 materials with custom drawing.
 
 Use AppKit bridges only for behavior unavailable in deployment-target SwiftUI.
