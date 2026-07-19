@@ -32,6 +32,54 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
+    func testActivityPaneFloatsInNarrowDetailsAndDocksInWideDetails() {
+        XCTAssertEqual(
+            RailgunActivityPaneLayout.presentation(for: 899),
+            .floating
+        )
+        XCTAssertEqual(
+            RailgunActivityPaneLayout.presentation(for: 900),
+            .docked
+        )
+    }
+
+    func testTranscriptSoftEdgePreservesTheNativeScrollerContract() throws {
+        let sourceDirectory = repositoryRoot
+            .appendingPathComponent("apps/macos/Sources/RailgunX")
+        let sourceFiles = [
+            "RailgunXApp.swift",
+            "RailgunTranscriptViewport.swift",
+        ]
+        let transcriptSource = try sourceFiles
+            .map {
+                try String(
+                    contentsOf: sourceDirectory.appendingPathComponent($0),
+                    encoding: .utf8
+                )
+            }
+            .joined(separator: "\n")
+
+        XCTAssertTrue(
+            transcriptSource.contains("scrollEdgeEffectStyle(.soft, for: .top)"),
+            "The transcript must retain its native macOS 26 soft top-edge effect."
+        )
+
+        let forbiddenScrollerOverrides = [
+            "showsIndicators: false",
+            ".scrollIndicators(.hidden)",
+            "hasVerticalScroller = false",
+            "verticalScroller?.isHidden = true",
+            "RailgunSystemScrollIndicatorSuppressor",
+        ]
+
+        for forbiddenOverride in forbiddenScrollerOverrides {
+            XCTAssertFalse(
+                transcriptSource.contains(forbiddenOverride),
+                "The transcript soft edge requires the native scroller; remove \(forbiddenOverride)."
+            )
+        }
+    }
+
     func testArchiveToolbarActionRequiresAPersistedSelectedSession() {
         let persisted = RailgunSessionSummary(
             id: "selected",

@@ -94,6 +94,42 @@ final class RailgunAppStoreTests: XCTestCase {
         )
     }
 
+    func testOnlySelectedTaskPresentationDisplaysTranscriptMessages() {
+        let summary = RailgunSessionSummary(
+            id: "session-1",
+            model: "gpt-5",
+            startedAt: "2026-07-19 09:00",
+            messageCount: 1,
+            firstUserPreview: "Inspect the task shell"
+        )
+
+        XCTAssertTrue(RailgunTaskDetailPresentation.selected(summary).displaysTranscriptMessages)
+        XCTAssertFalse(RailgunTaskDetailPresentation.loading.displaysTranscriptMessages)
+        XCTAssertFalse(RailgunTaskDetailPresentation.empty.displaysTranscriptMessages)
+        XCTAssertFalse(RailgunTaskDetailPresentation.selectionRequired.displaysTranscriptMessages)
+        XCTAssertFalse(
+            RailgunTaskDetailPresentation
+                .staleSelection("missing")
+                .displaysTranscriptMessages
+        )
+    }
+
+    func testSessionOperationErrorPresentationPreservesFailureMessage() {
+        XCTAssertNil(RailgunSessionOperationErrorPresentation(session: .initial))
+
+        let presentation = RailgunSessionOperationErrorPresentation(
+            session: .init(
+                activeSessionID: nil,
+                sessions: [],
+                archivedSessions: [],
+                isLoading: false,
+                error: "Could not archive the task."
+            )
+        )
+
+        XCTAssertEqual(presentation?.message, "Could not archive the task.")
+    }
+
     func testStoreRoutesNormalizedRunEventsWithoutRetainingRawBackendData() {
         let store = RailgunAppStore()
 

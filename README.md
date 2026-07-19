@@ -409,12 +409,26 @@ A selected, hydrated task renders its restored and live messages in a native
 `ScrollView` and `LazyVStack`. Messages are selectable plain text until the
 Markdown milestone: user messages use a compact framed treatment, while
 assistant messages remain unframed. Tool, advisor, MoA, and subagent activity is
-intentionally withheld from this transcript until the activity milestone. The
-transcript opens at the latest message, follows content and viewport-size
+intentionally withheld from this transcript until the activity milestone.
+Loading, empty, selection-required, and stale-selection states retain the same
+root scroll view for layout stability but do not render or accessibility-expose
+messages retained by the reducer. Their centered state presentations and any
+session-operation error banner remain non-scrolling overlays.
+
+The transcript opens at the latest message, follows content and viewport-size
 changes while within four points of the bottom, and preserves the reader's
 position after they scroll away. New output then exposes a native **Jump to
-Latest** button. The system scrollbar is suppressed in favor of the
-feature-local, accessibility-hidden dash rail on the transcript's left edge.
+Latest** button. On macOS 26 and later, it retains the native vertical scroller
+and applies the system soft top-edge effect. Do not hide or replace that
+scroller: doing so prevents the edge effect from rendering. The complete
+implementation and cold-launch verification contract is documented in
+[`docs/native-ui-policy.md`](docs/native-ui-policy.md#transcript-soft-top-edge-invariant).
+
+The Activity toggle lives in the native sidebar toolbar. When Activity is
+requested and the detail viewport is at least 900 points wide, a full-height
+leading pane reserves 360 points beside the transcript. At narrower widths, the
+same toggle presents Activity as a floating popover and reserves no transcript
+space. Neither presentation is part of the transcript scroll content.
 
 Validate deterministic generation, clean-cache package resolution, the
 checked-in lockfile, legal notices, build, and tests with:

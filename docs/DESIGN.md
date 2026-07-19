@@ -133,11 +133,13 @@ the same model; text entry is reserved for free-form answers and preset names.
   subagent rows expose their full goal, lifecycle status, and final result in
   the same way. Final results render sanitized GFM Markdown, matching completed
   assistant replies. The card wraps its content, independently caps its Todo and
-  Subagent lists, reserves transcript space and starts visible at wide widths.
-  When the remaining Task canvas is constrained it starts hidden; its explicit
-  toggle shows the card as an overlay without reserving transcript width. Todo
-  progress is textual and status glyphs are supplemental. These surfaces retain Reduce Transparency, Increase
-  Contrast, and Reduce Motion behavior through the existing semantic tokens.
+  Subagent lists, and is controlled from the native sidebar toolbar. When
+  requested with at least 900pt of detail width, it docks at the leading edge
+  beside the sidebar and reserves 360pt of transcript width. At narrower
+  widths, it becomes a floating popover and reserves no transcript width. Todo
+  progress is textual and status glyphs are supplemental. These surfaces retain
+  Reduce Transparency, Increase Contrast, and Reduce Motion behavior through
+  the existing semantic tokens.
   The separate Files pane uses an opaque split tree/preview surface with a
   clear divider. Its header aligns to the toolbar centerline without inheriting
   the toolbar's extra visual depth: the open action stays in the Task toolbar
@@ -156,16 +158,22 @@ the same model; text entry is reserved for free-form answers and preset names.
   errors, and composer occupy the same overlay grid cell instead of creating
   disconnected vertical regions. Operation errors align below the toolbar fade,
   remain above transcript/composer content, and follow the live sidebar inset.
-  The native transcript scrollbar is hidden. A vertically centered dash rail on
-  the transcript's left edge is hidden until the transcript overflows. It starts
-  as a short four-dash rail, grows with scrollable history up to 24 dashes or
-  30rem, and changes existing dashes from muted to active to show position. The
+  The root transcript scroll view remains mounted across loading, empty,
+  selection-required, selected, and stale-selection states, but only a valid
+  selected task contributes message rows. Retained messages from a previous
+  task must not remain visible, scrollable, or accessibility-exposed behind a
+  state overlay. Session-operation failures remain visible in a non-scrolling
+  danger-styled banner.
+  RailgunX retains the native transcript scrollbar so macOS 26 can render its
+  soft top-edge effect; it must not hide, replace, or mutate that scroller. The
   transcript initializes at the newest content and follows content and layout
   growth while it remains at the bottom. Any scroll away from the automatic
   destination—whether caused by wheel, touch, keyboard, selection, browser
   find, or accessibility tooling—disengages following and preserves the current
   position. Returning within 4px of the bottom re-engages immediate following
-  for subsequent updates.
+  for subsequent updates. The implementation and cold-launch verification
+  invariants are defined in
+  [`native-ui-policy.md`](native-ui-policy.md#transcript-soft-top-edge-invariant).
 
 - The desktop composer gives message entry its own full-width row. Its quiet
   footer shows the active model, one combined Agent settings trigger, exact

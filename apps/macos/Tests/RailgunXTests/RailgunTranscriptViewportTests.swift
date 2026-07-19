@@ -90,42 +90,6 @@ final class RailgunTranscriptViewportTests: XCTestCase {
         )
     }
 
-    func testUndersizedTranscriptsUseBottomAlignment() {
-        XCTAssertEqual(RailgunTranscriptViewport.undersizedContentAlignment, .bottom)
-    }
-
-    func testScrollIndicatorUsesACompactLeftRailOnlyForScrollableContent() {
-        XCTAssertEqual(
-            RailgunTranscriptScrollIndicatorPresentation.make(
-                contentHeight: 300,
-                viewportHeight: 300,
-                contentOffsetY: 0
-            ),
-            .initial
-        )
-
-        let indicator = RailgunTranscriptScrollIndicatorPresentation.make(
-            contentHeight: 1_260,
-            viewportHeight: 300,
-            contentOffsetY: 480
-        )
-
-        XCTAssertEqual(indicator.dashCount, 14)
-        XCTAssertEqual(indicator.progress, 0.5)
-        XCTAssertEqual(indicator.activeDashIndexes, [5, 6, 7, 8])
-    }
-
-    func testScrollIndicatorCapsItsDensityAndTracksTheBottom() {
-        let indicator = RailgunTranscriptScrollIndicatorPresentation.make(
-            contentHeight: 10_000,
-            viewportHeight: 300,
-            contentOffsetY: 9_700
-        )
-
-        XCTAssertEqual(indicator.dashCount, RailgunTranscriptScrollIndicatorPresentation.maximumDashCount)
-        XCTAssertEqual(indicator.activeDashIndexes, [20, 21, 22, 23])
-    }
-
     func testJumpingOrManuallyReturningToBottomRefollowsAndClearsCue() {
         let pausedWithCue = RailgunTranscriptFollowState.contentDidChange(
             .scrollPositionDidChange(.initial, isAtBottom: false)
@@ -160,11 +124,11 @@ final class RailgunTranscriptViewportTests: XCTestCase {
 
         XCTAssertEqual(RailgunTaskDetailPresentation(session: sessionState), .selected(session))
         XCTAssertEqual(
-            RailgunTranscriptViewport.orderedMessages(in: transcript).map(\.text),
+            RailgunTranscriptOrdering.orderedMessages(in: transcript).map(\.text),
             ["First request", "**Plain response**"]
         )
         XCTAssertEqual(
-            RailgunTranscriptViewport.orderedMessages(in: transcript).map(\.order),
+            RailgunTranscriptOrdering.orderedMessages(in: transcript).map(\.order),
             [1, 3]
         )
     }
@@ -184,7 +148,7 @@ final class RailgunTranscriptViewportTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            RailgunTranscriptViewport.orderedMessages(in: transcript).map(\.id),
+            RailgunTranscriptOrdering.orderedMessages(in: transcript).map(\.id),
             ["second", "first"]
         )
     }

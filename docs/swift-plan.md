@@ -293,12 +293,12 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 ### 3. Task alpha
 
 - [x] `SWFT-023` — Build the app store and pure reducers for backend, session, transcript, controls, interactions, and activity. `[8h]`
-- [x] `SWFT-024` — Build the shell using native split navigation, sidebar, toolbar, list selection, and an embedded Activity card. `[8h]`
+- [x] `SWFT-024` — Build the shell using native split navigation, sidebar-owned controls, toolbar actions, list selection, and an adaptive leading Activity pane/popover. `[8h]`
 - [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
 - [x] `SWFT-026` — Implement safe paginated transcript restoration and one chronological assembly for restored/live messages, tools, errors, and run boundaries. `[8h]`
-- [x] `SWFT-027` — Build the native lazy transcript viewport, four-point bottom-follow behavior, Jump to Latest cue, and feature-local left dash position rail. `[8h]`
+- [x] `SWFT-027` — Build the native lazy transcript viewport, four-point bottom-follow behavior, Jump to Latest cue, and macOS 26 soft top-edge effect while retaining the native scroller. `[8h]`
 - [ ] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
-- [ ] `SWFT-030` — Build tool activity and populate the embedded Activity card using native group, list, disclosure, and popover behavior with shared presentation variants. `[8h]`
+- [ ] `SWFT-030` — Build tool activity and populate the adaptive Activity pane/popover using native group, list, disclosure, and popover behavior with shared presentation variants. `[8h]`
 - [ ] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
 - [ ] `SWFT-032` — Implement prompt, steering, follow-up, FIFO acknowledgement, and the Task, Settings, and sidebar menu commands that route those workflows. `[8h]`
 - [ ] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`

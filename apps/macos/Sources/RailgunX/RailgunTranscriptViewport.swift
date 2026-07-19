@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// Decides transcript bottom-follow behavior independently from SwiftUI's
@@ -53,11 +52,13 @@ struct RailgunTranscriptFollowState: Equatable {
 
 struct RailgunScrollGeometry: Equatable {
     let contentHeight: CGFloat
+    let viewportWidth: CGFloat
     let viewportHeight: CGFloat
     let contentOffsetY: CGFloat
 
     init(_ geometry: ScrollGeometry) {
         contentHeight = geometry.contentSize.height
+        viewportWidth = geometry.containerSize.width
         viewportHeight = geometry.containerSize.height
         contentOffsetY = geometry.contentOffset.y
     }
@@ -68,47 +69,6 @@ struct RailgunScrollGeometry: Equatable {
             viewportHeight: viewportHeight,
             contentOffsetY: contentOffsetY
         )
-    }
-}
-
-struct RailgunTranscriptScrollIndicatorPresentation: Equatable {
-    static let maximumDashCount = 24
-    static let activeDashCount = 4
-    static let dashGrowthPoints: CGFloat = 96
-    static let dashWidth: CGFloat = 6
-    static let dashHeight: CGFloat = 3
-    static let dashSpacing: CGFloat = 20
-    static let maximumHeight: CGFloat = 480
-
-    let progress: CGFloat
-    let dashCount: Int
-
-    static let initial = Self(progress: 0, dashCount: 0)
-
-    static func make(
-        contentHeight: CGFloat,
-        viewportHeight: CGFloat,
-        contentOffsetY: CGFloat
-    ) -> Self {
-        let scrollableHeight = contentHeight - viewportHeight
-        guard scrollableHeight > 0 else { return .initial }
-        let progress = min(1, max(0, contentOffsetY / scrollableHeight))
-        let dashCount = min(
-            maximumDashCount,
-            activeDashCount + Int(scrollableHeight / dashGrowthPoints)
-        )
-        return .init(progress: progress, dashCount: dashCount)
-    }
-
-    var activeDashIndexes: [Int] {
-        let count = min(Self.activeDashCount, dashCount)
-        guard count > 0 else { return [] }
-        let start = Int((progress * CGFloat(dashCount - count)).rounded())
-        return Array(start ..< start + count)
-    }
-
-    var height: CGFloat {
-        min(Self.maximumHeight, CGFloat(dashCount) * Self.dashSpacing)
     }
 }
 
@@ -147,17 +107,7 @@ enum RailgunTranscriptStatusPresentation: Equatable {
     }
 }
 
-struct RailgunTranscriptViewport: View {
-    let sessionID: String
-    let transcript: RailgunTranscriptState
-
-    static let undersizedContentAlignment = UnitPoint.bottom
-
-    @State private var followState = RailgunTranscriptFollowState.initial
-    @State private var previousGeometry: RailgunScrollGeometry?
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
-    @State private var scrollIndicator = RailgunTranscriptScrollIndicatorPresentation.initial
-
+enum RailgunTranscriptOrdering {
     static func orderedMessages(in transcript: RailgunTranscriptState) -> [RailgunTranscriptMessage] {
         transcript.messages.enumerated()
             .sorted { lhs, rhs in
@@ -167,155 +117,9 @@ struct RailgunTranscriptViewport: View {
             }
             .map(\.element)
     }
-
-    private var messages: [RailgunTranscriptMessage] {
-        Self.orderedMessages(in: transcript)
-    }
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            if messages.isEmpty {
-                ContentUnavailableView(
-                    "No Messages Yet",
-                    systemImage: "text.bubble",
-                    description: Text("Messages for this task will appear here.")
-                )
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(messages) { message in
-                            RailgunTranscriptMessageRow(message: message)
-                        }
-                    }
-                    .padding(.vertical, 20)
-                    .padding(.leading, 44)
-                    .padding(.trailing, 20)
-                    .scrollTargetLayout()
-                    .background(RailgunSystemScrollIndicatorSuppressor())
-                }
-                .defaultScrollAnchor(Self.undersizedContentAlignment, for: .alignment)
-                .scrollPosition($scrollPosition)
-                .scrollIndicators(.hidden)
-                .onScrollGeometryChange(for: RailgunScrollGeometry.self) { geometry in
-                    RailgunScrollGeometry(geometry)
-                } action: { _, geometry in
-                    handleGeometryChange(geometry)
-                }
-                .accessibilityIdentifier("transcript-scroll-view")
-            }
-
-            if followState.showsJumpToLatest {
-                Button("Jump to Latest", systemImage: "arrow.down") {
-                    followState = .jumpToLatest()
-                    scrollToBottom()
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(20)
-                .accessibilityIdentifier("jump-to-latest")
-            }
-        }
-        .overlay(alignment: .leading) {
-            RailgunScrollIndicator(presentation: scrollIndicator)
-                .padding(.leading, 8)
-                .allowsHitTesting(false)
-        }
-        .onChange(of: sessionID, initial: true) { _, _ in
-            followState = .sessionDidChange()
-            previousGeometry = nil
-            scrollIndicator = .initial
-            scrollToBottom()
-        }
-        .onChange(of: transcript.messages) { _, _ in
-            if followState.isFollowingLatest {
-                scrollToBottom()
-            } else {
-                followState = .contentDidChange(followState)
-            }
-        }
-    }
-
-    private func handleGeometryChange(_ geometry: RailgunScrollGeometry) {
-        defer { previousGeometry = geometry }
-        scrollIndicator = .make(
-            contentHeight: geometry.contentHeight,
-            viewportHeight: geometry.viewportHeight,
-            contentOffsetY: geometry.contentOffsetY
-        )
-
-        if geometry.isAtBottom {
-            followState = .initial
-            return
-        }
-
-        if RailgunTranscriptFollowState.shouldMaintainFollow(
-            followState,
-            previousContentHeight: previousGeometry?.contentHeight,
-            previousViewportHeight: previousGeometry?.viewportHeight,
-            contentHeight: geometry.contentHeight,
-            viewportHeight: geometry.viewportHeight
-        ) {
-            scrollToBottom()
-        } else {
-            followState = .scrollPositionDidChange(followState, isAtBottom: false)
-        }
-    }
-
-    private func scrollToBottom() {
-        scrollPosition.scrollTo(edge: .bottom)
-    }
 }
 
-private struct RailgunSystemScrollIndicatorSuppressor: NSViewRepresentable {
-    func makeNSView(context: Context) -> RailgunScrollerSuppressingView {
-        RailgunScrollerSuppressingView()
-    }
-
-    func updateNSView(_ nsView: RailgunScrollerSuppressingView, context: Context) {
-        nsView.suppressEnclosingScroller()
-    }
-}
-
-private final class RailgunScrollerSuppressingView: NSView {
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        suppressEnclosingScroller()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        suppressEnclosingScroller()
-    }
-
-    func suppressEnclosingScroller() {
-        DispatchQueue.main.async { [weak self] in
-            guard let scrollView = self?.enclosingScrollView else { return }
-            scrollView.hasVerticalScroller = false
-            scrollView.verticalScroller?.isHidden = true
-        }
-    }
-}
-
-struct RailgunScrollIndicator: View {
-    let presentation: RailgunTranscriptScrollIndicatorPresentation
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(0 ..< presentation.dashCount, id: \.self) { index in
-                Rectangle()
-                    .fill(presentation.activeDashIndexes.contains(index) ? Color.primary.opacity(0.78) : Color.secondary.opacity(0.24))
-                    .frame(width: RailgunTranscriptScrollIndicatorPresentation.dashWidth, height: RailgunTranscriptScrollIndicatorPresentation.dashHeight)
-
-                if index < presentation.dashCount - 1 {
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .frame(width: RailgunTranscriptScrollIndicatorPresentation.dashWidth, height: presentation.height)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct RailgunTranscriptMessageRow: View {
+struct RailgunTranscriptMessageRow: View {
     let message: RailgunTranscriptMessage
 
     var body: some View {
