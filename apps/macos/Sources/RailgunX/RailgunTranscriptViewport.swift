@@ -1,3 +1,4 @@
+import RailgunUI
 import SwiftUI
 
 /// Decides transcript bottom-follow behavior independently from SwiftUI's
@@ -119,6 +120,13 @@ enum RailgunTranscriptOrdering {
     }
 }
 
+enum RailgunTranscriptMessageRendering {
+    /// Only immutable completed assistant history is safe to interpret as Markdown.
+    static func usesMarkdown(role: RailgunTranscriptMessage.Role, status: RailgunMessageStatus) -> Bool {
+        role == .assistant && status == .complete
+    }
+}
+
 struct RailgunTranscriptMessageRow: View {
     let message: RailgunTranscriptMessage
 
@@ -132,6 +140,11 @@ struct RailgunTranscriptMessageRow: View {
                         .padding(12)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                 }
+            } else if RailgunTranscriptMessageRendering.usesMarkdown(
+                role: message.role,
+                status: message.status
+            ) {
+                RailgunMarkdownMessage(markdown: message.text)
             } else {
                 Text(message.text)
                     .textSelection(.enabled)
@@ -140,7 +153,7 @@ struct RailgunTranscriptMessageRow: View {
 
             if let status = RailgunTranscriptStatusPresentation(status: message.status) {
                 Label(status.title, systemImage: status.systemImage)
-                    .font(.caption)
+                    .font(RailgunFont.interface(.caption))
                     .foregroundStyle(status == .failed ? .red : .secondary)
                     .accessibilityIdentifier("transcript-status-\(status.title.lowercased())")
             }

@@ -10,8 +10,10 @@
       "Apache-2.0.txt": "170b3cf054f64ba86f14b91a94928350728487de3f860ffa07861805b446d8cb",
       "BSD-2-Clause.txt": "f9b29fb66a48bf7c52c5b00b87610f4146922dc551619d65722ee6ceed0ec56f",
       "BSD-3-Clause.txt": "2fcaaa8d3d4c1be9b8f2dcb91e5c1609dc7a624ab9dc7bdb82fcf6402606c1d9",
+      "Barlow-OFL.txt": "10b0e6bb43166a50fbe7cde2895bd7f703738a5da843acb5c97c95dc9ea26817",
       "BlueOak-1.0.0.txt": "79860758b46e85f70a1762c21a8fff4f2d220d89f9bdca096e12aed15b9951c5",
       "CC0-1.0.txt": "7179683e8000e6bdc9bbc60d85edf0a4ac8e76f951857f54fcb775d5886f1309",
+      "DepartureMonoNerdFont-OFL.txt": "b65e42750f3cb65437a97f4dfd781c58f199259949db2341012be60e32500e83",
       "ISC.txt": "e98c16cdc4b43f528e1d02aad1558cfc62a8309a115af69f36bfb1dc11f7bc3c",
       "LGPL-3.0-or-later.txt": "d2db3fe538e9ecb8aac723a2bc51d27dfa81aa880ad3fc20c203966ec908dc6e",
       "MIT-0.txt": "6971720a15619a9a7252aa348e2617b0015579d275ca7a5ffa5ade27bc2f87ba",
@@ -27,7 +29,7 @@
       "apps/macos/Resources/RailgunIcon/RailgunIcon-1024.png": "f01601d42e52f9e9270dc1b8298bdc3cf5e15cb58af0b9a335cd0bd2c20739d0"
     }
   },
-  "noticesSHA256": "90f0f2caf73be82ed6537550cd40ec7a5bc0702d313b875b061eabeea3d70fca",
+  "noticesSHA256": "f51abb8166743216be44d0242b04142a35239ef4c1c2cd9a904673aeb1fe8da4",
   "components": [
     {
       "identifier": "swift-markdown",
@@ -80,6 +82,32 @@
       "sourceLocation": "apps/macos/Runtime/node-runtime.json; arm64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.xz#sha256=4477b9f78efb77744cf5eb57a0e9594dba66466b38b4e93fa9f35cb907a095a6; x86_64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-x64.tar.xz#sha256=4a3b6bc81542154430825128d9a279e8b364e8d90581544e506ef7579fd1ab6f",
       "licenseSource": "https://github.com/nodejs/node/blob/v24.18.0/LICENSE",
       "noticeContentSHA256": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5"
+    },
+    {
+      "identifier": "barlow",
+      "kind": "font",
+      "name": "Barlow",
+      "version": "1.208",
+      "revision": null,
+      "archive": null,
+      "copyright": null,
+      "license": "OFL-1.1",
+      "sourceLocation": "apps/macos/Resources/Fonts/Barlow-Regular.otf; apps/macos/Resources/Fonts/Barlow-Medium.otf; apps/macos/Resources/Fonts/Barlow-SemiBold.otf; apps/macos/Resources/Fonts/Barlow-Bold.otf",
+      "licenseSource": "https://github.com/jpt/barlow/blob/main/OFL.txt",
+      "noticeContentSHA256": "10b0e6bb43166a50fbe7cde2895bd7f703738a5da843acb5c97c95dc9ea26817"
+    },
+    {
+      "identifier": "departure-mono-nerd-font",
+      "kind": "font",
+      "name": "Departure Mono Nerd Font",
+      "version": "1.422 / Nerd Fonts 3.4.0",
+      "revision": null,
+      "archive": null,
+      "copyright": null,
+      "license": "OFL-1.1",
+      "sourceLocation": "apps/macos/Resources/Fonts/DepartureMonoNerdFont-Regular.otf",
+      "licenseSource": "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0",
+      "noticeContentSHA256": "b65e42750f3cb65437a97f4dfd781c58f199259949db2341012be60e32500e83"
     },
     {
       "identifier": "railgun-icon-artwork",

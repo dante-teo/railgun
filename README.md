@@ -323,10 +323,12 @@ dependencies. `RailgunX` is the application composition root:
   `RailgunXTests` links it.
 - `RailgunX` depends on Core, Transport, Services, and UI.
 
-`RailgunUI` currently exposes the shared native design definitions described
-below, plus the empty custom-component registry and its contract foundation.
-Swift Markdown and Sparkle remain application packaging dependencies until a
-later milestone assigns an API owner.
+`RailgunUI` exposes the shared native design definitions below, the
+custom-component registry and its contract foundation, and the completed
+assistant-message renderer. It owns the Swift Markdown source dependency;
+because `RailgunUI` is a static archive, `RailgunX` links the package objects
+into the final application. Sparkle remains an application packaging
+dependency.
 
 ### Native deterministic test infrastructure
 
@@ -372,16 +374,19 @@ Reusable custom controls are an exception, not a replacement for native
 SwiftUI composition. Before adding one, complete the policy decision record,
 define and register a `RailgunCustomComponentSpecification` in `RailgunUI`,
 use `RailgunCustomComponentPreviewMatrixView` for its `#Preview` matrix, and
-add focused contract tests. `RailgunCustomComponentRegistry.components` starts
-empty by design; feature-local compositions using native SwiftUI controls do
-not belong in it.
+add focused contract tests. The completed Markdown message is the registered
+shared component; feature-local compositions using native SwiftUI controls do
+not belong in the registry.
 
 - `RailgunColorRole` provides accent, text, destructive, separator, canvas,
   and surface colors. Use its `color` value—for example,
   `RailgunColorRole.secondaryText.color`—rather than fixed color values.
-- `RailgunTypographyRole` provides dynamic system fonts for body, emphasized
-  body, secondary text, titles, section titles, and captions. Apply its `font`
-  value so macOS accessibility settings remain effective.
+- `RailgunFont` registers the bundled Barlow faces at launch and provides
+  dynamic-type-aware interface fonts. `RailgunTypographyRole` maps body,
+  emphasized body, secondary text, titles, section titles, and captions to
+  those faces. Use `RailgunFont.code()` only for code content; it selects the
+  bundled Departure Mono Nerd Font. The font assets and OFL notices live in
+  `apps/macos/Resources/Fonts/` and `apps/macos/Resources/Legal/`.
 - `RailgunSpacing` defines the shared 4, 8, 12, 16, and 24 point scale through
   its `points` value.
 - `RailgunMaterialRole` selects native regular, bar, thin, and ultra-thick
@@ -406,10 +411,15 @@ actions. The richer searchable preferences and archive-management surfaces
 remain deferred to their assigned Swift milestones.
 
 A selected, hydrated task renders its restored and live messages in a native
-`ScrollView` and `LazyVStack`. Messages are selectable plain text until the
-Markdown milestone: user messages use a compact framed treatment, while
-assistant messages remain unframed. Tool, advisor, MoA, and subagent activity is
-intentionally withheld from this transcript until the activity milestone.
+`ScrollView` and `LazyVStack`. User messages and incomplete, failed, or stopped
+assistant fragments remain selectable plain text; completed assistant messages
+use `RailgunMarkdownMessage`. It supports CommonMark/GFM headings, emphasis,
+task lists, quotes, rules, code, tables, and image blocks. Only credential-free
+absolute HTTPS links and images are active; HTML is displayed as literal text.
+Code remains selectable and wraps, tables are selectable and scroll
+horizontally, and image loading or failure labels include both status and alt
+text for VoiceOver. Tool, advisor, MoA, and subagent activity is intentionally
+withheld from this transcript until the activity milestone.
 Loading, empty, selection-required, and stale-selection states retain the same
 root scroll view for layout stability but do not render or accessibility-expose
 messages retained by the reducer. Their centered state presentations and any

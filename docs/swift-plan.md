@@ -172,11 +172,12 @@ Start with native SwiftUI components: `NavigationSplitView`, `List`, `Table`,
 `ContentUnavailableView`, `Settings`, `sheet`, `alert`, `confirmationDialog`,
 and `inspector`.
 
-Retain system typography, control sizes, focus behavior, keyboard navigation,
+Retain system text scaling, control sizes, focus behavior, keyboard navigation,
 menu integration, accessibility semantics, animations, materials, and platform
-spacing unless a requirement explicitly demands otherwise. Do not recreate
-system controls, menus, dialogs, sidebars, toolbars, forms, or materials with
-custom drawing.
+spacing unless a requirement explicitly demands otherwise. Railgun's approved
+application typography may supply custom font faces through SwiftUI text styles;
+do not recreate system controls, menus, dialogs, sidebars, toolbars, forms, or
+materials with custom drawing.
 
 Use AppKit bridges only for behavior unavailable in deployment-target SwiftUI.
 Approved categories begin with the advanced composer, Quick Look, precise
@@ -297,7 +298,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
 - [x] `SWFT-026` — Implement safe paginated transcript restoration and one chronological assembly for restored/live messages, tools, errors, and run boundaries. `[8h]`
 - [x] `SWFT-027` — Build the native lazy transcript viewport, four-point bottom-follow behavior, Jump to Latest cue, and macOS 26 soft top-edge effect while retaining the native scroller. `[8h]`
-- [ ] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
+- [x] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
 - [ ] `SWFT-030` — Build tool activity and populate the adaptive Activity pane/popover using native group, list, disclosure, and popover behavior with shared presentation variants. `[8h]`
 - [ ] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
 - [ ] `SWFT-032` — Implement prompt, steering, follow-up, FIFO acknowledgement, and the Task, Settings, and sidebar menu commands that route those workflows. `[8h]`

@@ -15,10 +15,12 @@ and inspectors.
 
 Do not recreate system controls, menus, dialogs, sidebars, toolbars, forms,
 materials, focus rings, keyboard navigation, or accessibility behavior with
-custom drawing or custom chrome. Preserve system typography, control sizing,
+custom drawing or custom chrome. Preserve system text scaling, control sizing,
 focus behavior, menu integration, accessibility semantics, animations,
 materials, and platform spacing unless an approved decision record establishes
-an unmet requirement.
+an unmet requirement. Railgun's approved application typography is Barlow for
+interface text and Departure Mono Nerd Font for code; it continues to use
+SwiftUI text styles for Dynamic Type scaling.
 
 ## Customization decision record
 
@@ -49,6 +51,23 @@ the feature's design or implementation documentation. Use this template:
 The record is proof that customization is necessary, not a request for a
 different visual treatment. A new decision record is required when a component
 or bridge gains a material new behavior or variant.
+
+### `RailgunMarkdownMessage`
+
+- **Unmet requirement:** Completed assistant history requires safe
+  CommonMark/GFM rendering with selectable rich text, wrapped code, table
+  scrolling, and accessible image states.
+- **Native APIs evaluated:** macOS 15 SwiftUI has no Markdown view that
+  combines destination filtering, text selection, native table scrolling, and
+  image loading/failure semantics.
+- **Accessibility and interaction contract:** Links keep native external-link
+  behavior; code and tables are selectable; images announce their alt text and
+  loading, failure, or invalid-source state to VoiceOver.
+- **Shared ownership:** The renderer is a registered `RailgunUI` component for
+  completed Markdown surfaces. User and incomplete assistant messages remain
+  ordinary selectable `Text` views.
+- **Retirement trigger:** Replace it when SwiftUI provides a safe native
+  Markdown renderer with equivalent selection, image, code, and table support.
 
 ## Approved AppKit bridge register
 
@@ -121,12 +140,11 @@ encode variants through feature-local modifier stacks or combinations of
 booleans.
 
 `RailgunCustomComponentRegistry.components` is the typed source of truth for
-these reusable custom components. It starts empty deliberately: native SwiftUI
-compositions in a feature do not need a registry entry, and no shared custom
-control should be added until it has completed the workflow below. Contract and
-registry declarations belong only in `Sources/RailgunUI`; the automated source
-audit enforces that ownership without restricting ordinary feature-local
-SwiftUI composition.
+these reusable custom components. Native SwiftUI compositions in a feature do
+not need a registry entry; shared controls are added only after completing the
+workflow below. Contract and registry declarations belong only in
+`Sources/RailgunUI`; the automated source audit enforces that ownership without
+restricting ordinary feature-local SwiftUI composition.
 
 Before introducing a reusable custom component:
 

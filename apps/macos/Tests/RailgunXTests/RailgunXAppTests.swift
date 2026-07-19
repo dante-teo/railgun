@@ -530,6 +530,10 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(records["swift-cmark"]?.revision, "924936d0427cb25a61169739a7660230bffa6ea6")
         XCTAssertEqual(records["sparkle"]?.version, "2.9.4")
         XCTAssertEqual(records["sparkle"]?.revision, "b6496a74a087257ef5e6da1c5b29a447a60f5bd7")
+        XCTAssertEqual(records["barlow"]?.version, "1.208")
+        XCTAssertEqual(records["barlow"]?.license, "OFL-1.1")
+        XCTAssertEqual(records["departure-mono-nerd-font"]?.version, "1.422 / Nerd Fonts 3.4.0")
+        XCTAssertEqual(records["departure-mono-nerd-font"]?.license, "OFL-1.1")
 
         XCTAssertEqual(records["nodejs-24-lts"]?.version, "24.18.0")
         XCTAssertEqual(

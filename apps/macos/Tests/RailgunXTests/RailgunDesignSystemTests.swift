@@ -22,6 +22,30 @@ final class RailgunDesignSystemTests: XCTestCase {
         XCTAssertEqual(RailgunTypographyRole.caption.textStyleName, "caption")
     }
 
+    func testNativeTypographyBundlesTheElectronAppFontFamilies() throws {
+        XCTAssertEqual(RailgunFont.interfaceFamilyName, "Barlow")
+        XCTAssertEqual(RailgunFont.codeFamilyName, "Departure Mono Nerd Font")
+
+        let fontDirectory = repositoryRoot.appendingPathComponent("apps/macos/Resources/Fonts")
+        let fontFiles = [
+            "Barlow-Regular.otf",
+            "Barlow-Medium.otf",
+            "Barlow-SemiBold.otf",
+            "Barlow-Bold.otf",
+            "DepartureMonoNerdFont-Regular.otf"
+        ]
+        XCTAssertEqual(RailgunFont.bundledFontFileNames, fontFiles)
+        for fontFile in fontFiles {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: fontDirectory.appendingPathComponent(fontFile).path))
+        }
+
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(project.contains("- path: Resources/Fonts"))
+    }
+
     func testSpacingScaleIsNamedAndOrdered() {
         XCTAssertEqual(RailgunSpacing.compact.points, 4)
         XCTAssertEqual(RailgunSpacing.standard.points, 8)

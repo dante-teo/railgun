@@ -35,6 +35,13 @@ source records, and SIL Open Font License notices are bundled under
 `apps/desktop/src/renderer/public/fonts/` and load only through the packaged
 `railgun://app/` origin.
 
+RailgunX packages the same typography under
+`apps/macos/Resources/Fonts/`: Barlow Regular, Medium, SemiBold, and Bold are
+registered at launch and used for interface text with Dynamic Type scaling.
+Departure Mono Nerd Font is registered alongside them and is reserved for
+Markdown inline and fenced code. The native app's generated legal notices
+include both SIL Open Font License records.
+
 Material communicates hierarchy rather than covering every layer. Glass is
 reserved for the inset sidebar, continuous top toolbar, floating composer
 shell, anchored popovers, and dialogs. Cards, lists, fields, and prompts use

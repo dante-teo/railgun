@@ -51,6 +51,17 @@ targets:
       - path: Sources/RailgunUI
     dependencies:
       - target: RailgunCore
+      - package: Markdown
+    settings:
+      base:
+        # swift-markdown 0.8.0 exports C targets whose module metadata is not
+        # consumable by Xcode 26's explicit-module mode from a static target.
+        SWIFT_ENABLE_EXPLICIT_MODULES: NO
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/src/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/extensions/include"
 
   RailgunTestSupport:
     type: library.static
@@ -72,11 +83,15 @@ targets:
         buildPhase: resources
       - path: Resources/Legal
         buildPhase: resources
+      - path: Resources/Fonts
+        buildPhase: resources
     dependencies:
       - target: RailgunCore
       - target: RailgunTransport
       - target: RailgunServices
       - target: RailgunUI
+      # RailgunUI owns the source dependency. The final app links Markdown
+      # because RailgunUI is a static archive and cannot carry package objects.
       - package: Markdown
       - package: Sparkle
         product: Sparkle

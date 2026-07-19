@@ -3,8 +3,8 @@ import XCTest
 import RailgunUI
 
 final class RailgunCustomComponentFoundationTests: XCTestCase {
-    func testEmptyRegistryIsValid() {
-        XCTAssertEqual(RailgunCustomComponentRegistry.components, [])
+    func testRegisteredComponentsHaveValidContracts() {
+        XCTAssertEqual(RailgunCustomComponentRegistry.components.map(\.id.rawValue), ["markdown-message"])
         XCTAssertEqual(
             RailgunCustomComponentValidator.validate(RailgunCustomComponentRegistry.components),
             []

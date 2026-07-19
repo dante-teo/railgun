@@ -1,4 +1,76 @@
+import CoreText
 import SwiftUI
+
+public enum RailgunFontWeight: Sendable {
+    case regular
+    case medium
+    case semibold
+    case bold
+}
+
+/// Typography shared by every native Railgun surface.
+public enum RailgunFont {
+    public static let interfaceFamilyName = "Barlow"
+    public static let codeFamilyName = "Departure Mono Nerd Font"
+    public static let bundledFontFileNames = [
+        "Barlow-Regular.otf",
+        "Barlow-Medium.otf",
+        "Barlow-SemiBold.otf",
+        "Barlow-Bold.otf",
+        "DepartureMonoNerdFont-Regular.otf"
+    ]
+
+    /// Registers the packaged fonts before SwiftUI creates any app content.
+    public static func registerBundledFonts(in bundle: Bundle = .main) {
+        for fileName in bundledFontFileNames {
+            let fileURL = URL(fileURLWithPath: fileName)
+            guard let url = bundle.url(
+                forResource: fileURL.deletingPathExtension().lastPathComponent,
+                withExtension: fileURL.pathExtension
+            ) else {
+                assertionFailure("Missing bundled font: \(fileName)")
+                continue
+            }
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
+
+    public static func interface(
+        _ textStyle: Font.TextStyle = .body,
+        weight: RailgunFontWeight = .regular
+    ) -> Font {
+        .custom(interfacePostScriptName(for: weight), size: pointSize(for: textStyle), relativeTo: textStyle)
+    }
+
+    public static func code(_ textStyle: Font.TextStyle = .body) -> Font {
+        .custom("DepartureMonoNF-Regular", size: pointSize(for: textStyle), relativeTo: textStyle)
+    }
+
+    private static func interfacePostScriptName(for weight: RailgunFontWeight) -> String {
+        switch weight {
+        case .regular: "Barlow-Regular"
+        case .medium: "Barlow-Medium"
+        case .semibold: "Barlow-SemiBold"
+        case .bold: "Barlow-Bold"
+        }
+    }
+
+    private static func pointSize(for textStyle: Font.TextStyle) -> CGFloat {
+        switch textStyle {
+        case .largeTitle: 34
+        case .title: 28
+        case .title2: 22
+        case .title3: 20
+        case .headline, .body: 17
+        case .callout: 16
+        case .subheadline: 15
+        case .footnote: 13
+        case .caption: 12
+        case .caption2: 11
+        @unknown default: 17
+        }
+    }
+}
 
 public enum RailgunColorRole: String, CaseIterable, Sendable {
     case accent = "accentColor"
@@ -42,17 +114,17 @@ public enum RailgunTypographyRole: CaseIterable, Sendable {
     public var font: Font {
         switch self {
         case .body:
-            .body
+            RailgunFont.interface(.body)
         case .emphasizedBody:
-            .body.weight(.semibold)
+            RailgunFont.interface(.body, weight: .semibold)
         case .secondary:
-            .subheadline
+            RailgunFont.interface(.subheadline)
         case .title:
-            .title
+            RailgunFont.interface(.title, weight: .bold)
         case .sectionTitle:
-            .headline
+            RailgunFont.interface(.headline, weight: .semibold)
         case .caption:
-            .caption
+            RailgunFont.interface(.caption)
         }
     }
 

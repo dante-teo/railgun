@@ -202,10 +202,24 @@ public struct RailgunCustomComponentSpecification: Equatable, Sendable {
 
 /// The single source of truth for reusable custom components.
 ///
-/// This is intentionally empty until a completed native-first decision record,
-/// contract tests, and matrix previews justify a shared custom component.
 public enum RailgunCustomComponentRegistry {
-    public static let components: [RailgunCustomComponentSpecification] = []
+    public static let components: [RailgunCustomComponentSpecification] = [
+        RailgunCustomComponentSpecification(
+            id: "markdown-message",
+            sourcePath: "Sources/RailgunUI/RailgunMarkdownMessage.swift",
+            variants: ["message"],
+            supportedStates: [.normal, .error, .loading, .disabled],
+            previewConditions: RailgunCustomComponentPreviewCondition.allCases,
+            previewWidths: [.compact, .regular, .wide],
+            interactionClass: .interactive,
+            accessibilityRequirements: .interactive,
+            rationale: RailgunCustomComponentRationale(
+                customizationRationale: "Completed assistant messages need one reusable presentation for CommonMark/GFM blocks, safe external links and images, selectable code, and horizontally scrollable tables.",
+                macOS15NativeAPILimitation: "macOS 15 SwiftUI has no single native Markdown view that supplies safe destination filtering while preserving selectable rich text, native code wrapping, table scrolling, and asynchronous image accessibility states.",
+                retirementTrigger: "Replace this component when SwiftUI provides a native Markdown renderer with these security, selection, image, code, and table capabilities."
+            )
+        )
+    ]
 }
 
 /// A deterministic validation result for a component contract.
@@ -383,7 +397,7 @@ public struct RailgunCustomComponentPreviewConfiguration: Identifiable, Hashable
         condition == .reducedMotion
     }
 
-    fileprivate var colorScheme: ColorScheme {
+    var colorScheme: ColorScheme {
         condition == .darkAppearance ? .dark : .light
     }
 }

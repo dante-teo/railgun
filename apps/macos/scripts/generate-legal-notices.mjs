@@ -30,6 +30,8 @@ const knownNotices = {
     'swift-markdown': readText(join(legalSourceDirectory, 'Apache-2.0.txt')),
     'swift-cmark': readText(join(legalSourceDirectory, 'Swift-CMark-COPYING.txt')),
     sparkle: readText(join(legalSourceDirectory, 'Sparkle-LICENSE.txt')),
+    barlow: readText(join(legalSourceDirectory, 'Barlow-OFL.txt')),
+    'departure-mono-nerd-font': readText(join(legalSourceDirectory, 'DepartureMonoNerdFont-OFL.txt')),
     'nodejs-24-lts': readText(join(legalSourceDirectory, 'Node.js-LICENSE.txt')),
     'railgun-icon-artwork': normalized(`© 2026 Dante Teo. Railgun icon artwork is first-party material and is distributed under the Railgun MIT License.`),
     railgun: readText(join(repositoryDirectory, 'LICENSE'))
@@ -115,6 +117,24 @@ const swiftComponents = () => {
 const staticComponents = () => [
     ...swiftComponents(),
     nodeRuntimeComponent(),
+    staticComponent({
+        identifier: 'barlow',
+        kind: 'font',
+        name: 'Barlow',
+        version: '1.208',
+        license: 'OFL-1.1',
+        sourceLocation: 'apps/macos/Resources/Fonts/Barlow-Regular.otf; apps/macos/Resources/Fonts/Barlow-Medium.otf; apps/macos/Resources/Fonts/Barlow-SemiBold.otf; apps/macos/Resources/Fonts/Barlow-Bold.otf',
+        licenseSource: 'https://github.com/jpt/barlow/blob/main/OFL.txt'
+    }),
+    staticComponent({
+        identifier: 'departure-mono-nerd-font',
+        kind: 'font',
+        name: 'Departure Mono Nerd Font',
+        version: '1.422 / Nerd Fonts 3.4.0',
+        license: 'OFL-1.1',
+        sourceLocation: 'apps/macos/Resources/Fonts/DepartureMonoNerdFont-Regular.otf',
+        licenseSource: 'https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0'
+    }),
     staticComponent({
         identifier: 'railgun-icon-artwork',
         kind: 'first-party-artwork',

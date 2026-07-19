@@ -633,7 +633,7 @@ struct RailgunTaskShell: View {
         _ presentation: RailgunSessionOperationErrorPresentation
     ) -> some View {
         Label(presentation.message, systemImage: "exclamationmark.triangle.fill")
-            .font(.callout)
+            .font(RailgunFont.interface(.callout))
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
@@ -768,7 +768,7 @@ private struct RailgunTaskSidebar: View {
                         Text(summary.displayTitle)
                             .lineLimit(1)
                         Text("\(summary.model) • \(summary.startedAt)")
-                            .font(.caption)
+                            .font(RailgunFont.interface(.caption))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -820,14 +820,14 @@ private struct RailgunActivityCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
                 Text("Activity")
-                    .font(.title.bold())
+                    .font(RailgunFont.interface(.title, weight: .bold))
 
                 Spacer()
 
                 if let dismiss {
                     Button(action: dismiss) {
                         Image(systemName: "xmark")
-                            .font(.title2.weight(.medium))
+                            .font(RailgunFont.interface(.title2, weight: .medium))
                             .frame(width: 34, height: 34)
                             .contentShape(Circle())
                     }
@@ -895,7 +895,7 @@ private struct RailgunBackendStatusView: View {
                 .font(.system(size: 42))
                 .foregroundStyle(.secondary)
             Text(title)
-                .font(.title2)
+                .font(RailgunFont.interface(.title2))
             Text(message)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -919,12 +919,11 @@ private struct RailgunSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Archived Tasks")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(RailgunFont.interface(.title2, weight: .semibold))
 
             if let error = appStore.state.session.error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
+                    .font(RailgunFont.interface(.callout))
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("archived-task-error")
             }
@@ -944,7 +943,7 @@ private struct RailgunSettingsView: View {
                             Text(task.displayTitle)
                                 .lineLimit(1)
                             Text("\(task.model) • \(task.startedAt)")
-                                .font(.caption)
+                                .font(RailgunFont.interface(.caption))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -977,6 +976,7 @@ struct RailgunXApp: App {
     @State private var backendRuntime: RailgunBackendRuntime
 
     init() {
+        RailgunFont.registerBundledFonts()
         let backendLaunchConfiguration = BackendLaunchConfiguration()
         let appStore = RailgunAppStore()
         _appStore = State(initialValue: appStore)
@@ -1019,6 +1019,7 @@ struct RailgunXApp: App {
                 minWidth: Self.lifecycleConfiguration.primaryWindowMinimumSize.width,
                 minHeight: Self.lifecycleConfiguration.primaryWindowMinimumSize.height
             )
+            .font(RailgunFont.interface())
             .task {
                 await desktopClientStartup.acquire()
                 if desktopClientStartup.status == .ready {
@@ -1044,6 +1045,7 @@ struct RailgunXApp: App {
                 appStore: appStore,
                 sessionCoordinator: backendRuntime.sessionCoordinator
             )
+            .font(RailgunFont.interface())
         }
     }
 
