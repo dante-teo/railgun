@@ -4,11 +4,26 @@ import RailgunUI
 
 final class RailgunCustomComponentFoundationTests: XCTestCase {
     func testRegisteredComponentsHaveValidContracts() {
-        XCTAssertEqual(RailgunCustomComponentRegistry.components.map(\.id.rawValue), ["markdown-message"])
+        XCTAssertEqual(
+            RailgunCustomComponentRegistry.components.map(\.id.rawValue),
+            ["markdown-message", "native-composer"]
+        )
         XCTAssertEqual(
             RailgunCustomComponentValidator.validate(RailgunCustomComponentRegistry.components),
             []
         )
+    }
+
+    func testNativeComposerRegistrationHasCompleteInteractiveAccessibilityAndPreviewMetadata() throws {
+        let composer = try XCTUnwrap(
+            RailgunCustomComponentRegistry.components.first { $0.id.rawValue == "native-composer" }
+        )
+
+        XCTAssertEqual(composer.sourcePath.rawValue, "Sources/RailgunUI/RailgunComposer.swift")
+        XCTAssertEqual(composer.interactionClass, .interactive)
+        XCTAssertEqual(composer.accessibilityRequirements, .interactive)
+        XCTAssertEqual(composer.previewConditions, RailgunCustomComponentPreviewCondition.allCases)
+        XCTAssertEqual(composer.previewWidths, [.compact, .regular, .wide])
     }
 
     func testValidSpecificationPassesValidation() {

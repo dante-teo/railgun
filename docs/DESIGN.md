@@ -80,9 +80,17 @@ initialized around the current selection and follows wrapping navigation.
 Trust decisions, clarification choices, bare `/moa`, and bare `/branch` follow
 the same model; text entry is reserved for free-form answers and preset names.
 
-- Enter submits; Shift+Enter inserts a newline when enhanced keyboard reporting
-  is available. The composer grows from one to six rows and caps lower in short
-  terminals. Paste may contain multiple lines.
+- The terminal composer submits with Enter and inserts a newline with
+  Shift+Enter when enhanced keyboard reporting is available. It grows from one
+  to six rows and caps lower in short terminals; paste may contain multiple
+  lines.
+- Native macOS composer: the future Task composer is a `RailgunUI`
+  `NSTextView` bridge that grows from one through ten visual lines. Content
+  beyond that cap scrolls vertically in the native text view. It preserves
+  selection, multiline paste, undo, text services, and VoiceOver editing with
+  the accessible name `Message`. Return submits only a nonblank enabled draft;
+  Shift-Return inserts a newline. This bridge remains unmounted and has no
+  submission RPC until SWFT-032.
 - Tab completes an active slash suggestion. Otherwise it is consumed as the
   reserved future enqueue binding. The composer remains editable during
   ordinary model/tool work; Enter queues steering for the next completed

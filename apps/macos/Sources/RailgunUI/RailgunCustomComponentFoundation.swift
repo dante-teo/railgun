@@ -218,6 +218,21 @@ public enum RailgunCustomComponentRegistry {
                 macOS15NativeAPILimitation: "macOS 15 SwiftUI has no single native Markdown view that supplies safe destination filtering while preserving selectable rich text, native code wrapping, table scrolling, and asynchronous image accessibility states.",
                 retirementTrigger: "Replace this component when SwiftUI provides a native Markdown renderer with these security, selection, image, code, and table capabilities."
             )
+        ),
+        RailgunCustomComponentSpecification(
+            id: "native-composer",
+            sourcePath: "Sources/RailgunUI/RailgunComposer.swift",
+            variants: ["task-composer"],
+            supportedStates: [.normal, .disabled],
+            previewConditions: RailgunCustomComponentPreviewCondition.allCases,
+            previewWidths: [.compact, .regular, .wide],
+            interactionClass: .interactive,
+            accessibilityRequirements: .interactive,
+            rationale: RailgunCustomComponentRationale(
+                customizationRationale: "Task composition requires native multiline selection, paste, undo, text services, Return submission, Shift-Return line breaks, and height reporting from one shared control.",
+                macOS15NativeAPILimitation: "macOS 15 SwiftUI has no text editor that provides this complete native text-system behavior together with bounded dynamic height, imperative first-responder synchronization, and Return command interception.",
+                retirementTrigger: "Replace this component when SwiftUI provides a native multiline editor with equivalent sizing, command routing, focus, selection, paste, undo, text-services, and VoiceOver behavior."
+            )
         )
     ]
 }

@@ -100,6 +100,23 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains(".scrollContentBackground(.hidden)"))
     }
 
+    func testNativeComposerPolicyDocumentsItsAppKitAndSubmissionBoundaries() throws {
+        let design = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/DESIGN.md"),
+            encoding: .utf8
+        )
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(design.contains("Native macOS composer"))
+        XCTAssertTrue(design.contains("one through ten visual lines"))
+        XCTAssertTrue(nativeUIPolicy.contains("### `RailgunComposer`"))
+        XCTAssertTrue(nativeUIPolicy.contains("accessible name `Message`"))
+        XCTAssertTrue(nativeUIPolicy.contains("SWFT-032"))
+    }
+
     func testActivityVisibilityUsesOnlyTheToolbarToggle() throws {
         let source = try String(
             contentsOf: repositoryRoot

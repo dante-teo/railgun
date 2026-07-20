@@ -69,6 +69,36 @@ or bridge gains a material new behavior or variant.
 - **Retirement trigger:** Replace it when SwiftUI provides a safe native
   Markdown renderer with equivalent selection, image, code, and table support.
 
+### `RailgunComposer`
+
+- **Unmet requirement:** The future Task composer needs native multiline paste,
+  selection, undo, text services, first-responder control, bounded growth, and
+  distinct Return versus Shift-Return behavior in one reusable control.
+- **Native APIs evaluated:** `TextEditor` supplies basic multiline entry, but
+  macOS 15 SwiftUI does not expose the required text-system sizing, responder,
+  selection-preserving synchronization, or Return-command interception contract
+  as one control.
+- **Deployment-target limitation:** On macOS 15, SwiftUI cannot combine a
+  bounded visual height with a full scrollable text document while preserving
+  native command routing and explicit first-responder synchronization.
+- **Accessibility and interaction contract:** SwiftUI owns the draft, focus,
+  enabled state, and reported height. The bridge preserves native editing,
+  selection, multiline paste, undo, and text services; its accessible name `Message`
+  retains native VoiceOver editing semantics. Return submits a
+  nonblank enabled draft, Shift-Return remains a native line break, and a
+  disabled composer consumes Return without submitting.
+- **Sizing and scrolling contract:** The control reports a height from one
+  through ten visual lines. Above ten lines, its viewport remains capped while
+  the `NSTextView` document retains its full height and vertical scrolling is
+  enabled.
+- **Shared ownership and rollout:** `RailgunComposer` is a registered
+  `RailgunUI` component. It is intentionally unmounted from `RailgunTaskShell`
+  and performs no draft clearing or RPC call until SWFT-032 owns prompt and
+  steering submission workflows.
+- **Retirement trigger:** Replace it when SwiftUI provides a native multiline
+  editor with equivalent sizing, scrolling, command routing, focus, selection,
+  paste, undo, text-services, and VoiceOver behavior.
+
 ## Approved AppKit bridge register
 
 AppKit bridges are narrow adapters around behavior unavailable through the
@@ -77,13 +107,32 @@ and accessibility behavior.
 
 | Bridge | Approved scope | Required contract |
 | --- | --- | --- |
-| Advanced composer (`NSTextView`) | Dynamic sizing; paste; text selection; focus; submit versus newline handling; VoiceOver behavior. | Encapsulate the text view behind a SwiftUI-facing API and retain native editing, focus, selection, keyboard, and VoiceOver semantics. |
+| Advanced composer (`NSTextView`) | One-through-ten-line sizing; overflow scrolling; paste; text selection; focus; submit versus newline handling; VoiceOver behavior. | Encapsulate the text view behind a SwiftUI-facing API; keep the full document taller than the capped viewport on overflow, and retain native editing, focus, selection, keyboard, and VoiceOver semantics. |
 | Quick Look | Native preview behavior for validated local files. | Use only validated local URLs and retain the platform preview interaction. |
 | Precise window coordination | Window behavior that supported SwiftUI presentation or scene APIs cannot provide. | Minimize the AppKit surface and preserve standard window, focus, and keyboard behavior. |
 
 Future bridges require a decision record with documented proof that macOS 15
 SwiftUI cannot meet the requirement. They are not approved merely for visual
 control, convenience, or parity with a non-native implementation.
+
+## Native composer bridge invariant
+
+`RailgunComposer` is a `RailgunUI` bridge, not a submission workflow. The
+SwiftUI caller is the sole owner of its draft, focus, enabled state, and
+reported height; AppKit owns only native text-system behavior. Keep these
+invariants intact:
+
+- Grow from one through ten visual lines and report the clamped viewport
+  height. When content exceeds that cap, keep the `NSTextView` document at its
+  complete content height so its native vertical scroller can reveal every
+  line.
+- Intercept only Return: submit only a nonblank editable draft. Leave
+  Shift-Return and every other native editing command to AppKit. A disabled
+  composer must never submit a draft.
+- Preserve selection when an external draft change is applied, and synchronize
+  first-responder changes back to the focus binding.
+- Do not mount the component in `RailgunTaskShell`, clear drafts, or introduce
+  prompt/queue RPCs before SWFT-032.
 
 ## Transcript soft top-edge invariant
 
