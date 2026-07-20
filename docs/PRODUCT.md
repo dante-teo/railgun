@@ -15,9 +15,9 @@ maintenance. Scheduled remains responsible for job definitions.
 Every attempted scheduled run also arrives in Task as a separate resumable
 session. Delivery never changes the active task or sends a macOS notification.
 New deliveries remain unread until opened, use the scheduled prompt as their
-title, and present the agent result before any later user follow-up. Incomplete
-and failed attempts remain available with an inline status warning, so a user
-can inspect or continue them just like other tasks. When active task navigation
+title, and present only the final agent result before any later user follow-up.
+Incomplete and failed attempts remain available with an inline status warning,
+so a user can inspect or continue them just like other tasks. When active task navigation
 reaches its bounded capacity through recurring deliveries, the oldest scheduled
 deliveries move to Archive rather than being deleted.
 

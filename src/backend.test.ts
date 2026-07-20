@@ -4,9 +4,10 @@ import { backendAuthenticationRequiredFrame, parseBackendArgs, runBackend } from
 import { DevinApiError } from "widevin";
 
 describe("private desktop backend entry", () => {
-  it("accepts only internal desktop, scheduler, Dream, and authentication modes", () => {
+  it("accepts internal desktop, scheduler aliases, Dream, and authentication modes", () => {
     expect(parseBackendArgs(["desktop"])).toEqual({ kind: "desktop" });
     expect(parseBackendArgs(["scheduler"])).toEqual({ kind: "scheduler" });
+    expect(parseBackendArgs(["cron"])).toEqual({ kind: "scheduler" });
     expect(parseBackendArgs(["dream"])).toEqual({ kind: "dream" });
     expect(() => parseBackendArgs(["--mode", "rpc"])).toThrow("private Railgun desktop backend");
     expect(() => parseBackendArgs(["cron", "install"])).toThrow("private Railgun desktop backend");

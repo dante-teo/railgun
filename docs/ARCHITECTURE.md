@@ -14,7 +14,10 @@ The Scheduled page manages job definitions through the backend. Settings → Gen
 owns the separate Background automation control, a narrowly scoped main-process
 service that writes only the `sh.railgun.cron` and `sh.railgun.dream` launch
 agents in the current user `gui/<uid>` domain. The scheduler is long-running and
-restarts after unexpected crashes; Dream is a midnight one-shot task. Missing
+restarts after unexpected crashes and invokes the backend `cron` command; Dream
+invokes `dream` as a midnight one-shot task. The private backend resolves
+`cron` to its scheduler mode and retains `scheduler` as a compatibility alias.
+Missing
 credentials cause either background entry to exit normally without browser
 authentication.
 
@@ -25,17 +28,19 @@ the ordered cursor, RPC-bounded job ID, normalized title, run status, delivery
 time, and read time; its session reference cascades on session deletion.
 Oversized job IDs are deterministically normalized before persistence so one
 valid cron definition cannot invalidate the complete desktop session list.
-Valid agent history and todos are retained, while hard or empty failures
-receive a synthetic assistant result so every delivered transcript remains
-resumable. A delivery persistence failure fails the cron attempt, atomically
+Each delivered session retains only a hidden generic scheduled-result trigger
+and one final assistant result; it excludes the cron prompt, required-output
+contract, tool and intermediate history, and todo snapshot. Hard or empty runs
+use a concise synthetic incomplete or failed result so every delivery remains
+openable. A delivery persistence failure fails the cron attempt, atomically
 revises the run report with that final failure, and is logged without claiming
 successful delivery.
 
 RPC capability `session.delivery` exposes optional scheduled-delivery metadata
 on session summaries and active state plus a lightweight
 `session_delivery_cursor` command. Successfully activating a scheduled session
-marks it read; internal loads remain side-effect free. Its initial scheduler
-prompt remains in provider history for follow-up context but is omitted from
+marks it read; internal loads remain side-effect free. Its hidden generic
+scheduled-result trigger satisfies transcript invariants and is omitted from
 the renderer transcript; later user messages are visible. Electron main polls
 the cursor every two seconds while the backend is ready and broadcasts a
 schema-validated session list only after it advances. Preload validates that

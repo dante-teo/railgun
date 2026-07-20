@@ -90,7 +90,8 @@ export const automationLaunchAgentPaths = (home: string): AutomationPaths => {
 
 export const makeAutomationPlist = (kind: AutomationKind, runtime: AutomationRuntime): string => {
   const label = AUTOMATION_LABELS[kind];
-  const argumentsList = stringList([runtime.executablePath, runtime.backendEntry, kind]);
+  const command = kind === "scheduler" ? "cron" : "dream";
+  const argumentsList = stringList([runtime.executablePath, runtime.backendEntry, command]);
   const schedule = kind === "scheduler"
     ? "  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <true/>"
     : "  <key>StartCalendarInterval</key>\n  <dict>\n    <key>Hour</key>\n    <integer>0</integer>\n    <key>Minute</key>\n    <integer>0</integer>\n  </dict>";

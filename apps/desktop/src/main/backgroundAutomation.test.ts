@@ -32,7 +32,8 @@ describe("background automation", () => {
   it("creates isolated scheduler and midnight Dream launch agents", () => {
     const paths = automationLaunchAgentPaths(runtime.home);
     expect(paths.scheduler).toBe("/Users/railgun/Library/LaunchAgents/sh.railgun.cron.plist");
-    expect(makeAutomationPlist("scheduler", runtime)).toContain("<string>scheduler</string>");
+    expect(makeAutomationPlist("scheduler", runtime)).toContain("<string>cron</string>");
+    expect(makeAutomationPlist("scheduler", runtime)).not.toContain("<string>scheduler</string>");
     expect(makeAutomationPlist("scheduler", runtime)).toContain("<key>KeepAlive</key>\n  <true/>");
     expect(makeAutomationPlist("scheduler", runtime)).toContain("<key>ELECTRON_RUN_AS_NODE</key>");
     expect(makeAutomationPlist("dream", runtime)).toContain("<key>StartCalendarInterval</key>");

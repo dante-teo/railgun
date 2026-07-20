@@ -11,13 +11,14 @@ export type BackendMode =
   | { readonly kind: "login" }
   | { readonly kind: "logout" };
 
-export const BACKEND_USAGE = "Usage: private Railgun desktop backend <desktop|scheduler|dream|login|logout>";
+export const BACKEND_USAGE = "Usage: private Railgun desktop backend <desktop|scheduler|cron|dream|login|logout>";
 
 export const parseBackendArgs = (args: readonly string[]): BackendMode => {
   if (args.length !== 1) throw new Error(BACKEND_USAGE);
   switch (args[0]) {
     case "desktop": return { kind: "desktop" };
     case "scheduler": return { kind: "scheduler" };
+    case "cron": return { kind: "scheduler" };
     case "dream": return { kind: "dream" };
     case "login": return { kind: "login" };
     case "logout": return { kind: "logout" };

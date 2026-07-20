@@ -227,8 +227,15 @@ adequate native replacement, migrate to it and retire the custom implementation.
 - Serialize configuration mutations and preserve unknown fields expected by
   Classic and the backend.
 - Generate and inspect launch agents using fixed identifiers and validated
-  paths. Scheduled owns persistent job definitions, while Settings → Background Automation owns
-  the opt-in and launch-agent controls.
+  paths. The long-running `sh.railgun.cron` agent must invoke the backend's
+  `cron` command (Dream invokes `dream`); preserve the scheduler's keep-alive
+  behavior. Scheduled owns persistent job definitions, while Settings →
+  Background Automation owns the opt-in and launch-agent controls.
+- Persist each scheduled delivery as a compact valid transcript: a hidden
+  generic scheduled-result user trigger and exactly one assistant result. Do
+  not retain the cron prompt, required-output contract, tools, intermediate
+  messages, or todo snapshot; use the concise incomplete/failed result when
+  no final assistant text exists.
 - Sign and verify all nested executable code. Validate signatures, Gatekeeper,
   notarization tickets, updater feeds, and packaged backend behavior before
   publication.

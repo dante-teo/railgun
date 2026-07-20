@@ -198,16 +198,21 @@ describe("runCronJob", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Running cron job:"));
   });
 
-  it("delivers completed, incomplete, and failed attempts as unique resumable scheduled sessions", async () => {
+  it("delivers completed, incomplete, and failed attempts as compact scheduled sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "railgun-cron-delivery-"));
     const store = createSessionStore(join(root, "state.db"));
     try {
+      const completedOutput = join(root, "daily-summary.md");
       const completed = await runCronJob(
-        makeJob({ id: "complete", prompt: "  Daily   summary  " }),
+        makeJob({ id: "complete", prompt: "  Daily   summary  ", requiredOutputs: [completedOutput] }),
         fakeProvider([
           [
             { type: "toolcall_delta", id: "todo-1", delta: JSON.stringify({ todos: [{ id: "one", content: "Summarize", status: "completed" }] }) },
             { type: "toolcall_end", id: "todo-1", name: "todo", arguments: { todos: [{ id: "one", content: "Summarize", status: "completed" }] } },
+          ],
+          [
+            { type: "toolcall_delta", id: "write-1", delta: JSON.stringify({ path: completedOutput, content: "Summary complete." }) },
+            { type: "toolcall_end", id: "write-1", name: "write_file", arguments: { path: completedOutput, content: "Summary complete." } },
           ],
           [{ type: "text_delta", delta: "Summary complete." }],
         ]),
@@ -246,23 +251,23 @@ describe("runCronJob", () => {
       ]);
 
       const completedSession = store.loadSession("cron-completed-id");
-      expect(completedSession?.messages).toMatchObject([
-        { role: "user", content: "Daily   summary" },
-        { role: "assistant" },
-        { role: "tool" },
+      expect(completedSession?.messages).toEqual([
+        { role: "user", content: "Scheduled task result." },
         { role: "assistant", content: [{ type: "text", text: "Summary complete." }] },
       ]);
-      expect(completedSession?.todos).toEqual([{ id: "one", content: "Summarize", status: "completed" }]);
+      expect(completedSession?.todos).toEqual([]);
       expect(completedSession?.delivery).toMatchObject({ jobId: "complete", title: "Daily summary", status: "completed" });
 
-      expect(store.loadSession("cron-incomplete-id")?.messages.at(-1)).toMatchObject({
-        role: "assistant",
-        content: [{ type: "text", text: expect.stringContaining("incomplete") }],
-      });
+      expect(store.loadSession("cron-incomplete-id")?.messages).toEqual([
+        { role: "user", content: "Scheduled task result." },
+        { role: "assistant", content: [{ type: "text", text: "Scheduled task incomplete: empty final response." }] },
+      ]);
+      expect(store.loadSession("cron-incomplete-id")?.todos).toEqual([]);
       expect(store.loadSession("cron-failed-id")?.messages).toEqual([
-        { role: "user", content: "Hard failure" },
+        { role: "user", content: "Scheduled task result." },
         { role: "assistant", content: [{ type: "text", text: "Scheduled task failed: provider unavailable." }] },
       ]);
+      expect(store.loadSession("cron-failed-id")?.todos).toEqual([]);
     } finally {
       store.close();
       await rm(root, { recursive: true, force: true });

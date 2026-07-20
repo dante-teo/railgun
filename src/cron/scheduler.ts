@@ -28,33 +28,27 @@ export interface CronJobResult {
 const errMsg = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
-const createScheduledDeliveryHistory = (
-  history: readonly DevinMessage[],
-  runPrompt: string,
+const SCHEDULED_RESULT_TRIGGER = "Scheduled task result.";
+
+const scheduledResultText = (
+  finalText: string,
   status: ScheduledRunStatus,
   failureReason: string | null,
-): readonly DevinMessage[] => {
-  if (status === "completed") return history;
-  const syntheticText = status === "incomplete"
+): string => {
+  if (finalText !== "") return finalText;
+  return status === "incomplete"
     ? `Scheduled task incomplete: ${failureReason ?? "no result was produced"}.`
     : `Scheduled task failed: ${failureReason ?? "the run did not complete"}.`;
-  if (history.length === 0) {
-    return [
-      { role: "user", content: runPrompt },
-      { role: "assistant", content: [{ type: "text", text: syntheticText }] },
-    ];
-  }
-  const hasAssistantText = history.some(message =>
-    message.role === "assistant"
-    && message.content.some(part => part.type === "text" && part.text.trim() !== ""));
-  const finalMessage = history.at(-1);
-  if (hasAssistantText || finalMessage?.role !== "assistant") return history;
-  const replacement: DevinMessage = {
-    ...finalMessage,
-    content: [{ type: "text", text: syntheticText }],
-  };
-  return [...history.slice(0, -1), replacement];
 };
+
+const createScheduledDeliveryTranscript = (
+  finalText: string,
+  status: ScheduledRunStatus,
+  failureReason: string | null,
+): readonly DevinMessage[] => [
+    { role: "user", content: SCHEDULED_RESULT_TRIGGER },
+    { role: "assistant", content: [{ type: "text", text: scheduledResultText(finalText, status, failureReason) }] },
+  ];
 
 // ─── log-path helpers ─────────────────────────────────────────────────────────
 // All date arithmetic uses UTC calendar days (ISO 8601 date strings) for
@@ -215,14 +209,12 @@ export const runCronJob = async (
   let finalText = "";
   let failureReason: string | null = null;
   let resultError: unknown;
-  let history: readonly DevinMessage[] = [];
 
   try {
     const before = await snapshotOutputs(requiredOutputs);
     const outcome = await agentSession.run({ history: [], text: runPrompt });
     verification = await verifyOutputs(requiredOutputs, before);
     if (outcome.ok) {
-      history = outcome.messages;
       finalText = outcome.assistantText.trim();
       const outputFailure = verification.find(item => !item.satisfied);
       failureReason = outcome.stopReason === "iteration_limit"
@@ -235,7 +227,6 @@ export const runCronJob = async (
       status = failureReason === null ? "completed" : "incomplete";
       if (failureReason !== null) resultError = new Error(failureReason);
     } else if ("aborted" in outcome) {
-      history = outcome.messages;
       finalText = outcome.assistantText.trim();
       failureReason = "aborted";
       resultError = new Error("aborted");
@@ -275,15 +266,15 @@ export const runCronJob = async (
   }
 
   if (options.sessionStore !== undefined) {
-    const deliveryHistory = createScheduledDeliveryHistory(history, runPrompt, status, failureReason);
+    const deliveryTranscript = createScheduledDeliveryTranscript(finalText, status, failureReason);
     const sessionId = `cron-${(options.randomId ?? randomUUID)()}`;
     try {
       options.sessionStore.createScheduledSession({
         id: sessionId,
         model: model.id,
         startedAt: timestamp.toISOString(),
-        messages: deliveryHistory,
-        todos: todoStore.read(),
+        messages: deliveryTranscript,
+        todos: [],
         jobId: job.id,
         title: job.prompt,
         status,

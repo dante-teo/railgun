@@ -72,9 +72,10 @@ messages, tool arguments, and tool results stay in the backend.
 Each attempted cron run produces a separate scheduler-originated session after
 the run settles. SQLite `session_deliveries` rows provide a monotonic delivery
 sequence, job and status metadata, and unread state without changing existing
-interactive sessions. Delivery is atomic with session creation and retains
-valid agent history and todos; a synthetic assistant result keeps hard and
-empty failures resumable. Delivered sessions survive cron-definition removal
+interactive sessions. Delivery is atomic with session creation and retains a
+hidden generic scheduled-result trigger plus one final assistant result, not
+the cron prompt, tools, intermediate history, or todo snapshot. A synthetic
+assistant result keeps hard and empty failures openable. Delivered sessions survive cron-definition removal
 and preserve their metadata through follow-ups, branches, archival, and
 restoration. Session summary responses remain bounded to the newest 500
 entries; when recurring deliveries overflow active capacity, the oldest
@@ -122,8 +123,8 @@ cursor while the backend is ready and pushes a newly validated session list
 only when it advances. The renderer updates its navigation without stealing
 focus. Loading and other internal operations are side-effect free; only
 successful activation after model preparation marks a scheduled session read.
-Presentation hides only the initial scheduler trigger while preserving it in
-backend history for follow-ups.
+Presentation hides the initial generic scheduled-result trigger while
+preserving it in backend history for follow-ups.
 
 The file browser is read-only and rooted at the user's home directory. Main
 validates path segments, rejects traversal and escaping symlinks, caps
@@ -163,7 +164,8 @@ The Scheduled page owns job definitions. Settings → General owns the
 background-automation opt-in. When enabled, Railgun installs only
 `sh.railgun.cron` and `sh.railgun.dream` in the current user's `gui/<uid>`
 launchd domain. The scheduler restarts after unexpected failure and Dream runs
-once at local midnight. Both exit normally when credentials are unavailable.
+once at local midnight. The scheduler invokes backend `cron` and Dream invokes
+`dream`; both exit normally when credentials are unavailable.
 
 ## Consequences
 
