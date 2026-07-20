@@ -226,6 +226,54 @@ describe("desktop shell", () => {
     await waitFor(() => expect(screen.queryByRole("status", { name: "Unread" })).toBeNull());
   });
 
+  it("keeps a background-delivered task when an earlier startup list finishes late", async () => {
+    const pendingInitialList = Promise.withResolvers<readonly import("../shared/types").SessionSummary[]>();
+    let sessionListListener: ((sessions: readonly import("../shared/types").SessionSummary[]) => void) | undefined;
+    const delivered = {
+      id: "cron-delivered-during-startup",
+      model: "mock-model",
+      startedAtLocal: "today",
+      messageCount: 2,
+      firstUserPreview: "Background delivery",
+      delivery: { kind: "scheduled" as const, jobId: "job-startup", title: "Background delivery", status: "completed" as const, unread: true },
+    };
+    const api: RailgunDesktopApi = {
+      ...knowledgeApi,
+      getBackendSnapshot: async () => snapshot("ready"),
+      restartBackend: async () => snapshot("starting"),
+      onBackendSnapshot: () => () => undefined,
+      listMockScenarios: async () => [],
+      selectMockScenario: async () => snapshot("ready"),
+      sendPrompt: async () => undefined,
+      steerPrompt: async () => undefined,
+      followUpPrompt: async () => undefined,
+      abortPrompt: async () => undefined,
+      openExternal: async () => undefined,
+      ...fileApi,
+      startNewChat: async () => desktopSession,
+      ...sessionApi,
+      listSessions: async () => pendingInitialList.promise,
+      onSessionList: listener => { sessionListListener = listener; return () => undefined; },
+      ...controlApi,
+      onAgentEvent: () => () => undefined,
+      respondToApproval: async () => undefined,
+      respondToClarification: async () => undefined,
+      onInteractionRequest: () => () => undefined,
+      onAppCommand: () => () => undefined,
+    };
+    Object.defineProperty(window, "railgunDesktop", { configurable: true, value: api });
+
+    render(<App />);
+    await screen.findByRole("button", { name: "New Task" });
+    await waitFor(() => expect(sessionListListener).toBeDefined());
+    act(() => sessionListListener?.([delivered]));
+    expect(await screen.findByRole("button", { name: "Unread scheduled task: Background delivery" })).toBeTruthy();
+
+    await act(async () => { pendingInitialList.resolve([]); });
+
+    expect(screen.getByRole("button", { name: "Unread scheduled task: Background delivery" })).toBeTruthy();
+  });
+
   it("migrates the retired Knowledge route into Settings", async () => {
     window.localStorage.setItem("railgun.desktop.route", JSON.stringify({ version: 1, area: "knowledge" }));
     let backendListener: ((next: BackendSnapshot) => void) | undefined;

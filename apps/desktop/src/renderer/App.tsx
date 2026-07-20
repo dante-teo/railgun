@@ -55,6 +55,7 @@ export const App = (): React.JSX.Element => {
   const taskPaletteRestoreFocus = useRef<HTMLElement | null>(null);
   const activeSessionId = useRef<string | undefined>(undefined);
   const runningSessionId = useRef<string | undefined>(undefined);
+  const sessionListGeneration = useRef(0);
   const appCommandHandler = useRef<(command: AppCommand) => void>(() => undefined);
   const chat = useChatController(snapshot);
   const running = chat.state.running;
@@ -103,11 +104,19 @@ export const App = (): React.JSX.Element => {
   };
 
   const loadSessions = async (): Promise<void> => {
+    const requestGeneration = ++sessionListGeneration.current;
     setSessionsLoading(true);
     setSessionsError(undefined);
-    try { setSessions(await window.railgunDesktop.listSessions()); }
-    catch (error) { setSessionsError(errorMessage(error, "Unable to load sessions")); }
-    finally { setSessionsLoading(false); }
+    try {
+      const next = await window.railgunDesktop.listSessions();
+      if (requestGeneration === sessionListGeneration.current) setSessions(next);
+    } catch (error) {
+      if (requestGeneration === sessionListGeneration.current) {
+        setSessionsError(errorMessage(error, "Unable to load sessions"));
+      }
+    } finally {
+      if (requestGeneration === sessionListGeneration.current) setSessionsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -135,6 +144,7 @@ export const App = (): React.JSX.Element => {
       void loadSessions();
     });
     const unsubscribeSessionList = window.railgunDesktop.onSessionList((next) => {
+      sessionListGeneration.current += 1;
       setSessions(next);
       setSessionsError(undefined);
       setSessionsLoading(false);

@@ -26,6 +26,11 @@ installs two user launchd agents:
 - `sh.railgun.cron` runs scheduled prompts while the app is closed.
 - `sh.railgun.dream` runs nightly maintenance at local midnight.
 
+Each completed, incomplete, or failed scheduled attempt is saved as a Task in
+the shared Railgun data store. If a run finishes while Railgun is closed, its
+Task appears in the sidebar the next time Railgun opens; it remains unread until
+you open it.
+
 Settings reports whether launchd is healthy. Use **Repair** after moving or
 updating the app if it reports an old app location. Disabling automation stops
 both services without removing your scheduled jobs or other Railgun data.
