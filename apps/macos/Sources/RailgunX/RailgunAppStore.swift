@@ -128,6 +128,8 @@ enum RailgunAppReducer {
             return next
         case .runEnded:
             return settleRun(reduce(state, .transcript(.runEnded(at: timestamp))))
+        case .sessionSaved:
+            return state
         case let .assistantDelta(text):
             return reduce(state, .transcript(.assistantDelta(
                 id: "assistant-\(state.transcript.nextOrder)",

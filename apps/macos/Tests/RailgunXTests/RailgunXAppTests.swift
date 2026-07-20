@@ -526,6 +526,28 @@ final class RailgunXAppTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testPersistedSessionEventRefreshesTheSidebarTasks() async {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=ready-idle",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(configuration: configuration, store: store)
+
+        await runtime.start()
+        store.send(.session(.loaded([])))
+
+        await runtime.handle(.sessionSaved)
+
+        XCTAssertEqual(store.state.session.sessions.map(\.id), ["mock-session-complex-task"])
+        await runtime.shutdown()
+    }
+
     func testMockRuntimeMarksTheBackendDisconnectedAfterPostStartupTermination() async {
         let configuration = BackendLaunchConfiguration(
             environment: [:],

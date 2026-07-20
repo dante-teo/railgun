@@ -181,6 +181,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
     if (!initialized || sessionHandler.active.history.length === 0) return;
     try {
       sessionHandler.checkpoint();
+      writeObject({ type: "session_saved", sessionId: sessionHandler.active.id });
     } catch (error) {
       writeObject({ type: "checkpoint_error", sessionId: sessionHandler.active.id, error: errorMessage(error) });
     }

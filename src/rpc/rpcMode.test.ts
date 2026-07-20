@@ -407,6 +407,9 @@ describe("runRpcMode", () => {
     await runPromise;
 
     expect(store.saveCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ id: "session-1", messages: expect.arrayContaining([expect.objectContaining({ role: "user" })]) }));
+    expect(getLines().map(line => line["type"])).toContain("session_saved");
+    expect(getLines().findIndex(line => line["type"] === "session_saved"))
+      .toBeLessThan(getLines().findIndex(line => line["id"] === "prompt"));
     expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { persistence: "saved" } });
   });
 

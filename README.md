@@ -242,6 +242,13 @@ validated stdout bursts until the RPC reader consumes them. This is intentional:
 backends may emit several event frames before a correlated response. Frame and
 unfinished-buffer byte limits remain in force.
 
+After an automatic session checkpoint succeeds, the backend emits a
+`session_saved` event before the corresponding prompt or compaction response.
+RailgunX normalizes that signal, leaves transcript reducer state unchanged, and
+reloads active and archived task summaries so a newly completed task appears in
+the sidebar only after it is durable. The presentation layer does not retain
+the event's session identifier.
+
 `RailgunRPCCommand` provides the validated RPC v1 command envelope for new
 callers; it reserves correlation IDs for the client and validates command
 fields, pagination limits, MCP environment patches, and interaction bounds

@@ -8,6 +8,8 @@ import Foundation
 public enum RailgunAgentEvent: Sendable, Equatable {
     case runStarted
     case runEnded
+    /// A session checkpoint completed and its summary can be reloaded safely.
+    case sessionSaved
     case contextUsage(inputTokens: Int, outputTokens: Int)
     case contextReset(reason: RailgunContextResetReason)
     case assistantDelta(String)
@@ -86,6 +88,8 @@ public enum RailgunRPCEventNormalizer {
             return .runStarted
         case "agent_end":
             return .runEnded
+        case "session_saved":
+            return .sessionSaved
         case "turn_end":
             return contextUsage(from: event)
         case "compaction_start", "compaction_end":

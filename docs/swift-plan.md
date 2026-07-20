@@ -119,12 +119,15 @@ correlate responses to request IDs and process generations, apply timeouts, and
 redact diagnostics. Contract fixtures are shared between TypeScript and Swift.
 
 Raw backend activity frames never enter SwiftUI feature state. The transport
-normalizes only the supported lifecycle, assistant text, tool, todo, advisor,
-MoA, subagent, queue, and context-usage events into a bounded, presentation-safe
-stream that survives backend restarts. Unknown or malformed events are withheld;
-tool detail, todo text, advisor text, MoA previews, and subagent text are
-redacted and bounded before delivery. A malformed todo snapshot withholds only
-the snapshot while retaining its containing tool completion event.
+normalizes only the supported lifecycle, post-checkpoint session persistence,
+assistant text, tool, todo, advisor, MoA, subagent, queue, and context-usage
+events into a bounded, presentation-safe stream that survives backend restarts.
+The runtime handles a successful session checkpoint by refreshing task summaries
+outside the pure reducer, so the sidebar shows only durable completed tasks.
+Unknown or malformed events are withheld; tool detail, todo text, advisor text,
+MoA previews, and subagent text are redacted and bounded before delivery. A
+malformed todo snapshot withholds only the snapshot while retaining its
+containing tool completion event.
 
 Approval and clarification requests travel on a separate presentation-safe
 stream. Each request receives an opaque client correlation ID while its backend

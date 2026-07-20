@@ -300,11 +300,17 @@ final class RailgunBackendRuntime {
         await client.shutdown()
     }
 
+    func handle(_ event: RailgunAgentEvent) async {
+        store.send(.agentEvent(event))
+        guard event == .sessionSaved else { return }
+        await sessionCoordinator.refresh()
+    }
+
     private func observeEvents() {
-        let task = Task { @MainActor [weak store, client] in
+        let task = Task { @MainActor [weak self, client] in
             for await event in client.events {
-                guard !Task.isCancelled, let store else { return }
-                store.send(.agentEvent(event))
+                guard !Task.isCancelled, let self else { return }
+                await self.handle(event)
             }
         }
         eventObservation.replace(with: task)

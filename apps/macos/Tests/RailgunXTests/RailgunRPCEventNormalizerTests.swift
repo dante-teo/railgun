@@ -9,6 +9,10 @@ final class RailgunRPCEventNormalizerTests: XCTestCase {
             .runStarted
         )
         XCTAssertEqual(
+            normalize(#"{"type":"session_saved"}"#),
+            .sessionSaved
+        )
+        XCTAssertEqual(
             normalize(#"{"type":"message_update","streamEvent":{"type":"text_delta","delta":"hello"}}"#),
             .assistantDelta("hello")
         )
