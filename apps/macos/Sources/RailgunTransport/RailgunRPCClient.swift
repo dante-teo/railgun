@@ -97,7 +97,7 @@ public actor RailgunRPCClient {
     private struct PendingRequest {
         let command: String
         let continuation: CheckedContinuation<Data, Error>
-        let timeoutTask: Task<Void, Never>
+        let timeoutTask: Task<Void, Never>?
     }
 
     private struct PendingInteraction {
@@ -287,8 +287,8 @@ public actor RailgunRPCClient {
     ///
     /// `payload` must encode a JSON object with a string `type` field and no
     /// `id`. The actor creates the request ID and adds the JSONL delimiter.
-    public func request(_ payload: Data, timeout: Duration) async throws -> Data {
-        guard timeout > .zero else { throw RailgunRPCError.timeout }
+    public func request(_ payload: Data, timeout: Duration?) async throws -> Data {
+        guard timeout.map({ $0 > .zero }) ?? true else { throw RailgunRPCError.timeout }
         guard !Task.isCancelled else { throw RailgunRPCError.cancelled }
         guard case .ready = lifecycle, let currentGeneration = activeGeneration else {
             throw RailgunRPCError.notReady
@@ -314,7 +314,7 @@ public actor RailgunRPCClient {
     /// Sends a validated version 1 command and decodes its response envelope.
     /// Prefer this overload for new call sites; the raw-data overload remains
     /// available for fixture replay and forward-compatible transport probes.
-    public func request(_ command: RailgunRPCCommand, timeout: Duration) async throws -> RailgunRPCResponse {
+    public func request(_ command: RailgunRPCCommand, timeout: Duration?) async throws -> RailgunRPCResponse {
         let response = try await request(command.encodedData(), timeout: timeout)
         do {
             return try RailgunRPCResponse(data: response)
@@ -379,7 +379,7 @@ public actor RailgunRPCClient {
         command: String,
         identifier: String,
         requestData: Data,
-        timeout: Duration
+        timeout: Duration?
     ) async throws -> Data {
         if let startupFailure {
             throw startupFailure
@@ -406,7 +406,7 @@ public actor RailgunRPCClient {
         command: String,
         identifier: String,
         requestData: Data,
-        timeout: Duration,
+        timeout: Duration?,
         continuation: CheckedContinuation<Data, Error>
     ) {
         if let startupFailure {
@@ -425,13 +425,15 @@ public actor RailgunRPCClient {
             return
         }
 
-        let timeoutTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: timeout)
-            } catch {
-                return
+        let timeoutTask = timeout.map { deadline in
+            Task { [weak self] in
+                do {
+                    try await Task.sleep(for: deadline)
+                } catch {
+                    return
+                }
+                await self?.timeoutRequest(identifier)
             }
-            await self?.timeoutRequest(identifier)
         }
         pendingRequests[identifier] = PendingRequest(
             command: command,
@@ -744,7 +746,7 @@ public actor RailgunRPCClient {
     private func settle(_ identifier: String, with result: Result<Data, RailgunRPCError>) {
         guard let pending = pendingRequests.removeValue(forKey: identifier) else { return }
         requestIDsAwaitingSettlement.remove(identifier)
-        pending.timeoutTask.cancel()
+        pending.timeoutTask?.cancel()
         switch result {
         case let .success(response):
             pending.continuation.resume(returning: response)
@@ -771,7 +773,7 @@ public actor RailgunRPCClient {
         requestIDsAwaitingSettlement.subtract(pending.keys)
         cancelledRequestIDs.removeAll()
         pending.values.forEach { pendingRequest in
-            pendingRequest.timeoutTask.cancel()
+            pendingRequest.timeoutTask?.cancel()
             pendingRequest.continuation.resume(throwing: error)
         }
 

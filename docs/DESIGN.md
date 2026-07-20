@@ -84,13 +84,20 @@ the same model; text entry is reserved for free-form answers and preset names.
   Shift+Enter when enhanced keyboard reporting is available. It grows from one
   to six rows and caps lower in short terminals; paste may contain multiple
   lines.
-- Native macOS composer: the future Task composer is a `RailgunUI`
+- Native macOS composer: the Task composer is a `RailgunUI`
   `NSTextView` bridge that grows from one through ten visual lines. Content
   beyond that cap scrolls vertically in the native text view. It preserves
   selection, multiline paste, undo, text services, and VoiceOver editing with
   the accessible name `Message`. Return submits only a nonblank enabled draft;
-  Shift-Return inserts a newline. This bridge remains unmounted and has no
-  submission RPC until SWFT-032.
+  Shift-Return inserts a newline. SWFT-032 mounts it in the Task shell; its
+  SwiftUI owner routes idle Return to `prompt`, active Return to `steer`, and
+  active Tab to `follow_up`. Initial prompt responses settle with the full
+  agent run, so the shell starts observing them asynchronously and immediately
+  re-enables the composer for active-run steering and follow-ups; queue drafts
+  clear after their short-lived acknowledgements. Its
+  surrounding shell uses the shared 736-point content column, a bordered
+  material card, send affordance, queue/error presentation, and an attached
+  keyboard-hint pill so the native client retains Railgun's chat hierarchy.
 - Tab completes an active slash suggestion. Otherwise it is consumed as the
   reserved future enqueue binding. The composer remains editable during
   ordinary model/tool work; Enter queues steering for the next completed

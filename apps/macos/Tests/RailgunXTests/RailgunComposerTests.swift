@@ -81,6 +81,40 @@ final class RailgunComposerTests: XCTestCase {
         XCTAssertEqual(submissions, 0)
     }
 
+    func testTabEnqueuesANonblankEditableDraftWithoutChangingReturnOrShiftReturn() {
+        var enqueued: [String] = []
+        let textView = RailgunComposerTextView(onEnqueue: { enqueued.append($0) })
+        textView.string = "Follow this up"
+
+        XCTAssertTrue(textView.handleCommand(#selector(NSResponder.insertTab(_:))))
+        XCTAssertEqual(enqueued, ["Follow this up"])
+        XCTAssertFalse(textView.handleCommand(#selector(NSResponder.insertLineBreak(_:))))
+        XCTAssertEqual(textView.string, "Follow this up")
+    }
+
+    func testBlankOrInactiveTabRetainsNativeFocusBehavior() {
+        var enqueued = 0
+        let activeTextView = RailgunComposerTextView(onEnqueue: { _ in enqueued += 1 })
+        activeTextView.string = " \n\t "
+
+        XCTAssertFalse(activeTextView.handleCommand(#selector(NSResponder.insertTab(_:))))
+        XCTAssertEqual(enqueued, 0)
+
+        let inactiveTextView = RailgunComposerTextView()
+        inactiveTextView.string = "Keep native Tab"
+        XCTAssertFalse(inactiveTextView.handleCommand(#selector(NSResponder.insertTab(_:))))
+    }
+
+    func testTabDoesNotEnqueueWhenEditingIsDisabled() {
+        var enqueued = 0
+        let textView = RailgunComposerTextView(onEnqueue: { _ in enqueued += 1 })
+        textView.string = "Keep this draft"
+        textView.isEditable = false
+
+        XCTAssertFalse(textView.handleCommand(#selector(NSResponder.insertTab(_:))))
+        XCTAssertEqual(enqueued, 0)
+    }
+
     func testMultilinePasteAndExternalDraftSynchronizationPreserveSelection() {
         let textView = RailgunComposerTextView()
         textView.string = "hello"
@@ -118,6 +152,7 @@ final class RailgunComposerTests: XCTestCase {
                 set: { state.reportedHeight = $0 }
             ),
             onSubmit: { _ in },
+            onEnqueue: nil,
             scrollView: scrollView
         )
 

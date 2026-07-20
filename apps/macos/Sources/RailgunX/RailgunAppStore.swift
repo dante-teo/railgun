@@ -404,13 +404,15 @@ struct RailgunTranscriptState: Equatable {
     var submissionError: String?
     var activeRun: RailgunRunRequest?
     var failedRun: RailgunFailedRun?
+    var failedQueue: RailgunFailedQueue? = nil
     var nextOrder: Int
 
-    static let initial = Self(messages: [], queue: [], isRunning: false, isStopping: false, submissionError: nil, activeRun: nil, failedRun: nil, nextOrder: 1)
+    static let initial = Self(messages: [], queue: [], isRunning: false, isStopping: false, submissionError: nil, activeRun: nil, failedRun: nil, failedQueue: nil, nextOrder: 1)
 }
 
 struct RailgunRunRequest: Equatable { let userID: String; let text: String }
 struct RailgunFailedRun: Equatable { let userID: String; let text: String; let message: String }
+struct RailgunFailedQueue: Equatable { let kind: RailgunQueueKind; let text: String; let message: String }
 
 enum RailgunTranscriptAction: Equatable {
     case submit(id: String, text: String, at: Int?)
@@ -421,7 +423,7 @@ enum RailgunTranscriptAction: Equatable {
     case assistantCompleted(at: Int? = nil)
     case queueAccepted(id: String, kind: RailgunQueueKind, text: String)
     case queueUpdated(steering: [String], followUp: [String])
-    case queueRejected(message: String)
+    case queueRejected(kind: RailgunQueueKind, text: String, message: String)
     case stopRequested
     case stopFailed(message: String)
     case stopAcknowledged
@@ -441,6 +443,7 @@ enum RailgunTranscriptReducer {
             next.submissionError = nil
             next.activeRun = .init(userID: id, text: text)
             next.failedRun = nil
+            next.failedQueue = nil
             next.nextOrder += 1
             return next
         case .retry:
@@ -452,6 +455,7 @@ enum RailgunTranscriptReducer {
             next.submissionError = nil
             next.activeRun = .init(userID: failed.userID, text: failed.text)
             next.failedRun = nil
+            next.failedQueue = nil
             return next
         case let .requestFailed(userID, text, message):
             return fail(state, userID: userID, text: text, message: message)
@@ -478,6 +482,7 @@ enum RailgunTranscriptReducer {
             var next = state
             next.queue.append(.init(id: id, kind: kind, text: text))
             next.submissionError = nil
+            next.failedQueue = nil
             return next
         case let .queueUpdated(steering, followUp):
             let result = reconcile(queue: state.queue, steering: steering, followUp: followUp)
@@ -488,9 +493,10 @@ enum RailgunTranscriptReducer {
                 next.nextOrder += 1
             }
             return next
-        case let .queueRejected(message):
+        case let .queueRejected(kind, text, message):
             var next = state
             next.submissionError = message
+            next.failedQueue = .init(kind: kind, text: text, message: message)
             return next
         case .stopRequested:
             guard state.isRunning, !state.isStopping else { return state }
@@ -507,6 +513,7 @@ enum RailgunTranscriptReducer {
         case .stopAcknowledged:
             var next = state
             next.queue = []
+            next.failedQueue = nil
             return next
         case let .runEnded(at):
             var next = state
@@ -515,6 +522,8 @@ enum RailgunTranscriptReducer {
             next.isRunning = false
             next.isStopping = false
             next.activeRun = nil
+            next.failedQueue = nil
+            next.submissionError = nil
             return next
         case .reset:
             return .initial
@@ -527,7 +536,7 @@ enum RailgunTranscriptReducer {
             guard case let .message(role, text, messageID, branchable, startedAt, completedAt) = entry else { continue }
             messages.append(.init(id: "restored-\(offset + 1)", role: role == .user ? .user : .assistant, text: text, status: .complete, order: offset + 1, messageID: messageID, branchable: branchable, startedAt: startedAt, completedAt: completedAt))
         }
-        return .init(messages: messages, queue: [], isRunning: isRunning, isStopping: false, submissionError: nil, activeRun: nil, failedRun: nil, nextOrder: entries.count + 1)
+        return .init(messages: messages, queue: [], isRunning: isRunning, isStopping: false, submissionError: nil, activeRun: nil, failedRun: nil, failedQueue: nil, nextOrder: entries.count + 1)
     }
 
     private static func withStatus(_ message: RailgunTranscriptMessage, _ status: RailgunMessageStatus) -> RailgunTranscriptMessage {
@@ -578,7 +587,9 @@ enum RailgunTranscriptReducer {
         next.isRunning = false
         next.isStopping = false
         next.activeRun = nil
+        next.submissionError = message
         next.failedRun = .init(userID: userID, text: text, message: message)
+        next.failedQueue = nil
         return next
     }
 }

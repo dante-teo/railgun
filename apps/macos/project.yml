@@ -59,9 +59,9 @@ targets:
         SWIFT_ENABLE_EXPLICIT_MODULES: NO
         HEADER_SEARCH_PATHS:
           - "$(inherited)"
-          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
-          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/src/include"
-          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/extensions/include"
+          - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
+          - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark/src/include"
+          - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark/extensions/include"
 
   RailgunTestSupport:
     type: library.static

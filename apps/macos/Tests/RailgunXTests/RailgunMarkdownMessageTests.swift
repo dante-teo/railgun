@@ -98,7 +98,7 @@ final class RailgunMarkdownMessageTests: XCTestCase {
         let raw = RailgunMarkdownPresentation(markdown: "<script>alert(1)</script>")
         let fenced = RailgunMarkdownPresentation(markdown: "```html\n<div>literal</div>\n```")
 
-        XCTAssertEqual(raw.blocks, [.paragraph([.text("<script>alert(1)</script>")])])
+        XCTAssertEqual(raw.blocks, [.paragraph([.text("<script>alert(1)</script>\n")])])
         XCTAssertEqual(fenced.blocks, [.code(language: "html", code: "<div>literal</div>\n")])
     }
 

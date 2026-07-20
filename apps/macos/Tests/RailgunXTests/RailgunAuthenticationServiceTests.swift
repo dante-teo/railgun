@@ -20,14 +20,14 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
         let desktop = factory.desktopRPCLaunch()
         XCTAssertEqual(desktop.executableURL.path, resources.appendingPathComponent("backend/node/bin/node").path)
         XCTAssertEqual(desktop.arguments, [resources.appendingPathComponent("backend/railgun/dist/backend.js").path, "desktop"])
-        XCTAssertEqual(desktop.currentDirectoryURL, home)
+        XCTAssertEqual(desktop.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
         XCTAssertEqual(desktop.environment?["RAILGUN_DESKTOP_RPC"], "1")
         XCTAssertEqual(desktop.environment?["DEVIN_TOKEN"], "environment-managed-token")
 
         let helper = factory.authenticationHelperLaunch(for: .logout)
         XCTAssertEqual(helper.executableURL, desktop.executableURL)
         XCTAssertEqual(helper.arguments, [resources.appendingPathComponent("backend/railgun/dist/backend.js").path, "logout"])
-        XCTAssertEqual(helper.currentDirectoryURL, home)
+        XCTAssertEqual(helper.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
         XCTAssertNil(helper.environment?["RAILGUN_DESKTOP_RPC"])
         XCTAssertEqual(helper.environment?["DEVIN_TOKEN"], "environment-managed-token")
     }

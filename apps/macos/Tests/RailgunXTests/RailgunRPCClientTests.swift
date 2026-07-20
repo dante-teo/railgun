@@ -305,6 +305,16 @@ final class RailgunRPCClientTests: XCTestCase {
         await client.shutdown()
     }
 
+    func testRequestWithoutTimeoutWaitsForADelayedResponse() async throws {
+        let client = RailgunRPCClient()
+        _ = try await client.start(perlLaunch(script: responsiveBackendScript))
+
+        let response = try await client.request(Data(#"{"type":"slow"}"#.utf8), timeout: nil)
+
+        XCTAssertEqual(try responseObject(response)["command"] as? String, "slow")
+        await client.shutdown()
+    }
+
     func testPreCancelledRequestUsesRailgunCancellationError() async throws {
         let client = RailgunRPCClient()
         _ = try await client.start(perlLaunch(script: responsiveBackendScript))

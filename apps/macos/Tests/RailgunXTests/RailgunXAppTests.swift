@@ -32,6 +32,38 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
+    func testTaskCommandAvailabilityKeepsUnavailableActionsDisabled() {
+        XCTAssertEqual(
+            RailgunTaskCommandAvailability(canCreateTask: false),
+            .init(canCreateTask: false)
+        )
+        XCTAssertNotEqual(
+            RailgunTaskCommandAvailability(canCreateTask: false),
+            .init(canCreateTask: true)
+        )
+    }
+
+    func testTaskCommandsUseNativeSceneRoutingAndKeyboardShortcuts() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunTaskCommands.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("CommandGroup(replacing: .newItem)"))
+        XCTAssertTrue(source.contains(".keyboardShortcut(\"n\", modifiers: .command)"))
+        XCTAssertTrue(source.contains(".keyboardShortcut(\"1\", modifiers: .command)"))
+        XCTAssertTrue(source.contains("@Environment(\\.openSettings)"))
+        XCTAssertTrue(source.contains("openWindow(id:"))
+
+        let appSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(appSource.contains("SidebarCommands()"))
+    }
+
     func testActivityUsesAFloatingGlassPanelAlongsideTheTranscript() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -115,6 +147,22 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("### `RailgunComposer`"))
         XCTAssertTrue(nativeUIPolicy.contains("accessible name `Message`"))
         XCTAssertTrue(nativeUIPolicy.contains("SWFT-032"))
+    }
+
+    func testTaskComposerUsesTheSharedProductSurfaceHierarchy() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("task-composer-surface"))
+        XCTAssertTrue(source.contains("Message Railgun…"))
+        XCTAssertTrue(source.contains("task-composer-send"))
+        XCTAssertTrue(source.contains("composerKeyboardHint"))
+        XCTAssertTrue(source.contains("composerActionRow"))
+        XCTAssertTrue(source.contains("canRetryComposerSubmission"))
+        XCTAssertEqual(RailgunTaskShell.composerMaximumWidth, 736)
     }
 
     func testActivityVisibilityUsesOnlyTheToolbarToggle() throws {
@@ -544,7 +592,10 @@ final class RailgunXAppTests: XCTestCase {
 
         await runtime.handle(.sessionSaved)
 
-        XCTAssertEqual(store.state.session.sessions.map(\.id), ["mock-session-complex-task"])
+        XCTAssertEqual(
+            store.state.session.sessions.map(\.id),
+            ["mock-session-complex-task", "mock-session-rich-history", "mock-session-recent", "mock-session-older"]
+        )
         await runtime.shutdown()
     }
 

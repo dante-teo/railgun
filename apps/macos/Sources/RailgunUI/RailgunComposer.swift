@@ -3,8 +3,8 @@ import SwiftUI
 
 /// A native macOS text composer whose value and focus remain owned by SwiftUI.
 ///
-/// This component deliberately owns no prompt submission workflow. Its callback
-/// reports a submitted draft so a future feature can decide how to enqueue it.
+/// This component deliberately owns no prompt submission workflow. Its callbacks
+/// report submitted drafts so the SwiftUI caller can decide how to route them.
 @MainActor
 public struct RailgunComposer: NSViewRepresentable {
     @Binding private var draft: String
@@ -12,19 +12,27 @@ public struct RailgunComposer: NSViewRepresentable {
     private let isEnabled: Bool
     @Binding private var reportedHeight: CGFloat
     private let onSubmit: (String) -> Void
+    private let onEnqueue: ((String) -> Void)?
 
     public init(
         draft: Binding<String>,
         isFocused: Binding<Bool>,
         isEnabled: Bool = true,
         reportedHeight: Binding<CGFloat>,
-        onSubmit: @escaping (String) -> Void
+        onSubmit: @escaping (String) -> Void,
+        onEnqueue: ((String) -> Void)? = nil
     ) {
         _draft = draft
         _isFocused = isFocused
         self.isEnabled = isEnabled
         _reportedHeight = reportedHeight
         self.onSubmit = onSubmit
+        self.onEnqueue = onEnqueue
+    }
+
+    /// The height needed to display one line before the AppKit view has reported its layout.
+    public static func minimumHeight() -> CGFloat {
+        RailgunComposerLayout.minimumHeight(for: RailgunComposerTextView())
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -39,6 +47,7 @@ public struct RailgunComposer: NSViewRepresentable {
             isFocused: $isFocused,
             reportedHeight: $reportedHeight,
             onSubmit: onSubmit,
+            onEnqueue: onEnqueue,
             scrollView: scrollView
         )
         return scrollView
@@ -51,6 +60,7 @@ public struct RailgunComposer: NSViewRepresentable {
             isFocused: $isFocused,
             reportedHeight: $reportedHeight,
             onSubmit: onSubmit,
+            onEnqueue: onEnqueue,
             scrollView: scrollView
         )
         scrollView.composerTextView.updateDraft(draft)
@@ -66,6 +76,7 @@ public struct RailgunComposer: NSViewRepresentable {
             let isFocused: Binding<Bool>
             let reportedHeight: Binding<CGFloat>
             let onSubmit: (String) -> Void
+            let onEnqueue: ((String) -> Void)?
         }
 
         private var configuration: Configuration?
@@ -76,17 +87,22 @@ public struct RailgunComposer: NSViewRepresentable {
             isFocused: Binding<Bool>,
             reportedHeight: Binding<CGFloat>,
             onSubmit: @escaping (String) -> Void,
+            onEnqueue: ((String) -> Void)?,
             scrollView: RailgunComposerScrollView
         ) {
             configuration = Configuration(
                 draft: draft,
                 isFocused: isFocused,
                 reportedHeight: reportedHeight,
-                onSubmit: onSubmit
+                onSubmit: onSubmit,
+                onEnqueue: onEnqueue
             )
             self.scrollView = scrollView
             scrollView.composerTextView.onSubmit = { [weak self] draft in
                 self?.configuration?.onSubmit(draft)
+            }
+            scrollView.composerTextView.onEnqueue = onEnqueue == nil ? nil : { [weak self] draft in
+                self?.configuration?.onEnqueue?(draft)
             }
         }
 
@@ -184,9 +200,14 @@ final class RailgunComposerScrollView: NSScrollView {
 @MainActor
 final class RailgunComposerTextView: NSTextView {
     var onSubmit: (String) -> Void
+    var onEnqueue: ((String) -> Void)?
 
-    init(onSubmit: @escaping (String) -> Void = { _ in }) {
+    init(
+        onSubmit: @escaping (String) -> Void = { _ in },
+        onEnqueue: ((String) -> Void)? = nil
+    ) {
         self.onSubmit = onSubmit
+        self.onEnqueue = onEnqueue
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(
@@ -234,14 +255,22 @@ final class RailgunComposerTextView: NSTextView {
         textContainer?.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
     }
 
-    /// Returns `true` only for the Return command that this component owns.
+    /// Returns `true` only for the Return and active-follow-up commands this component owns.
     func handleCommand(_ commandSelector: Selector) -> Bool {
-        guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
-        guard isEditable else { return true }
-        let draft = string
-        if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            onSubmit(draft)
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            guard isEditable else { return true }
+            let draft = string
+            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                onSubmit(draft)
+            }
+            return true
         }
+        guard commandSelector == #selector(NSResponder.insertTab(_:)), isEditable,
+              let onEnqueue
+        else { return false }
+        let draft = string
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        onEnqueue(draft)
         return true
     }
 }

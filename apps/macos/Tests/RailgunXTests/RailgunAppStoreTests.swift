@@ -188,6 +188,22 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertEqual(state.transcript.messages.map(\.text), ["start", "same"])
     }
 
+    func testQueueReconciliationInjectsMixedKindsInAcknowledgementFIFOOrder() {
+        var state = RailgunAppState.initial
+        state = RailgunAppReducer.reduce(state, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "steer", kind: .steering, text: "same")))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "follow", kind: .followUp, text: "same")))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.queueUpdated(steering: ["same"], followUp: ["same"])))
+
+        XCTAssertEqual(state.transcript.queue.map(\.id), ["steer", "follow"])
+
+        state = RailgunAppReducer.reduce(state, .agentEvent(.queueUpdated(steering: [], followUp: [])))
+
+        XCTAssertTrue(state.transcript.queue.isEmpty)
+        XCTAssertEqual(state.transcript.messages.map(\.text), ["start", "same", "same"])
+        XCTAssertEqual(state.transcript.messages.suffix(2).map(\.id), ["injected-steer", "injected-follow"])
+    }
+
     func testInteractionsStayInArrivalOrderAndSettleWhenTheRunEnds() {
         var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
         state = RailgunAppReducer.reduce(state, .interaction(.received(.approval(id: "one", command: "echo one"))))
@@ -244,6 +260,26 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertEqual(state.transcript.messages.last?.status, .stopped)
         XCTAssertFalse(state.transcript.isRunning)
         XCTAssertFalse(state.transcript.isStopping)
+    }
+
+    func testQueueFailureRetainsItsCommandForASameKindRetry() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(
+            state,
+            .transcript(.queueRejected(kind: .followUp, text: "continue", message: "Unavailable"))
+        )
+
+        XCTAssertEqual(
+            state.transcript.failedQueue,
+            .init(kind: .followUp, text: "continue", message: "Unavailable")
+        )
+
+        state = RailgunAppReducer.reduce(
+            state,
+            .transcript(.queueAccepted(id: "retry", kind: .followUp, text: "continue"))
+        )
+
+        XCTAssertNil(state.transcript.failedQueue)
     }
 
     func testBackendInterruptionFailsTheActiveRunAndPreservesRetryDetails() {

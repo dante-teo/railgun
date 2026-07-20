@@ -234,6 +234,7 @@ private final class RailgunEventObservation: @unchecked Sendable {
 @Observable
 final class RailgunBackendRuntime {
     let sessionCoordinator: RailgunSessionCoordinator
+    let promptCoordinator: RailgunPromptCoordinator
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
@@ -254,6 +255,10 @@ final class RailgunBackendRuntime {
         self.sessionCoordinator = RailgunSessionCoordinator(
             store: store,
             service: RailgunSessionService(rpcClient: client)
+        )
+        self.promptCoordinator = RailgunPromptCoordinator(
+            store: store,
+            service: RailgunPromptService(rpcClient: client)
         )
         terminationObservationTask = Task { @MainActor [weak store, client] in
             for await _ in client.unexpectedTerminations {
@@ -474,6 +479,8 @@ struct RailgunTaskShell: View {
     static let activityPanelReservedWidth: CGFloat = 376
     static let activityPopoverHeight: CGFloat = 360
     static let sidebarMinimumWidth: CGFloat = 180
+    /// Matches the Electron chat's 46-rem content column at the 16-point base size.
+    static let composerMaximumWidth: CGFloat = 736
 
     static func isArchiveActionDisabled(for session: RailgunSessionState) -> Bool {
         session.selectedSession?.isPersisted != true
@@ -481,16 +488,26 @@ struct RailgunTaskShell: View {
 
     @Bindable private var appStore: RailgunAppStore
     private let sessionCoordinator: RailgunSessionCoordinator
+    private let promptCoordinator: RailgunPromptCoordinator
     @State private var transcriptFollowState = RailgunTranscriptFollowState.initial
     @State private var previousTranscriptGeometry: RailgunScrollGeometry?
     @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
     @State private var detailViewportWidth: CGFloat = 0
+    @State private var composerDraft = ""
+    @State private var isComposerFocused = false
+    @State private var composerHeight = RailgunComposer.minimumHeight()
+    @State private var isComposerSubmissionInFlight = false
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
 
-    init(appStore: RailgunAppStore, sessionCoordinator: RailgunSessionCoordinator) {
+    init(
+        appStore: RailgunAppStore,
+        sessionCoordinator: RailgunSessionCoordinator,
+        promptCoordinator: RailgunPromptCoordinator
+    ) {
         _appStore = Bindable(appStore)
         self.sessionCoordinator = sessionCoordinator
+        self.promptCoordinator = promptCoordinator
     }
 
     var body: some View {
@@ -505,7 +522,10 @@ struct RailgunTaskShell: View {
             )
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
-            transcriptScrollView
+            VStack(spacing: 0) {
+                transcriptScrollView
+                composerArea
+            }
                 .background {
                     GeometryReader { geometry in
                         Color.clear
@@ -528,10 +548,11 @@ struct RailgunTaskShell: View {
 
                     ToolbarItemGroup(placement: .automatic) {
                         Button {
-                            Task { await sessionCoordinator.create(modelID: appStore.state.controls.activeModelID) }
+                            createTask()
                         } label: {
                             Label("New Task", systemImage: "square.and.pencil")
                         }
+                        .disabled(!commandAvailability.canCreateTask)
                         Button(role: .destructive) {
                             guard let sessionID = appStore.state.session.activeSessionID else { return }
                             Task { await sessionCoordinator.archive(sessionID) }
@@ -543,6 +564,24 @@ struct RailgunTaskShell: View {
                 }
         }
         .toolbarRole(.editor)
+        .focusedSceneValue(
+            \.railgunTaskCommandActions,
+            RailgunTaskCommandActions(
+                availability: commandAvailability,
+                createTask: createTask
+            )
+        )
+    }
+
+    private var commandAvailability: RailgunTaskCommandAvailability {
+        .init(
+            canCreateTask: !appStore.state.session.isLoading
+        )
+    }
+
+    private func createTask() {
+        guard commandAvailability.canCreateTask else { return }
+        Task { await sessionCoordinator.create(modelID: appStore.state.controls.activeModelID) }
     }
 
     private var selectedSessionID: Binding<String?> {
@@ -671,6 +710,227 @@ struct RailgunTaskShell: View {
             .padding(.horizontal, RailgunSpacing.layout.points)
             .padding(.top, RailgunSpacing.layout.points)
             .accessibilityIdentifier("session-operation-error")
+    }
+
+    private var composerArea: some View {
+        VStack(spacing: 0) {
+            Divider()
+            composerContent
+        }
+        .background(.regularMaterial)
+    }
+
+    private var composerContent: some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            queuedMessageAcknowledgements
+            composerSurface
+            composerSubmissionError
+            composerKeyboardHint
+        }
+        .padding(RailgunSpacing.standard.points)
+        .frame(maxWidth: Self.composerMaximumWidth, alignment: .leading)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var queuedMessageAcknowledgements: some View {
+        if !appStore.state.transcript.queue.isEmpty {
+            RailgunQueuedMessageAcknowledgements(queue: appStore.state.transcript.queue)
+        }
+    }
+
+    @ViewBuilder
+    private var composerSubmissionError: some View {
+        if let error = appStore.state.transcript.submissionError {
+            HStack(spacing: RailgunSpacing.standard.points) {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(RailgunFont.interface(.callout))
+                    .foregroundStyle(.red)
+                Spacer(minLength: 0)
+                Button("Retry", action: retryComposerSubmission)
+                    .disabled(!canRetryComposerSubmission)
+            }
+            .accessibilityIdentifier("composer-submission-error")
+        }
+    }
+
+    private var composerSurface: some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
+            composerInput
+            composerActionRow
+        }
+        .padding(RailgunSpacing.relaxed.points)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(
+                    isComposerFocused ? Color.accentColor : Color.secondary.opacity(0.28),
+                    lineWidth: isComposerFocused ? 1.5 : 1
+                )
+        }
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .accessibilityIdentifier("task-composer-surface")
+    }
+
+    @ViewBuilder
+    private var composerActionRow: some View {
+        if isComposerSubmissionInFlight || !appStore.state.transcript.isRunning {
+            HStack(spacing: RailgunSpacing.standard.points) {
+                if isComposerSubmissionInFlight {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Submitting message")
+                }
+
+                Spacer(minLength: 0)
+
+                if !appStore.state.transcript.isRunning {
+                    Button(action: submitDraftFromComposerAction) {
+                        Label("Send", systemImage: "paperplane.fill")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!canSubmitComposerDraft)
+                    .help("Send task")
+                    .accessibilityIdentifier("task-composer-send")
+                }
+            }
+        }
+    }
+
+    private var composerInput: some View {
+        ZStack(alignment: .topLeading) {
+            RailgunComposer(
+                draft: $composerDraft,
+                isFocused: $isComposerFocused,
+                isEnabled: isComposerEnabled,
+                reportedHeight: $composerHeight,
+                onSubmit: submitComposerDraft,
+                onEnqueue: followUpEnqueueHandler
+            )
+            .frame(height: composerHeight)
+            .accessibilityIdentifier("task-composer")
+
+            if composerDraft.isEmpty {
+                Text(isComposerEnabled ? "Message Railgun…" : "Backend unavailable")
+                    .font(RailgunFont.interface(.body))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, RailgunSpacing.compact.points)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(height: composerHeight)
+    }
+
+    private var followUpEnqueueHandler: ((String) -> Void)? {
+        guard appStore.state.transcript.isRunning else { return nil }
+        return enqueueFollowUp
+    }
+
+    private var composerKeyboardHint: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Text(
+                appStore.state.transcript.isRunning
+                    ? "Return steers · Tab queues follow-up · Shift-Return adds a line"
+                    : "Return sends · Shift-Return adds a line"
+            )
+            .font(RailgunFont.interface(.caption))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, RailgunSpacing.relaxed.points)
+            .padding(.vertical, RailgunSpacing.compact.points)
+            .background(.thinMaterial, in: UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 8,
+                bottomTrailingRadius: 8,
+                topTrailingRadius: 0,
+                style: .continuous
+            ))
+            .overlay {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 8,
+                    bottomTrailingRadius: 8,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+                .strokeBorder(Color.secondary.opacity(0.2))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, -RailgunSpacing.compact.points)
+        .accessibilityIdentifier("composer-keyboard-hint")
+    }
+
+    private var isComposerEnabled: Bool {
+        !isComposerSubmissionInFlight
+            && !appStore.state.transcript.isStopping
+            && appStore.state.interactions.requests.isEmpty
+    }
+
+    private var canSubmitComposerDraft: Bool {
+        isComposerEnabled
+            && !composerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var canRetryComposerSubmission: Bool {
+        isComposerEnabled
+            && (
+                appStore.state.transcript.failedRun != nil
+                    || appStore.state.transcript.failedQueue != nil
+                    || !composerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
+    }
+
+    private func submitDraftFromComposerAction() {
+        guard canSubmitComposerDraft else { return }
+        submitComposerDraft(composerDraft)
+    }
+
+    private func submitComposerDraft(_ message: String) {
+        guard isComposerEnabled else { return }
+        isComposerSubmissionInFlight = true
+        Task {
+            let wasAccepted = await promptCoordinator.submit(message)
+            finishComposerSubmission(wasAccepted, clearing: message)
+        }
+    }
+
+    private func enqueueFollowUp(_ message: String) {
+        guard isComposerEnabled else { return }
+        isComposerSubmissionInFlight = true
+        Task {
+            let wasAccepted = await promptCoordinator.enqueue(message, kind: .followUp)
+            finishComposerSubmission(wasAccepted, clearing: message)
+        }
+    }
+
+    private func retryComposerSubmission() {
+        guard isComposerEnabled else { return }
+        isComposerSubmissionInFlight = true
+        let failedRun = appStore.state.transcript.failedRun
+        let failedQueue = appStore.state.transcript.failedQueue
+        let retryDraft = composerDraft
+        Task {
+            let wasAccepted: Bool
+            if failedRun != nil {
+                wasAccepted = await promptCoordinator.retry()
+            } else if failedQueue != nil {
+                wasAccepted = await promptCoordinator.retryQueue()
+            } else {
+                wasAccepted = await promptCoordinator.submit(composerDraft)
+            }
+            finishComposerSubmission(wasAccepted, clearing: failedRun?.text ?? failedQueue?.text ?? retryDraft)
+        }
+    }
+
+    private func finishComposerSubmission(_ wasAccepted: Bool, clearing submittedDraft: String) {
+        if wasAccepted, composerDraft == submittedDraft {
+            composerDraft = ""
+        }
+        isComposerSubmissionInFlight = false
     }
 
     private var transcriptScrollView: some View {
@@ -844,6 +1104,33 @@ private struct RailgunTaskSidebar: View {
             .frame(width: RailgunTaskShell.activityPanelPreferredWidth, height: RailgunTaskShell.activityPopoverHeight)
             .padding(RailgunSpacing.standard.points)
         }
+    }
+}
+
+private struct RailgunQueuedMessageAcknowledgements: View {
+    let queue: [RailgunQueuedMessage]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            ForEach(queue) { item in
+                HStack(alignment: .firstTextBaseline, spacing: RailgunSpacing.compact.points) {
+                    Text(item.kind == .steering ? "Steering" : "Follow-up")
+                        .font(RailgunFont.interface(.caption, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(item.text)
+                        .font(RailgunFont.interface(.callout))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+                .padding(.horizontal, RailgunSpacing.standard.points)
+                .padding(.vertical, RailgunSpacing.compact.points)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityIdentifier("queued-message-\(item.id)")
+            }
+        }
+        .accessibilityIdentifier("queued-message-acknowledgements")
     }
 }
 
@@ -1104,6 +1391,10 @@ struct RailgunXApp: App {
         )
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(Self.lifecycleConfiguration.primaryWindowResizability.swiftUIValue)
+        .commands {
+            RailgunTaskCommands()
+            SidebarCommands()
+        }
 
         Settings {
             RailgunSettingsView(
@@ -1121,7 +1412,11 @@ struct RailgunXApp: App {
         case .starting:
             ProgressView("Starting the Railgun backend…")
         case .ready:
-            RailgunTaskShell(appStore: appStore, sessionCoordinator: backendRuntime.sessionCoordinator)
+            RailgunTaskShell(
+                appStore: appStore,
+                sessionCoordinator: backendRuntime.sessionCoordinator,
+                promptCoordinator: backendRuntime.promptCoordinator
+            )
         case .authenticationRequired:
             RailgunBackendStatusView(
                 title: "Authentication Required",
