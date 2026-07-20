@@ -310,7 +310,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-027` — Build the native lazy transcript viewport, four-point bottom-follow behavior, Jump to Latest cue, and macOS 26 soft top-edge effect while retaining the native scroller. `[8h]`
 - [x] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
 - [x] `SWFT-030` — Build tool activity and populate the adaptive Activity pane/popover using native grouping, lists, button expanders, and popovers with shared presentation variants. `[8h]`
-- [ ] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
+- [x] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
 - [ ] `SWFT-032` — Implement prompt, steering, follow-up, FIFO acknowledgement, and the Task, Settings, and sidebar menu commands that route those workflows. `[8h]`
 - [ ] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`
 - [ ] `SWFT-033` — Build approval and clarification with native buttons, fields, pickers, focus, and keyboard handling. `[8h]`

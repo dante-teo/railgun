@@ -134,6 +134,11 @@ invariants intact:
 - Do not mount the component in `RailgunTaskShell`, clear drafts, or introduce
   prompt/queue RPCs before SWFT-032.
 
+Focused coverage lives in `RailgunComposerTests`, which verifies sizing and
+overflow, Return and Shift-Return behavior, disabled submission suppression,
+multiline paste and selection preservation, accessibility configuration,
+SwiftUI state synchronization, and first-responder handoff.
+
 ## Transcript soft top-edge invariant
 
 On macOS 26 and later, the Task transcript applies
