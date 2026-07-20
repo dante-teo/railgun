@@ -32,15 +32,96 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
-    func testActivityPaneFloatsInNarrowDetailsAndDocksInWideDetails() {
-        XCTAssertEqual(
-            RailgunActivityPaneLayout.presentation(for: 899),
-            .floating
+    func testActivityUsesAFloatingGlassPanelAlongsideTheTranscript() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
         )
-        XCTAssertEqual(
-            RailgunActivityPaneLayout.presentation(for: 900),
-            .docked
+        let activitySource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunActivityPresentation.swift"),
+            encoding: .utf8
         )
+
+        XCTAssertTrue(source.contains("RailgunActivityPanel("))
+        XCTAssertTrue(source.contains(".contentMargins(\n            .leading,"))
+        XCTAssertTrue(source.contains("content.glassEffect("))
+        XCTAssertFalse(source.contains(".inspector(isPresented:"))
+        XCTAssertTrue(activitySource.contains(".scrollContentBackground(.hidden)"))
+    }
+
+    func testActivityPanelPresentationUsesStableDetailWidth() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("@State private var detailViewportWidth: CGFloat = 0"))
+        XCTAssertTrue(source.contains("GeometryReader { geometry in"))
+        XCTAssertTrue(source.contains("detailViewportWidth = geometry.size.width"))
+        XCTAssertFalse(source.contains("transcriptViewportWidth = geometry.viewportWidth"))
+    }
+
+    func testActivityPanelUsesCompactMapsLikeDimensions() {
+        XCTAssertEqual(RailgunTaskShell.activityPanelPreferredWidth, 320)
+        XCTAssertEqual(RailgunTaskShell.activityPanelReservedWidth, 376)
+        XCTAssertEqual(RailgunTaskShell.activityPopoverHeight, 360)
+    }
+
+    func testTranscriptUsesComfortableExpandedMessageSpacing() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(
+            source.contains("LazyVStack(alignment: .center, spacing: RailgunSpacing.expanded.points)")
+        )
+    }
+
+    func testDesktopDocumentationCapturesActivityAndTranscriptLayoutContracts() throws {
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(readme.contains("4, 8, 12, 16, 24, and 32 point scale"))
+        XCTAssertTrue(readme.contains("32-point inter-message gap"))
+        XCTAssertTrue(readme.contains("376 points beside the transcript"))
+        XCTAssertTrue(nativeUIPolicy.contains("## Activity panel layout invariant"))
+        XCTAssertTrue(nativeUIPolicy.contains("stable detail viewport measurement"))
+        XCTAssertTrue(nativeUIPolicy.contains(".scrollContentBackground(.hidden)"))
+    }
+
+    func testActivityVisibilityUsesOnlyTheToolbarToggle() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("accessibilityIdentifier(\"toggle-activity\")"))
+        XCTAssertFalse(source.contains("close-activity"))
+        XCTAssertFalse(source.contains("dismiss: { isActivityCardVisible"))
+    }
+
+    func testSettingsUsesExplicitInterfaceTypographyWithoutANativeListReset() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("RailgunArchivedTaskRow"))
+        XCTAssertFalse(source.contains("List(tasks)"))
+        XCTAssertTrue(source.contains("Text(\"Restore\").font(RailgunFont.interface(.body, weight: .semibold))"))
     }
 
     func testTranscriptSoftEdgePreservesTheNativeScrollerContract() throws {
@@ -139,6 +220,24 @@ final class RailgunXAppTests: XCTestCase {
 
     func testAppUsesThePrimaryLifecycleConfiguration() {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration, .primary)
+    }
+
+    func testPrimaryWindowAndSettingsUseTheSharedMatchaTintAndSidebarSelection() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        let sharedTint = ".tint(RailgunColorRole.accent.color)"
+
+        XCTAssertEqual(
+            source.components(separatedBy: sharedTint).count - 1,
+            2,
+            "Both the primary window and Settings scene must inherit the shared matcha tint."
+        )
+        XCTAssertTrue(source.contains("RailgunSidebarSessionRow"))
+        XCTAssertTrue(source.contains("isSelected ? RailgunColorRole.accent.color : .clear"))
+        XCTAssertFalse(source.contains("List(selection: selection)"))
     }
 
     func testDesktopClientLockCreatesAndReleasesTheSharedLockRecord() async throws {
@@ -490,7 +589,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: stagingScriptURL.path))
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: validationScriptURL.path))
         XCTAssertTrue(stagingScript.contains("PATH=\"$staged_node_root/bin:$PATH\""))
-        XCTAssertTrue(stagingScript.contains("pnpm --dir \"$repository_root\""))
+        XCTAssertTrue(stagingScript.contains("corepack \"pnpm@$pinned_pnpm_version\""))
+        XCTAssertTrue(stagingScript.contains("\"${pinned_pnpm[@]}\" --dir \"$repository_root\""))
         XCTAssertTrue(stagingScript.contains("node_gyp_script=\"$repository_root/node_modules/node-gyp/bin/node-gyp.js\""))
         XCTAssertTrue(stagingScript.contains("npm_config_build_from_source=true"))
         XCTAssertTrue(stagingScript.contains("--nodedir=\"$staged_node_root\""))

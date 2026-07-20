@@ -69,9 +69,19 @@ done
 [[ -f "$repository_root/tsconfig.build.json" ]] || fail "backend build configuration is missing."
 [[ -f "$node_gyp_script" ]] || fail "direct node-gyp dependency is missing: $node_gyp_script"
 
-for command in clang++ file make mkdir mktemp mv node pnpm python3 rm; do
+for command in clang++ corepack file make mkdir mktemp mv node python3 rm; do
   require_command "$command"
 done
+
+pinned_pnpm_version="$(
+  node -e '
+    const packageManager = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).packageManager;
+    const match = typeof packageManager === "string" && packageManager.match(/^pnpm@([0-9]+\.[0-9]+\.[0-9]+)/);
+    if (!match) process.exit(1);
+    process.stdout.write(match[1]);
+  ' "$repository_root/package.json"
+)" || fail "package.json must declare a pinned pnpm version."
+pinned_pnpm=(corepack "pnpm@$pinned_pnpm_version")
 
 if [[ -e "$output" || -L "$output" ]]; then
   [[ -d "$output" && ! -L "$output" ]] || fail "backend output must be a real directory: $output"
@@ -101,7 +111,7 @@ trap cleanup EXIT
 mkdir "$staging_backend"
 
 printf 'building the TypeScript backend\n'
-pnpm --dir "$repository_root" run build
+"${pinned_pnpm[@]}" --dir "$repository_root" run build
 
 printf 'staging the pinned Node runtime (%s)\n' "$architecture"
 "$stage_runtime" --architecture "$architecture" --output "$staging_backend"
@@ -115,7 +125,7 @@ printf 'deploying the production backend dependency closure\n'
 # /usr/bin/env. Invoke the launcher normally because pnpm installations may
 # expose either a JavaScript entry point or a shell shim.
 PATH="$staged_node_root/bin:$PATH" \
-  pnpm --dir "$repository_root" \
+  "${pinned_pnpm[@]}" --dir "$repository_root" \
   --filter @dantea/railgun deploy --prod "$deployed_railgun"
 
 [[ -f "$deployed_railgun/dist/backend.js" ]] || fail "production backend deployment is missing dist/backend.js."

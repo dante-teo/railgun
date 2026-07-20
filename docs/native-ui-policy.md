@@ -131,6 +131,31 @@ message and operation-error presentation rules. The visual blur itself still
 requires the manual check above because XCTest cannot reliably assert
 compositor output.
 
+## Activity panel layout invariant
+
+Activity is a non-scrolling companion to the transcript. Its presentation must
+not feed back into transcript scroll geometry:
+
+- Base the docked-versus-floating decision on a stable detail viewport
+  measurement outside the transcript `ScrollView`. Do not derive it from
+  `onScrollGeometryChange` or a scroll-content width: changing the docked
+  content margin can otherwise repeatedly change the measured width and hang or
+  crash while toggling Activity.
+- At 900pt or more of detail width, overlay the glass panel at the leading edge
+  and reserve 376pt of transcript content width. Below that threshold, present
+  the 320×360 panel as a toolbar-anchored popover and reserve no transcript
+  width.
+- Keep the Activity panel outside transcript scroll content. Its dashboard
+  `ScrollView` must apply `.scrollContentBackground(.hidden)` so it does not
+  paint over the glass material.
+- The sidebar-toolbar Activity toggle is the sole visibility control. The
+  panel has no independent close button.
+
+The focused source-contract tests protect the stable detail viewport measurement,
+presentation threshold, transparent dashboard scroll content, and sole-toggle
+visibility contract. Visual verification still requires testing both compact
+and wide window widths in light and dark appearance.
+
 ## Shared-component governance
 
 Reusable custom UI belongs in `RailgunUI`. Feature targets must not create

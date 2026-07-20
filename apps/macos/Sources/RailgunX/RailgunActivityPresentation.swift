@@ -332,7 +332,7 @@ struct RailgunActivityRows: View {
     let entries: [RailgunActivityEntry]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
             ForEach(Array(RailgunActivityGrouping.rows(for: entries).enumerated()), id: \.offset) { _, item in
                 switch item {
                 case let .entry(entry):
@@ -358,13 +358,13 @@ private struct RailgunToolActivityGroupRow: View {
             Label(presentation.action, systemImage: presentation.symbol.rawValue)
                 .foregroundStyle(foregroundStyle)
         } content: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.standard.points) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                     RailgunActivityEntryRow(entry: entry)
                 }
             }
-            .padding(.leading, 20)
-            .padding(.top, 8)
+            .padding(.leading, RailgunSpacing.layout.points)
+            .padding(.top, RailgunSpacing.standard.points)
         }
     }
 
@@ -406,7 +406,7 @@ private struct RailgunActivityEntryRow: View {
         return RailgunActivityExpander(
             accessibilityLabel: "\(name) — \(RailgunActivityPresentation.statusLabel(status))"
         ) {
-            HStack(spacing: 6) {
+            HStack(spacing: RailgunSpacing.standard.points) {
                 Image(systemName: presentation.symbol.rawValue)
                 Text(presentation.action).fontWeight(.medium)
                 if let target = presentation.target {
@@ -418,17 +418,17 @@ private struct RailgunActivityEntryRow: View {
             }
             .foregroundStyle(toolForegroundStyle(status))
         } content: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
                 if let input { RailgunActivityDetail(title: "Input", value: input) }
                 if let output { RailgunActivityDetail(title: "Output", value: output) }
             }
-            .padding(.leading, 20)
-            .padding(.top, 8)
+            .padding(.leading, RailgunSpacing.layout.points)
+            .padding(.top, RailgunSpacing.standard.points)
         }
     }
 
     private func activityCard(title: String, subtitle: String, status: RailgunActivityStatus, detail: String?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).fontWeight(.semibold)
                 Spacer()
@@ -444,7 +444,7 @@ private struct RailgunActivityEntryRow: View {
                     .lineLimit(3)
             }
         }
-        .padding(10)
+        .padding(RailgunSpacing.relaxed.points)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title) — \(RailgunActivityPresentation.statusLabel(status))")
@@ -456,7 +456,7 @@ private struct RailgunActivityDetail: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
             Text(title)
                 .font(RailgunFont.interface(.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -484,10 +484,10 @@ struct RailgunWorkedActivityDisclosure: View {
         RailgunActivityExpander(accessibilityLabel: "Worked", showsBottomDivider: true) {
             Text("Worked")
         } content: {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.standard.points) {
                 RailgunActivityRows(entries: entries)
             }
-            .padding(.top, 12)
+            .padding(.top, RailgunSpacing.relaxed.points)
         }
         .foregroundStyle(.secondary)
     }
@@ -519,7 +519,7 @@ private struct RailgunActivityExpander<Label: View, Content: View>: View {
             Button {
                 isExpanded.toggle()
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: RailgunSpacing.standard.points) {
                     label()
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .imageScale(.small)
@@ -533,7 +533,7 @@ private struct RailgunActivityExpander<Label: View, Content: View>: View {
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
 
             if showsBottomDivider {
-                Divider().padding(.top, 8)
+                Divider().padding(.top, RailgunSpacing.standard.points)
             }
 
             if isExpanded {
@@ -552,42 +552,62 @@ struct RailgunActivityDashboard: View {
 
     var body: some View {
         let presentation = RailgunActivityDashboardPresentation(activity: activity)
-        List {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
             if presentation.sections.contains(.advisor) {
-                Section("Advisor") { RailgunAdvisorDashboardRow(notes: activity.advisorNotes) }
+                    RailgunActivityDashboardSection("Advisor") {
+                        RailgunAdvisorDashboardRow(notes: activity.advisorNotes)
+                    }
             }
             if presentation.sections.contains(.todos) {
-                Section("Todos") {
-                    Text(presentation.todoProgress)
-                        .font(RailgunFont.interface(.caption))
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel(presentation.todoProgress)
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
+                    RailgunActivityDashboardSection("Todos") {
+                        Text(presentation.todoProgress)
+                            .font(RailgunFont.interface(.caption))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(presentation.todoProgress)
+                        LazyVStack(alignment: .leading, spacing: RailgunSpacing.standard.points) {
                             ForEach(activity.todos, id: \.id) { todo in
                                 RailgunTodoRow(todo: todo)
                             }
                         }
                     }
-                    .frame(maxHeight: 144)
-                }
             }
             if presentation.sections.contains(.subagents) {
-                Section("Subagents") {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 4) {
+                    RailgunActivityDashboardSection("Subagents") {
+                        LazyVStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
                             ForEach(activity.subagents, id: \.index) { subagent in
                                 RailgunSubagentDashboardRow(subagent: subagent)
                             }
                         }
                     }
-                    .frame(maxHeight: 144)
-                }
             }
+            }
+            .padding(.vertical, RailgunSpacing.compact.points)
         }
-        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .font(RailgunFont.interface())
         .accessibilityIdentifier("activity-dashboard")
         .accessibilityLabel("Activity Dashboard")
+    }
+}
+
+private struct RailgunActivityDashboardSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
+            Text(title)
+                .font(RailgunFont.interface(.headline, weight: .semibold))
+                .foregroundStyle(RailgunColorRole.secondaryText.color)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -609,22 +629,22 @@ private struct RailgunAdvisorDashboardRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Advisor — \(notes.count) \(notes.count == 1 ? "note" : "notes")")
         .popover(isPresented: $isPresented) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
                 Text("Advisor notes").font(RailgunFont.interface(.headline))
                 ForEach(notes, id: \.order) { note in
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
                         Text(note.severity.rawValue)
                             .font(RailgunFont.interface(.caption, weight: .bold))
                             .foregroundStyle(advisorColor(note.severity))
                         Text(note.text).textSelection(.enabled)
                     }
-                    .padding(.leading, 8)
+                    .padding(.leading, RailgunSpacing.standard.points)
                     .overlay(alignment: .leading) {
                         Rectangle().fill(advisorColor(note.severity)).frame(width: 3)
                     }
                 }
             }
-            .padding()
+            .padding(RailgunSpacing.section.points)
             .frame(width: 320)
         }
     }
@@ -634,7 +654,7 @@ private struct RailgunTodoRow: View {
     let todo: RailgunTodo
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: RailgunSpacing.standard.points) {
             Image(systemName: todoSymbol(todo.status))
                 .foregroundStyle(todoColor(todo.status))
                 .accessibilityHidden(true)
@@ -666,7 +686,7 @@ private struct RailgunSubagentDashboardRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(subagent.goal) — \(subagentLabel(subagent.status))")
         .popover(isPresented: $isPresented) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
                 Text("Subagent · \(subagentLabel(subagent.status))")
                     .font(RailgunFont.interface(.caption, weight: .semibold))
                     .foregroundStyle(.secondary)
@@ -678,7 +698,7 @@ private struct RailgunSubagentDashboardRow: View {
                     RailgunMarkdownMessage(markdown: result)
                 }
             }
-            .padding()
+            .padding(RailgunSpacing.section.points)
             .frame(width: 340, height: subagent.result == nil ? nil : 360)
         }
     }
@@ -691,11 +711,11 @@ private struct RailgunDashboardAgentLabel: View {
     let tint: Color
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: RailgunSpacing.standard.points) {
             Image(systemName: symbol)
                 .foregroundStyle(tint)
                 .frame(width: 22)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
                 Text(title).lineLimit(1)
                 Text(status)
                     .font(RailgunFont.interface(.caption))
@@ -728,7 +748,7 @@ private func todoSymbol(_ status: RailgunTodoStatus) -> String {
 private func todoColor(_ status: RailgunTodoStatus) -> Color {
     switch status {
     case .completed: .green
-    case .inProgress: .accentColor
+    case .inProgress: RailgunColorRole.accent.color
     case .cancelled: .secondary
     case .pending: .primary
     }
@@ -736,7 +756,7 @@ private func todoColor(_ status: RailgunTodoStatus) -> Color {
 
 private func advisorColor(_ severity: RailgunAdvisorSeverity) -> Color {
     switch severity {
-    case .nit: .accentColor
+    case .nit: RailgunColorRole.accent.color
     case .concern: .orange
     case .blocker: .red
     }
@@ -752,7 +772,7 @@ private func subagentLabel(_ status: RailgunSubagentActivity.Status) -> String {
 
 private func subagentColor(_ status: RailgunSubagentActivity.Status) -> Color {
     switch status {
-    case .running: .accentColor
+    case .running: RailgunColorRole.accent.color
     case .completed: .green
     case .interrupted: .orange
     }

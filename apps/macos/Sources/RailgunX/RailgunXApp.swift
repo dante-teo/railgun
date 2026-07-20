@@ -463,8 +463,10 @@ private struct RailgunTranscriptSoftTopEdgeEffect: ViewModifier {
 
 struct RailgunTaskShell: View {
     static let activityCardDefaultVisibility = false
-    static let activityCardPaneMargin: CGFloat = 8
-    static let activityCardReservedWidth: CGFloat = 360
+    static let activityPanelMargin = RailgunSpacing.standard.points
+    static let activityPanelPreferredWidth: CGFloat = 320
+    static let activityPanelReservedWidth: CGFloat = 376
+    static let activityPopoverHeight: CGFloat = 360
     static let sidebarMinimumWidth: CGFloat = 180
 
     static func isArchiveActionDisabled(for session: RailgunSessionState) -> Bool {
@@ -476,7 +478,7 @@ struct RailgunTaskShell: View {
     @State private var transcriptFollowState = RailgunTranscriptFollowState.initial
     @State private var previousTranscriptGeometry: RailgunScrollGeometry?
     @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
-    @State private var transcriptViewportWidth: CGFloat = 0
+    @State private var detailViewportWidth: CGFloat = 0
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
 
@@ -498,6 +500,17 @@ struct RailgunTaskShell: View {
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
             transcriptScrollView
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear
+                            .onAppear {
+                                detailViewportWidth = geometry.size.width
+                            }
+                            .onChange(of: geometry.size.width) { _, width in
+                                detailViewportWidth = width
+                            }
+                    }
+                }
                 .toolbar {
                     if #available(macOS 26.0, *) {
                         ToolbarSpacer(.flexible)
@@ -564,15 +577,15 @@ struct RailgunTaskShell: View {
     }
 
     private var activityPanePresentation: RailgunActivityPanePresentation {
-        RailgunActivityPaneLayout.presentation(for: transcriptViewportWidth)
+        RailgunActivityPaneLayout.presentation(for: detailViewportWidth)
     }
 
-    private var isActivityPaneDocked: Bool {
+    private var isActivityPanelDocked: Bool {
         isActivityAvailable && isActivityCardVisible && activityPanePresentation == .docked
     }
 
     private var activityReservedContentWidth: CGFloat {
-        isActivityPaneDocked ? Self.activityCardReservedWidth : 0
+        isActivityPanelDocked ? Self.activityPanelReservedWidth : 0
     }
 
     private var isFloatingActivityPresented: Binding<Bool> {
@@ -581,9 +594,7 @@ struct RailgunTaskShell: View {
                 isActivityAvailable && isActivityCardVisible && activityPanePresentation == .floating
             },
             set: { isPresented in
-                guard !isPresented, activityPanePresentation == .floating else {
-                    return
-                }
+                guard !isPresented, activityPanePresentation == .floating else { return }
                 isActivityCardVisible = false
             }
         )
@@ -649,10 +660,10 @@ struct RailgunTaskShell: View {
             .font(RailgunFont.interface(.callout))
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(RailgunSpacing.relaxed.points)
             .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
+            .padding(.horizontal, RailgunSpacing.layout.points)
+            .padding(.top, RailgunSpacing.layout.points)
             .accessibilityIdentifier("session-operation-error")
     }
 
@@ -661,16 +672,16 @@ struct RailgunTaskShell: View {
         // from the first layout. Indicator hiding or NSScrollView mutation breaks
         // the macOS 26 soft top-edge effect. See docs/native-ui-policy.md.
         ScrollView {
-            LazyVStack(alignment: .center, spacing: 16) {
+            LazyVStack(alignment: .center, spacing: RailgunSpacing.expanded.points) {
                 RailgunTranscriptActivityViewport(
                     messages: presentedTranscriptMessages,
                     activity: presentedActivity,
                     isRunActive: appStore.state.transcript.isRunning
                 )
             }
-            .padding(.vertical, 20)
-            .padding(.leading, 44)
-            .padding(.trailing, 20)
+            .padding(.vertical, RailgunSpacing.layout.points)
+            .padding(.leading, RailgunSpacing.expanded.points)
+            .padding(.trailing, RailgunSpacing.layout.points)
             .scrollTargetLayout()
         }
         .modifier(RailgunTranscriptSoftTopEdgeEffect())
@@ -689,10 +700,7 @@ struct RailgunTaskShell: View {
         .accessibilityIdentifier("transcript-scroll-view")
         .overlay {
             taskDetailStateOverlay
-                .padding(
-                    .leading,
-                    activityReservedContentWidth
-                )
+                .padding(.leading, activityReservedContentWidth)
         }
         .overlay(alignment: .bottomTrailing) {
             if hasScrollableTranscript && transcriptFollowState.showsJumpToLatest {
@@ -701,7 +709,7 @@ struct RailgunTaskShell: View {
                     scrollTranscriptToBottom()
                 }
                 .buttonStyle(.borderedProminent)
-                .padding(20)
+                .padding(RailgunSpacing.layout.points)
                 .accessibilityIdentifier("jump-to-latest")
             }
         }
@@ -725,22 +733,18 @@ struct RailgunTaskShell: View {
             }
         }
         .overlay(alignment: .leading) {
-            if isActivityPaneDocked {
-                RailgunActivityCard(
-                    activity: presentedActivity,
-                    dismiss: { isActivityCardVisible = false }
-                )
-                    .frame(minWidth: 260, idealWidth: 300, maxWidth: 320)
-                    .padding(.vertical, Self.activityCardPaneMargin)
-                    .padding(.leading, Self.activityCardPaneMargin)
-                    .ignoresSafeArea(.container, edges: .top)
+            if isActivityPanelDocked {
+                RailgunActivityPanel(activity: presentedActivity)
+                .frame(minWidth: 280, idealWidth: Self.activityPanelPreferredWidth, maxWidth: 360)
+                .padding(.vertical, Self.activityPanelMargin)
+                .padding(.leading, Self.activityPanelMargin)
+                .ignoresSafeArea(.container, edges: .top)
             }
         }
     }
 
     private func handleTranscriptGeometryChange(_ geometry: RailgunScrollGeometry) {
         defer { previousTranscriptGeometry = geometry }
-        transcriptViewportWidth = geometry.viewportWidth
 
         if geometry.isAtBottom {
             transcriptFollowState = .initial
@@ -777,9 +781,11 @@ private struct RailgunTaskSidebar: View {
     let isFloatingActivityPresented: Binding<Bool>
 
     var body: some View {
-        List(selection: selection) {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
             if session.isLoading {
                 ProgressView("Loading tasks…")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else if session.sessions.isEmpty {
                 ContentUnavailableView(
                     "No Tasks",
@@ -788,20 +794,15 @@ private struct RailgunTaskSidebar: View {
                 )
             } else {
                 ForEach(session.sessions) { summary in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(summary.displayTitle)
-                            .lineLimit(1)
-                        Text("\(summary.model) • \(summary.startedAt)")
-                            .font(RailgunFont.interface(.caption))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 6)
-                    .tag(summary.id)
+                    RailgunSidebarSessionRow(
+                        summary: summary,
+                        isSelected: selection.wrappedValue == summary.id,
+                        select: { selection.wrappedValue = summary.id }
+                    )
                 }
             }
+            }
+            .padding(RailgunSpacing.standard.points)
         }
         .toolbar {
             ToolbarItem(placement: .automatic) {
@@ -830,57 +831,66 @@ private struct RailgunTaskSidebar: View {
             isPresented: isFloatingActivityPresented,
             arrowEdge: .leading
         ) {
-            RailgunActivityCard(
+            RailgunActivityPanel(
                 activity: activity,
-                dismiss: {
-                    isActivityCardVisible.wrappedValue = false
-                },
                 displaysPanelBackground: false
             )
-            .frame(width: 320, height: 420)
-            .padding(8)
+            .frame(width: RailgunTaskShell.activityPanelPreferredWidth, height: RailgunTaskShell.activityPopoverHeight)
+            .padding(RailgunSpacing.standard.points)
         }
     }
 }
 
-private struct RailgunActivityCard: View {
+private struct RailgunSidebarSessionRow: View {
+    let summary: RailgunSessionSummary
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+                Text(summary.displayTitle)
+                    .lineLimit(1)
+                Text("\(summary.model) • \(summary.startedAt)")
+                    .font(RailgunFont.interface(.caption))
+                    .foregroundStyle(
+                        isSelected ? Color.white.opacity(0.8) : RailgunColorRole.secondaryText.color
+                    )
+                    .lineLimit(1)
+            }
+            .foregroundStyle(
+                isSelected ? Color.white : RailgunColorRole.primaryText.color
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, RailgunSpacing.standard.points)
+            .padding(.vertical, RailgunSpacing.relaxed.points)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(
+            isSelected ? RailgunColorRole.accent.color : .clear,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .accessibilityValue(isSelected ? "Selected" : "")
+    }
+}
+
+private struct RailgunActivityPanel: View {
     let activity: RailgunActivityState
-    var dismiss: (() -> Void)? = nil
     var displaysPanelBackground = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center) {
-                Text("Activity")
-                    .font(RailgunFont.interface(.title, weight: .bold))
-
-                Spacer()
-
-                if let dismiss {
-                    Button(action: dismiss) {
-                        Image(systemName: "xmark")
-                            .font(RailgunFont.interface(.title2, weight: .medium))
-                            .frame(width: 34, height: 34)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .background(.quaternary, in: Circle())
-                    .help("Close Activity")
-                    .accessibilityIdentifier("close-activity")
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
+        VStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
+            Text("Activity")
+                .font(RailgunFont.interface(.title2, weight: .bold))
 
             RailgunActivityDashboard(activity: activity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
         }
-        .frame(maxHeight: .infinity)
-        .modifier(
-            RailgunActivityPanelBackground(isEnabled: displaysPanelBackground)
-        )
+        .padding(RailgunSpacing.section.points)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .modifier(RailgunActivityPanelBackground(isEnabled: displaysPanelBackground))
+        .font(RailgunFont.interface())
     }
 }
 
@@ -894,19 +904,19 @@ private struct RailgunActivityPanelBackground: ViewModifier {
         } else if #available(macOS 26.0, *) {
             content.glassEffect(
                 .regular,
-                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
             )
         } else {
             content
                 .background(
                     .regularMaterial,
-                    in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: 32, style: .continuous)
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(.separator.opacity(0.35), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .stroke(.separator.opacity(0.2), lineWidth: 1)
                 }
-                .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
+                .shadow(color: .black.opacity(0.06), radius: 12, y: 6)
         }
     }
 }
@@ -919,7 +929,7 @@ private struct RailgunBackendStatusView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: RailgunSpacing.section.points) {
             Image(systemName: systemImage)
                 .font(.system(size: 42))
                 .foregroundStyle(.secondary)
@@ -931,7 +941,7 @@ private struct RailgunBackendStatusView: View {
                 .frame(maxWidth: 460)
             Button(retryTitle, action: retry)
         }
-        .padding(32)
+        .padding(RailgunSpacing.expanded.points)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -946,7 +956,7 @@ private struct RailgunSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
             Text("Archived Tasks")
                 .font(RailgunFont.interface(.title2, weight: .semibold))
 
@@ -966,31 +976,50 @@ private struct RailgunSettingsView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case let .tasks(tasks):
-                List(tasks) { task in
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(task.displayTitle)
-                                .lineLimit(1)
-                            Text("\(task.model) • \(task.startedAt)")
-                                .font(RailgunFont.interface(.caption))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: RailgunSpacing.standard.points) {
+                        ForEach(tasks) { task in
+                            RailgunArchivedTaskRow(task: task) {
+                                Task { await sessionCoordinator.restore(task.id) }
+                            }
                         }
-
-                        Spacer()
-
-                        Button("Restore") {
-                            Task { await sessionCoordinator.restore(task.id) }
-                        }
-                        .accessibilityIdentifier("restore-archived-task-\(task.id)")
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, RailgunSpacing.compact.points)
                 }
-                .listStyle(.inset)
+                .font(RailgunFont.interface())
             }
         }
-        .padding(20)
+        .padding(RailgunSpacing.layout.points)
         .frame(minWidth: 520, minHeight: 360)
+    }
+}
+
+private struct RailgunArchivedTaskRow: View {
+    let task: RailgunSessionSummary
+    let restore: () -> Void
+
+    var body: some View {
+        HStack(spacing: RailgunSpacing.relaxed.points) {
+            VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+                Text(task.displayTitle)
+                    .font(RailgunFont.interface(.body))
+                    .lineLimit(1)
+                Text("\(task.model) • \(task.startedAt)")
+                    .font(RailgunFont.interface(.caption))
+                    .foregroundStyle(RailgunColorRole.secondaryText.color)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(action: restore) {
+                Text("Restore").font(RailgunFont.interface(.body, weight: .semibold))
+            }
+            .accessibilityIdentifier("restore-archived-task-\(task.id)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(RailgunSpacing.standard.points)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -1049,6 +1078,7 @@ struct RailgunXApp: App {
                 minHeight: Self.lifecycleConfiguration.primaryWindowMinimumSize.height
             )
             .font(RailgunFont.interface())
+            .tint(RailgunColorRole.accent.color)
             .task {
                 await desktopClientStartup.acquire()
                 if desktopClientStartup.status == .ready {
@@ -1075,6 +1105,7 @@ struct RailgunXApp: App {
                 sessionCoordinator: backendRuntime.sessionCoordinator
             )
             .font(RailgunFont.interface())
+            .tint(RailgunColorRole.accent.color)
         }
     }
 

@@ -3,14 +3,62 @@ import XCTest
 import RailgunUI
 
 final class RailgunDesignSystemTests: XCTestCase {
-    func testSemanticColorsDescribeNativeSystemRoles() {
-        XCTAssertEqual(RailgunColorRole.accent.systemColorName, "accentColor")
-        XCTAssertEqual(RailgunColorRole.primaryText.systemColorName, "labelColor")
-        XCTAssertEqual(RailgunColorRole.secondaryText.systemColorName, "secondaryLabelColor")
-        XCTAssertEqual(RailgunColorRole.destructive.systemColorName, "systemRed")
-        XCTAssertEqual(RailgunColorRole.separator.systemColorName, "separatorColor")
-        XCTAssertEqual(RailgunColorRole.canvas.systemColorName, "windowBackgroundColor")
-        XCTAssertEqual(RailgunColorRole.surface.systemColorName, "controlBackgroundColor")
+    func testSemanticColorsDescribeTheMatchaAccentAndNativeSystemRoles() {
+        XCTAssertEqual(RailgunMatchaAccent.tokenName, "matchaAccent")
+        XCTAssertEqual(RailgunColorRole.accent.tokenName, RailgunMatchaAccent.tokenName)
+        XCTAssertEqual(RailgunMatchaAccent.lightHex, "#5E722D")
+        XCTAssertEqual(RailgunMatchaAccent.darkHex, "#B9CC75")
+
+        XCTAssertEqual(RailgunColorRole.primaryText.tokenName, "labelColor")
+        XCTAssertEqual(RailgunColorRole.secondaryText.tokenName, "secondaryLabelColor")
+        XCTAssertEqual(RailgunColorRole.destructive.tokenName, "systemRed")
+        XCTAssertEqual(RailgunColorRole.separator.tokenName, "separatorColor")
+        XCTAssertEqual(RailgunColorRole.canvas.tokenName, "windowBackgroundColor")
+        XCTAssertEqual(RailgunColorRole.surface.tokenName, "controlBackgroundColor")
+    }
+
+    func testMatchaTokenColorsLinksAndNonSemanticActivityStates() throws {
+        let uiSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunUI/RailgunMarkdownMessage.swift"
+            ),
+            encoding: .utf8
+        )
+        let activitySource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunX/RailgunActivityPresentation.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(uiSource.contains("foregroundColor(RailgunColorRole.accent.color)"))
+        XCTAssertFalse(uiSource.contains("foregroundColor(.accentColor)"))
+        XCTAssertEqual(
+            activitySource.components(separatedBy: "RailgunColorRole.accent.color").count - 1,
+            3,
+            "In-progress activity states must use the shared matcha accent token."
+        )
+        XCTAssertFalse(activitySource.contains(".accentColor"))
+    }
+
+    func testActivityTypographyUsesTheInterfaceFontWithoutANativeListReset() throws {
+        let activitySource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunX/RailgunActivityPresentation.swift"
+            ),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunX/RailgunXApp.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(activitySource.contains("RailgunActivityDashboardSection"))
+        XCTAssertTrue(activitySource.contains(".font(RailgunFont.interface(.headline, weight: .semibold))"))
+        XCTAssertFalse(activitySource.contains("List {"))
+        XCTAssertTrue(appSource.contains(".modifier(RailgunActivityPanelBackground(isEnabled: displaysPanelBackground))\n        .font(RailgunFont.interface())"))
     }
 
     func testTypographyUsesDynamicTextStyles() {
@@ -47,11 +95,14 @@ final class RailgunDesignSystemTests: XCTestCase {
     }
 
     func testSpacingScaleIsNamedAndOrdered() {
-        XCTAssertEqual(RailgunSpacing.compact.points, 4)
-        XCTAssertEqual(RailgunSpacing.standard.points, 8)
-        XCTAssertEqual(RailgunSpacing.relaxed.points, 12)
-        XCTAssertEqual(RailgunSpacing.section.points, 16)
-        XCTAssertEqual(RailgunSpacing.layout.points, 24)
+        XCTAssertEqual(
+            RailgunSpacing.allCases,
+            [.compact, .standard, .relaxed, .section, .layout, .expanded]
+        )
+        XCTAssertEqual(
+            RailgunSpacing.allCases.map(\.points),
+            [4, 8, 12, 16, 24, 32]
+        )
     }
 
     func testMaterialsRemainSystemMaterials() {

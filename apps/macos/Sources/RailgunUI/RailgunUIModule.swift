@@ -1,3 +1,4 @@
+import AppKit
 import CoreText
 import SwiftUI
 
@@ -72,8 +73,22 @@ public enum RailgunFont {
     }
 }
 
+public enum RailgunMatchaAccent {
+    public static let tokenName = "matchaAccent"
+    public static let lightHex = "#5E722D"
+    public static let darkHex = "#B9CC75"
+
+    public static var color: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(srgbRed: 185.0 / 255.0, green: 204.0 / 255.0, blue: 117.0 / 255.0, alpha: 1)
+                : NSColor(srgbRed: 94.0 / 255.0, green: 114.0 / 255.0, blue: 45.0 / 255.0, alpha: 1)
+        })
+    }
+}
+
 public enum RailgunColorRole: String, CaseIterable, Sendable {
-    case accent = "accentColor"
+    case accent = "matchaAccent"
     case primaryText = "labelColor"
     case secondaryText = "secondaryLabelColor"
     case destructive = "systemRed"
@@ -84,7 +99,7 @@ public enum RailgunColorRole: String, CaseIterable, Sendable {
     public var color: Color {
         switch self {
         case .accent:
-            .accentColor
+            RailgunMatchaAccent.color
         case .primaryText:
             Color(nsColor: .labelColor)
         case .secondaryText:
@@ -100,7 +115,7 @@ public enum RailgunColorRole: String, CaseIterable, Sendable {
         }
     }
 
-    public var systemColorName: String { rawValue }
+    public var tokenName: String { rawValue }
 }
 
 public enum RailgunTypographyRole: CaseIterable, Sendable {
@@ -150,6 +165,7 @@ public enum RailgunSpacing: CGFloat, CaseIterable, Sendable {
     case relaxed = 12
     case section = 16
     case layout = 24
+    case expanded = 32
 
     public var points: CGFloat { rawValue }
 }

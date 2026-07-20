@@ -145,12 +145,14 @@ the same model; text entry is reserved for free-form answers and preset names.
   the same way. Final results render sanitized GFM Markdown, matching completed
   assistant replies. The card wraps its content, independently caps its Todo and
   Subagent lists, and is controlled from the native sidebar toolbar. When
-  requested with at least 900pt of detail width, it docks at the leading edge
-  beside the sidebar and reserves 360pt of transcript width. At narrower
-  widths, it becomes a floating popover and reserves no transcript width. Todo
-  progress is textual and status glyphs are supplemental. These surfaces retain
-  Reduce Transparency, Increase Contrast, and Reduce Motion behavior through
-  the existing semantic tokens.
+  requested with at least 900pt of detail width, it docks as a leading glass
+  panel beside the sidebar and reserves 376pt of transcript width. At narrower
+  widths, it becomes a 320×360 floating popover and reserves no transcript
+  width. Its own scroll content stays transparent so the glass surface remains
+  visible, and the toolbar toggle is the sole visibility control. Todo progress
+  is textual and status glyphs are supplemental. These surfaces retain Reduce
+  Transparency, Increase Contrast, and Reduce Motion behavior through the
+  existing semantic tokens.
   The separate Files pane uses an opaque split tree/preview surface with a
   clear divider. Its header aligns to the toolbar centerline without inheriting
   the toolbar's extra visual depth: the open action stays in the Task toolbar
@@ -185,6 +187,9 @@ the same model; text entry is reserved for free-form answers and preset names.
   for subsequent updates. The implementation and cold-launch verification
   invariants are defined in
   [`native-ui-policy.md`](native-ui-policy.md#transcript-soft-top-edge-invariant).
+  Transcript rows use a 32pt inter-message gap, with 32pt leading and 24pt
+  trailing content insets, so multi-turn conversations retain a comfortable
+  reading rhythm.
 
 - The desktop composer gives message entry its own full-width row. Its quiet
   footer shows the active model, one combined Agent settings trigger, exact

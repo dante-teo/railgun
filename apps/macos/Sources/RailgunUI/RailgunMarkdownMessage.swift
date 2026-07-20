@@ -323,7 +323,7 @@ private struct RailgunMarkdownInlineText: View {
             guard let destination else { return renderedText(label) }
             var attributed = AttributedString(RailgunMarkdownParser.plainText(label))
             attributed.link = destination
-            return SwiftUI.Text(attributed).foregroundColor(.accentColor).underline()
+            return SwiftUI.Text(attributed).foregroundColor(RailgunColorRole.accent.color).underline()
         case let .image(_, altText):
             return SwiftUI.Text(altText)
         }
@@ -485,7 +485,7 @@ private extension Array {
         RailgunCustomComponentPreviewMatrixView(specification: specification) { configuration in
             RailgunMarkdownMessage(markdown: previewMarkdown(for: configuration))
                 .frame(width: configuration.width.points)
-                .padding()
+                .padding(RailgunSpacing.section.points)
                 .background(configuration.isError ? Color.red.opacity(0.08) : .clear)
                 .opacity(configuration.isDisabled ? 0.55 : 1)
                 .allowsHitTesting(!configuration.isDisabled)

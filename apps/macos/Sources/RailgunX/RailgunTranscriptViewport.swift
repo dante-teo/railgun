@@ -167,13 +167,13 @@ struct RailgunTranscriptMessageRow: View {
     let message: RailgunTranscriptMessage
 
     var body: some View {
-        VStack(alignment: contentAlignment, spacing: 6) {
+        VStack(alignment: contentAlignment, spacing: RailgunSpacing.standard.points) {
             if message.role == .user {
                 HStack {
                     Spacer(minLength: 40)
                     Text(message.text)
                         .textSelection(.enabled)
-                        .padding(12)
+                        .padding(RailgunSpacing.relaxed.points)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                 }
             } else if RailgunTranscriptMessageRendering.usesMarkdown(

@@ -379,16 +379,19 @@ shared component; feature-local compositions using native SwiftUI controls do
 not belong in the registry.
 
 - `RailgunColorRole` provides accent, text, destructive, separator, canvas,
-  and surface colors. Use its `color` value—for example,
-  `RailgunColorRole.secondaryText.color`—rather than fixed color values.
+  and surface colors. Its dynamic matcha accent is `#5E722D` in light
+  appearance and `#B9CC75` in dark appearance; foreground, material, warning,
+  and error roles remain semantic system colors. Use its `color` value—for
+  example, `RailgunColorRole.secondaryText.color`—rather than fixed color
+  values.
 - `RailgunFont` registers the bundled Barlow faces at launch and provides
   dynamic-type-aware interface fonts. `RailgunTypographyRole` maps body,
   emphasized body, secondary text, titles, section titles, and captions to
   those faces. Use `RailgunFont.code()` only for code content; it selects the
   bundled Departure Mono Nerd Font. The font assets and OFL notices live in
   `apps/macos/Resources/Fonts/` and `apps/macos/Resources/Legal/`.
-- `RailgunSpacing` defines the shared 4, 8, 12, 16, and 24 point scale through
-  its `points` value.
+- `RailgunSpacing` defines the shared 4, 8, 12, 16, 24, and 32 point scale
+  through its `points` value.
 - `RailgunMaterialRole` selects native regular, bar, thin, and ultra-thick
   materials for content, sidebars, overlays, and HUD-style surfaces.
 - `RailgunFocusPolicy` deliberately preserves SwiftUI's standard focus effect;
@@ -440,12 +443,16 @@ and applies the system soft top-edge effect. Do not hide or replace that
 scroller: doing so prevents the edge effect from rendering. The complete
 implementation and cold-launch verification contract is documented in
 [`docs/native-ui-policy.md`](docs/native-ui-policy.md#transcript-soft-top-edge-invariant).
+Message rows use a comfortable 32-point inter-message gap, with 32-point
+leading and 24-point trailing transcript content insets.
 
 The Activity toggle lives in the native sidebar toolbar. When Activity is
 requested and the detail viewport is at least 900 points wide, a full-height
-leading pane reserves 360 points beside the transcript. At narrower widths, the
-same toggle presents Activity as a floating popover and reserves no transcript
-space. Neither presentation is part of the transcript scroll content. The
+leading glass panel reserves 376 points beside the transcript. At narrower
+widths, the same toggle presents Activity as a 320×360 floating popover and
+reserves no transcript space. Neither presentation is part of the transcript
+scroll content; the dashboard hides its scroll-content background so the panel
+glass remains visible. The toolbar toggle is the sole visibility control. The
 dashboard orders Advisor, Todos, and Subagents, with bounded Todo and Subagent
 lists; its toggle is disabled when none of those dashboard data sources are
 available.
