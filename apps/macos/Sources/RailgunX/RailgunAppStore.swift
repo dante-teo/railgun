@@ -738,6 +738,12 @@ enum RailgunActivityEntry: Equatable {
         case let .tool(_, _, status, _, _, _), let .moaReference(_, _, _, _, status, _, _), let .moaAggregation(_, _, _, status, _): status
         }
     }
+
+    var order: Int {
+        switch self {
+        case let .tool(_, _, _, order, _, _), let .moaReference(_, _, _, _, _, order, _), let .moaAggregation(_, _, _, _, order): order
+        }
+    }
 }
 
 struct RailgunSubagentActivity: Equatable {

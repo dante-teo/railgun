@@ -121,19 +121,23 @@ the same model; text entry is reserved for free-form answers and preset names.
   top-aligned for stable scrolling.
 
 - The desktop transcript uses the same chronological contract for assistant
-  messages, tools, and MoA references/aggregation. Tool rows are
-  plain native `details`/`summary` disclosures: an icon plus a concise action and
-  target (for example, `Edited scheduler.ts`) is shown by default, while
-  sanitized live input/output remains available on expansion. Restored file-tool
-  rows retain only a safe basename target; they never receive raw arguments or
-  results. Consecutive uses of the same tool merge into an outer, parameter-free
-  disclosure (for example, `Edited files`) that expands to the original rows.
-  Collapsed tool rows are visually muted until hover; an expanded merged summary
-  remains at full contrast, shows a down chevron, and its children retain their
-  own hover treatment. A collapsed merged summary shows a right chevron only on
-  hover. Tool state remains part of the disclosure's accessible name and error
-  or interrupted icons use the matching semantic color. The non-resizable,
-  responsive **Activity Dashboard** keeps advisor notes out of the transcript.
+  messages, tools, and MoA references/aggregation. Tool rows are native,
+  button-backed expanders: an icon plus a concise action and target (for example,
+  `Edited scheduler.ts`) is shown by default, while sanitized live input/output
+  remains available on expansion. The full summary row, including its chevron,
+  is the pointer and keyboard activation target. Restored file-tool rows retain
+  only a safe basename target; they never receive raw arguments or results.
+  Consecutive **settled** uses of the same tool merge into an outer,
+  parameter-free expander (for example, `Edited files`) that expands to the
+  original rows. Concurrent or otherwise live calls always remain individual
+  rows so their target and status remain visible. Collapsed tool, merged-tool,
+  and `Worked` rows are visually muted until hover; any expanded row returns to
+  full contrast and exposes its expanded accessibility state. Settled turn
+  activity lives in a `Worked` expander with a horizontal divider beneath its
+  summary. Tool state remains part of the expander's accessible name and error
+  or interrupted icons use the matching semantic color. Activity is withheld
+  entirely when no valid task is selected. The non-resizable, responsive
+  **Activity Dashboard** keeps advisor notes out of the transcript.
   It orders its current-run sections as Advisor, Todos, then Subagents. The
   single Advisor row uses a distinct icon and exposes severity-styled `nit`,
   `concern`, and `blocker` notes in a hover- and focus-accessible popover;

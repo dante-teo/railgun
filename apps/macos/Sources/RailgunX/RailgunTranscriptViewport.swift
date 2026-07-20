@@ -127,6 +127,42 @@ enum RailgunTranscriptMessageRendering {
     }
 }
 
+struct RailgunTranscriptActivityViewport: View {
+    let messages: [RailgunTranscriptMessage]
+    let activity: RailgunActivityState
+    let isRunActive: Bool
+
+    var body: some View {
+        ForEach(Array(presentation.enumerated()), id: \.offset) { _, item in
+            switch item {
+            case let .message(message):
+                RailgunTranscriptMessageRow(message: message)
+                    .frame(maxWidth: 720)
+            case let .activityRows(entries):
+                RailgunActivityRows(entries: entries)
+                    .frame(maxWidth: 720, alignment: .leading)
+            case let .worked(entries):
+                RailgunWorkedActivityDisclosure(entries: entries)
+                    .frame(maxWidth: 720, alignment: .leading)
+            }
+        }
+    }
+
+    private var presentation: [RailgunTranscriptRenderItem] {
+        let timeline = RailgunTranscriptActivityPresentation.timeline(
+            messages: messages,
+            activity: activity.entries
+        )
+        let hasActiveActivity = isRunActive || activity.entries.contains { $0.status == .running }
+        return RailgunTranscriptActivityPresentation.renderItems(
+            from: RailgunTranscriptActivityPresentation.collapseSettledTurnActivity(
+                timeline,
+                isActive: hasActiveActivity
+            )
+        )
+    }
+}
+
 struct RailgunTranscriptMessageRow: View {
     let message: RailgunTranscriptMessage
 

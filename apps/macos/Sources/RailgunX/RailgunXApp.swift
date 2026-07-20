@@ -490,6 +490,8 @@ struct RailgunTaskShell: View {
             RailgunTaskSidebar(
                 session: appStore.state.session,
                 selection: selectedSessionID,
+                activity: presentedActivity,
+                isActivityAvailable: isActivityAvailable,
                 isActivityCardVisible: $isActivityCardVisible,
                 isFloatingActivityPresented: isFloatingActivityPresented
             )
@@ -546,8 +548,19 @@ struct RailgunTaskShell: View {
         return RailgunTranscriptOrdering.orderedMessages(in: appStore.state.transcript)
     }
 
+    private var presentedActivity: RailgunActivityState {
+        RailgunTranscriptActivityPresentation.activity(
+            for: taskDetailPresentation,
+            from: appStore.state.activity
+        )
+    }
+
     private var hasScrollableTranscript: Bool {
-        !presentedTranscriptMessages.isEmpty
+        !presentedTranscriptMessages.isEmpty || !presentedActivity.entries.isEmpty
+    }
+
+    private var isActivityAvailable: Bool {
+        RailgunActivityDashboardPresentation(activity: presentedActivity).isVisible
     }
 
     private var activityPanePresentation: RailgunActivityPanePresentation {
@@ -555,7 +568,7 @@ struct RailgunTaskShell: View {
     }
 
     private var isActivityPaneDocked: Bool {
-        isActivityCardVisible && activityPanePresentation == .docked
+        isActivityAvailable && isActivityCardVisible && activityPanePresentation == .docked
     }
 
     private var activityReservedContentWidth: CGFloat {
@@ -565,7 +578,7 @@ struct RailgunTaskShell: View {
     private var isFloatingActivityPresented: Binding<Bool> {
         Binding(
             get: {
-                isActivityCardVisible && activityPanePresentation == .floating
+                isActivityAvailable && isActivityCardVisible && activityPanePresentation == .floating
             },
             set: { isPresented in
                 guard !isPresented, activityPanePresentation == .floating else {
@@ -609,7 +622,7 @@ struct RailgunTaskShell: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .selected:
-            if presentedTranscriptMessages.isEmpty {
+            if presentedTranscriptMessages.isEmpty && presentedActivity.entries.isEmpty {
                 ContentUnavailableView(
                     "No Messages Yet",
                     systemImage: "text.bubble",
@@ -649,10 +662,11 @@ struct RailgunTaskShell: View {
         // the macOS 26 soft top-edge effect. See docs/native-ui-policy.md.
         ScrollView {
             LazyVStack(alignment: .center, spacing: 16) {
-                ForEach(presentedTranscriptMessages) { message in
-                    RailgunTranscriptMessageRow(message: message)
-                        .frame(maxWidth: 720)
-                }
+                RailgunTranscriptActivityViewport(
+                    messages: presentedTranscriptMessages,
+                    activity: presentedActivity,
+                    isRunActive: appStore.state.transcript.isRunning
+                )
             }
             .padding(.vertical, 20)
             .padding(.leading, 44)
@@ -703,9 +717,17 @@ struct RailgunTaskShell: View {
                 transcriptFollowState = .contentDidChange(transcriptFollowState)
             }
         }
+        .onChange(of: presentedActivity.entries) { _, _ in
+            if transcriptFollowState.isFollowingLatest {
+                scrollTranscriptToBottom()
+            } else {
+                transcriptFollowState = .contentDidChange(transcriptFollowState)
+            }
+        }
         .overlay(alignment: .leading) {
             if isActivityPaneDocked {
                 RailgunActivityCard(
+                    activity: presentedActivity,
                     dismiss: { isActivityCardVisible = false }
                 )
                     .frame(minWidth: 260, idealWidth: 300, maxWidth: 320)
@@ -749,6 +771,8 @@ struct RailgunTaskShell: View {
 private struct RailgunTaskSidebar: View {
     let session: RailgunSessionState
     let selection: Binding<String?>
+    let activity: RailgunActivityState
+    let isActivityAvailable: Bool
     let isActivityCardVisible: Binding<Bool>
     let isFloatingActivityPresented: Binding<Bool>
 
@@ -772,6 +796,9 @@ private struct RailgunTaskSidebar: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
                     .tag(summary.id)
                 }
             }
@@ -791,16 +818,20 @@ private struct RailgunTaskSidebar: View {
                 .labelStyle(.iconOnly)
         }
         .help(
-            isActivityCardVisible.wrappedValue
+            !isActivityAvailable
+                ? "No activity yet"
+                : isActivityCardVisible.wrappedValue
                 ? "Hide Activity"
                 : "Show Activity"
         )
+        .disabled(!isActivityAvailable)
         .accessibilityIdentifier("toggle-activity")
         .popover(
             isPresented: isFloatingActivityPresented,
             arrowEdge: .leading
         ) {
             RailgunActivityCard(
+                activity: activity,
                 dismiss: {
                     isActivityCardVisible.wrappedValue = false
                 },
@@ -813,6 +844,7 @@ private struct RailgunTaskSidebar: View {
 }
 
 private struct RailgunActivityCard: View {
+    let activity: RailgunActivityState
     var dismiss: (() -> Void)? = nil
     var displaysPanelBackground = true
 
@@ -840,13 +872,10 @@ private struct RailgunActivityCard: View {
             .padding(.horizontal, 20)
             .padding(.top, 18)
 
-            ContentUnavailableView(
-                "No Activity Yet",
-                systemImage: RailgunTaskSymbol.activity,
-                description: Text("Activity details will appear here in a later Task milestone.")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(20)
+            RailgunActivityDashboard(activity: activity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
         }
         .frame(maxHeight: .infinity)
         .modifier(

@@ -418,12 +418,19 @@ task lists, quotes, rules, code, tables, and image blocks. Only credential-free
 absolute HTTPS links and images are active; HTML is displayed as literal text.
 Code remains selectable and wraps, tables are selectable and scroll
 horizontally, and image loading or failure labels include both status and alt
-text for VoiceOver. Tool, advisor, MoA, and subagent activity is intentionally
-withheld from this transcript until the activity milestone.
+text for VoiceOver. Tool and MoA activity joins messages in chronological order.
+Concurrent live calls remain individual rows; only adjacent settled calls of the
+same tool are merged. Settled turn activity is available under a native
+**Worked** expander, separated from the surrounding transcript by a divider.
+Activity summaries show only safe concise targets, dim until hovered or
+expanded, and their entire summary row is keyboard- and pointer-activatable.
+Advisor notes and subagent work remain out of the transcript and appear in the
+Activity Dashboard instead.
 Loading, empty, selection-required, and stale-selection states retain the same
 root scroll view for layout stability but do not render or accessibility-expose
-messages retained by the reducer. Their centered state presentations and any
-session-operation error banner remain non-scrolling overlays.
+messages or activity retained by the reducer. Their centered state
+presentations and any session-operation error banner remain non-scrolling
+overlays.
 
 The transcript opens at the latest message, follows content and viewport-size
 changes while within four points of the bottom, and preserves the reader's
@@ -438,7 +445,10 @@ The Activity toggle lives in the native sidebar toolbar. When Activity is
 requested and the detail viewport is at least 900 points wide, a full-height
 leading pane reserves 360 points beside the transcript. At narrower widths, the
 same toggle presents Activity as a floating popover and reserves no transcript
-space. Neither presentation is part of the transcript scroll content.
+space. Neither presentation is part of the transcript scroll content. The
+dashboard orders Advisor, Todos, and Subagents, with bounded Todo and Subagent
+lists; its toggle is disabled when none of those dashboard data sources are
+available.
 
 Validate deterministic generation, clean-cache package resolution, the
 checked-in lockfile, legal notices, build, and tests with:
