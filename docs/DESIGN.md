@@ -46,8 +46,9 @@ Material communicates hierarchy rather than covering every layer. Glass is
 reserved for the inset sidebar, continuous top toolbar, floating composer
 shell, anchored popovers, and dialogs. Cards, lists, fields, and prompts use
 opaque or lightly tonal content surfaces with hairlines and restrained depth;
-the composer's text field remains a stable tonal surface inside its glass
-shell. Ordinary action buttons use four flat, shadow-free system-like recipes:
+the composer's bar-material shell contains a stable system control surface so
+the editor, placeholder, and disabled send affordance remain legible in every
+appearance. Ordinary action buttons use four flat, shadow-free system-like recipes:
 tinted capsule, plain text action, filled accent capsule, or white/tonal
 capsule. Destructive actions
 reuse the filled geometry with the danger color. Toolbar controls remain a
@@ -100,6 +101,18 @@ the same model; text entry is reserved for free-form answers and preset names.
   surrounding shell uses the shared 736-point content column, a bordered
   material card, send affordance, queue/error presentation, and an attached
   keyboard-hint pill so the native client retains Railgun's chat hierarchy.
+- Native macOS interactions: backend approval and clarification requests stack
+  above the composer in arrival order. Any pending request disables and
+  unfocuses the composer, but Stop remains available throughout. Approval uses
+  a command preview and native Deny/Allow buttons, with Deny focused first and
+  Escape denying. Free-text clarification uses a native answer field: Return
+  submits a nonblank answer and Escape submits `[user declined to answer]`.
+  Choice clarification uses a focused radio-style picker: Up/Down changes the
+  selection, Return submits it, and Escape declines. A request's controls are
+  disabled while its response is in flight; a safe inline error leaves that
+  request pending for retry. New requests receive the appropriate prompt focus.
+  If a focused request settles while others remain, focus moves to a surviving
+  request; after the final request settles, focus returns to the composer.
 - Tab completes an active slash suggestion. Otherwise it is consumed as the
   reserved future enqueue binding. The composer remains editable during
   ordinary model/tool work; Enter queues steering for the next completed

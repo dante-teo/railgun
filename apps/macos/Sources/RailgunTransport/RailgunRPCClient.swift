@@ -87,7 +87,10 @@ public enum RailgunRPCError: Error, Sendable, Equatable {
 /// correlation. It intentionally returns raw response objects: command DTOs
 /// and event normalization are owned by higher-level protocol features.
 public actor RailgunRPCClient {
-    private static let declinedClarificationAnswer = "[user declined to answer]"
+    /// The protocol-defined clarification answer used when a user declines a
+    /// question. Keeping it transport-owned ensures every native surface uses
+    /// the same backend contract.
+    public nonisolated static let declinedClarificationAnswer = "[user declined to answer]"
 
     private enum Lifecycle {
         case starting

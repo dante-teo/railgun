@@ -158,6 +158,28 @@ overflow, Return, Tab, and Shift-Return behavior, disabled callback
 suppression, multiline paste and selection preservation, accessibility
 configuration, SwiftUI state synchronization, and first-responder handoff.
 
+## Task interaction prompt invariant
+
+SWFT-033 keeps approval and clarification prompts feature-local native SwiftUI
+composition: `Button`, `TextField`, `Picker`, `ProgressView`, and semantic
+accessibility modifiers. They do not add a custom component or an AppKit
+bridge.
+
+- Render pending requests above the disabled composer in backend arrival order.
+  Keep Stop available while any request is pending.
+- Approval starts on Deny; Escape denies. Free-text clarification focuses its
+  answer field; Return submits only a nonblank answer and Escape sends the
+  declined-answer sentinel. Choice clarification focuses its radio-style
+  picker; Up/Down changes selection, Return submits, and Escape declines.
+- Disable only the request being submitted. Its presentation-safe inline error
+  must leave it available for retry without disturbing other pending requests.
+- When a prompt arrives, focus its primary control. When the focused prompt
+  settles, move focus to a surviving prompt if one remains; restore composer
+  focus only after the final prompt settles. A prompt resolving elsewhere must
+  not steal focus from the currently focused pending prompt.
+- Keep stable accessibility names and identifiers for each interaction region,
+  command preview, answer field, picker, progress/error state, and action.
+
 ## Transcript soft top-edge invariant
 
 On macOS 26 and later, the Task transcript applies

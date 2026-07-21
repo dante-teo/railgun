@@ -729,7 +729,7 @@ enum RailgunInteractionReducer {
             case let .approval(id, command):
                 next.requests.append(.init(id: id, kind: .approval, command: command, question: nil, choices: nil, answer: "", isSubmitting: false, error: nil))
             case let .clarification(id, question, choices):
-                next.requests.append(.init(id: id, kind: .clarification, command: nil, question: question, choices: choices, answer: "", isSubmitting: false, error: nil))
+                next.requests.append(.init(id: id, kind: .clarification, command: nil, question: question, choices: choices, answer: choices?.first ?? "", isSubmitting: false, error: nil))
             }
             return next
         case let .answerChanged(id, answer):

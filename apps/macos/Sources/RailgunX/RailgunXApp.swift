@@ -235,6 +235,7 @@ private final class RailgunEventObservation: @unchecked Sendable {
 final class RailgunBackendRuntime {
     let sessionCoordinator: RailgunSessionCoordinator
     let promptCoordinator: RailgunPromptCoordinator
+    let interactionCoordinator: RailgunInteractionCoordinator
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
@@ -242,6 +243,7 @@ final class RailgunBackendRuntime {
     private var isStarting = false
     private nonisolated let terminationObservationTask: Task<Void, Never>
     private nonisolated let eventObservation = RailgunEventObservation()
+    private nonisolated let interactionObservation = RailgunEventObservation()
 
     init(
         configuration: BackendLaunchConfiguration,
@@ -260,6 +262,10 @@ final class RailgunBackendRuntime {
             store: store,
             service: RailgunPromptService(rpcClient: client)
         )
+        self.interactionCoordinator = RailgunInteractionCoordinator(
+            store: store,
+            service: RailgunInteractionService(rpcClient: client)
+        )
         terminationObservationTask = Task { @MainActor [weak store, client] in
             for await _ in client.unexpectedTerminations {
                 guard let store else { return }
@@ -272,6 +278,7 @@ final class RailgunBackendRuntime {
     deinit {
         terminationObservationTask.cancel()
         eventObservation.cancel()
+        interactionObservation.cancel()
     }
 
     func start() async {
@@ -288,6 +295,7 @@ final class RailgunBackendRuntime {
             let handshake = try await client.start(launch)
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
             observeEvents()
+            observeInteractions()
             await sessionCoordinator.refresh()
         } catch let error as RailgunRPCError {
             if case .authenticationRequired = error {
@@ -302,6 +310,7 @@ final class RailgunBackendRuntime {
 
     func shutdown() async {
         eventObservation.cancel()
+        interactionObservation.cancel()
         await client.shutdown()
     }
 
@@ -319,6 +328,17 @@ final class RailgunBackendRuntime {
             }
         }
         eventObservation.replace(with: task)
+    }
+
+    private func observeInteractions() {
+        let task = Task { @MainActor [weak self, client] in
+            for await interaction in client.interactions {
+                guard !Task.isCancelled, let self else { return }
+                guard self.store.state.transcript.isRunning else { continue }
+                self.store.send(.interaction(.received(interaction)))
+            }
+        }
+        interactionObservation.replace(with: task)
     }
 }
 
@@ -472,6 +492,19 @@ private struct RailgunTranscriptSoftTopEdgeEffect: ViewModifier {
     }
 }
 
+private enum RailgunInteractionFocus: Hashable {
+    case approvalDeny(String)
+    case clarificationAnswer(String)
+    case clarificationChoices(String)
+
+    var requestID: String {
+        switch self {
+        case let .approvalDeny(id), let .clarificationAnswer(id), let .clarificationChoices(id):
+            id
+        }
+    }
+}
+
 struct RailgunTaskShell: View {
     static let activityCardDefaultVisibility = false
     static let activityPanelMargin = RailgunSpacing.standard.points
@@ -489,6 +522,7 @@ struct RailgunTaskShell: View {
     @Bindable private var appStore: RailgunAppStore
     private let sessionCoordinator: RailgunSessionCoordinator
     private let promptCoordinator: RailgunPromptCoordinator
+    private let interactionCoordinator: RailgunInteractionCoordinator
     @State private var transcriptFollowState = RailgunTranscriptFollowState.initial
     @State private var previousTranscriptGeometry: RailgunScrollGeometry?
     @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
@@ -497,17 +531,20 @@ struct RailgunTaskShell: View {
     @State private var isComposerFocused = false
     @State private var composerHeight = RailgunComposer.minimumHeight()
     @State private var isComposerSubmissionInFlight = false
+    @FocusState private var interactionFocus: RailgunInteractionFocus?
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
 
     init(
         appStore: RailgunAppStore,
         sessionCoordinator: RailgunSessionCoordinator,
-        promptCoordinator: RailgunPromptCoordinator
+        promptCoordinator: RailgunPromptCoordinator,
+        interactionCoordinator: RailgunInteractionCoordinator
     ) {
         _appStore = Bindable(appStore)
         self.sessionCoordinator = sessionCoordinator
         self.promptCoordinator = promptCoordinator
+        self.interactionCoordinator = interactionCoordinator
     }
 
     var body: some View {
@@ -572,6 +609,9 @@ struct RailgunTaskShell: View {
                 stop: requestStop
             )
         )
+        .onChange(of: appStore.state.interactions.requests) { previous, current in
+            handleInteractionFocusChange(from: previous, to: current)
+        }
     }
 
     private var commandAvailability: RailgunTaskCommandAvailability {
@@ -719,11 +759,12 @@ struct RailgunTaskShell: View {
             Divider()
             composerContent
         }
-        .background(.regularMaterial)
+        .background(.bar)
     }
 
     private var composerContent: some View {
         VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            interactionPrompts
             queuedMessageAcknowledgements
             composerSurface
             composerSubmissionError
@@ -732,6 +773,240 @@ struct RailgunTaskShell: View {
         .padding(RailgunSpacing.standard.points)
         .frame(maxWidth: Self.composerMaximumWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var interactionPrompts: some View {
+        ForEach(appStore.state.interactions.requests) { request in
+            switch request.kind {
+            case .approval:
+                approvalPrompt(request)
+            case .clarification:
+                clarificationPrompt(request)
+            }
+        }
+    }
+
+    private func approvalPrompt(_ request: RailgunInteractionRequest) -> some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            Text("Approval Required")
+                .font(RailgunFont.interface(.headline))
+            Text("Allow this command to run?")
+                .foregroundStyle(.secondary)
+            Text(request.command ?? "")
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(RailgunSpacing.compact.points)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .accessibilityLabel("Command preview")
+                .accessibilityIdentifier("interaction-command-preview-\(request.id)")
+            interactionStatus(request)
+            HStack {
+                Button("Deny", role: .destructive) {
+                    respondToApproval(request.id, approved: false)
+                }
+                .focused($interactionFocus, equals: .approvalDeny(request.id))
+                .onKeyPress(.escape) {
+                    respondToApproval(request.id, approved: false)
+                    return .handled
+                }
+                .disabled(request.isSubmitting)
+                .accessibilityLabel("Deny command")
+                .accessibilityIdentifier("interaction-deny-\(request.id)")
+
+                Button("Allow") {
+                    respondToApproval(request.id, approved: true)
+                }
+                .disabled(request.isSubmitting)
+                .accessibilityLabel("Allow command")
+                .accessibilityIdentifier("interaction-allow-\(request.id)")
+            }
+        }
+        .padding(RailgunSpacing.standard.points)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Approval request")
+        .accessibilityIdentifier("interaction-approval-\(request.id)")
+    }
+
+    private func clarificationPrompt(_ request: RailgunInteractionRequest) -> some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            Text("Clarification Required")
+                .font(RailgunFont.interface(.headline))
+            Text(request.question ?? "")
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let choices = request.choices, !choices.isEmpty {
+                choiceClarificationControls(request, choices: choices)
+            } else {
+                freeTextClarificationControls(request)
+            }
+            interactionStatus(request)
+        }
+        .padding(RailgunSpacing.standard.points)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Clarification request")
+        .accessibilityIdentifier("interaction-clarification-\(request.id)")
+    }
+
+    private func freeTextClarificationControls(_ request: RailgunInteractionRequest) -> some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            TextField("Answer", text: interactionAnswerBinding(for: request))
+                .textFieldStyle(.roundedBorder)
+                .focused($interactionFocus, equals: .clarificationAnswer(request.id))
+                .disabled(request.isSubmitting)
+                .onSubmit { submitClarification(request) }
+                .onKeyPress(.escape) {
+                    declineClarification(request.id)
+                    return .handled
+                }
+                .accessibilityLabel("Clarification answer")
+                .accessibilityIdentifier("interaction-answer-\(request.id)")
+            clarificationActionRow(request)
+        }
+    }
+
+    private func choiceClarificationControls(
+        _ request: RailgunInteractionRequest,
+        choices: [String]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            Picker("Choices", selection: interactionAnswerBinding(for: request)) {
+                ForEach(choices, id: \.self) { choice in
+                    Text(choice).tag(choice)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .focused($interactionFocus, equals: .clarificationChoices(request.id))
+            .disabled(request.isSubmitting)
+            .onKeyPress(.upArrow) {
+                moveChoice(for: request, choices: choices, by: -1)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                moveChoice(for: request, choices: choices, by: 1)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                submitClarification(request)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                declineClarification(request.id)
+                return .handled
+            }
+            .accessibilityLabel("Clarification choices")
+            .accessibilityIdentifier("interaction-choices-\(request.id)")
+            clarificationActionRow(request)
+        }
+    }
+
+    private func clarificationActionRow(_ request: RailgunInteractionRequest) -> some View {
+        HStack {
+            Button("Decline", role: .destructive) {
+                declineClarification(request.id)
+            }
+            .disabled(request.isSubmitting)
+            .accessibilityLabel("Decline clarification")
+            .accessibilityIdentifier("interaction-decline-\(request.id)")
+            Button("Submit") {
+                submitClarification(request)
+            }
+            .disabled(request.isSubmitting || !hasValidClarificationAnswer(request))
+            .accessibilityLabel("Submit clarification")
+            .accessibilityIdentifier("interaction-submit-\(request.id)")
+        }
+    }
+
+    @ViewBuilder
+    private func interactionStatus(_ request: RailgunInteractionRequest) -> some View {
+        if request.isSubmitting {
+            ProgressView("Submitting response")
+                .controlSize(.small)
+                .accessibilityIdentifier("interaction-progress-\(request.id)")
+        }
+        if let error = request.error {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .accessibilityLabel("Interaction error")
+                .accessibilityIdentifier("interaction-error-\(request.id)")
+        }
+    }
+
+    private func interactionAnswerBinding(for request: RailgunInteractionRequest) -> Binding<String> {
+        Binding(
+            get: {
+                appStore.state.interactions.requests.first(where: { $0.id == request.id })?.answer ?? ""
+            },
+            set: { answer in
+                appStore.send(.interaction(.answerChanged(id: request.id, answer: answer)))
+            }
+        )
+    }
+
+    private func hasValidClarificationAnswer(_ request: RailgunInteractionRequest) -> Bool {
+        !request.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func respondToApproval(_ id: String, approved: Bool) {
+        Task { await interactionCoordinator.respondToApproval(id: id, approved: approved) }
+    }
+
+    private func submitClarification(_ request: RailgunInteractionRequest) {
+        guard hasValidClarificationAnswer(request) else { return }
+        Task { await interactionCoordinator.respondToClarification(id: request.id, answer: request.answer) }
+    }
+
+    private func declineClarification(_ id: String) {
+        Task {
+            await interactionCoordinator.respondToClarification(
+                id: id,
+                answer: RailgunRPCClient.declinedClarificationAnswer
+            )
+        }
+    }
+
+    private func moveChoice(
+        for request: RailgunInteractionRequest,
+        choices: [String],
+        by offset: Int
+    ) {
+        guard !request.isSubmitting,
+              let currentIndex = choices.firstIndex(of: request.answer)
+        else { return }
+        let nextIndex = min(max(currentIndex + offset, 0), choices.count - 1)
+        appStore.send(.interaction(.answerChanged(id: request.id, answer: choices[nextIndex])))
+    }
+
+    private func handleInteractionFocusChange(
+        from previous: [RailgunInteractionRequest],
+        to current: [RailgunInteractionRequest]
+    ) {
+        if current.isEmpty, !previous.isEmpty {
+            interactionFocus = nil
+            isComposerFocused = true
+            return
+        }
+        if let interactionFocus,
+           !current.contains(where: { $0.id == interactionFocus.requestID }),
+           let request = current.last {
+            focusInteraction(request)
+            return
+        }
+        guard current.count > previous.count, let request = current.last else { return }
+        focusInteraction(request)
+    }
+
+    private func focusInteraction(_ request: RailgunInteractionRequest) {
+        isComposerFocused = false
+        interactionFocus = switch request.kind {
+        case .approval: .approvalDeny(request.id)
+        case .clarification: request.choices?.isEmpty == false
+            ? .clarificationChoices(request.id)
+            : .clarificationAnswer(request.id)
+        }
     }
 
     @ViewBuilder
@@ -762,7 +1037,10 @@ struct RailgunTaskShell: View {
             composerActionRow
         }
         .padding(RailgunSpacing.relaxed.points)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(
+            RailgunColorRole.surface.color,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
@@ -770,7 +1048,7 @@ struct RailgunTaskShell: View {
                     lineWidth: isComposerFocused ? 1.5 : 1
                 )
         }
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .shadow(color: .black.opacity(0.08), radius: 4, y: 1)
         .accessibilityIdentifier("task-composer-surface")
     }
 
@@ -1428,7 +1706,8 @@ struct RailgunXApp: App {
             RailgunTaskShell(
                 appStore: appStore,
                 sessionCoordinator: backendRuntime.sessionCoordinator,
-                promptCoordinator: backendRuntime.promptCoordinator
+                promptCoordinator: backendRuntime.promptCoordinator,
+                interactionCoordinator: backendRuntime.interactionCoordinator
             )
         case .authenticationRequired:
             RailgunBackendStatusView(

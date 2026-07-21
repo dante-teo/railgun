@@ -219,6 +219,22 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertTrue(state.interactions.requests.isEmpty)
     }
 
+    func testInteractionSubmissionUpdatesOnlyItsRequestAndChoiceDefaultsToFirstOption() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(state, .interaction(.received(.approval(id: "one", command: "echo one"))))
+        state = RailgunAppReducer.reduce(state, .interaction(.received(.clarification(id: "two", question: "Which?", choices: ["Safe", "Fast"]))))
+
+        state = RailgunAppReducer.reduce(state, .interaction(.submissionStarted(id: "one")))
+
+        XCTAssertTrue(state.interactions.requests[0].isSubmitting)
+        XCTAssertFalse(state.interactions.requests[1].isSubmitting)
+        XCTAssertEqual(state.interactions.requests[1].answer, "Safe")
+
+        state = RailgunAppReducer.reduce(state, .interaction(.submissionSucceeded(id: "one")))
+
+        XCTAssertEqual(state.interactions.requests.map(\.id), ["two"])
+    }
+
     func testActivitySettlesRunningWorkAndUpdatesContextControls() {
         var state = RailgunAppState.initial
         state = RailgunAppReducer.reduce(state, .agentEvent(.toolStarted(id: "tool", name: "read_file", input: "safe")))

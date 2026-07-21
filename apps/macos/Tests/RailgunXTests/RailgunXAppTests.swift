@@ -173,6 +173,8 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(source.contains("task-composer-surface"))
         XCTAssertTrue(source.contains("Message Railgun…"))
+        XCTAssertTrue(source.contains(".background(.bar)"))
+        XCTAssertTrue(source.contains("RailgunColorRole.surface.color"))
         XCTAssertTrue(source.contains("task-composer-send"))
         XCTAssertTrue(source.contains("task-composer-stop"))
         XCTAssertTrue(source.contains("Image(systemName: \"stop.fill\")"))
@@ -181,6 +183,34 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("composerActionRow"))
         XCTAssertTrue(source.contains("canRetryComposerSubmission"))
         XCTAssertEqual(RailgunTaskShell.composerMaximumWidth, 736)
+    }
+
+    func testInteractionPromptsUseNativeControlsAndKeepStopAvailable() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("interactionPrompts"))
+        XCTAssertTrue(source.contains("Button(\"Deny\", role: .destructive)"))
+        XCTAssertTrue(source.contains("TextField(\"Answer\""))
+        XCTAssertTrue(source.contains("Picker(\"Choices\""))
+        XCTAssertTrue(source.contains(".pickerStyle(.radioGroup)"))
+        XCTAssertTrue(source.contains(".onKeyPress(.escape)"))
+        XCTAssertTrue(source.contains(".onKeyPress(.return)"))
+        XCTAssertTrue(source.contains("RailgunRPCClient.declinedClarificationAnswer"))
+        XCTAssertTrue(source.contains("interaction-command-preview-"))
+        XCTAssertTrue(source.contains("interaction-answer-"))
+        XCTAssertTrue(source.contains("interaction-choices-"))
+        XCTAssertTrue(source.contains("interaction-error-"))
+        XCTAssertTrue(source.contains("interaction-deny-"))
+        XCTAssertTrue(source.contains("interaction-allow-"))
+        XCTAssertTrue(source.contains("interactions.requests.isEmpty"))
+        XCTAssertTrue(source.contains("var requestID: String"))
+        XCTAssertTrue(source.contains("!current.contains(where: { $0.id == interactionFocus.requestID })"))
+        XCTAssertTrue(source.contains("focusInteraction(request)"))
+        XCTAssertFalse(source.contains(".disabled(!commandAvailability.canStop || !appStore.state.interactions.requests.isEmpty)"))
     }
 
     func testComposerRetryPrioritizesAnExplicitFailedStopOverQueueRetry() throws {
@@ -649,6 +679,39 @@ final class RailgunXAppTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testMockRuntimeDeliversAndSettlesApprovalAndClarificationInteractions() async throws {
+        for scenario in ["approval", "clarification-free-text", "clarification-choice"] {
+            let configuration = BackendLaunchConfiguration(
+                environment: [:],
+                arguments: [
+                    "RailgunX",
+                    "--railgunx-backend-mode=mock",
+                    "--railgunx-mock-scenario=\(scenario)",
+                    "--railgunx-source-root=\(repositoryRoot.path)",
+                ]
+            )
+            let store = RailgunAppStore()
+            let runtime = RailgunBackendRuntime(configuration: configuration, store: store)
+
+            await runtime.start()
+            _ = await runtime.promptCoordinator.submit("Resolve \(scenario)")
+            await waitForInteraction(in: store)
+
+            let request = try XCTUnwrap(store.state.interactions.requests.first)
+            switch request.kind {
+            case .approval:
+                await runtime.interactionCoordinator.respondToApproval(id: request.id, approved: true)
+            case .clarification:
+                let answer = request.choices?.last ?? "A free-text answer"
+                await runtime.interactionCoordinator.respondToClarification(id: request.id, answer: answer)
+            }
+            await waitForNoInteractions(in: store)
+            XCTAssertTrue(store.state.interactions.requests.isEmpty)
+
+            await runtime.shutdown()
+        }
+    }
+
     func testBackendPresentationOnlyShowsTheTaskShellWhenReady() {
         XCTAssertEqual(RailgunBackendPresentation(phase: .starting), .starting)
         XCTAssertEqual(RailgunBackendPresentation(phase: .ready), .ready)
@@ -816,6 +879,22 @@ final class RailgunXAppTests: XCTestCase {
         process.waitUntilExit()
 
         XCTAssertEqual(process.terminationStatus, 0)
+    }
+}
+
+@MainActor
+private func waitForInteraction(in store: RailgunAppStore) async {
+    for _ in 0..<50 {
+        if !store.state.interactions.requests.isEmpty { return }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+}
+
+@MainActor
+private func waitForNoInteractions(in store: RailgunAppStore) async {
+    for _ in 0..<50 {
+        if store.state.interactions.requests.isEmpty { return }
+        try? await Task.sleep(for: .milliseconds(20))
     }
 }
 
