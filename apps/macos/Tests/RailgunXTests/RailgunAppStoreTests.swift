@@ -298,12 +298,85 @@ final class RailgunAppStoreTests: XCTestCase {
         var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
         state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))
         state = RailgunAppReducer.reduce(state, .agentEvent(.runStarted))
+
+        XCTAssertTrue(state.transcript.isStopping)
         state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "late", kind: .steering, text: "ignore")))
         state = RailgunAppReducer.reduce(state, .agentEvent(.assistantDelta("partial")))
         state = RailgunAppReducer.reduce(state, .agentEvent(.runEnded))
 
         XCTAssertTrue(state.transcript.queue.isEmpty)
         XCTAssertEqual(state.transcript.messages.last?.status, .stopped)
+    }
+
+    func testStopAcknowledgementClearsTheCurrentQueueButNotANewRun() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "first", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "queued", kind: .steering, text: "queue")))
+        state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))
+        state = RailgunAppReducer.reduce(state, .transcript(.stopAcknowledged))
+
+        XCTAssertTrue(state.transcript.queue.isEmpty)
+
+        state = RailgunAppReducer.reduce(state, .transcript(.runEnded(at: 1)))
+        state = RailgunAppReducer.reduce(state, .transcript(.submit(id: "second", text: "restart", at: 2)))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "new-queue", kind: .followUp, text: "continue")))
+        state = RailgunAppReducer.reduce(state, .transcript(.stopAcknowledged))
+
+        XCTAssertEqual(state.transcript.queue.map(\.id), ["new-queue"])
+    }
+
+    func testStopDefersQueueReconciliationUntilTheAbortAcknowledgement() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "queued", kind: .steering, text: "queue")))
+        state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.queueUpdated(steering: [], followUp: [])))
+
+        XCTAssertEqual(state.transcript.queue.map(\.id), ["queued"])
+        XCTAssertEqual(state.transcript.messages.map(\.text), ["start"])
+
+        state = RailgunAppReducer.reduce(state, .transcript(.stopAcknowledged))
+        XCTAssertTrue(state.transcript.queue.isEmpty)
+    }
+
+    func testStopFailureReconcilesTheQueueUpdateDeferredDuringCancellation() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "consumed", kind: .steering, text: "use this")))
+        state = RailgunAppReducer.reduce(state, .transcript(.queueAccepted(id: "remaining", kind: .followUp, text: "continue")))
+        state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.queueUpdated(steering: [], followUp: ["continue"])))
+
+        state = RailgunAppReducer.reduce(state, .transcript(.stopFailed(message: "Abort unavailable")))
+
+        XCTAssertFalse(state.transcript.isStopping)
+        XCTAssertEqual(state.transcript.queue.map(\.id), ["remaining"])
+        XCTAssertEqual(state.transcript.messages.map(\.text), ["start", "use this"])
+        XCTAssertEqual(state.transcript.submissionError, "Abort unavailable")
+        XCTAssertNil(state.transcript.deferredQueueUpdate)
+    }
+
+    func testStopFailureKeepsARejectedQueueAndMarksStopAsTheRetryTarget() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(
+            state,
+            .transcript(.queueRejected(kind: .followUp, text: "continue", message: "Queue unavailable"))
+        )
+        state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))
+
+        state = RailgunAppReducer.reduce(state, .transcript(.stopFailed(message: "Abort unavailable")))
+
+        XCTAssertEqual(
+            state.transcript.failedQueue,
+            .init(kind: .followUp, text: "continue", message: "Queue unavailable")
+        )
+        XCTAssertEqual(state.transcript.failedStopMessage, "Abort unavailable")
+    }
+
+    func testOutOfDateStopFailureDoesNotChangeAnActiveRun() {
+        var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
+        state = RailgunAppReducer.reduce(state, .transcript(.stopFailed(message: "late failure")))
+
+        XCTAssertTrue(state.transcript.isRunning)
+        XCTAssertFalse(state.transcript.isStopping)
+        XCTAssertNil(state.transcript.submissionError)
     }
 
     func testLiveAssistantKeepsOneStreamingMessageAndRecordsBoundaries() {

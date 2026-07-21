@@ -83,6 +83,12 @@ or authoritative. Local `apps/macos/*.xcodeproj` directories are ignored and
 can become stale as Swift files are added. Generate a fresh project before
 using Xcode directly; the validation script below does this automatically.
 
+`apps/macos/project.yml` deliberately lists Swift Markdown's C header roots
+for both generated layouts: a sibling `SourcePackages` directory for isolated
+XcodeGen validation and DerivedData's `SourcePackages` directory for launcher
+builds. Keep both paths in the project definition; do not repair a generated
+project by editing its `.xcodeproj`.
+
 RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
 `0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
 `apps/macos/Package.resolved` is the reviewed source-controlled lockfile;

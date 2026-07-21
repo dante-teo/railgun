@@ -51,15 +51,32 @@ final class RailgunComposerTests: XCTestCase {
         )
     }
 
-    func testReturnSubmitsNonblankDraftWhileShiftReturnPreservesNativeNewline() {
+    func testReturnSubmitsNonblankDraftWhileShiftReturnInsertsANewline() {
         var submitted: [String] = []
         let textView = RailgunComposerTextView(onSubmit: { submitted.append($0) })
         textView.string = "Ship it"
 
         XCTAssertTrue(textView.handleCommand(#selector(NSResponder.insertNewline(_:))))
         XCTAssertEqual(submitted, ["Ship it"])
-        XCTAssertFalse(textView.handleCommand(#selector(NSResponder.insertLineBreak(_:))))
-        XCTAssertEqual(textView.string, "Ship it")
+        XCTAssertTrue(textView.handleCommand(#selector(NSResponder.insertLineBreak(_:))))
+        XCTAssertEqual(textView.string, "Ship it\n")
+        XCTAssertEqual(submitted, ["Ship it"])
+
+        XCTAssertTrue(textView.handleCommand(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))))
+        XCTAssertEqual(textView.string, "Ship it\n\n")
+        XCTAssertEqual(submitted, ["Ship it"])
+    }
+
+    func testRawShiftReturnInsertsANewlineWithoutSubmitting() throws {
+        var submitted: [String] = []
+        let textView = RailgunComposerTextView(onSubmit: { submitted.append($0) })
+        textView.string = "Ship it"
+
+        let event = try XCTUnwrap(makeKeyEvent(keyCode: 36, modifiers: .shift))
+        textView.keyDown(with: event)
+
+        XCTAssertEqual(textView.string, "Ship it\n")
+        XCTAssertTrue(submitted.isEmpty)
     }
 
     func testReturnSuppressesBlankDraftSubmission() {
@@ -81,15 +98,16 @@ final class RailgunComposerTests: XCTestCase {
         XCTAssertEqual(submissions, 0)
     }
 
-    func testTabEnqueuesANonblankEditableDraftWithoutChangingReturnOrShiftReturn() {
+    func testTabEnqueuesANonblankEditableDraftWithoutSubmitting() {
         var enqueued: [String] = []
         let textView = RailgunComposerTextView(onEnqueue: { enqueued.append($0) })
         textView.string = "Follow this up"
 
         XCTAssertTrue(textView.handleCommand(#selector(NSResponder.insertTab(_:))))
         XCTAssertEqual(enqueued, ["Follow this up"])
-        XCTAssertFalse(textView.handleCommand(#selector(NSResponder.insertLineBreak(_:))))
-        XCTAssertEqual(textView.string, "Follow this up")
+        XCTAssertTrue(textView.handleCommand(#selector(NSResponder.insertLineBreak(_:))))
+        XCTAssertEqual(textView.string, "Follow this up\n")
+        XCTAssertEqual(enqueued, ["Follow this up"])
     }
 
     func testBlankOrInactiveTabRetainsNativeFocusBehavior() {
@@ -137,6 +155,32 @@ final class RailgunComposerTests: XCTestCase {
         XCTAssertFalse(textView.isRichText)
         XCTAssertTrue(textView.allowsUndo)
         XCTAssertEqual(textView.accessibilityLabel(), "Message")
+    }
+
+    func testPlaceholderUsesNativeTextContainerGeometryAndTracksDraftVisibility() {
+        let textView = RailgunComposerTextView()
+        textView.placeholder = "Message Railgun…"
+
+        XCTAssertTrue(textView.showsPlaceholder)
+        XCTAssertEqual(textView.placeholderDrawingOrigin, textView.textContainerOrigin)
+
+        textView.string = "Draft"
+        XCTAssertFalse(textView.showsPlaceholder)
+    }
+
+    private func makeKeyEvent(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: keyCode
+        )
     }
 
     func testDelegateSynchronizesNativeDraftFocusAndHeightBackToSwiftUI() {

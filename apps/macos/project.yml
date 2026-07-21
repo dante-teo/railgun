@@ -57,11 +57,16 @@ targets:
         # swift-markdown 0.8.0 exports C targets whose module metadata is not
         # consumable by Xcode 26's explicit-module mode from a static target.
         SWIFT_ENABLE_EXPLICIT_MODULES: NO
+        # XcodeGen's isolated validation keeps SourcePackages beside the
+        # generated project, while launcher builds keep it in DerivedData.
         HEADER_SEARCH_PATHS:
           - "$(inherited)"
           - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
           - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark/src/include"
           - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark/extensions/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/src/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/extensions/include"
 
   RailgunTestSupport:
     type: library.static

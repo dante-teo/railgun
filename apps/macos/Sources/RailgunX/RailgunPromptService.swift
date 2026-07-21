@@ -1,18 +1,18 @@
 import Foundation
 import RailgunTransport
 
-/// Presentation-safe failures for task prompt and queue requests.
+/// Presentation-safe failures for Task RPC commands.
 enum RailgunPromptServiceError: Error, Equatable, Sendable {
     case invalidRequest
     case invalidResponse
     case rejected(String)
 }
 
-/// Sends the v1 task-submission commands and validates their empty acknowledgements.
+/// Sends Task RPC commands and validates their empty acknowledgements.
 actor RailgunPromptService {
     typealias Request = @Sendable (RailgunRPCCommand) async throws -> RailgunRPCResponse
 
-    private static let queueAcknowledgementTimeout: Duration = .seconds(15)
+    private static let acknowledgementTimeout: Duration = .seconds(15)
     private static let maximumMessageLength = 100_000
 
     private let request: Request
@@ -23,29 +23,39 @@ actor RailgunPromptService {
 
     init(rpcClient: RailgunRPCClient) {
         self.init { command in
-            let timeout: Duration? = command.type == .prompt ? nil : Self.queueAcknowledgementTimeout
+            let timeout: Duration? = command.type == .prompt ? nil : Self.acknowledgementTimeout
             return try await rpcClient.request(command, timeout: timeout)
         }
     }
 
     func prompt(_ message: String) async throws {
-        try await perform(.prompt, message: message)
+        try await performMessage(.prompt, message: message)
     }
 
     func steer(_ message: String) async throws {
-        try await perform(.steer, message: message)
+        try await performMessage(.steer, message: message)
     }
 
     func followUp(_ message: String) async throws {
-        try await perform(.followUp, message: message)
+        try await performMessage(.followUp, message: message)
     }
 
-    private func perform(_ type: RailgunRPCCommandType, message: String) async throws {
-        guard isValid(message) else { throw RailgunPromptServiceError.invalidRequest }
+    func abort() async throws {
+        try await performAcknowledged(.abort)
+    }
 
+    private func performMessage(_ type: RailgunRPCCommandType, message: String) async throws {
+        guard isValid(message) else { throw RailgunPromptServiceError.invalidRequest }
+        try await performAcknowledged(type, fields: ["message": .string(message)])
+    }
+
+    private func performAcknowledged(
+        _ type: RailgunRPCCommandType,
+        fields: [String: RailgunJSONValue] = [:]
+    ) async throws {
         let command: RailgunRPCCommand
         do {
-            command = try RailgunRPCCommand(type: type, fields: ["message": .string(message)])
+            command = try RailgunRPCCommand(type: type, fields: fields)
         } catch {
             throw RailgunPromptServiceError.invalidRequest
         }
@@ -132,6 +142,22 @@ final class RailgunPromptCoordinator {
     func retryQueue() async -> Bool {
         guard let failedQueue = store.state.transcript.failedQueue else { return false }
         return await enqueue(failedQueue.text, kind: failedQueue.kind)
+    }
+
+    func stop() async -> Bool {
+        guard store.state.transcript.isRunning, !store.state.transcript.isStopping else { return false }
+        store.send(.transcript(.stopRequested))
+
+        do {
+            try await service.abort()
+            guard store.state.transcript.isRunning, store.state.transcript.isStopping else { return false }
+            store.send(.transcript(.stopAcknowledged))
+            return true
+        } catch {
+            guard store.state.transcript.isRunning, store.state.transcript.isStopping else { return false }
+            store.send(.transcript(.stopFailed(message: presentationMessage(for: error))))
+            return false
+        }
     }
 
     private func observePromptAcknowledgement(userID: String, text: String) {

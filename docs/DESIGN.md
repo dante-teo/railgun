@@ -89,7 +89,9 @@ the same model; text entry is reserved for free-form answers and preset names.
   beyond that cap scrolls vertically in the native text view. It preserves
   selection, multiline paste, undo, text services, and VoiceOver editing with
   the accessible name `Message`. Return submits only a nonblank enabled draft;
-  Shift-Return inserts a newline. SWFT-032 mounts it in the Task shell; its
+  Shift-Return inserts a newline. Its empty-state placeholder is rendered by
+  that same native text layout, sharing the editor's inset and baseline with
+  the caret. SWFT-032 mounts it in the Task shell; its
   SwiftUI owner routes idle Return to `prompt`, active Return to `steer`, and
   active Tab to `follow_up`. Initial prompt responses settle with the full
   agent run, so the shell starts observing them asynchronously and immediately

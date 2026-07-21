@@ -2,11 +2,13 @@ import SwiftUI
 
 struct RailgunTaskCommandAvailability: Equatable {
     let canCreateTask: Bool
+    let canStop: Bool
 }
 
 struct RailgunTaskCommandActions {
     let availability: RailgunTaskCommandAvailability
     let createTask: () -> Void
+    let stop: () -> Void
 }
 
 private struct RailgunTaskCommandActionsKey: FocusedValueKey {
@@ -35,6 +37,11 @@ struct RailgunTaskCommands: Commands {
         }
 
         CommandMenu("Task") {
+            Button("Stop", role: .destructive) {
+                taskActions?.stop()
+            }
+            .disabled(taskActions?.availability.canStop != true)
+
             Button("Task") {
                 openWindow(id: AppLifecycleConfiguration.primary.primaryWindowRestorationIdentifier)
             }

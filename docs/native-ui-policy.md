@@ -138,9 +138,15 @@ must not keep the composer disabled. Keep these invariants intact:
   line.
 - Intercept Return only for a nonblank editable draft. When SwiftUI supplies
   the optional enqueue callback, intercept nonblank editable Tab for a
-  follow-up. Blank Tab, inactive Tab, Shift-Return, and every other native
-  editing command retain AppKit behavior. A disabled composer must never
-  submit or enqueue a draft.
+  follow-up. Capture physical Shift-Return before AppKit command routing and
+  insert a native line break; command-path line-break selectors remain
+  fallbacks. Blank Tab, inactive Tab, and every other native editing command
+  retain AppKit behavior. A disabled composer must never submit or enqueue a
+  draft.
+- Render the empty-draft placeholder inside the `NSTextView` using its text
+  container origin and typing attributes. Do not position a separate SwiftUI
+  placeholder overlay beside the editor, because it can drift from the native
+  caret's inset or baseline.
 - Preserve selection when an external draft change is applied, and synchronize
   first-responder changes back to the focus binding.
 - Keep prompt, steering, and follow-up RPC effects outside the bridge. The

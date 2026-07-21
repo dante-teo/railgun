@@ -568,14 +568,16 @@ struct RailgunTaskShell: View {
             \.railgunTaskCommandActions,
             RailgunTaskCommandActions(
                 availability: commandAvailability,
-                createTask: createTask
+                createTask: createTask,
+                stop: requestStop
             )
         )
     }
 
     private var commandAvailability: RailgunTaskCommandAvailability {
         .init(
-            canCreateTask: !appStore.state.session.isLoading
+            canCreateTask: !appStore.state.session.isLoading,
+            canStop: appStore.state.transcript.isRunning && !appStore.state.transcript.isStopping
         )
     }
 
@@ -774,58 +776,55 @@ struct RailgunTaskShell: View {
 
     @ViewBuilder
     private var composerActionRow: some View {
-        if isComposerSubmissionInFlight || !appStore.state.transcript.isRunning {
-            HStack(spacing: RailgunSpacing.standard.points) {
-                if isComposerSubmissionInFlight {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Submitting message")
-                }
-
-                Spacer(minLength: 0)
-
-                if !appStore.state.transcript.isRunning {
-                    Button(action: submitDraftFromComposerAction) {
-                        Label("Send", systemImage: "paperplane.fill")
-                            .labelStyle(.iconOnly)
-                    }
-                    .buttonStyle(.borderedProminent)
+        HStack(spacing: RailgunSpacing.standard.points) {
+            if isComposerSubmissionInFlight {
+                ProgressView()
                     .controlSize(.small)
-                    .disabled(!canSubmitComposerDraft)
-                    .help("Send task")
-                    .accessibilityIdentifier("task-composer-send")
+                    .accessibilityLabel("Submitting message")
+            }
+
+            Spacer(minLength: 0)
+
+            if appStore.state.transcript.isRunning {
+                Button(role: .destructive, action: requestStop) {
+                    Image(systemName: "stop.fill")
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!commandAvailability.canStop)
+                .help("Stop task")
+                .accessibilityLabel("Stop")
+                .accessibilityIdentifier("task-composer-stop")
+            } else {
+                Button(action: submitDraftFromComposerAction) {
+                    Label("Send", systemImage: "paperplane.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!canSubmitComposerDraft)
+                .help("Send task")
+                .accessibilityIdentifier("task-composer-send")
             }
         }
     }
 
     private var composerInput: some View {
-        ZStack(alignment: .topLeading) {
-            RailgunComposer(
-                draft: $composerDraft,
-                isFocused: $isComposerFocused,
-                isEnabled: isComposerEnabled,
-                reportedHeight: $composerHeight,
-                onSubmit: submitComposerDraft,
-                onEnqueue: followUpEnqueueHandler
-            )
-            .frame(height: composerHeight)
-            .accessibilityIdentifier("task-composer")
-
-            if composerDraft.isEmpty {
-                Text(isComposerEnabled ? "Message Railgun…" : "Backend unavailable")
-                    .font(RailgunFont.interface(.body))
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, RailgunSpacing.compact.points)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
+        RailgunComposer(
+            draft: $composerDraft,
+            isFocused: $isComposerFocused,
+            isEnabled: isComposerEnabled,
+            placeholder: isComposerEnabled ? "Message Railgun…" : "Backend unavailable",
+            reportedHeight: $composerHeight,
+            onSubmit: submitComposerDraft,
+            onEnqueue: followUpEnqueueHandler
+        )
         .frame(height: composerHeight)
+        .accessibilityIdentifier("task-composer")
     }
 
     private var followUpEnqueueHandler: ((String) -> Void)? {
-        guard appStore.state.transcript.isRunning else { return nil }
+        guard appStore.state.transcript.isRunning, !appStore.state.transcript.isStopping else { return nil }
         return enqueueFollowUp
     }
 
@@ -876,17 +875,21 @@ struct RailgunTaskShell: View {
     }
 
     private var canRetryComposerSubmission: Bool {
-        isComposerEnabled
-            && (
-                appStore.state.transcript.failedRun != nil
-                    || appStore.state.transcript.failedQueue != nil
-                    || !composerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            )
+        guard isComposerEnabled else { return false }
+        return isStopFailure
+            || appStore.state.transcript.failedRun != nil
+            || appStore.state.transcript.failedQueue != nil
+            || !composerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func submitDraftFromComposerAction() {
         guard canSubmitComposerDraft else { return }
         submitComposerDraft(composerDraft)
+    }
+
+    private func requestStop() {
+        guard commandAvailability.canStop else { return }
+        Task { _ = await promptCoordinator.stop() }
     }
 
     private func submitComposerDraft(_ message: String) {
@@ -908,6 +911,10 @@ struct RailgunTaskShell: View {
     }
 
     private func retryComposerSubmission() {
+        if isStopFailure {
+            requestStop()
+            return
+        }
         guard isComposerEnabled else { return }
         isComposerSubmissionInFlight = true
         let failedRun = appStore.state.transcript.failedRun
@@ -931,6 +938,12 @@ struct RailgunTaskShell: View {
             composerDraft = ""
         }
         isComposerSubmissionInFlight = false
+    }
+
+    private var isStopFailure: Bool {
+        appStore.state.transcript.isRunning
+            && !appStore.state.transcript.isStopping
+            && appStore.state.transcript.failedStopMessage != nil
     }
 
     private var transcriptScrollView: some View {

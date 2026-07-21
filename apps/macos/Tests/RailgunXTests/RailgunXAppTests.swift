@@ -32,14 +32,26 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
+    func testProjectSourceSupportsBothGeneratedPackageHeaderLayouts() throws {
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(project.contains("$(PROJECT_DIR)/../SourcePackages/checkouts/swift-markdown"))
+        XCTAssertTrue(project.contains("$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark"))
+        XCTAssertTrue(project.contains("$(BUILD_DIR)/../../SourcePackages/checkouts/swift-markdown"))
+        XCTAssertTrue(project.contains("$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark"))
+    }
+
     func testTaskCommandAvailabilityKeepsUnavailableActionsDisabled() {
         XCTAssertEqual(
-            RailgunTaskCommandAvailability(canCreateTask: false),
-            .init(canCreateTask: false)
+            RailgunTaskCommandAvailability(canCreateTask: false, canStop: false),
+            .init(canCreateTask: false, canStop: false)
         )
         XCTAssertNotEqual(
-            RailgunTaskCommandAvailability(canCreateTask: false),
-            .init(canCreateTask: true)
+            RailgunTaskCommandAvailability(canCreateTask: false, canStop: false),
+            .init(canCreateTask: true, canStop: false)
         )
     }
 
@@ -55,6 +67,9 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains(".keyboardShortcut(\"1\", modifiers: .command)"))
         XCTAssertTrue(source.contains("@Environment(\\.openSettings)"))
         XCTAssertTrue(source.contains("openWindow(id:"))
+        XCTAssertTrue(source.contains("Button(\"Stop\""))
+        XCTAssertTrue(source.contains("taskActions?.stop()"))
+        XCTAssertTrue(source.contains(".disabled(taskActions?.availability.canStop != true)"))
 
         let appSource = try String(
             contentsOf: repositoryRoot
@@ -159,10 +174,24 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("task-composer-surface"))
         XCTAssertTrue(source.contains("Message Railgun…"))
         XCTAssertTrue(source.contains("task-composer-send"))
+        XCTAssertTrue(source.contains("task-composer-stop"))
+        XCTAssertTrue(source.contains("Image(systemName: \"stop.fill\")"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Stop\")"))
         XCTAssertTrue(source.contains("composerKeyboardHint"))
         XCTAssertTrue(source.contains("composerActionRow"))
         XCTAssertTrue(source.contains("canRetryComposerSubmission"))
         XCTAssertEqual(RailgunTaskShell.composerMaximumWidth, 736)
+    }
+
+    func testComposerRetryPrioritizesAnExplicitFailedStopOverQueueRetry() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("if isStopFailure {\n            requestStop()"))
+        XCTAssertTrue(source.contains("appStore.state.transcript.failedStopMessage != nil"))
     }
 
     func testActivityVisibilityUsesOnlyTheToolbarToggle() throws {

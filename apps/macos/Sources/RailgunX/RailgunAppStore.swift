@@ -396,6 +396,11 @@ struct RailgunQueuedMessage: Equatable, Identifiable {
     let text: String
 }
 
+struct RailgunQueueUpdate: Equatable {
+    let steering: [String]
+    let followUp: [String]
+}
+
 struct RailgunTranscriptState: Equatable {
     var messages: [RailgunTranscriptMessage]
     var queue: [RailgunQueuedMessage]
@@ -405,6 +410,8 @@ struct RailgunTranscriptState: Equatable {
     var activeRun: RailgunRunRequest?
     var failedRun: RailgunFailedRun?
     var failedQueue: RailgunFailedQueue? = nil
+    var failedStopMessage: String? = nil
+    var deferredQueueUpdate: RailgunQueueUpdate? = nil
     var nextOrder: Int
 
     static let initial = Self(messages: [], queue: [], isRunning: false, isStopping: false, submissionError: nil, activeRun: nil, failedRun: nil, failedQueue: nil, nextOrder: 1)
@@ -444,6 +451,8 @@ enum RailgunTranscriptReducer {
             next.activeRun = .init(userID: id, text: text)
             next.failedRun = nil
             next.failedQueue = nil
+            next.failedStopMessage = nil
+            next.deferredQueueUpdate = nil
             next.nextOrder += 1
             return next
         case .retry:
@@ -456,6 +465,8 @@ enum RailgunTranscriptReducer {
             next.activeRun = .init(userID: failed.userID, text: failed.text)
             next.failedRun = nil
             next.failedQueue = nil
+            next.failedStopMessage = nil
+            next.deferredQueueUpdate = nil
             return next
         case let .requestFailed(userID, text, message):
             return fail(state, userID: userID, text: text, message: message)
@@ -483,37 +494,45 @@ enum RailgunTranscriptReducer {
             next.queue.append(.init(id: id, kind: kind, text: text))
             next.submissionError = nil
             next.failedQueue = nil
+            next.failedStopMessage = nil
             return next
         case let .queueUpdated(steering, followUp):
-            let result = reconcile(queue: state.queue, steering: steering, followUp: followUp)
-            var next = state
-            next.queue = result.remaining
-            for item in result.injected {
-                next.messages.append(.init(id: "injected-\(item.id)", role: .user, text: item.text, status: .complete, order: next.nextOrder, messageID: nil, branchable: false, startedAt: nil, completedAt: nil))
-                next.nextOrder += 1
+            let update = RailgunQueueUpdate(steering: steering, followUp: followUp)
+            guard !state.isStopping else {
+                var next = state
+                next.deferredQueueUpdate = update
+                return next
             }
-            return next
+            return reconcileQueue(state, with: update)
         case let .queueRejected(kind, text, message):
             var next = state
             next.submissionError = message
             next.failedQueue = .init(kind: kind, text: text, message: message)
+            next.failedStopMessage = nil
             return next
         case .stopRequested:
             guard state.isRunning, !state.isStopping else { return state }
             var next = state
             next.isStopping = true
             next.submissionError = nil
+            next.failedStopMessage = nil
             return next
         case let .stopFailed(message):
-            guard state.isRunning else { return state }
+            guard state.isRunning, state.isStopping else { return state }
             var next = state
             next.isStopping = false
             next.submissionError = message
-            return next
+            next.failedStopMessage = message
+            guard let deferredQueueUpdate = state.deferredQueueUpdate else { return next }
+            next.deferredQueueUpdate = nil
+            return reconcileQueue(next, with: deferredQueueUpdate)
         case .stopAcknowledged:
+            guard state.isRunning, state.isStopping else { return state }
             var next = state
             next.queue = []
             next.failedQueue = nil
+            next.failedStopMessage = nil
+            next.deferredQueueUpdate = nil
             return next
         case let .runEnded(at):
             var next = state
@@ -523,6 +542,8 @@ enum RailgunTranscriptReducer {
             next.isStopping = false
             next.activeRun = nil
             next.failedQueue = nil
+            next.failedStopMessage = nil
+            next.deferredQueueUpdate = nil
             next.submissionError = nil
             return next
         case .reset:
@@ -563,6 +584,20 @@ enum RailgunTranscriptReducer {
         return (queue.filter { remainingIDs.contains($0.id) }, queue.filter { injectedIDs.contains($0.id) })
     }
 
+    private static func reconcileQueue(
+        _ state: RailgunTranscriptState,
+        with update: RailgunQueueUpdate
+    ) -> RailgunTranscriptState {
+        let result = reconcile(queue: state.queue, steering: update.steering, followUp: update.followUp)
+        var next = state
+        next.queue = result.remaining
+        for item in result.injected {
+            next.messages.append(.init(id: "injected-\(item.id)", role: .user, text: item.text, status: .complete, order: next.nextOrder, messageID: nil, branchable: false, startedAt: nil, completedAt: nil))
+            next.nextOrder += 1
+        }
+        return next
+    }
+
     private static func reconcile(_ current: [RailgunQueuedMessage], backend: [String]) -> (remaining: [RailgunQueuedMessage], injected: [RailgunQueuedMessage]) {
         for removed in 0 ... current.count {
             let remaining = Array(current.dropFirst(removed))
@@ -590,6 +625,8 @@ enum RailgunTranscriptReducer {
         next.submissionError = message
         next.failedRun = .init(userID: userID, text: text, message: message)
         next.failedQueue = nil
+        next.failedStopMessage = nil
+        next.deferredQueueUpdate = nil
         return next
     }
 }

@@ -312,7 +312,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-030` — Build tool activity and populate the adaptive Activity pane/popover using native grouping, lists, button expanders, and popovers with shared presentation variants. `[8h]`
 - [x] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
 - [x] `SWFT-032` — Implement prompt, steering, follow-up, FIFO acknowledgement, and the Task, Settings, and sidebar menu commands that route those workflows. `[8h]`
-- [ ] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`
+- [x] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`
 - [ ] `SWFT-033` — Build approval and clarification with native buttons, fields, pickers, focus, and keyboard handling. `[8h]`
 - [ ] `SWFT-034` — Implement model selection and persistence plus MoA and advisor controls with native menus, mutation guards, and focused state tests. `[8h]`
 - [ ] `SWFT-086` — Implement context-usage presentation and compaction workflows, including availability, progress, completion, failure, and restored-session behavior. `[8h]`

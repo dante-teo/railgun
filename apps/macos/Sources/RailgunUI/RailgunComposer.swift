@@ -10,6 +10,7 @@ public struct RailgunComposer: NSViewRepresentable {
     @Binding private var draft: String
     @Binding private var isFocused: Bool
     private let isEnabled: Bool
+    private let placeholder: String?
     @Binding private var reportedHeight: CGFloat
     private let onSubmit: (String) -> Void
     private let onEnqueue: ((String) -> Void)?
@@ -18,6 +19,7 @@ public struct RailgunComposer: NSViewRepresentable {
         draft: Binding<String>,
         isFocused: Binding<Bool>,
         isEnabled: Bool = true,
+        placeholder: String? = nil,
         reportedHeight: Binding<CGFloat>,
         onSubmit: @escaping (String) -> Void,
         onEnqueue: ((String) -> Void)? = nil
@@ -25,6 +27,7 @@ public struct RailgunComposer: NSViewRepresentable {
         _draft = draft
         _isFocused = isFocused
         self.isEnabled = isEnabled
+        self.placeholder = placeholder
         _reportedHeight = reportedHeight
         self.onSubmit = onSubmit
         self.onEnqueue = onEnqueue
@@ -42,6 +45,7 @@ public struct RailgunComposer: NSViewRepresentable {
     public func makeNSView(context: Context) -> NSScrollView {
         let scrollView = RailgunComposerScrollView()
         scrollView.composerTextView.delegate = context.coordinator
+        scrollView.composerTextView.placeholder = placeholder
         context.coordinator.update(
             draft: $draft,
             isFocused: $isFocused,
@@ -64,6 +68,7 @@ public struct RailgunComposer: NSViewRepresentable {
             scrollView: scrollView
         )
         scrollView.composerTextView.updateDraft(draft)
+        scrollView.composerTextView.placeholder = placeholder
         scrollView.updateEnabledState(isEnabled)
         context.coordinator.report(scrollView.updateLayout())
         scrollView.updateFocus(isFocused: isFocused)
@@ -201,6 +206,17 @@ final class RailgunComposerScrollView: NSScrollView {
 final class RailgunComposerTextView: NSTextView {
     var onSubmit: (String) -> Void
     var onEnqueue: ((String) -> Void)?
+    var placeholder: String? {
+        didSet { needsDisplay = true }
+    }
+
+    var showsPlaceholder: Bool {
+        string.isEmpty && placeholder?.isEmpty == false
+    }
+
+    var placeholderDrawingOrigin: NSPoint {
+        textContainerOrigin
+    }
 
     init(
         onSubmit: @escaping (String) -> Void = { _ in },
@@ -208,6 +224,7 @@ final class RailgunComposerTextView: NSTextView {
     ) {
         self.onSubmit = onSubmit
         self.onEnqueue = onEnqueue
+        self.placeholder = nil
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(
@@ -241,6 +258,19 @@ final class RailgunComposerTextView: NSTextView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawPlaceholder()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isShiftReturn(event) else {
+            super.keyDown(with: event)
+            return
+        }
+        insertLineBreak()
+    }
+
     func updateDraft(_ draft: String) {
         guard string != draft else { return }
         let selectedRange = selectedRange()
@@ -255,7 +285,47 @@ final class RailgunComposerTextView: NSTextView {
         textContainer?.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
     }
 
-    /// Returns `true` only for the Return and active-follow-up commands this component owns.
+    private func drawPlaceholder() {
+        guard showsPlaceholder, let placeholder, let textContainer else { return }
+
+        let placeholderStorage = NSTextStorage(
+            string: placeholder,
+            attributes: placeholderAttributes
+        )
+        let placeholderLayoutManager = NSLayoutManager()
+        let placeholderContainer = NSTextContainer(
+            size: textContainer.containerSize
+        )
+        placeholderContainer.lineFragmentPadding = textContainer.lineFragmentPadding
+        placeholderLayoutManager.addTextContainer(placeholderContainer)
+        placeholderStorage.addLayoutManager(placeholderLayoutManager)
+        let glyphRange = placeholderLayoutManager.glyphRange(for: placeholderContainer)
+        placeholderLayoutManager.drawGlyphs(forGlyphRange: glyphRange, at: placeholderDrawingOrigin)
+    }
+
+    private var placeholderAttributes: [NSAttributedString.Key: Any] {
+        var attributes = typingAttributes
+        attributes[.font] = font ?? NSFont.preferredFont(forTextStyle: .body)
+        attributes[.foregroundColor] = NSColor.tertiaryLabelColor
+        return attributes
+    }
+
+    private func isShiftReturn(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+        return isReturnKey
+            && modifiers.contains(.shift)
+            && !modifiers.contains(.command)
+            && !modifiers.contains(.control)
+            && !modifiers.contains(.option)
+    }
+
+    private func insertLineBreak() {
+        guard isEditable else { return }
+        insertText("\n", replacementRange: selectedRange())
+    }
+
+    /// Returns `true` only for the Return, line-break, and active-follow-up commands this component owns.
     func handleCommand(_ commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.insertNewline(_:)) {
             guard isEditable else { return true }
@@ -263,6 +333,12 @@ final class RailgunComposerTextView: NSTextView {
             if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 onSubmit(draft)
             }
+            return true
+        }
+        if commandSelector == #selector(NSResponder.insertLineBreak(_:))
+            || commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+        {
+            insertLineBreak()
             return true
         }
         guard commandSelector == #selector(NSResponder.insertTab(_:)), isEditable,
