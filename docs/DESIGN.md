@@ -193,9 +193,11 @@ the same model; text entry is reserved for free-form answers and preset names.
   silently clipping transcript or composer content. Collapsing the sidebar can
   release enough width to restore the reserved layout.
   Tool-call IDs identify only active invocations; a later turn that reuses an
-  ID still receives a distinct chronological row. Failed prompt submission or
-  backend interruption remains a danger-styled inline row with its Retry or
-  Restart action rather than degrading to unstyled text.
+  ID still receives a distinct chronological row. Failed prompt submission
+  remains a danger-styled inline row with its Retry action rather than
+  degrading to unstyled text. In RailgunX, backend startup failure or
+  interruption replaces the Task shell with a native unavailable surface and
+  its Retry or Restart action.
 
 - The desktop chat is one full-height canvas. Toolbar, transcript, operation
   errors, and composer occupy the same overlay grid cell instead of creating
@@ -214,7 +216,9 @@ the same model; text entry is reserved for free-form answers and preset names.
   destination—whether caused by wheel, touch, keyboard, selection, browser
   find, or accessibility tooling—disengages following and preserves the current
   position. Returning within 4px of the bottom re-engages immediate following
-  for subsequent updates. The implementation and cold-launch verification
+  for subsequent updates. RailgunX implements this with one `ScrollViewReader`
+  and a stable bottom sentinel; it does not combine that reader with a
+  `ScrollPosition` binding. The implementation and cold-launch verification
   invariants are defined in
   [`native-ui-policy.md`](native-ui-policy.md#transcript-soft-top-edge-invariant).
   Transcript rows use a 32pt inter-message gap, with 32pt leading and 24pt
@@ -403,6 +407,19 @@ credential and backend, and Task mutations remain blocked until recovery
 settles. A rejected `DEVIN_TOKEN` instead shows source-specific guidance to
 update or unset the variable and relaunch Railgun; cached sign-in/logout and
 Retry cannot change the environment inherited by the running desktop process.
+
+RailgunX preserves the credential source in backend feature state and presents
+startup, authentication, launch failure, and post-ready disconnection through
+native loading or unavailable surfaces. File-backed authentication directs the
+user to sign in outside RailgunX; environment-backed authentication directs
+them to update `DEVIN_TOKEN` in the launch environment and relaunch. Provider
+sign-in/out remains deferred to SWFT-057. Recovery is single-flight, starts a
+fresh RPC generation, preserves the runtime's event and interaction consumers,
+and refreshes task summaries and controls after readiness. It never replays a
+failed prompt or queue item automatically. The visible recovery controls and
+focused `⌘R` Retry command follow the invariants in
+[`native-ui-policy.md`](native-ui-policy.md#backend-recovery-invariant).
+
 Ordinary terminal and non-desktop RPC authentication retain the behavior above.
 
 ## Context compaction

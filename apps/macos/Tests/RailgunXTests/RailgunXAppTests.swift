@@ -46,12 +46,12 @@ final class RailgunXAppTests: XCTestCase {
 
     func testTaskCommandAvailabilityKeepsUnavailableActionsDisabled() {
         XCTAssertEqual(
-            RailgunTaskCommandAvailability(canCreateTask: false, canStop: false),
-            .init(canCreateTask: false, canStop: false)
+            RailgunTaskCommandAvailability(canCreateTask: false, canStop: false, canRetry: false),
+            .init(canCreateTask: false, canStop: false, canRetry: false)
         )
         XCTAssertNotEqual(
-            RailgunTaskCommandAvailability(canCreateTask: false, canStop: false),
-            .init(canCreateTask: true, canStop: false)
+            RailgunTaskCommandAvailability(canCreateTask: false, canStop: false, canRetry: false),
+            .init(canCreateTask: true, canStop: false, canRetry: false)
         )
     }
 
@@ -61,6 +61,67 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertFalse(RailgunTaskShell.canCreateTask(session: .initial, controls: controls))
         XCTAssertTrue(RailgunTaskShell.canCreateTask(session: .initial, controls: .initial))
+    }
+
+    func testRetryCommandAvailabilityPrefersExplicitRecoveryTargets() {
+        XCTAssertFalse(
+            RailgunTaskShell.canRetryComposerSubmission(
+                transcript: .initial,
+                isComposerEnabled: true
+            )
+        )
+
+        var failedPrompt = RailgunTranscriptState.initial
+        failedPrompt = RailgunTranscriptReducer.reduce(
+            failedPrompt,
+            .submit(id: "prompt", text: "Retry this", at: 0)
+        )
+        failedPrompt = RailgunTranscriptReducer.reduce(
+            failedPrompt,
+            .requestFailed(userID: "prompt", text: "Retry this", message: "Unavailable")
+        )
+        XCTAssertTrue(
+            RailgunTaskShell.canRetryComposerSubmission(
+                transcript: failedPrompt,
+                isComposerEnabled: true
+            )
+        )
+
+        var failedQueue = RailgunTranscriptState.initial
+        failedQueue = RailgunTranscriptReducer.reduce(
+            failedQueue,
+            .queueRejected(kind: .followUp, text: "Continue", message: "Unavailable")
+        )
+        XCTAssertTrue(
+            RailgunTaskShell.canRetryComposerSubmission(
+                transcript: failedQueue,
+                isComposerEnabled: true
+            )
+        )
+        XCTAssertFalse(
+            RailgunTaskShell.canRetryComposerSubmission(
+                transcript: failedQueue,
+                isComposerEnabled: false
+            )
+        )
+
+        var staleStopFailure = RailgunTranscriptState.initial
+        staleStopFailure.failedStopMessage = "Retry stop"
+        XCTAssertFalse(
+            RailgunTaskShell.canRetryComposerSubmission(
+                transcript: staleStopFailure,
+                isComposerEnabled: true
+            )
+        )
+
+        var retryableStopFailure = staleStopFailure
+        retryableStopFailure.isRunning = true
+        XCTAssertTrue(
+            RailgunTaskShell.canRetryComposerSubmission(
+                transcript: retryableStopFailure,
+                isComposerEnabled: true
+            )
+        )
     }
 
     func testTaskCommandsUseNativeSceneRoutingAndKeyboardShortcuts() throws {
@@ -78,6 +139,10 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("Button(\"Stop\""))
         XCTAssertTrue(source.contains("taskActions?.stop()"))
         XCTAssertTrue(source.contains(".disabled(taskActions?.availability.canStop != true)"))
+        XCTAssertTrue(source.contains("Button(\"Retry\")"))
+        XCTAssertTrue(source.contains(".keyboardShortcut(\"r\", modifiers: .command)"))
+        XCTAssertTrue(source.contains("taskActions?.retry()"))
+        XCTAssertTrue(source.contains(".disabled(taskActions?.availability.canRetry != true)"))
 
         let appSource = try String(
             contentsOf: repositoryRoot
@@ -98,9 +163,16 @@ final class RailgunXAppTests: XCTestCase {
                 .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunActivityPresentation.swift"),
             encoding: .utf8
         )
+        let transcriptSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunTranscriptViewport.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(source.contains("RailgunActivityPanel("))
-        XCTAssertTrue(source.contains(".contentMargins(\n            .leading,"))
+        XCTAssertTrue(
+            transcriptSource.contains(".contentMargins(.leading, contentLeadingMargin, for: .scrollContent)")
+        )
         XCTAssertTrue(source.contains("content.glassEffect("))
         XCTAssertFalse(source.contains(".inspector(isPresented:"))
         XCTAssertTrue(activitySource.contains(".scrollContentBackground(.hidden)"))
@@ -135,6 +207,22 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(
             source.contains("LazyVStack(alignment: .center, spacing: RailgunSpacing.expanded.points)")
         )
+    }
+
+    func testTranscriptUsesScrollViewReaderForReliableBottomAnchoring() throws {
+        let transcriptSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunTranscriptViewport.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(transcriptSource.contains("ScrollViewReader { proxy in"))
+        XCTAssertTrue(transcriptSource.contains("proxy.scrollTo("))
+        XCTAssertTrue(transcriptSource.contains(".onChange(of: contentRevision)"))
+        XCTAssertTrue(transcriptSource.contains(".defaultScrollAnchor(.bottom)"))
+        XCTAssertFalse(transcriptSource.contains("for: .alignment"))
+        XCTAssertFalse(transcriptSource.contains("ScrollPosition("))
+        XCTAssertFalse(transcriptSource.contains(".scrollPosition("))
     }
 
     func testDesktopDocumentationCapturesActivityAndTranscriptLayoutContracts() throws {
@@ -747,6 +835,71 @@ final class RailgunXAppTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testMockRuntimeRestartIsSingleFlightAndRefreshesFreshBackendState() async {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=ready-idle",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(configuration: configuration, store: store)
+
+        await runtime.start()
+        XCTAssertEqual(store.state.backend.phase, .ready)
+
+        // A successful recovery must replace stale feature snapshots, while
+        // concurrent requests collapse into one new RPC generation.
+        store.send(.session(.loaded([])))
+        store.send(.controls(.loadFailed("stale controls")))
+        async let firstRecovery: Void = runtime.restart()
+        async let duplicateRecovery: Void = runtime.restart()
+        _ = await (firstRecovery, duplicateRecovery)
+
+        XCTAssertEqual(store.state.backend.phase, .ready)
+        XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
+        XCTAssertTrue(store.state.controls.isLoaded)
+
+        await runtime.shutdown()
+    }
+
+    func testMockRuntimeKeepsEventsAndInteractionsObservedAfterRestart() async throws {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=mock",
+                "--railgunx-mock-scenario=approval",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(configuration: configuration, store: store)
+
+        await runtime.start()
+        await runtime.restart()
+        XCTAssertEqual(store.state.backend.phase, .ready)
+
+        let didSubmit = await runtime.promptCoordinator.submit("Run after recovery")
+        XCTAssertTrue(didSubmit)
+        await waitForInteraction(in: store)
+
+        let request = try XCTUnwrap(store.state.interactions.requests.first)
+        guard case .approval = request.kind else {
+            return XCTFail("Expected an approval after restarting the backend")
+        }
+        await runtime.interactionCoordinator.respondToApproval(id: request.id, approved: true)
+        await waitForRunToSettle(in: store)
+
+        XCTAssertFalse(store.state.transcript.isRunning)
+        XCTAssertTrue(store.state.interactions.requests.isEmpty)
+
+        await runtime.shutdown()
+    }
+
     func testMockRuntimeDeliversAndSettlesApprovalAndClarificationInteractions() async throws {
         for scenario in ["approval", "clarification-free-text", "clarification-choice"] {
             let configuration = BackendLaunchConfiguration(
@@ -784,16 +937,45 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunBackendPresentation(phase: .starting), .starting)
         XCTAssertEqual(RailgunBackendPresentation(phase: .ready), .ready)
         XCTAssertEqual(
-            RailgunBackendPresentation(phase: .authenticationRequired),
-            .authenticationRequired
+            RailgunBackendPresentation(phase: .authenticationRequired(source: .file)),
+            .authenticationRequired(
+                title: "Authentication Required",
+                message: "Sign in with your provider outside RailgunX, then retry. Provider sign-in is coming in a later milestone."
+            )
+        )
+        XCTAssertEqual(
+            RailgunBackendPresentation(phase: .authenticationRequired(source: .environment)),
+            .authenticationRequired(
+                title: "Authentication Required",
+                message: "Update DEVIN_TOKEN in the environment that launches RailgunX, then relaunch RailgunX."
+            )
         )
         XCTAssertEqual(
             RailgunBackendPresentation(phase: .failed("Launch failed")),
-            .unavailable(title: "Backend Unavailable", message: "Launch failed")
+            .unavailable(
+                title: "Backend Unavailable",
+                message: "Launch failed",
+                systemImage: "exclamationmark.triangle.fill",
+                retryTitle: "Retry"
+            )
         )
         XCTAssertEqual(
             RailgunBackendPresentation(phase: .disconnected("Connection lost")),
-            .unavailable(title: "Backend Disconnected", message: "Connection lost")
+            .unavailable(
+                title: "Backend Disconnected",
+                message: "Connection lost",
+                systemImage: "bolt.horizontal.circle",
+                retryTitle: "Restart"
+            )
+        )
+
+        XCTAssertEqual(RailgunBackendAvailability(phase: .starting), .init(canRetry: false))
+        XCTAssertEqual(RailgunBackendAvailability(phase: .ready), .init(canRetry: false))
+        XCTAssertEqual(RailgunBackendAvailability(phase: .failed("Launch failed")), .init(canRetry: true))
+        XCTAssertEqual(RailgunBackendAvailability(phase: .disconnected("Connection lost")), .init(canRetry: true))
+        XCTAssertEqual(
+            RailgunBackendAvailability(phase: .authenticationRequired(source: .environment)),
+            .init(canRetry: true)
         )
     }
 
@@ -962,6 +1144,14 @@ private func waitForInteraction(in store: RailgunAppStore) async {
 private func waitForNoInteractions(in store: RailgunAppStore) async {
     for _ in 0..<50 {
         if store.state.interactions.requests.isEmpty { return }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+}
+
+@MainActor
+private func waitForRunToSettle(in store: RailgunAppStore) async {
+    for _ in 0..<50 {
+        if !store.state.transcript.isRunning { return }
         try? await Task.sleep(for: .milliseconds(20))
     }
 }

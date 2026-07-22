@@ -211,7 +211,7 @@ enum RailgunAppReducer {
 enum RailgunBackendPhase: Equatable {
     case starting
     case ready
-    case authenticationRequired
+    case authenticationRequired(source: RailgunRPCCredentialSource)
     case failed(String)
     case disconnected(String)
 }
@@ -226,7 +226,7 @@ struct RailgunBackendState: Equatable {
 enum RailgunBackendAction: Equatable {
     case starting
     case ready(capabilities: Set<String>)
-    case authenticationRequired
+    case authenticationRequired(source: RailgunRPCCredentialSource)
     case failed(message: String)
     case disconnected(message: String)
 }
@@ -236,7 +236,10 @@ enum RailgunBackendReducer {
         switch action {
         case .starting: .init(phase: .starting, capabilities: [])
         case let .ready(capabilities): .init(phase: .ready, capabilities: capabilities)
-        case .authenticationRequired: .init(phase: .authenticationRequired, capabilities: [])
+        case let .authenticationRequired(source): .init(
+            phase: .authenticationRequired(source: source),
+            capabilities: []
+        )
         case let .failed(message): .init(phase: .failed(message), capabilities: [])
         case let .disconnected(message): .init(phase: .disconnected(message), capabilities: [])
         }

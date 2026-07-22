@@ -307,7 +307,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-024` — Build the shell using native split navigation, sidebar-owned controls, toolbar actions, list selection, and an adaptive leading Activity pane/popover. `[8h]`
 - [x] `SWFT-025` — Implement new, list, resume, archive, and restore-session flows, including safe response validation, visible operation errors, and backend-ready/disconnected presentation. `[8h]`
 - [x] `SWFT-026` — Implement safe paginated transcript restoration and one chronological assembly for restored/live messages, tools, errors, and run boundaries. `[8h]`
-- [x] `SWFT-027` — Build the native lazy transcript viewport, four-point bottom-follow behavior, Jump to Latest cue, and macOS 26 soft top-edge effect while retaining the native scroller. `[8h]`
+- [x] `SWFT-027` — Build the native lazy transcript viewport with one `ScrollViewReader` bottom sentinel, four-point bottom-follow behavior, Jump to Latest cue, and macOS 26 soft top-edge effect while retaining the native scroller. `[8h]`
 - [x] `SWFT-028` — Render completed Markdown with Swift Markdown, including encapsulated code-block and table variants with native text selection and scrolling; keep streaming fragments plain. `[8h]`
 - [x] `SWFT-030` — Build tool activity and populate the adaptive Activity pane/popover using native grouping, lists, button expanders, and popovers with shared presentation variants. `[8h]`
 - [x] `SWFT-031` — Build the documented `NSTextView` composer bridge with dynamic height, paste, submit/newline shortcuts, focus, and VoiceOver. `[8h]`
@@ -316,7 +316,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-033` — Build arrival-ordered approval and clarification prompts with native buttons, fields, pickers, response settlement, focus recovery, and keyboard handling. `[8h]`
 - [x] `SWFT-034` — Implement model selection and persistence plus MoA and advisor controls with native menus, mutation guards, and focused state tests. `[8h]`
 - [x] `SWFT-086` — Implement context-usage presentation and compaction workflows, including availability, progress, completion, failure, and restored-session behavior. `[8h]`
-- [ ] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and restart recovery surfaces, including the retry command. `[8h]`
+- [x] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and single-flight fresh-generation recovery, including lifetime stream observation and the context-sensitive retry command. `[8h]`
 
 Milestone exit: the native app supports the core Task journey, restoration,
 streaming, tools, interactions, stop/recovery, and accessibility through a

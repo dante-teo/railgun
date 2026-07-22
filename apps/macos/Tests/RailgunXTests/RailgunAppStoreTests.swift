@@ -402,6 +402,33 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertFalse(state.transcript.isRunning)
     }
 
+    func testBackendReducerKeepsTheTypedAuthenticationCredentialSource() {
+        var state = RailgunAppReducer.reduce(.initial, .backend(.starting))
+        XCTAssertEqual(state.backend.phase, .starting)
+
+        state = RailgunAppReducer.reduce(state, .backend(.ready(capabilities: ["sessions"])))
+        XCTAssertEqual(state.backend.phase, .ready)
+
+        state = RailgunAppReducer.reduce(
+            state,
+            .backend(.authenticationRequired(source: .file))
+        )
+        XCTAssertEqual(state.backend.phase, .authenticationRequired(source: .file))
+        XCTAssertTrue(state.backend.capabilities.isEmpty)
+
+        state = RailgunAppReducer.reduce(
+            state,
+            .backend(.authenticationRequired(source: .environment))
+        )
+        XCTAssertEqual(state.backend.phase, .authenticationRequired(source: .environment))
+
+        state = RailgunAppReducer.reduce(state, .backend(.failed(message: "Unavailable")))
+        XCTAssertEqual(state.backend.phase, .failed("Unavailable"))
+
+        state = RailgunAppReducer.reduce(state, .backend(.disconnected(message: "Disconnected")))
+        XCTAssertEqual(state.backend.phase, .disconnected("Disconnected"))
+    }
+
     func testLateRunStartDoesNotUndoAnInFlightStopRequest() {
         var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
         state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))

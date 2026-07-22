@@ -203,18 +203,17 @@ struct BackendLaunchConfiguration: Equatable {
     }
 }
 
-/// Cancels the event-consumption task even when the runtime is released off
-/// the main actor during teardown.
+/// Owns a stream-consumption task so it can be cancelled safely even when the
+/// runtime is released off the main actor during teardown.
 private final class RailgunEventObservation: @unchecked Sendable {
     private let lock = NSLock()
     private var task: Task<Void, Never>?
 
-    func replace(with nextTask: Task<Void, Never>) {
+    func install(_ task: Task<Void, Never>) {
         lock.lock()
-        let previousTask = task
-        task = nextTask
+        precondition(self.task == nil, "A stream observation can only be installed once")
+        self.task = task
         lock.unlock()
-        previousTask?.cancel()
     }
 
     func cancel() {
@@ -242,7 +241,7 @@ final class RailgunBackendRuntime {
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
     private let store: RailgunAppStore
-    private var isStarting = false
+    private var isConnectionAttemptInFlight = false
     private nonisolated let terminationObservationTask: Task<Void, Never>
     private nonisolated let eventObservation = RailgunEventObservation()
     private nonisolated let interactionObservation = RailgunEventObservation()
@@ -289,6 +288,10 @@ final class RailgunBackendRuntime {
                 store.send(.backend(.disconnected(message: "The connection to the backend was lost.")))
             }
         }
+        // These client streams span process generations. Keep exactly one
+        // consumer for the runtime lifetime so restart cannot terminate them.
+        observeEvents()
+        observeInteractions()
     }
 
     deinit {
@@ -298,26 +301,36 @@ final class RailgunBackendRuntime {
     }
 
     func start() async {
-        guard !isStarting else { return }
+        await connect(restarting: false)
+    }
+
+    /// Establishes a fresh backend generation after an unavailable,
+    /// authentication, or disconnect state. The runtime intentionally never
+    /// replays a failed prompt: recovery only restores the backend and its
+    /// authoritative task metadata.
+    func restart() async {
+        await connect(restarting: true)
+    }
+
+    private func connect(restarting: Bool) async {
+        guard !isConnectionAttemptInFlight else { return }
         guard let launch else {
             store.send(.backend(.failed(message: "The selected backend could not be launched.")))
             return
         }
-        isStarting = true
-        defer { isStarting = false }
+        isConnectionAttemptInFlight = true
+        defer { isConnectionAttemptInFlight = false }
 
         store.send(.backend(.starting))
         do {
-            let handshake = try await client.start(launch)
+            let handshake = try await (restarting ? client.restart(launch) : client.start(launch))
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
-            observeEvents()
-            observeInteractions()
             async let controls: Void = controlsCoordinator.refresh()
             async let sessions: Void = sessionCoordinator.refresh()
             _ = await (controls, sessions)
         } catch let error as RailgunRPCError {
-            if case .authenticationRequired = error {
-                store.send(.backend(.authenticationRequired))
+            if case let .authenticationRequired(source) = error {
+                store.send(.backend(.authenticationRequired(source: source)))
             } else {
                 store.send(.backend(.failed(message: "The backend could not be started.")))
             }
@@ -327,8 +340,6 @@ final class RailgunBackendRuntime {
     }
 
     func shutdown() async {
-        eventObservation.cancel()
-        interactionObservation.cancel()
         await client.shutdown()
     }
 
@@ -345,7 +356,7 @@ final class RailgunBackendRuntime {
                 await self.handle(event)
             }
         }
-        eventObservation.replace(with: task)
+        eventObservation.install(task)
     }
 
     private func observeInteractions() {
@@ -356,7 +367,7 @@ final class RailgunBackendRuntime {
                 self.store.send(.interaction(.received(interaction)))
             }
         }
-        interactionObservation.replace(with: task)
+        interactionObservation.install(task)
     }
 }
 
@@ -449,11 +460,28 @@ struct RailgunSessionOperationErrorPresentation: Equatable {
     }
 }
 
+struct RailgunBackendAvailability: Equatable {
+    let canRetry: Bool
+
+    init(canRetry: Bool) {
+        self.canRetry = canRetry
+    }
+
+    init(phase: RailgunBackendPhase) {
+        switch phase {
+        case .starting, .ready:
+            canRetry = false
+        case .authenticationRequired, .failed, .disconnected:
+            canRetry = true
+        }
+    }
+}
+
 enum RailgunBackendPresentation: Equatable {
     case starting
     case ready
-    case authenticationRequired
-    case unavailable(title: String, message: String)
+    case authenticationRequired(title: String, message: String)
+    case unavailable(title: String, message: String, systemImage: String, retryTitle: String)
 
     init(phase: RailgunBackendPhase) {
         switch phase {
@@ -461,12 +489,34 @@ enum RailgunBackendPresentation: Equatable {
             self = .starting
         case .ready:
             self = .ready
-        case .authenticationRequired:
-            self = .authenticationRequired
+        case let .authenticationRequired(source):
+            self = .authenticationRequired(
+                title: "Authentication Required",
+                message: Self.authenticationMessage(for: source)
+            )
         case let .failed(message):
-            self = .unavailable(title: "Backend Unavailable", message: message)
+            self = .unavailable(
+                title: "Backend Unavailable",
+                message: message,
+                systemImage: "exclamationmark.triangle.fill",
+                retryTitle: "Retry"
+            )
         case let .disconnected(message):
-            self = .unavailable(title: "Backend Disconnected", message: message)
+            self = .unavailable(
+                title: "Backend Disconnected",
+                message: message,
+                systemImage: "bolt.horizontal.circle",
+                retryTitle: "Restart"
+            )
+        }
+    }
+
+    private static func authenticationMessage(for source: RailgunRPCCredentialSource) -> String {
+        switch source {
+        case .file:
+            "Sign in with your provider outside RailgunX, then retry. Provider sign-in is coming in a later milestone."
+        case .environment:
+            "Update DEVIN_TOKEN in the environment that launches RailgunX, then relaunch RailgunX."
         }
     }
 }
@@ -566,9 +616,6 @@ struct RailgunTaskShell: View {
     private let interactionCoordinator: RailgunInteractionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
     private let compactionCoordinator: RailgunCompactionCoordinator
-    @State private var transcriptFollowState = RailgunTranscriptFollowState.initial
-    @State private var previousTranscriptGeometry: RailgunScrollGeometry?
-    @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
     @State private var detailViewportWidth: CGFloat = 0
     @State private var composerDraft = ""
     @State private var isComposerFocused = false
@@ -656,7 +703,8 @@ struct RailgunTaskShell: View {
             RailgunTaskCommandActions(
                 availability: commandAvailability,
                 createTask: createTask,
-                stop: requestStop
+                stop: requestStop,
+                retry: retryComposerSubmission
             )
         )
         .onChange(of: appStore.state.interactions.requests) { previous, current in
@@ -670,7 +718,8 @@ struct RailgunTaskShell: View {
                 session: appStore.state.session,
                 controls: appStore.state.controls
             ),
-            canStop: appStore.state.transcript.isRunning && !appStore.state.transcript.isStopping
+            canStop: appStore.state.transcript.isRunning && !appStore.state.transcript.isStopping,
+            canRetry: canRetryComposerSubmission
         )
     }
 
@@ -1397,11 +1446,23 @@ struct RailgunTaskShell: View {
     }
 
     private var canRetryComposerSubmission: Bool {
+        Self.canRetryComposerSubmission(
+            transcript: appStore.state.transcript,
+            isComposerEnabled: isComposerEnabled
+        )
+    }
+
+    static func canRetryComposerSubmission(
+        transcript: RailgunTranscriptState,
+        isComposerEnabled: Bool
+    ) -> Bool {
         guard isComposerEnabled else { return false }
-        return isStopFailure
-            || appStore.state.transcript.failedRun != nil
-            || appStore.state.transcript.failedQueue != nil
-            || !composerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasRetryableStop = transcript.isRunning
+            && !transcript.isStopping
+            && transcript.failedStopMessage != nil
+        return hasRetryableStop
+            || transcript.failedRun != nil
+            || transcript.failedQueue != nil
     }
 
     private func submitDraftFromComposerAction() {
@@ -1441,7 +1502,6 @@ struct RailgunTaskShell: View {
         isComposerSubmissionInFlight = true
         let failedRun = appStore.state.transcript.failedRun
         let failedQueue = appStore.state.transcript.failedQueue
-        let retryDraft = composerDraft
         Task {
             let wasAccepted: Bool
             if failedRun != nil {
@@ -1449,9 +1509,9 @@ struct RailgunTaskShell: View {
             } else if failedQueue != nil {
                 wasAccepted = await promptCoordinator.retryQueue()
             } else {
-                wasAccepted = await promptCoordinator.submit(composerDraft)
+                wasAccepted = false
             }
-            finishComposerSubmission(wasAccepted, clearing: failedRun?.text ?? failedQueue?.text ?? retryDraft)
+            finishComposerSubmission(wasAccepted, clearing: failedRun?.text ?? failedQueue?.text ?? "")
         }
     }
 
@@ -1472,7 +1532,15 @@ struct RailgunTaskShell: View {
         // Keep this ScrollView mounted and its native vertical scroller enabled
         // from the first layout. Indicator hiding or NSScrollView mutation breaks
         // the macOS 26 soft top-edge effect. See docs/native-ui-policy.md.
-        ScrollView {
+        RailgunTranscriptScrollView(
+            sessionID: appStore.state.session.activeSessionID,
+            contentRevision: RailgunTranscriptContentRevision(
+                messages: presentedTranscriptMessages,
+                activityEntries: presentedActivity.entries
+            ),
+            contentLeadingMargin: activityReservedContentWidth,
+            hasScrollableContent: hasScrollableTranscript
+        ) {
             LazyVStack(alignment: .center, spacing: RailgunSpacing.expanded.points) {
                 RailgunTranscriptActivityViewport(
                     messages: presentedTranscriptMessages,
@@ -1483,55 +1551,11 @@ struct RailgunTaskShell: View {
             .padding(.vertical, RailgunSpacing.layout.points)
             .padding(.leading, RailgunSpacing.expanded.points)
             .padding(.trailing, RailgunSpacing.layout.points)
-            .scrollTargetLayout()
         }
         .modifier(RailgunTranscriptSoftTopEdgeEffect())
-        .defaultScrollAnchor(.bottom, for: .alignment)
-        .contentMargins(
-            .leading,
-            activityReservedContentWidth,
-            for: .scrollContent
-        )
-        .scrollPosition($transcriptScrollPosition)
-        .onScrollGeometryChange(for: RailgunScrollGeometry.self) { geometry in
-            RailgunScrollGeometry(geometry)
-        } action: { _, geometry in
-            handleTranscriptGeometryChange(geometry)
-        }
-        .accessibilityIdentifier("transcript-scroll-view")
         .overlay {
             taskDetailStateOverlay
                 .padding(.leading, activityReservedContentWidth)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if hasScrollableTranscript && transcriptFollowState.showsJumpToLatest {
-                Button("Jump to Latest", systemImage: "arrow.down") {
-                    transcriptFollowState = .jumpToLatest()
-                    scrollTranscriptToBottom()
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(RailgunSpacing.layout.points)
-                .accessibilityIdentifier("jump-to-latest")
-            }
-        }
-        .onChange(of: appStore.state.session.activeSessionID, initial: true) { _, _ in
-            transcriptFollowState = .sessionDidChange()
-            previousTranscriptGeometry = nil
-            scrollTranscriptToBottom()
-        }
-        .onChange(of: appStore.state.transcript.messages) { _, _ in
-            if transcriptFollowState.isFollowingLatest {
-                scrollTranscriptToBottom()
-            } else {
-                transcriptFollowState = .contentDidChange(transcriptFollowState)
-            }
-        }
-        .onChange(of: presentedActivity.entries) { _, _ in
-            if transcriptFollowState.isFollowingLatest {
-                scrollTranscriptToBottom()
-            } else {
-                transcriptFollowState = .contentDidChange(transcriptFollowState)
-            }
         }
         .overlay(alignment: .leading) {
             if isActivityPanelDocked {
@@ -1542,34 +1566,6 @@ struct RailgunTaskShell: View {
                 .ignoresSafeArea(.container, edges: .top)
             }
         }
-    }
-
-    private func handleTranscriptGeometryChange(_ geometry: RailgunScrollGeometry) {
-        defer { previousTranscriptGeometry = geometry }
-
-        if geometry.isAtBottom {
-            transcriptFollowState = .initial
-            return
-        }
-
-        if RailgunTranscriptFollowState.shouldMaintainFollow(
-            transcriptFollowState,
-            previousContentHeight: previousTranscriptGeometry?.contentHeight,
-            previousViewportHeight: previousTranscriptGeometry?.viewportHeight,
-            contentHeight: geometry.contentHeight,
-            viewportHeight: geometry.viewportHeight
-        ) {
-            scrollTranscriptToBottom()
-        } else {
-            transcriptFollowState = .scrollPositionDidChange(
-                transcriptFollowState,
-                isAtBottom: false
-            )
-        }
-    }
-
-    private func scrollTranscriptToBottom() {
-        transcriptScrollPosition.scrollTo(edge: .bottom)
     }
 }
 
@@ -1756,23 +1752,29 @@ private struct RailgunBackendStatusView: View {
     let message: String
     let systemImage: String
     let retryTitle: String
+    let canRetry: Bool
     let retry: () -> Void
 
     var body: some View {
         VStack(spacing: RailgunSpacing.section.points) {
-            Image(systemName: systemImage)
-                .font(.system(size: 42))
-                .foregroundStyle(.secondary)
-            Text(title)
-                .font(RailgunFont.interface(.title2))
-            Text(message)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 460)
+            ContentUnavailableView(
+                title,
+                systemImage: systemImage,
+                description: Text(message)
+            )
             Button(retryTitle, action: retry)
+                .disabled(!canRetry)
         }
-        .padding(RailgunSpacing.expanded.points)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .focusedSceneValue(
+            \.railgunTaskCommandActions,
+            RailgunTaskCommandActions(
+                availability: .init(canCreateTask: false, canStop: false, canRetry: canRetry),
+                createTask: {},
+                stop: {},
+                retry: retry
+            )
+        )
     }
 }
 
@@ -1945,9 +1947,20 @@ struct RailgunXApp: App {
 
     @ViewBuilder
     private var backendContent: some View {
-        switch RailgunBackendPresentation(phase: appStore.state.backend.phase) {
+        let phase = appStore.state.backend.phase
+        let availability = RailgunBackendAvailability(phase: phase)
+        switch RailgunBackendPresentation(phase: phase) {
         case .starting:
             ProgressView("Starting the Railgun backend…")
+                .focusedSceneValue(
+                    \.railgunTaskCommandActions,
+                    RailgunTaskCommandActions(
+                        availability: .init(canCreateTask: false, canStop: false, canRetry: availability.canRetry),
+                        createTask: {},
+                        stop: {},
+                        retry: {}
+                    )
+                )
         case .ready:
             RailgunTaskShell(
                 appStore: appStore,
@@ -1957,26 +1970,28 @@ struct RailgunXApp: App {
                 controlsCoordinator: backendRuntime.controlsCoordinator,
                 compactionCoordinator: backendRuntime.compactionCoordinator
             )
-        case .authenticationRequired:
-            RailgunBackendStatusView(
-                title: "Authentication Required",
-                message: "RailgunX could not authenticate with the configured backend. Update your credentials, then try again.",
-                systemImage: "key.fill",
-                retryTitle: "Try Again",
-                retry: restartBackend
-            )
-        case let .unavailable(title, message):
+        case let .authenticationRequired(title, message):
             RailgunBackendStatusView(
                 title: title,
                 message: message,
-                systemImage: "exclamationmark.triangle.fill",
+                systemImage: "key.fill",
                 retryTitle: "Retry",
+                canRetry: availability.canRetry,
+                retry: restartBackend
+            )
+        case let .unavailable(title, message, systemImage, retryTitle):
+            RailgunBackendStatusView(
+                title: title,
+                message: message,
+                systemImage: systemImage,
+                retryTitle: retryTitle,
+                canRetry: availability.canRetry,
                 retry: restartBackend
             )
         }
     }
 
     private func restartBackend() {
-        Task { await backendRuntime.start() }
+        Task { await backendRuntime.restart() }
     }
 }

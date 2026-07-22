@@ -158,6 +158,37 @@ overflow, Return, Tab, and Shift-Return behavior, disabled callback
 suppression, multiline paste and selection preservation, accessibility
 configuration, SwiftUI state synchronization, and first-responder handoff.
 
+## Backend recovery invariant
+
+SWFT-036 keeps backend recovery in native SwiftUI presentation and focused
+command routing. Treat the following as implementation invariants:
+
+- Present startup and retry progress with `ProgressView`. Present
+  authentication, launch failure, and post-ready disconnection with
+  `ContentUnavailableView` and a visible retry or restart button.
+- Preserve the typed authentication credential source. File-backed failures
+  direct the user to sign in outside RailgunX; environment-backed failures
+  direct them to update `DEVIN_TOKEN` in the launch environment and relaunch.
+  Provider sign-in/out remains deferred to SWFT-057.
+- Keep restart single-flight and establish a fresh RPC generation. After it is
+  ready, refresh both task summaries and task controls from the backend.
+- Install exactly one event consumer and one interaction consumer for the
+  lifetime of `RailgunBackendRuntime`. The client's `AsyncStream` instances
+  span backend process generations; cancelling and replacing their consumers
+  during restart terminates the shared continuations and silently drops later
+  run events and interaction prompts. Cancel those consumers only when the
+  runtime itself is torn down.
+- Recovery restores connectivity and authoritative metadata only. It never
+  automatically replays a failed prompt or queued message.
+- Route the focused `⌘R` Retry command to backend recovery while a backend
+  status surface is active. Otherwise route it to an explicit failed Task
+  operation; disable it when neither recovery target exists. Keep matching
+  visible controls for both routes.
+
+`RailgunXAppTests` covers authentication-source presentation, retry routing,
+single-flight restart, metadata refresh, and post-restart event and interaction
+delivery.
+
 ## Task interaction prompt invariant
 
 SWFT-033 keeps approval and clarification prompts feature-local native SwiftUI
@@ -198,6 +229,13 @@ layout. Treat the following as implementation invariants:
   `showsIndicators: false`, apply `.scrollIndicators(.hidden)`, introspect the
   enclosing `NSScrollView`, set `hasVerticalScroller` to `false`, hide its
   `verticalScroller`, or add a replacement scrollbar.
+- Drive bottom-following through one `ScrollViewReader` and a stable bottom
+  sentinel. Stream and layout changes call the reader proxy's `scrollTo`
+  operation while follow mode is active; do not layer a `ScrollPosition`
+  binding onto the same transcript. Use the unscoped
+  `.defaultScrollAnchor(.bottom)` to establish the initial offset, and include
+  `ScrollGeometry.contentInsets` when deciding whether the sentinel is at the
+  native bottom.
 - Do not disable the root scroll view while it is empty or loading. Disabling
   it during initial layout can prevent the edge effect from initializing.
 - Keep non-scrolling UI, including the docked Activity pane and empty-state

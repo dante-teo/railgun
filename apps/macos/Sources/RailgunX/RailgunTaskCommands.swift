@@ -3,12 +3,14 @@ import SwiftUI
 struct RailgunTaskCommandAvailability: Equatable {
     let canCreateTask: Bool
     let canStop: Bool
+    let canRetry: Bool
 }
 
 struct RailgunTaskCommandActions {
     let availability: RailgunTaskCommandAvailability
     let createTask: () -> Void
     let stop: () -> Void
+    let retry: () -> Void
 }
 
 private struct RailgunTaskCommandActionsKey: FocusedValueKey {
@@ -41,6 +43,12 @@ struct RailgunTaskCommands: Commands {
                 taskActions?.stop()
             }
             .disabled(taskActions?.availability.canStop != true)
+
+            Button("Retry") {
+                taskActions?.retry()
+            }
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(taskActions?.availability.canRetry != true)
 
             Button("Task") {
                 openWindow(id: AppLifecycleConfiguration.primary.primaryWindowRestorationIdentifier)

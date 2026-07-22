@@ -11,15 +11,6 @@ struct RailgunTranscriptFollowState: Equatable {
 
     static let initial = Self(isFollowingLatest: true, showsJumpToLatest: false)
 
-    static func isAtBottom(
-        contentHeight: CGFloat,
-        viewportHeight: CGFloat,
-        contentOffsetY: CGFloat,
-        tolerance: CGFloat = bottomTolerance
-    ) -> Bool {
-        contentOffsetY + viewportHeight >= contentHeight - tolerance
-    }
-
     static func sessionDidChange() -> Self {
         .initial
     }
@@ -55,21 +46,140 @@ struct RailgunScrollGeometry: Equatable {
     let contentHeight: CGFloat
     let viewportWidth: CGFloat
     let viewportHeight: CGFloat
-    let contentOffsetY: CGFloat
+    let visibleMaxY: CGFloat
+    let bottomContentInset: CGFloat
 
     init(_ geometry: ScrollGeometry) {
         contentHeight = geometry.contentSize.height
         viewportWidth = geometry.containerSize.width
         viewportHeight = geometry.containerSize.height
-        contentOffsetY = geometry.contentOffset.y
+        visibleMaxY = geometry.visibleRect.maxY
+        bottomContentInset = geometry.contentInsets.bottom
+    }
+
+    init(
+        contentHeight: CGFloat,
+        viewportWidth: CGFloat,
+        viewportHeight: CGFloat,
+        visibleMaxY: CGFloat,
+        bottomContentInset: CGFloat
+    ) {
+        self.contentHeight = contentHeight
+        self.viewportWidth = viewportWidth
+        self.viewportHeight = viewportHeight
+        self.visibleMaxY = visibleMaxY
+        self.bottomContentInset = bottomContentInset
     }
 
     var isAtBottom: Bool {
-        RailgunTranscriptFollowState.isAtBottom(
-            contentHeight: contentHeight,
-            viewportHeight: viewportHeight,
-            contentOffsetY: contentOffsetY
-        )
+        visibleMaxY >= contentHeight + bottomContentInset - RailgunTranscriptFollowState.bottomTolerance
+    }
+}
+
+private enum RailgunTranscriptScrollAnchor {
+    static let bottom = "railgun-transcript-bottom"
+}
+
+struct RailgunTranscriptContentRevision: Equatable {
+    let messages: [RailgunTranscriptMessage]
+    let activityEntries: [RailgunActivityEntry]
+}
+
+/// Owns the transcript's single SwiftUI scrolling mechanism. Keeping the
+/// reader, target, follow state, and geometry observation together prevents
+/// parent overlays and unrelated task state from changing scroll identity.
+struct RailgunTranscriptScrollView<Revision: Equatable, Content: View>: View {
+    let sessionID: String?
+    let contentRevision: Revision
+    let contentLeadingMargin: CGFloat
+    let hasScrollableContent: Bool
+    private let content: Content
+
+    @State private var followState = RailgunTranscriptFollowState.initial
+
+    init(
+        sessionID: String?,
+        contentRevision: Revision,
+        contentLeadingMargin: CGFloat,
+        hasScrollableContent: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.sessionID = sessionID
+        self.contentRevision = contentRevision
+        self.contentLeadingMargin = contentLeadingMargin
+        self.hasScrollableContent = hasScrollableContent
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    content
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(RailgunTranscriptScrollAnchor.bottom)
+                }
+            }
+            // Apple's unscoped form establishes the initial scroll offset.
+            // The role-scoped `.alignment` form only aligns undersized content.
+            .defaultScrollAnchor(.bottom)
+            .contentMargins(.leading, contentLeadingMargin, for: .scrollContent)
+            .onScrollGeometryChange(for: RailgunScrollGeometry.self) { geometry in
+                RailgunScrollGeometry(geometry)
+            } action: { previous, current in
+                handleGeometryChange(from: previous, to: current, proxy: proxy)
+            }
+            .onChange(of: sessionID, initial: true) { _, _ in
+                followState = .sessionDidChange()
+                scrollToBottom(using: proxy)
+            }
+            .onChange(of: contentRevision) { _, _ in
+                if followState.isFollowingLatest {
+                    scrollToBottom(using: proxy)
+                } else {
+                    followState = .contentDidChange(followState)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if hasScrollableContent && followState.showsJumpToLatest {
+                    Button("Jump to Latest", systemImage: "arrow.down") {
+                        followState = .jumpToLatest()
+                        scrollToBottom(using: proxy)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(RailgunSpacing.layout.points)
+                    .accessibilityIdentifier("jump-to-latest")
+                }
+            }
+            .accessibilityIdentifier("transcript-scroll-view")
+        }
+    }
+
+    private func handleGeometryChange(
+        from previous: RailgunScrollGeometry,
+        to current: RailgunScrollGeometry,
+        proxy: ScrollViewProxy
+    ) {
+        if RailgunTranscriptFollowState.shouldMaintainFollow(
+            followState,
+            previousContentHeight: previous.contentHeight,
+            previousViewportHeight: previous.viewportHeight,
+            contentHeight: current.contentHeight,
+            viewportHeight: current.viewportHeight
+        ) {
+            scrollToBottom(using: proxy)
+        } else {
+            followState = .scrollPositionDidChange(
+                followState,
+                isAtBottom: current.isAtBottom
+            )
+        }
+    }
+
+    private func scrollToBottom(using proxy: ScrollViewProxy) {
+        proxy.scrollTo(RailgunTranscriptScrollAnchor.bottom, anchor: .bottom)
     }
 }
 

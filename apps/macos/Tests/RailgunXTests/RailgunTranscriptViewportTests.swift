@@ -1,22 +1,28 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import RailgunX
 
 @MainActor
 final class RailgunTranscriptViewportTests: XCTestCase {
-    func testBottomDetectionUsesFourPointTolerance() {
+    func testScrollGeometryIncludesTheBottomContentInset() {
         XCTAssertTrue(
-            RailgunTranscriptFollowState.isAtBottom(
+            RailgunScrollGeometry(
                 contentHeight: 1_000,
+                viewportWidth: 600,
                 viewportHeight: 300,
-                contentOffsetY: 696
-            )
+                visibleMaxY: 1_016,
+                bottomContentInset: 20
+            ).isAtBottom
         )
         XCTAssertFalse(
-            RailgunTranscriptFollowState.isAtBottom(
+            RailgunScrollGeometry(
                 contentHeight: 1_000,
+                viewportWidth: 600,
                 viewportHeight: 300,
-                contentOffsetY: 695.9
-            )
+                visibleMaxY: 1_015.9,
+                bottomContentInset: 20
+            ).isAtBottom
         )
     }
 
@@ -90,6 +96,29 @@ final class RailgunTranscriptViewportTests: XCTestCase {
         )
     }
 
+    func testStreamingGrowthReanchorsEvenWhenWithinBottomTolerance() {
+        let contentHeight = CGFloat(1_002)
+        let viewportHeight = CGFloat(300)
+        let offsetWithResidualGap = CGFloat(698)
+
+        XCTAssertTrue(RailgunScrollGeometry(
+            contentHeight: contentHeight,
+            viewportWidth: 600,
+            viewportHeight: viewportHeight,
+            visibleMaxY: offsetWithResidualGap + viewportHeight,
+            bottomContentInset: 0
+        ).isAtBottom)
+        XCTAssertTrue(
+            RailgunTranscriptFollowState.shouldMaintainFollow(
+                .initial,
+                previousContentHeight: 1_000,
+                previousViewportHeight: viewportHeight,
+                contentHeight: contentHeight,
+                viewportHeight: viewportHeight
+            )
+        )
+    }
+
     func testJumpingOrManuallyReturningToBottomRefollowsAndClearsCue() {
         let pausedWithCue = RailgunTranscriptFollowState.contentDidChange(
             .scrollPositionDidChange(.initial, isAtBottom: false)
@@ -100,6 +129,28 @@ final class RailgunTranscriptViewportTests: XCTestCase {
             RailgunTranscriptFollowState.scrollPositionDidChange(pausedWithCue, isAtBottom: true),
             .initial
         )
+    }
+
+    func testHostedTranscriptStartsAndStaysAtTheNativeBottomAsContentGrows() async throws {
+        let model = TranscriptScrollHarnessModel()
+        let hostingView = NSHostingView(rootView: TranscriptScrollHarness(model: model))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
+
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+
+        try await settle(hostingView)
+        let scrollView = try XCTUnwrap(firstScrollView(in: hostingView))
+        XCTAssertTrue(isAtNativeBottom(scrollView), "The initial transcript must render at the bottom.")
+
+        model.rowCount += 20
+        try await settle(hostingView)
+        XCTAssertTrue(isAtNativeBottom(scrollView), "A followed transcript must stay at the bottom after growth.")
     }
 
     func testSelectedHydratedSessionSuppliesOrderedMessagesToTranscript() {
@@ -172,5 +223,53 @@ final class RailgunTranscriptViewportTests: XCTestCase {
             startedAt: nil,
             completedAt: nil
         )
+    }
+
+    private func settle(_ view: NSView) async throws {
+        for _ in 0..<4 {
+            view.layoutSubtreeIfNeeded()
+            await Task.yield()
+            try await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView { return scrollView }
+        return view.subviews.lazy.compactMap(firstScrollView(in:)).first
+    }
+
+    private func isAtNativeBottom(_ scrollView: NSScrollView, tolerance: CGFloat = 4) -> Bool {
+        guard let documentView = scrollView.documentView else { return false }
+        let visible = scrollView.documentVisibleRect
+        let document = documentView.bounds
+        let distance = documentView.isFlipped
+            ? document.maxY - visible.maxY
+            : visible.minY - document.minY
+        return abs(distance) <= tolerance
+    }
+}
+
+@MainActor
+private final class TranscriptScrollHarnessModel: ObservableObject {
+    @Published var rowCount = 80
+}
+
+private struct TranscriptScrollHarness: View {
+    @ObservedObject var model: TranscriptScrollHarnessModel
+
+    var body: some View {
+        RailgunTranscriptScrollView(
+            sessionID: "test-session",
+            contentRevision: model.rowCount,
+            contentLeadingMargin: 0,
+            hasScrollableContent: true
+        ) {
+            LazyVStack(spacing: 0) {
+                ForEach(0..<model.rowCount, id: \.self) { row in
+                    Text("Transcript row \(row)")
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                }
+            }
+        }
     }
 }

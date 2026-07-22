@@ -343,11 +343,20 @@ it emits exactly one JSONL startup frame before exiting:
 `credential_source` is either `file` or `environment`. `RailgunRPCClient`
 recognizes only the documented type, status, and source values and surfaces a
 typed authentication failure; malformed, unknown, and unrelated startup frames
-retain ordinary safe transport handling. After logout, a file-backed
-authentication-required restart is an expected outcome. An environment-backed
-failure still requires the user to update the inherited `DEVIN_TOKEN` and
-relaunch. Native presentation and controls remain deferred to `SWFT-036` and
-`SWFT-057`.
+retain ordinary safe transport handling. RailgunX preserves that source in its
+backend state and presents native loading and `ContentUnavailableView` recovery
+surfaces. File-backed failures direct the user to sign in with the provider
+outside RailgunX; environment-backed failures direct them to update
+`DEVIN_TOKEN` in RailgunX's launch environment and relaunch. Provider
+sign-in/out controls remain deferred to `SWFT-057`.
+
+Backend startup, authentication failures, launch failures, and post-ready
+disconnects are retryable through visible native buttons and the focused
+`⌘R` Retry command. Restart is single-flight, creates a fresh RPC generation,
+keeps event and interaction observation alive across generations, and refreshes
+task summaries and task controls after a successful connection. Recovery never
+replays a failed prompt or queued message; those remain explicit Task-level
+retry actions.
 
 ### Native module boundaries
 
@@ -474,13 +483,15 @@ messages or activity retained by the reducer. Their centered state
 presentations and any session-operation error banner remain non-scrolling
 overlays.
 
-The transcript opens at the latest message, follows content and viewport-size
-changes while within four points of the bottom, and preserves the reader's
-position after they scroll away. New output then exposes a native **Jump to
-Latest** button. On macOS 26 and later, it retains the native vertical scroller
-and applies the system soft top-edge effect. Do not hide or replace that
-scroller: doing so prevents the edge effect from rendering. The complete
-implementation and cold-launch verification contract is documented in
+The transcript uses one `ScrollViewReader` and a stable bottom sentinel. It
+opens at the latest message, follows content and viewport-size changes through
+the reader proxy while within four points of the bottom, and preserves the
+reader's position after they scroll away. New output then exposes a native
+**Jump to Latest** button. On macOS 26 and later, it retains the native vertical
+scroller and applies the system soft top-edge effect. Do not hide or replace
+that scroller or layer a `ScrollPosition` binding onto the reader: either
+breaks the native scrolling contract. The complete implementation and
+cold-launch verification contract is documented in
 [`docs/native-ui-policy.md`](docs/native-ui-policy.md#transcript-soft-top-edge-invariant).
 Message rows use a comfortable 32-point inter-message gap, with 32-point
 leading and 24-point trailing transcript content insets.
