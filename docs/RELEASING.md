@@ -28,6 +28,14 @@ prefix, which is recognized by the GitHub-backed updater.
 The release workflow signs, notarizes, staples, and validates arm64 and x64
 direct artifacts:
 
+It also ships side-by-side `RailgunX` native artifacts for `arm64` and
+`x86_64`, with an independently signed Sparkle appcast for each architecture.
+This leaves the Electron direct-release feed and artifact names unchanged.
+The native job needs `RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY` and
+`RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY` repository secrets. The private key is
+provided to Sparkle via standard input only; store the exported key-file text,
+not a base64 wrapper, in that secret.
+
 Before packaging either architecture, the workflow prefetches the Electron
 binary with up to three attempts. This avoids Electron's lazy download during
 the backend build; if all attempts fail, retry the release job after the

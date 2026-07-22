@@ -136,10 +136,116 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-railgunx:
+    name: RailgunX (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-15
+          - architecture: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare release metadata
+        id: metadata
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./apps/desktop/package.json').version")"
+          if [ "$version" != "$package_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Import Developer ID certificate
+        id: keychain
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/railgunx-release.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          certificate="$RUNNER_TEMP/railgunx-release.p12"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          security find-identity -v -p codesigning "$keychain" | grep 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)'
+          echo "path=$keychain" >> "$GITHUB_OUTPUT"
+
+      - name: Archive, sign, notarize, and staple RailgunX
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY }}
+        run: |
+          apps/macos/scripts/archive-release.sh \
+            --architecture "${{ matrix.architecture }}" \
+            --version "${{ steps.metadata.outputs.version }}" \
+            --build "$GITHUB_RUN_NUMBER" \
+            --identity 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)' \
+            --keychain "${{ steps.keychain.outputs.path }}" \
+            --output "$RUNNER_TEMP/railgunx" \
+            --source-packages-output "$RUNNER_TEMP/railgunx-source-packages"
+
+      - name: Generate signed architecture-specific Sparkle appcast
+        env:
+          RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY }}
+        run: |
+          apps/macos/scripts/generate-appcast.sh \
+            --archive "$RUNNER_TEMP/railgunx/RailgunX-${{ steps.metadata.outputs.version }}-darwin-${{ matrix.architecture }}.zip" \
+            --output "$RUNNER_TEMP/railgunx/RailgunX-appcast-${{ matrix.architecture }}.xml" \
+            --download-url-prefix "https://github.com/dante-teo/railgun/releases/download/${GITHUB_REF_NAME}/" \
+            --source-packages "$RUNNER_TEMP/railgunx-source-packages"
+
+      - name: Smoke-check packaged RailgunX
+        run: |
+          apps/macos/scripts/validate-release-artifact.sh \
+            --app "$RUNNER_TEMP/railgunx/RailgunX.app" \
+            --archive "$RUNNER_TEMP/railgunx/RailgunX-${{ steps.metadata.outputs.version }}-darwin-${{ matrix.architecture }}.zip" \
+            --architecture "${{ matrix.architecture }}" \
+            --appcast "$RUNNER_TEMP/railgunx/RailgunX-appcast-${{ matrix.architecture }}.xml"
+
+      - name: Upload RailgunX artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: railgunx-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/railgunx/RailgunX-*.zip
+            ${{ runner.temp }}/railgunx/RailgunX-appcast-*.xml
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish desktop
     needs:
       - build-desktop
+      - build-railgunx
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -151,7 +257,7 @@ jobs:
       - name: Download desktop artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: railgun-desktop-*
+          pattern: railgun-*
           path: dist
           merge-multiple: true
 
@@ -163,8 +269,16 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           arm64_zip="dist/Railgun-direct-${version}-darwin-arm64.zip"
           x64_zip="dist/Railgun-direct-${version}-darwin-x64.zip"
+          railgunx_arm64_zip="dist/RailgunX-${version}-darwin-arm64.zip"
+          railgunx_x64_zip="dist/RailgunX-${version}-darwin-x86_64.zip"
+          railgunx_arm64_appcast="dist/RailgunX-appcast-arm64.xml"
+          railgunx_x64_appcast="dist/RailgunX-appcast-x86_64.xml"
           test -f "$arm64_zip"
           test -f "$x64_zip"
+          test -f "$railgunx_arm64_zip"
+          test -f "$railgunx_x64_zip"
+          test -f "$railgunx_arm64_appcast"
+          test -f "$railgunx_x64_appcast"
           arm64_sha256="$(sha256sum "$arm64_zip" | awk '{print $1}')"
           x64_sha256="$(sha256sum "$x64_zip" | awk '{print $1}')"
           prerelease=false
@@ -183,9 +297,9 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
-            args=("$GITHUB_REF_NAME" dist/*.zip --verify-tag --generate-notes)
+            args=("$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes)
             if [ "${{ steps.metadata.outputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
             gh release create "${args[@]}"
           fi

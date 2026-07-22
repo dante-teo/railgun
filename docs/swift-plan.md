@@ -324,12 +324,12 @@ production-shaped backend package.
 
 ### 4. Signed side-by-side alpha and CI/CD
 
-- [ ] `SWFT-038` — Configure Hardened Runtime, entitlements, nested Node/addon signing, and Developer ID export. `[8h]`
-- [ ] `SWFT-039` — Integrate Sparkle, generate signed architecture-specific HTTPS appcasts with EdDSA verification, and leave Classic’s update channels unchanged. `[8h]`
-- [ ] `SWFT-040` — Add version injection, archive export, notarization, stapling, ZIP creation, and verification scripts. `[8h]`
-- [ ] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate RailgunX assets and packaged-bundle structure. `[8h]`
-- [ ] `SWFT-042` — Extend publishing to release signed arm64 and x86_64 RailgunX builds beside Electron builds. `[8h]`
-- [ ] `SWFT-044` — Add packaged signature, Gatekeeper, notarization, backend, icon, and updater smoke checks. `[8h]`
+- [x] `SWFT-038` — Configure Hardened Runtime, entitlements, nested Node/addon signing, and Developer ID export. `[8h]`
+- [x] `SWFT-039` — Integrate Sparkle, generate signed architecture-specific HTTPS appcasts with EdDSA verification, and leave Classic’s update channels unchanged. `[8h]`
+- [x] `SWFT-040` — Add version injection, archive export, notarization, stapling, ZIP creation, and verification scripts. `[8h]`
+- [x] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate RailgunX assets and packaged-bundle structure. `[8h]`
+- [x] `SWFT-042` — Extend publishing to release signed arm64 and x86_64 RailgunX builds beside Electron builds. `[8h]`
+- [x] `SWFT-044` — Add packaged signature, Gatekeeper, notarization, backend, icon, and updater smoke checks. `[8h]`
 
 Milestone exit: RailgunX ships as an independently updatable, signed and
 notarized alpha beside Electron, with no change to Classic's artifacts or

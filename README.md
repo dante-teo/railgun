@@ -124,6 +124,21 @@ intentionally refresh the lockfile after changing an exact version, run:
 ./apps/macos/scripts/resolve-packages.sh
 ```
 
+RailgunX release archives are built through
+`apps/macos/scripts/archive-release.sh`, not from a generated `.xcodeproj`.
+The release workflow injects the desktop release version, signs the app and
+bundled Node runtime, submits it for notarization, staples the result, creates
+one ZIP per architecture, and publishes separate signed Sparkle appcasts. It
+requires these repository secrets in addition to the existing Developer ID and
+Apple notarization secrets:
+
+- `RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY` — the base64 public key embedded in the app.
+- `RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY` — the private key file contents; it is
+  passed to Sparkle on standard input and is never written to the checkout.
+
+The native updater uses only HTTPS feeds and keeps its two `RailgunX` appcasts
+separate from Classic's GitHub updater artifacts.
+
 ### Native legal notices
 
 RailgunX bundles `ThirdPartyNotices.md` and `LegalNoticeManifest.json` as app

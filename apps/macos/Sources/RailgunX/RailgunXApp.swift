@@ -1864,6 +1864,7 @@ struct RailgunXApp: App {
     // not recreate feature state.
     @State private var appStore = RailgunAppStore()
     @State private var backendRuntime: RailgunBackendRuntime
+    private let updater: RailgunUpdater?
 
     init() {
         RailgunFont.registerBundledFonts()
@@ -1876,6 +1877,7 @@ struct RailgunXApp: App {
         _backendRuntime = State(
             initialValue: RailgunBackendRuntime(configuration: backendLaunchConfiguration, store: appStore)
         )
+        updater = RailgunUpdater.makeIfConfigured()
     }
 
     var body: some Scene {
@@ -1933,6 +1935,13 @@ struct RailgunXApp: App {
         .commands {
             RailgunTaskCommands()
             SidebarCommands()
+            if let updater {
+                CommandGroup(after: .appInfo) {
+                    Button("Check for Updates…") {
+                        updater.checkForUpdates()
+                    }
+                }
+            }
         }
 
         Settings {
