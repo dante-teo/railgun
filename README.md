@@ -124,7 +124,7 @@ intentionally refresh the lockfile after changing an exact version, run:
 ./apps/macos/scripts/resolve-packages.sh
 ```
 
-RailgunX release archives are built through
+Native Railgun release archives are built through
 `apps/macos/scripts/archive-release.sh`, not from a generated `.xcodeproj`.
 The release workflow injects the desktop release version, signs the app and
 bundled Node runtime, submits it for notarization, staples the result, creates
@@ -136,7 +136,7 @@ Apple notarization secrets:
 - `RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY` — the private key file contents; it is
   passed to Sparkle on standard input and is never written to the checkout.
 
-The native updater uses only HTTPS feeds and keeps its two `RailgunX` appcasts
+The native updater uses only HTTPS feeds and keeps its two `Railgun` appcasts
 separate from Classic's GitHub updater artifacts.
 
 ### Native legal notices
@@ -182,7 +182,7 @@ LICENSE, Node version, archive layout, and Mach-O architecture before staging.
 
 ### Shared desktop-client lock
 
-RailgunX and Railgun Classic coordinate access to `~/.railgun` through the
+Railgun and Railgun Classic coordinate access to `~/.railgun` through the
 shared desktop-client lock. Preserve its record and stale-recovery rules when
 changing either client; see the [lock protocol](docs/desktop-client-lock.md).
 
@@ -361,7 +361,7 @@ typed authentication failure; malformed, unknown, and unrelated startup frames
 retain ordinary safe transport handling. RailgunX preserves that source in its
 backend state and presents native loading and `ContentUnavailableView` recovery
 surfaces. File-backed failures direct the user to sign in with the provider
-outside RailgunX; environment-backed failures direct them to update
+outside Railgun; environment-backed failures direct them to update
 `DEVIN_TOKEN` in RailgunX's launch environment and relaunch. Provider
 sign-in/out controls remain deferred to `SWFT-057`.
 

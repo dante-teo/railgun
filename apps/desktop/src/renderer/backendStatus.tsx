@@ -3,14 +3,14 @@ import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader } from "./components/ui/card";
 
 export const PHASE_COPY: Record<BackendPhase, { readonly title: string; readonly description: string }> = {
-  starting: { title: "Starting Railgun", description: "Checking the local backend connection…" },
-  ready: { title: "Railgun is ready", description: "The desktop process boundary is connected." },
+  starting: { title: "Starting Railgun Classic", description: "Checking the local backend connection…" },
+  ready: { title: "Railgun Classic is ready", description: "The desktop process boundary is connected." },
   "authentication-required": {
     title: "Sign in to Devin",
     description: "Resolve the Devin credential issue below, then retry the backend connection.",
   },
-  failed: { title: "Railgun could not start", description: "Review the diagnostic details below." },
-  disconnected: { title: "Railgun disconnected", description: "The backend process exited after connecting." },
+  failed: { title: "Railgun Classic could not start", description: "Review the diagnostic details below." },
+  disconnected: { title: "Railgun Classic disconnected", description: "The backend process exited after connecting." },
 };
 
 export const RETRYABLE_PHASES: ReadonlySet<BackendPhase> = new Set([

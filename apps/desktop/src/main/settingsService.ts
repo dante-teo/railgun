@@ -36,7 +36,7 @@ const providerFromSnapshot = (snapshot: BackendSnapshot): SettingsSnapshot["prov
     state: "environment-managed",
     source: "environment",
     message: snapshot.phase === "authentication-required"
-      ? "DEVIN_TOKEN was rejected. Replace it in the launch environment, then relaunch Railgun."
+      ? "DEVIN_TOKEN was rejected. Replace it in the launch environment, then relaunch Railgun Classic."
       : "Devin access is managed by DEVIN_TOKEN. Cached sign-in and sign-out cannot override it.",
   };
   if (snapshot.phase === "authentication-required") return {
@@ -47,7 +47,7 @@ const providerFromSnapshot = (snapshot: BackendSnapshot): SettingsSnapshot["prov
   if (snapshot.phase === "ready") return {
     state: "signed-in",
     source: "cached",
-    message: "Signed in with a credential cached securely for Railgun.",
+    message: "Signed in with a credential cached securely for Railgun Classic.",
   };
   return {
     state: "unavailable",

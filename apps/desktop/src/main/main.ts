@@ -138,7 +138,7 @@ const waitForBackendReady = (action: "login" | "logout"): Promise<void> => new P
   supervisor.restartBackend();
 });
 const authentication = createAuthenticationService(backendRuntime, waitForBackendReady);
-const unavailableAutomation = createUnavailableAutomationService("Background automation is available from an installed Railgun app.");
+const unavailableAutomation = createUnavailableAutomationService("Background automation is available from an installed Railgun Classic app.");
 const backgroundAutomation = app.isPackaged && process.platform === "darwin"
   ? createBackgroundAutomationService({
     uid: userInfo().uid,
@@ -162,15 +162,15 @@ const updates = createUpdateService(__RAILGUN_UPDATE_CHANNEL__, autoUpdater, {
   upToDate: (): void => {
     void dialog.showMessageBox({
       type: "info",
-      title: "Railgun is up to date",
-      message: "You're running the latest version of Railgun.",
+      title: "Railgun Classic is up to date",
+      message: "You're running the latest version of Railgun Classic.",
     });
   },
   unableToCheck: (): void => {
     void dialog.showMessageBox({
       type: "error",
       title: "Unable to check for updates",
-      message: "Railgun could not check for updates. Please try again later.",
+      message: "Railgun Classic could not check for updates. Please try again later.",
     });
   },
 });
@@ -188,8 +188,8 @@ autoUpdater.on("update-downloaded", () => {
     defaultId: 0,
     cancelId: 1,
     title: "Update ready",
-    message: "A new version of Railgun has been downloaded.",
-    detail: "Restart Railgun to apply the update.",
+    message: "A new version of Railgun Classic has been downloaded.",
+    detail: "Restart Railgun Classic to apply the update.",
   }).then(({ response }) => {
     if (response === 0) updates.install();
   });
@@ -537,7 +537,7 @@ const createWindow = (initialCommand?: AppCommand): BrowserWindow => {
       height: 720,
       minWidth: 760,
       minHeight: 520,
-      title: "Railgun",
+      title: "Railgun Classic",
       titleBarStyle: "hiddenInset",
       // Keep the Y position in sync with --traffic-light-top in renderer/styles.css.
       trafficLightPosition: { x: 24, y: 20 },
@@ -595,7 +595,7 @@ void app.whenReady().then(() => {
       : "The shared desktop-client lock could not be verified safely. Close any other Railgun desktop client and try again.";
     void dialog.showMessageBox({
       type: "error",
-      title: "Railgun is already in use",
+      title: "Railgun Classic is already in use",
       message: "Railgun Classic can’t safely open your data.",
       detail,
     }).finally(() => app.quit());

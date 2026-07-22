@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe("DesktopClientLock", () => {
-  it("creates the shared RailgunX-compatible record and releases only its own file", () => {
+  it("creates the shared native-Railgun-compatible record and releases only its own file", () => {
     const directory = temporaryDirectory();
     const lock = new DesktopClientLock({
       directory,
@@ -52,13 +52,13 @@ describe("DesktopClientLock", () => {
     writeFileSync(staleLock.filePath, JSON.stringify({
       pid: 99999,
       bundleId: "io.anvia.railgun",
-      clientName: "RailgunX",
+      clientName: "Railgun",
       startTime: "2026-07-18T11:00:00Z",
     }));
     writeFileSync(join(directory, "desktop-client.lock.recovery"), JSON.stringify({
       pid: 99999,
       bundleId: "io.anvia.railgun",
-      clientName: "RailgunX",
+      clientName: "Railgun",
       startTime: "2026-07-18T11:00:00Z",
     }));
 
@@ -68,13 +68,13 @@ describe("DesktopClientLock", () => {
     writeFileSync(staleLock.filePath, JSON.stringify({
       pid: 99,
       bundleId: "io.anvia.railgun",
-      clientName: "RailgunX",
+      clientName: "Railgun",
       startTime: "2026-07-18T11:00:00Z",
     }));
     const liveLock = new DesktopClientLock({ directory, pid: 4242, isProcessLive: pid => pid === 99 });
 
     expect(() => liveLock.acquire()).toThrow(DesktopClientLockConflictError);
-    expect(JSON.parse(readFileSync(liveLock.filePath, "utf8"))).toMatchObject({ pid: 99, clientName: "RailgunX" });
+    expect(JSON.parse(readFileSync(liveLock.filePath, "utf8"))).toMatchObject({ pid: 99, clientName: "Railgun" });
   });
 
   it("does not remove a malformed record because it cannot prove it stale", () => {
@@ -92,7 +92,7 @@ describe("DesktopClientLock", () => {
     const replacement = {
       pid: 99,
       bundleId: "io.anvia.railgun",
-      clientName: "RailgunX",
+      clientName: "Railgun",
       startTime: "2026-07-18T12:01:00Z",
     };
     lock.acquire();

@@ -26,7 +26,7 @@ const config: ForgeConfig = {
     },
   }),
   packagerConfig: {
-    name: "Railgun",
+    name: "Railgun Classic",
     appBundleId: "sh.railgun.desktop",
     appCategoryType: "public.app-category.developer-tools",
     ...(macAppVersion === undefined ? {} : { appVersion: macAppVersion }),

@@ -345,7 +345,7 @@ export class BackendSupervisor {
         ...this.#snapshot,
         phase: "authentication-required",
         error: record.credential_source === "environment"
-          ? "DEVIN_TOKEN was rejected. Remove or replace it in the launch environment, then relaunch Railgun."
+          ? "DEVIN_TOKEN was rejected. Remove or replace it in the launch environment, then relaunch Railgun Classic."
           : "Run `railgun login` in Terminal, then retry.",
       };
       this.#emit();

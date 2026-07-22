@@ -36,7 +36,7 @@ export const CommandPalette = ({ open, commands, restoreFocusTo, onOpenChange }:
         onOpenAutoFocus={(event) => { event.preventDefault(); inputRef.current?.focus(); }}
         onCloseAutoFocus={(event) => { event.preventDefault(); restoreFocusTo?.focus(); }}
       >
-        <PaletteHeader title="Command Palette" description="Search available Railgun commands." />
+        <PaletteHeader title="Command Palette" description="Search available Railgun Classic commands." />
           <PaletteSearch
             ref={inputRef}
             aria-label="Search commands"

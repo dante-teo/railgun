@@ -21,7 +21,7 @@ final class RailgunXAppTests: XCTestCase {
     func testModuleBoundariesCompile() {}
 
     func testPrimaryWindowUsesProductName() {
-        XCTAssertEqual(RailgunXApp.lifecycleConfiguration.primaryWindowTitle, "RailgunX")
+        XCTAssertEqual(RailgunXApp.lifecycleConfiguration.primaryWindowTitle, "Railgun")
     }
 
     func testTaskShellDefaultsTheActivityCardToHidden() {
@@ -529,7 +529,7 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertEqual(record.pid, ProcessInfo.processInfo.processIdentifier)
         XCTAssertEqual(record.bundleID, "io.anvia.railgun")
-        XCTAssertEqual(record.clientName, "RailgunX")
+        XCTAssertEqual(record.clientName, "Railgun")
         XCTAssertEqual(record.startTime, "2026-07-18T12:00:00Z")
         XCTAssertTrue(FileManager.default.fileExists(atPath: lock.fileURL.path))
 
@@ -559,7 +559,7 @@ final class RailgunXAppTests: XCTestCase {
 
         let record = try await lock.acquire()
 
-        XCTAssertEqual(record.clientName, "RailgunX")
+        XCTAssertEqual(record.clientName, "Railgun")
         XCTAssertEqual(try DesktopClientLockRecord(data: Data(contentsOf: lock.fileURL)), record)
         await lock.release()
     }
@@ -583,7 +583,7 @@ final class RailgunXAppTests: XCTestCase {
 
         do {
             _ = try await lock.acquire()
-            XCTFail("Expected the live Classic lock to block RailgunX")
+            XCTFail("Expected the live Classic lock to block Railgun")
         } catch let error as DesktopClientLockError {
             XCTAssertEqual(error, .conflict(liveRecord))
         }
@@ -624,7 +624,7 @@ final class RailgunXAppTests: XCTestCase {
     func testPrimaryWindowLifecycleConfiguration() {
         let configuration = AppLifecycleConfiguration.primary
 
-        XCTAssertEqual(configuration.primaryWindowTitle, "RailgunX")
+        XCTAssertEqual(configuration.primaryWindowTitle, "Railgun")
         XCTAssertEqual(configuration.primaryWindowRestorationIdentifier, "primary")
         XCTAssertEqual(configuration.primaryWindowDefaultSize, CGSize(width: 1_024, height: 700))
         XCTAssertEqual(configuration.primaryWindowMinimumSize, CGSize(width: 760, height: 520))
@@ -940,14 +940,14 @@ final class RailgunXAppTests: XCTestCase {
             RailgunBackendPresentation(phase: .authenticationRequired(source: .file)),
             .authenticationRequired(
                 title: "Authentication Required",
-                message: "Sign in with your provider outside RailgunX, then retry. Provider sign-in is coming in a later milestone."
+                message: "Sign in with your provider outside Railgun, then retry. Provider sign-in is coming in a later milestone."
             )
         )
         XCTAssertEqual(
             RailgunBackendPresentation(phase: .authenticationRequired(source: .environment)),
             .authenticationRequired(
                 title: "Authentication Required",
-                message: "Update DEVIN_TOKEN in the environment that launches RailgunX, then relaunch RailgunX."
+                message: "Update DEVIN_TOKEN in the environment that launches Railgun, then relaunch Railgun."
             )
         )
         XCTAssertEqual(

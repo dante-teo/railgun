@@ -12,12 +12,10 @@ existing TypeScript backend through versioned JSONL RPC and initially ships
 beside the Electron application as a Task-focused alpha. Direct signed and
 notarized distribution comes first; Homebrew follows after feature parity.
 
-The native application initially ships as **RailgunX** with bundle ID
-`io.anvia.railgun`. At final cutover, RailgunX becomes **Railgun** without
-changing that bundle ID, while Electron becomes **Railgun Classic** and is
-retired after a published support window. Classic keeps its existing
-`sh.railgun.desktop` identity. The new native app-icon system remains in use
-when RailgunX becomes Railgun.
+The native application ships as **Railgun** with bundle ID
+`io.anvia.railgun`. Electron ships as **Railgun Classic** and retains its
+existing `sh.railgun.desktop` identity and update channel until its published
+support window ends. The native app-icon system remains in use for Railgun.
 
 Both applications may be installed at the same time. Both clients use
 `~/.railgun` in place, without copying or migrating user data, but only one
@@ -299,7 +297,7 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 
 Milestone exit: both architectures run the bundled backend through RPC v1,
 authentication and recovery work, malformed or stale transport data is safely
-contained, and RailgunX cannot run concurrently with Classic on shared data.
+contained, and Railgun cannot run concurrently with Classic on shared data.
 
 ### 3. Task alpha
 
@@ -327,12 +325,12 @@ production-shaped backend package.
 - [x] `SWFT-038` — Configure Hardened Runtime, entitlements, nested Node/addon signing, and Developer ID export. `[8h]`
 - [x] `SWFT-039` — Integrate Sparkle, generate signed architecture-specific HTTPS appcasts with EdDSA verification, and leave Classic’s update channels unchanged. `[8h]`
 - [x] `SWFT-040` — Add version injection, archive export, notarization, stapling, ZIP creation, and verification scripts. `[8h]`
-- [x] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate RailgunX assets and packaged-bundle structure. `[8h]`
-- [x] `SWFT-042` — Extend publishing to release signed arm64 and x86_64 RailgunX builds beside Electron builds. `[8h]`
+- [x] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate native Railgun assets and packaged-bundle structure. `[8h]`
+- [x] `SWFT-042` — Extend publishing to release signed arm64 and x86_64 native Railgun builds beside Classic builds. `[8h]`
 - [x] `SWFT-044` — Add packaged signature, Gatekeeper, notarization, backend, icon, and updater smoke checks. `[8h]`
 
-Milestone exit: RailgunX ships as an independently updatable, signed and
-notarized alpha beside Electron, with no change to Classic's artifacts or
+Milestone exit: Railgun ships as an independently updatable, signed and
+notarized native app beside Classic, with no change to Classic's artifacts or
 update feeds.
 
 ### 5. Remaining Task, Files, and Scheduled parity
@@ -384,7 +382,7 @@ recovery, security, layout, and dual-architecture acceptance contracts below.
 
 ### 8. Rename and retirement
 
-- [ ] `SWFT-075` — Rename Electron to **Railgun Classic** and RailgunX to **Railgun**, retaining their existing bundle identities, shared-data exclusion, and the native icon. `[8h]`
+- [x] `SWFT-075` — Rename Electron to **Railgun Classic** and RailgunX to **Railgun**, retaining their existing bundle identities, shared-data exclusion, and the native icon. `[8h]`
 - [ ] `SWFT-077` — Update artifacts, Sparkle presentation, documentation, links, and screenshots. `[8h]`
 - [ ] `SWFT-078` — Move the Homebrew `railgun` Cask to native Railgun and optionally add a temporary Classic Cask. `[8h]`
 - [ ] `SWFT-080` — Remove Electron code, packaging, dependencies, and release jobs after the retirement gates authorize removal. `[8h]`

@@ -119,10 +119,10 @@ export const AutomationPage = ({ backendPhase }: AutomationPageProps): React.JSX
       <div className="content-toolbar-actions absolute right-[calc(var(--toolbar-surface-right)+var(--space-7))] top-[var(--titlebar-control-center-y)] z-[var(--layer-titlebar-action)] flex -translate-y-1/2 items-center gap-2 [-webkit-app-region:no-drag]"><Button size="icon" variant="ghost" className="[-webkit-app-region:no-drag]" aria-label="Create scheduled job" disabled={!ready || busy} onClick={() => openEditor()}><Plus aria-hidden="true" /></Button></div>
     </header>
     <div className="min-h-0 overflow-auto px-7 pb-8 pt-5 [&>*]:mx-auto [&>*]:w-[min(50rem,100%)]">
-      {!ready ? <ErrorState title="Scheduled jobs are unavailable" description="Reconnect Railgun to view or change scheduled prompts." />
-        : loading ? <LoadingState title="Loading scheduled jobs…" description="Reading scheduled prompts from Railgun." />
+      {!ready ? <ErrorState title="Scheduled jobs are unavailable" description="Reconnect Railgun Classic to view or change scheduled prompts." />
+        : loading ? <LoadingState title="Loading scheduled jobs…" description="Reading scheduled prompts from Railgun Classic." />
           : loadError !== undefined ? <div className="grid justify-items-center gap-3"><ErrorState title="Unable to load scheduled jobs" description={loadError} /><Button variant="secondary" onClick={() => void load()}>Retry</Button></div>
-            : jobs.length === 0 ? <EmptyState title="No scheduled jobs yet" description="Create a scheduled prompt to let Railgun handle recurring work." />
+            : jobs.length === 0 ? <EmptyState title="No scheduled jobs yet" description="Create a scheduled prompt to let Railgun Classic handle recurring work." />
               : <ol className="grid list-none gap-3 p-0">{jobs.map(job => <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-border bg-surface p-4" key={job.id}>
                 <span className="grid size-9 place-items-center rounded-sm bg-accent text-accent-foreground [&_svg]:size-[1.1rem]" aria-hidden="true"><Clock /></span>
                 <div className="grid min-w-0 gap-1"><strong className="truncate text-body font-medium">{job.prompt}</strong><span className="text-control text-foreground-secondary">{job.summary}</span><code className="w-fit rounded-[0.3rem] bg-surface-muted px-1 py-0.5 text-caption text-foreground-secondary">{job.schedule}</code></div>

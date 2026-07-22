@@ -22,7 +22,7 @@ struct AppLifecycleConfiguration: Equatable {
     let primaryWindowResizability: PrimaryWindowResizability
 
     static let primary = Self(
-        primaryWindowTitle: "RailgunX",
+        primaryWindowTitle: "Railgun",
         primaryWindowRestorationIdentifier: "primary",
         primaryWindowDefaultSize: CGSize(width: 1_024, height: 700),
         primaryWindowMinimumSize: CGSize(width: 760, height: 520),
@@ -514,9 +514,9 @@ enum RailgunBackendPresentation: Equatable {
     private static func authenticationMessage(for source: RailgunRPCCredentialSource) -> String {
         switch source {
         case .file:
-            "Sign in with your provider outside RailgunX, then retry. Provider sign-in is coming in a later milestone."
+            "Sign in with your provider outside Railgun, then retry. Provider sign-in is coming in a later milestone."
         case .environment:
-            "Update DEVIN_TOKEN in the environment that launches RailgunX, then relaunch RailgunX."
+            "Update DEVIN_TOKEN in the environment that launches Railgun, then relaunch Railgun."
         }
     }
 }
@@ -1896,12 +1896,12 @@ struct RailgunXApp: App {
                         "Railgun is already in use",
                         systemImage: "lock.fill",
                         description: Text(
-                            "\(record.clientName) (PID \(record.pid)) is using your Railgun data. Quit it before opening RailgunX."
+                            "\(record.clientName) (PID \(record.pid)) is using your Railgun data. Quit it before opening Railgun."
                         )
                     )
                 case .unavailable:
                     ContentUnavailableView(
-                        "RailgunX can’t safely open your data",
+                        "Railgun can’t safely open your data",
                         systemImage: "exclamationmark.triangle",
                         description: Text("The shared desktop-client lock could not be verified. Close any other Railgun desktop client and try again.")
                     )

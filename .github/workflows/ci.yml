@@ -85,7 +85,7 @@ jobs:
         run: pnpm --filter @dantea/railgun-desktop exec electron-forge package --arch arm64
 
   native:
-    name: RailgunX (${{ matrix.architecture }})
+    name: Railgun (${{ matrix.architecture }})
     strategy:
       fail-fast: false
       matrix:
@@ -112,5 +112,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate, resolve, build, test, and validate RailgunX
+      - name: Generate, resolve, build, test, and validate Railgun
         run: apps/macos/scripts/validate-project.sh

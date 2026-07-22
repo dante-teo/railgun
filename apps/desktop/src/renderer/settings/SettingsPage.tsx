@@ -35,7 +35,7 @@ interface SettingsSectionDefinition { readonly id: SettingsPageSection; readonly
 interface SettingsSectionGroup { readonly label: string; readonly sections: readonly SettingsSectionDefinition[] }
 
 const sectionGroups: readonly SettingsSectionGroup[] = [
-  { label: "Railgun", sections: [
+  { label: "Railgun Classic", sections: [
     { id: "general", label: "General", icon: SlidersHorizontal },
     { id: "agent", label: "Agent", icon: Bot },
     { id: "trust", label: "Trust", icon: ShieldCheck },
@@ -61,16 +61,16 @@ const sections = sectionGroups.flatMap(group => group.sections);
 const searchRows = [
   { section: "general", id: "default-model", label: "Default model", description: "Model used for new tasks" },
   { section: "general", id: "operation-timeout", label: "Operation timeout", description: "Maximum time for an operation" },
-  { section: "general", id: "background-automation", label: "Background automation", description: "Run scheduled prompts and nightly maintenance while Railgun is closed" },
+  { section: "general", id: "background-automation", label: "Background automation", description: "Run scheduled prompts and nightly maintenance while Railgun Classic is closed" },
   { section: "agent", id: "moa-preset", label: "Mixture of Agents preset", description: "Read-only configured collaboration preset" },
   { section: "agent", id: "advisor", label: "Advisor", description: "Enable and choose the advisor model" },
   { section: "trust", id: "approval-mode", label: "Approval mode", description: "Manual, smart review, or off" },
   { section: "trust", id: "reviewer-model", label: "Smart-review model", description: "Model that reviews tool approvals" },
   { section: "archives", id: "archived-tasks", label: "Archived tasks", description: "Restore tasks or choose how long archives are retained" },
-  { section: "memories", id: "memories", label: "Memories", description: "Facts and preferences remembered by Railgun" },
-  { section: "notes", id: "notes", label: "Notes", description: "Imported notes available to Railgun" },
-  { section: "instructions", id: "instructions", label: "Instructions", description: "Global instructions followed by Railgun" },
-  { section: "skills", id: "skills", label: "Skills", description: "Reusable instruction packages available to Railgun" },
+  { section: "memories", id: "memories", label: "Memories", description: "Facts and preferences remembered by Railgun Classic" },
+  { section: "notes", id: "notes", label: "Notes", description: "Imported notes available to Railgun Classic" },
+  { section: "instructions", id: "instructions", label: "Instructions", description: "Global instructions followed by Railgun Classic" },
+  { section: "skills", id: "skills", label: "Skills", description: "Reusable instruction packages available to Railgun Classic" },
   { section: "provider", id: "devin-provider", label: "Devin provider", description: "Credential source, sign in, and sign out" },
   { section: "mcp", id: "mcp-servers", label: "MCP servers", description: "Commands, arguments, and saved environment secrets" },
   { section: "diagnostics", id: "backend-health", label: "Backend health", description: "Connection status, retry, and redacted diagnostics" },
@@ -252,14 +252,14 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirty
 
   return <SettingsShell>
     <SettingsSidebar>
-      <SettingsNavItem onClick={() => navigate(onBack)}><ArrowLeft aria-hidden="true" />Back to Railgun</SettingsNavItem>
+      <SettingsNavItem onClick={() => navigate(onBack)}><ArrowLeft aria-hidden="true" />Back to Railgun Classic</SettingsNavItem>
       <SearchField className="[-webkit-app-region:no-drag]" ref={searchRef} aria-label="Search settings" placeholder="Search" value={query} onChange={event => setQuery(event.target.value)} />
       {query === "" ? <SettingsNav aria-label="Settings sections">{sectionGroups.map(group => <SettingsNavGroup key={group.label} aria-labelledby={`settings-group-${group.label.toLocaleLowerCase()}`}><h2 id={`settings-group-${group.label.toLocaleLowerCase()}`}>{group.label}</h2>{group.sections.map(section => <SettingsNavItem key={section.id} aria-current={selected === section.id ? "page" : undefined} onClick={() => chooseSection(section.id)}><section.icon aria-hidden="true" /><span>{section.label}</span></SettingsNavItem>)}</SettingsNavGroup>)}</SettingsNav>
         : <SettingsSearchResults role="navigation" aria-label="Settings search results">{results.length === 0 ? <p>No settings found</p> : results.map(result => <SettingsSearchResult key={result.id} onClick={() => chooseSection(result.section, result.id)}><strong>{result.label}</strong><span>{result.description}</span></SettingsSearchResult>)}</SettingsSearchResults>}
     </SettingsSidebar>
     <SettingsDetail aria-label="Settings detail">
         <SettingsColumn>
-          <SettingsHeading><h1>{sections.find(section => section.id === selected)?.label}</h1><p>{selected === "general" ? "Defaults for new tasks." : selected === "agent" ? "Configure collaboration for the next run." : selected === "trust" ? "Choose how Railgun approves tool use." : selected === "archives" ? "Restore archived tasks and choose how long they are retained." : isKnowledgeDestination(selected) ? knowledgeDestinationMetadata[selected].description : selected === "provider" ? "Manage the Devin provider and authentication." : selected === "mcp" ? "Manage Model Context Protocol servers." : "Inspect the local backend connection."}</p></SettingsHeading>
+          <SettingsHeading><h1>{sections.find(section => section.id === selected)?.label}</h1><p>{selected === "general" ? "Defaults for new tasks." : selected === "agent" ? "Configure collaboration for the next run." : selected === "trust" ? "Choose how Railgun Classic approves tool use." : selected === "archives" ? "Restore archived tasks and choose how long they are retained." : isKnowledgeDestination(selected) ? knowledgeDestinationMetadata[selected].description : selected === "provider" ? "Manage the Devin provider and authentication." : selected === "mcp" ? "Manage Model Context Protocol servers." : "Inspect the local backend connection."}</p></SettingsHeading>
           {isKnowledgeDestination(selected) ? backend.phase === "ready" ? <KnowledgePage key={knowledgeResetKey} embedded destination={selected} onDirtyChange={setKnowledgeDirty} /> : <div className="grid justify-items-start gap-3 rounded-md border border-border p-5" role={backend.phase === "failed" || backend.phase === "disconnected" ? "alert" : "status"}><strong>{PHASE_COPY[backend.phase].title}</strong><p className="m-0 text-destructive">{PHASE_COPY[backend.phase].description}</p>{RETRYABLE_PHASES.has(backend.phase) ? <Button size="sm" onClick={() => void onRetryBackend()}>Retry</Button> : null}</div> : loadingError !== undefined ? <div className="grid justify-items-start gap-3 rounded-md border border-border p-5" role="alert"><p className="m-0 text-destructive">{loadingError}</p><Button size="sm" onClick={() => void load()}>Retry</Button></div> : settings === undefined ? <SettingsSkeleton role="status" aria-label="Loading settings" /> : <>
             {selected === "general" && activeDraft?.section === "general" ? <SettingsSectionCard>
               <SettingsRow asChild><label id="setting-default-model" tabIndex={-1}><SettingsRowCopy><strong>Default model</strong><small>Used for new tasks. The current task is unchanged.</small></SettingsRowCopy><Select value={activeDraft.defaultModelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, defaultModelId: value === NULL_MODEL_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Default model"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_MODEL_SELECT_VALUE}>Automatic</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></label></SettingsRow>
@@ -267,7 +267,7 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirty
             </SettingsSectionCard> : null}
             {selected === "general" ? <BackgroundAutomationSettingsPanel /> : null}
             {selected === "agent" && activeDraft?.section === "agent" ? <SettingsSectionCard>
-              <SettingsRow asChild><label id="setting-moa-preset" tabIndex={-1}><SettingsRowCopy><strong>Mixture of Agents</strong><small>Presets are defined in Railgun configuration and are read-only here.</small></SettingsRowCopy><Select value={activeDraft.moaPreset ?? NULL_PRESET_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, moaPreset: value === NULL_PRESET_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Mixture of Agents preset"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_PRESET_SELECT_VALUE}>Off</SelectItem>{settings.moaPresets.map(preset => <SelectItem key={preset.name} value={preset.name}>{preset.name}</SelectItem>)}</SelectContent></Select></label></SettingsRow>
+              <SettingsRow asChild><label id="setting-moa-preset" tabIndex={-1}><SettingsRowCopy><strong>Mixture of Agents</strong><small>Presets are defined in Railgun Classic configuration and are read-only here.</small></SettingsRowCopy><Select value={activeDraft.moaPreset ?? NULL_PRESET_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, moaPreset: value === NULL_PRESET_SELECT_VALUE ? null : value })}><SelectTrigger aria-label="Mixture of Agents preset"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_PRESET_SELECT_VALUE}>Off</SelectItem>{settings.moaPresets.map(preset => <SelectItem key={preset.name} value={preset.name}>{preset.name}</SelectItem>)}</SelectContent></Select></label></SettingsRow>
               <SettingsRow id="setting-advisor" tabIndex={-1}><SettingsRowCopy><strong>Advisor</strong><small>Applies to the next run, never work already running.</small></SettingsRowCopy><SettingsInline><Switch aria-label="Enable advisor" checked={activeDraft.advisor.enabled} disabled={busy} onCheckedChange={checked => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, enabled: checked } })} /><Select value={activeDraft.advisor.modelId ?? NULL_MODEL_SELECT_VALUE} disabled={busy} onValueChange={value => updateDraft({ ...activeDraft, advisor: { ...activeDraft.advisor, modelId: value === NULL_MODEL_SELECT_VALUE ? null : value } })}><SelectTrigger aria-label="Advisor model"><SelectValue /></SelectTrigger><SelectContent><SelectItem value={NULL_MODEL_SELECT_VALUE}>Choose model</SelectItem>{settings.models.map(model => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}</SelectContent></Select></SettingsInline></SettingsRow>
             </SettingsSectionCard> : null}
             {selected === "trust" && activeDraft?.section === "trust" ? <SettingsSectionCard>
@@ -293,6 +293,6 @@ export const SettingsPage = ({ backend, agentRunning, scenarios, onBack, onDirty
         </SettingsColumn>
     </SettingsDetail>
     <ConfirmDialog open={discardAction !== undefined} title="Discard unsaved changes?" description="Your edits in this section have not been saved." confirmLabel="Discard Changes" destructive onOpenChange={open => { if (!open) setDiscardAction(undefined); }} onConfirm={discardChanges} />
-    <ConfirmDialog open={confirmSignOut} title="Sign out of Devin?" description="This removes only Railgun’s cached credential. An active DEVIN_TOKEN will continue to provide access." confirmLabel="Sign Out" destructive onOpenChange={setConfirmSignOut} onConfirm={() => void authenticate("out")} />
+    <ConfirmDialog open={confirmSignOut} title="Sign out of Devin?" description="This removes only Railgun Classic’s cached credential. An active DEVIN_TOKEN will continue to provide access." confirmLabel="Sign Out" destructive onOpenChange={setConfirmSignOut} onConfirm={() => void authenticate("out")} />
   </SettingsShell>;
 };

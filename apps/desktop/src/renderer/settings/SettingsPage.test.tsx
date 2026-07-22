@@ -143,7 +143,7 @@ describe("SettingsPage", () => {
     } as unknown as RailgunDesktopApi });
     render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
     await screen.findByText("Default model");
-    expect(screen.getByRole("heading", { name: "Railgun" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Railgun Classic" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Knowledge" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Connections" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "System" })).toBeTruthy();
@@ -151,7 +151,7 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     expect(screen.queryByRole("navigation", { name: "Knowledge destinations" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Skills", level: 1 })).toBeTruthy();
-    expect(screen.getByText("Browse reusable instruction packages available to Railgun.")).toBeTruthy();
+    expect(screen.getByText("Browse reusable instruction packages available to Railgun Classic.")).toBeTruthy();
     expect(await screen.findByText("No skills installed")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "General" }));
 
@@ -185,7 +185,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} onBack={vi.fn()} onDirtyChange={vi.fn()} onSaved={vi.fn()} onRetryBackend={vi.fn()} onSelectScenario={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Provider" }));
     fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
-    expect(screen.getByText(/removes only Railgun’s cached credential/u)).toBeTruthy();
+    expect(screen.getByText(/removes only Railgun Classic’s cached credential/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
     await waitFor(() => expect(signOutDevin).toHaveBeenCalledOnce());
   });
@@ -242,7 +242,7 @@ describe("SettingsPage", () => {
     const { rerender } = render(<SettingsPage backend={starting} agentRunning={false} scenarios={[]} {...callbacks} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
-    expect(screen.getByText("Starting Railgun")).toBeTruthy();
+    expect(screen.getByText("Starting Railgun Classic")).toBeTruthy();
     expect(listSkills).not.toHaveBeenCalled();
 
     rerender(<SettingsPage backend={backend} agentRunning={false} scenarios={[]} {...callbacks} />);

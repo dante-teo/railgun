@@ -114,11 +114,11 @@ const knowledgeApi = {
 
 describe("BackendStatus", () => {
   it.each([
-    ["starting", "Starting Railgun"],
-    ["ready", "Railgun is ready"],
+    ["starting", "Starting Railgun Classic"],
+    ["ready", "Railgun Classic is ready"],
     ["authentication-required", "Sign in to Devin"],
-    ["failed", "Railgun could not start"],
-    ["disconnected", "Railgun disconnected"],
+    ["failed", "Railgun Classic could not start"],
+    ["disconnected", "Railgun Classic disconnected"],
   ] as const)("renders the %s screen", (phase, title) => {
     render(<BackendStatus snapshot={snapshot(phase)} />);
     const heading = screen.getByRole("heading", { name: title });
@@ -351,7 +351,7 @@ describe("desktop shell", () => {
     render(<App />);
     const searchTasks = await screen.findByRole("button", { name: "Search tasks" });
     expect(document.querySelector(".brand-mark")).toBeNull();
-    expect(document.querySelector(".brand span")?.textContent).toBe("Railgun");
+    expect(document.querySelector(".brand span")?.textContent).toBe("Railgun Classic");
     expect(searchTasks.className).toContain("task-search-button");
     expect(searchTasks.className).toContain("bg-transparent");
     expect(searchTasks.className).toContain("size-control-icon");
@@ -555,7 +555,7 @@ describe("desktop shell", () => {
     fireEvent.scroll(sessionHistory!, { target: { scrollTop: 10 } });
     expect(scrollingDivider?.className).not.toContain("invisible");
     expect(document.querySelector(".sidebar-footer")?.closest(".sidebar-bottom")).not.toBeNull();
-    fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun" }), { target: { value: "hello" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Railgun Classic" }), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("hello"));
     expect(screen.getByText("hello")).toBeTruthy();
@@ -596,7 +596,7 @@ describe("desktop shell", () => {
     expect(hideDashboard.closest(".content-toolbar-actions")?.className).toContain("right-[calc(var(--toolbar-surface-right)+var(--space-7))]");
     expect(document.querySelector(".content-toolbar")?.className).toContain("pr-[var(--titlebar-actions-safe-width)]");
     expect(document.querySelector(".content-toolbar > div")?.className).toContain("flex-1");
-    expect(screen.getByRole("textbox", { name: "Message Railgun" }).closest("section")?.style.getPropertyValue("--transcript-bottom-inset"))
+    expect(screen.getByRole("textbox", { name: "Message Railgun Classic" }).closest("section")?.style.getPropertyValue("--transcript-bottom-inset"))
       .toBe("calc(180px + var(--space-5))");
     fireEvent.click(hideDashboard);
     expect(screen.queryByRole("complementary", { name: "Activity Dashboard" })).toBeNull();
@@ -635,7 +635,7 @@ describe("desktop shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "General" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Railgun" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Railgun Classic" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Knowledge" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Connections" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "System" })).toBeTruthy();
@@ -643,7 +643,7 @@ describe("desktop shell", () => {
     expect(screen.queryByRole("navigation", { name: "Knowledge destinations" })).toBeNull();
     expect(await screen.findByText("No skills installed")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New Task" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun Classic" }));
     expect(await screen.findByText("Mock response")).toBeTruthy();
     expect(startNewChat).not.toHaveBeenCalled();
   });
@@ -681,7 +681,7 @@ describe("desktop shell", () => {
     fireEvent.change(paletteSearch, { target: { value: "retry backend" } });
     fireEvent.keyDown(paletteSearch, { key: "Enter" });
     await waitFor(() => expect(restartBackend).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("heading", { name: "Starting Railgun" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Starting Railgun Classic" })).toBeTruthy();
   });
 
   it("coordinates keyboard and native commands through the accessible palette", async () => {

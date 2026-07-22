@@ -358,9 +358,9 @@ const catalog = () => {
     const components = [...staticComponents(), ...backendComponents()];
     const inputHashes = trackedInputHashes();
     const notices = normalized([
-        '# RailgunX legal notices',
+        '# Railgun legal notices',
         '',
-        'This catalog is generated from the locked Swift packages and the pnpm production dependency closure for RailgunX. Node runtime inputs are pinned in apps/macos/Runtime/node-runtime.json.',
+        'This catalog is generated from the locked Swift packages and the pnpm production dependency closure for Railgun. Node runtime inputs are pinned in apps/macos/Runtime/node-runtime.json.',
         '',
         ...components.flatMap(({ record, notice }) => [
             `## ${record.name} (${record.version})`,

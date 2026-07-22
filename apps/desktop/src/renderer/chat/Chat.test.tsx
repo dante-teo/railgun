@@ -261,7 +261,7 @@ describe("chat renderer", () => {
   it("distinguishes messages without redundant speaker labels", () => {
     const bridge = makeApi();
     const { container } = render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
 
     fireEvent.change(textbox, { target: { value: "request" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
@@ -288,11 +288,11 @@ describe("chat renderer", () => {
     makeApi();
     const { container } = render(<Harness />);
     const transcript = container.querySelector<HTMLElement>(".transcript-content");
-    const composer = screen.getByRole("textbox", { name: "Message Railgun" })
+    const composer = screen.getByRole("textbox", { name: "Message Railgun Classic" })
       .closest<HTMLElement>(".col-start-1.row-start-1");
-    const composerContent = screen.getByRole("textbox", { name: "Message Railgun" })
+    const composerContent = screen.getByRole("textbox", { name: "Message Railgun Classic" })
       .closest<HTMLElement>(".max-w-content");
-    const textbox = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message Railgun Classic" });
 
     expect(transcript?.className).not.toContain("--active-sidebar-inset");
     expect(transcript?.className).toContain("pl-[var(--transcript-content-left-base)]");
@@ -433,7 +433,7 @@ describe("chat renderer", () => {
     const sendPrompt = vi.fn(() => run.promise);
     makeApi({ sendPrompt });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "first\nsecond" } });
     fireEvent.keyDown(textbox, { key: "Enter", shiftKey: true });
     expect((textbox as HTMLTextAreaElement).value).toBe("first\nsecond");
@@ -451,7 +451,7 @@ describe("chat renderer", () => {
       .mockResolvedValueOnce(undefined);
     const bridge = makeApi({ sendPrompt: () => run.promise, steerPrompt, followUpPrompt });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "start" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
 
@@ -485,7 +485,7 @@ describe("chat renderer", () => {
     const abortPrompt = vi.fn(() => abort.promise);
     const bridge = makeApi({ sendPrompt, abortPrompt });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "request" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
     act(() => bridge.emit({ type: "assistant-delta", text: "partial" }));
@@ -515,7 +515,7 @@ describe("chat renderer", () => {
       .mockResolvedValueOnce(undefined);
     makeApi({ sendPrompt });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "request" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
     const retry = await screen.findByRole("button", { name: "Retry" });
@@ -641,7 +641,7 @@ describe("chat renderer", () => {
     const respondToClarification = vi.fn(async () => undefined);
     const bridge = makeApi({ respondToApproval, respondToClarification });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "start" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
     act(() => bridge.emitInteraction({ type: "approval", id: "11111111-1111-4111-8111-111111111111", command: "sudo safe-command" }));
@@ -662,7 +662,7 @@ describe("chat renderer", () => {
     const respondToClarification = vi.fn(async () => undefined);
     const bridge = makeApi({ respondToApproval, respondToClarification });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "start" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
     act(() => bridge.emitInteraction({ type: "approval", id: "55555555-5555-4555-8555-555555555555", command: "sudo safe-command" }));
@@ -676,7 +676,7 @@ describe("chat renderer", () => {
     const respondToClarification = vi.fn(async () => undefined);
     const bridge = makeApi({ respondToClarification });
     render(<Harness />);
-    const textbox = screen.getByRole("textbox", { name: "Message Railgun" });
+    const textbox = screen.getByRole("textbox", { name: "Message Railgun Classic" });
     fireEvent.change(textbox, { target: { value: "start" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
     act(() => bridge.emitInteraction({ type: "clarification", id: "33333333-3333-4333-8333-333333333333", question: "What should I use?" }));

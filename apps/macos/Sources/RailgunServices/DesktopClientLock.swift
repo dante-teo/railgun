@@ -13,7 +13,7 @@ public struct DesktopClientLockIdentity: Sendable, Equatable {
         self.clientName = clientName
     }
 
-    public static let railgunX = Self(bundleID: "io.anvia.railgun", clientName: "RailgunX")
+    public static let railgunX = Self(bundleID: "io.anvia.railgun", clientName: "Railgun")
     public static let railgunClassic = Self(bundleID: "sh.railgun.desktop", clientName: "Railgun Classic")
 }
 
@@ -72,10 +72,10 @@ public enum DesktopClientLockError: Error, Sendable, Equatable {
     case filesystem(String)
 }
 
-/// Owns RailgunX's participation in the shared desktop-client exclusion lock.
+/// Owns native Railgun's participation in the shared desktop-client exclusion lock.
 ///
 /// The actor uses `O_EXCL` creation rather than a check-then-write sequence, so
-/// RailgunX and Classic cannot both claim the same lock. Only a syntactically
+/// Native Railgun and Classic cannot both claim the same lock. Only a syntactically
 /// valid record whose PID is demonstrably gone is removed as stale.
 public actor DesktopClientLock {
     public static let filename = "desktop-client.lock"

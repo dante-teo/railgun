@@ -34,7 +34,7 @@ bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$in
 feed_url="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$info_plist")"
 public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$info_plist")"
 [[ "$bundle_identifier" == io.anvia.railgun ]] || { printf 'error: unexpected bundle identifier %s.\n' "$bundle_identifier" >&2; exit 1; }
-[[ "$feed_url" == "https://github.com/dante-teo/railgun/releases/latest/download/RailgunX-appcast-${architecture}.xml" ]] || {
+[[ "$feed_url" == "https://github.com/dante-teo/railgun/releases/latest/download/Railgun-appcast-${architecture}.xml" ]] || {
   printf 'error: architecture-specific HTTPS Sparkle feed is missing.\n' >&2
   exit 1
 }
@@ -51,12 +51,12 @@ xcrun stapler validate "$app"
 
 grep -q 'sparkle:edSignature=' "$appcast"
 grep -q 'sparkle:signature=' "$appcast"
-grep -q "RailgunX-appcast-${architecture}" "$appcast" || true
+grep -q "Railgun-appcast-${architecture}" "$appcast" || true
 grep -q "$(basename "$archive")" "$appcast"
 
 unpacked="$(mktemp -d "${TMPDIR:-/tmp}/railgunx-archive-validation.XXXXXX")"
 cleanup() { rm -rf "$unpacked"; }
 trap cleanup EXIT
 /usr/bin/ditto -x -k "$archive" "$unpacked"
-[[ -d "$unpacked/RailgunX.app" ]] || { printf 'error: archive does not contain RailgunX.app.\n' >&2; exit 1; }
-printf 'validated signed RailgunX %s release artifact and Sparkle updater feed\n' "$architecture"
+[[ -d "$unpacked/Railgun.app" ]] || { printf 'error: archive does not contain Railgun.app.\n' >&2; exit 1; }
+printf 'validated signed Railgun %s release artifact and Sparkle updater feed\n' "$architecture"

@@ -8,7 +8,7 @@ catalog_directory="$project_root/Resources/Assets.xcassets/AppIcon.appiconset"
 contents_file="$catalog_directory/Contents.json"
 
 if [[ $# -gt 1 ]]; then
-  printf 'usage: %s [PATH_TO_RAILGUNX_APP]\n' "${0##*/}" >&2
+  printf 'usage: %s [PATH_TO_RAILGUN_APP]\n' "${0##*/}" >&2
   exit 64
 fi
 

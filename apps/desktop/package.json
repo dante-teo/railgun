@@ -1,6 +1,6 @@
 {
   "name": "@dantea/railgun-desktop",
-  "productName": "Railgun",
+  "productName": "Railgun Classic",
   "version": "0.4.14",
   "private": true,
   "main": ".vite/build/main.js",

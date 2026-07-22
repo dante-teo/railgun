@@ -16,10 +16,10 @@ import { errorMessage } from "../lib/utils";
 
 export type KnowledgeDestination = "memories" | "notes" | "instructions" | "skills";
 export const knowledgeDestinationMetadata: Record<KnowledgeDestination, { readonly label: string; readonly description: string }> = {
-  memories: { label: "Memories", description: "Manage facts and preferences Railgun remembers." },
-  notes: { label: "Notes", description: "Import and search notes available to Railgun." },
-  instructions: { label: "Instructions", description: "Edit the global instructions Railgun follows." },
-  skills: { label: "Skills", description: "Browse reusable instruction packages available to Railgun." },
+  memories: { label: "Memories", description: "Manage facts and preferences Railgun Classic remembers." },
+  notes: { label: "Notes", description: "Import and search notes available to Railgun Classic." },
+  instructions: { label: "Instructions", description: "Edit the global instructions Railgun Classic follows." },
+  skills: { label: "Skills", description: "Browse reusable instruction packages available to Railgun Classic." },
 };
 interface Props { readonly embedded?: boolean; readonly destination?: KnowledgeDestination; readonly onBack?: () => void; readonly onDirtyChange?: (dirty: boolean) => void }
 
@@ -64,8 +64,8 @@ export const KnowledgePage = ({ embedded = false, destination: controlledDestina
 
   return <KnowledgeShell>
     <KnowledgeSidebar>
-      <Button size="sm" variant="ghost" onClick={navigateBack}><ArrowLeft aria-hidden="true" />Back to Railgun</Button>
-      <div><h1 className="m-0">Knowledge</h1><p className="mb-0 mt-1 text-control leading-snug text-foreground-secondary">Manage what Railgun remembers and follows.</p></div>
+      <Button size="sm" variant="ghost" onClick={navigateBack}><ArrowLeft aria-hidden="true" />Back to Railgun Classic</Button>
+      <div><h1 className="m-0">Knowledge</h1><p className="mb-0 mt-1 text-control leading-snug text-foreground-secondary">Manage what Railgun Classic remembers and follows.</p></div>
       {destinationNavigation}
     </KnowledgeSidebar>
     <KnowledgeContent>{destinationContent}</KnowledgeContent>
@@ -437,7 +437,7 @@ const Instructions = ({ embedded, onDirtyChange }: { readonly embedded: boolean;
       <SettingsSection className="flex min-w-0 flex-col gap-2 p-4">
         {error ? <ErrorState title="Instructions unavailable" description={error}><Button size="sm" onClick={retry}>Retry</Button></ErrorState>
           : loading ? <LoadingState title="Loading instructions…" />
-            : files.length === 0 ? <EmptyState title="No instruction files available" description="Railgun did not report any editable instruction files." />
+            : files.length === 0 ? <EmptyState title="No instruction files available" description="Railgun Classic did not report any editable instruction files." />
               : file === undefined ? <LoadingState title="Loading instructions…" />
             : <>
                 <label htmlFor="instruction-content">Markdown instructions</label>

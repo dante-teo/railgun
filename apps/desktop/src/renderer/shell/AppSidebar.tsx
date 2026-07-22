@@ -41,7 +41,7 @@ export const AppSidebar = ({ area, phase, sessions, sessionsLoading, sessionsErr
   const [scrolled, setScrolled] = useState(false);
   return <>
     <div className="sidebar-pinned-top px-3">
-      <div className="brand pb-2 pl-2 text-[1.0625rem] font-bold tracking-[-0.02em]"><span>Railgun</span></div>
+      <div className="brand pb-2 pl-2 text-[1.0625rem] font-bold tracking-[-0.02em]"><span>Railgun Classic</span></div>
       <Button className={sidebarAction} variant="ghost" disabled={busy} onClick={onNewTask}><SquarePen aria-hidden="true" />New Task</Button>
     </div>
     <div className={cn("mt-2 h-px w-full shrink-0 bg-border", !scrolled && "invisible")} aria-hidden="true" />

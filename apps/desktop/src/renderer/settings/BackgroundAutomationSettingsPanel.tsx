@@ -56,7 +56,7 @@ export const BackgroundAutomationSettingsPanel = (): React.JSX.Element => {
 
   return <SettingsSection>
     <SettingsRow id="setting-background-automation" tabIndex={-1}>
-      <SettingsRowCopy><strong>Background automation</strong><small>Run scheduled prompts and nightly maintenance while Railgun is closed.</small><small className="flex items-center gap-1 text-foreground-tertiary" role="status">{busy ? <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}{statusMessage(operation, error, automation)}</small></SettingsRowCopy>
+      <SettingsRowCopy><strong>Background automation</strong><small>Run scheduled prompts and nightly maintenance while Railgun Classic is closed.</small><small className="flex items-center gap-1 text-foreground-tertiary" role="status">{busy ? <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}{statusMessage(operation, error, automation)}</small></SettingsRowCopy>
       <SettingsInline>
         {repairNeeded(automation) ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void repair()}>{busy ? "Repairing…" : "Repair"}</Button> : null}
         <Switch aria-label="Enable background automation" checked={automation?.enabled ?? false} disabled={busy || automation?.state === "unavailable"} onCheckedChange={checked => void setEnabled(checked)} aria-busy={busy} />

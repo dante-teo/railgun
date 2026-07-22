@@ -55,7 +55,7 @@ const defaultIsProcessLive = (pid: number): boolean => {
 };
 
 /**
- * Railgun Classic's side of the lock shared with RailgunX.
+ * Railgun Classic's side of the lock shared with native Railgun.
  *
  * Exclusive file creation makes claiming atomic. A record is removed only when
  * its JSON is valid and its PID no longer exists; malformed files remain in

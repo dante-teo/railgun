@@ -625,7 +625,7 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
       >
         <div className={cn("transcript-content min-h-full pb-[var(--transcript-bottom-inset)] pl-[var(--transcript-content-left-base)] pr-8 pt-[var(--transcript-top-inset)] transition-[padding-inline] duration-standard ease-standard", empty && "grid place-items-center")} aria-live="polite">
           {empty && snapshot.phase === "ready"
-            ? <EmptyState className="max-w-[26rem]" icon={<Bot />} title="What are we building?" description="Ask Railgun to inspect, explain, or change your project." />
+            ? <EmptyState className="max-w-[26rem]" icon={<Bot />} title="What are we building?" description="Ask Railgun Classic to inspect, explain, or change your project." />
             : null}
           {empty && snapshot.phase !== "ready"
             ? <BackendStatus snapshot={snapshot} onRetry={onRestart} />
@@ -659,7 +659,7 @@ export const Transcript = ({ controller, snapshot, onRestart, canBranch, onBranc
             </div>
           )}
           {shouldShowThinking(state)
-            ? <div className="mx-auto flex w-full max-w-content items-center gap-1 text-xs text-foreground-secondary"><i className="size-1.5 animate-bounce rounded-full bg-success motion-reduce:animate-none" /><i className="size-1.5 animate-bounce rounded-full bg-success [animation-delay:150ms] motion-reduce:animate-none" /><i className="size-1.5 animate-bounce rounded-full bg-success [animation-delay:300ms] motion-reduce:animate-none" /><span className="ml-1">Railgun is thinking</span></div>
+            ? <div className="mx-auto flex w-full max-w-content items-center gap-1 text-xs text-foreground-secondary"><i className="size-1.5 animate-bounce rounded-full bg-success motion-reduce:animate-none" /><i className="size-1.5 animate-bounce rounded-full bg-success [animation-delay:150ms] motion-reduce:animate-none" /><i className="size-1.5 animate-bounce rounded-full bg-success [animation-delay:300ms] motion-reduce:animate-none" /><span className="ml-1">Railgun Classic is thinking</span></div>
             : null}
         </div>
       </OverlayScrollbarsComponent>
@@ -810,10 +810,10 @@ export const Composer = ({ controller, available, controls, onHeightChange }: Co
         )}
         <div data-glass-surface="composer" className="relative z-[1] flex flex-col items-stretch rounded-lg border border-border bg-popover p-3 shadow-control backdrop-blur-popover focus-within:border-focus focus-within:shadow-focus">
           <Textarea
-            aria-label="Message Railgun"
+            aria-label="Message Railgun Classic"
             rows={1}
             className="min-h-[calc(1lh+var(--space-4)+2px)] max-h-[calc(10lh+var(--space-4)+2px)] resize-none overflow-y-auto [field-sizing:content]"
-            placeholder={available ? "Message Railgun…" : "Backend unavailable"}
+            placeholder={available ? "Message Railgun Classic…" : "Backend unavailable"}
             value={draft}
             disabled={!available || interactionsOpen}
             onChange={event => controller.setDraft(event.target.value)}

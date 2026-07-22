@@ -127,7 +127,7 @@ export const App = (): React.JSX.Element => {
     let active = true;
     void window.railgunDesktop.getBackendSnapshot().then(
       (next) => { if (active) setSnapshot(next); },
-      (error: unknown) => { if (active) setBootstrapError(errorMessage(error, "Unable to connect to Railgun")); },
+      (error: unknown) => { if (active) setBootstrapError(errorMessage(error, "Unable to connect to Railgun Classic")); },
     );
     void window.railgunDesktop.listMockScenarios().then(
       (next) => { if (active) setScenarios(next); },
@@ -308,7 +308,7 @@ export const App = (): React.JSX.Element => {
 
   if (snapshot === undefined) return bootstrapError === undefined ? (
     <main className="grid h-full place-content-center justify-items-center p-8">
-      <LoadingState title="Connecting to Railgun…" description="Starting the secure desktop connection." />
+      <LoadingState title="Connecting to Railgun Classic…" description="Starting the secure desktop connection." />
     </main>
   ) : (
     <main className="grid h-full place-content-center justify-items-center p-8">

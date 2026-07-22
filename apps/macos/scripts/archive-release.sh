@@ -55,10 +55,10 @@ cleanup() { rm -rf "$work_directory"; }
 trap cleanup EXIT
 
 project_directory="$work_directory/project"
-archive_path="$work_directory/RailgunX.xcarchive"
+archive_path="$work_directory/Railgun.xcarchive"
 submission_zip="$work_directory/notarization-input.zip"
-staged_app="$output_directory/RailgunX.app"
-artifact_zip="$output_directory/RailgunX-${version}-darwin-${architecture}.zip"
+staged_app="$output_directory/Railgun.app"
+artifact_zip="$output_directory/Railgun-${version}-darwin-${architecture}.zip"
 
 "$generate_project" "$project_directory"
 
@@ -79,9 +79,9 @@ xcodebuild archive \
   MARKETING_VERSION="$version" \
   CURRENT_PROJECT_VERSION="$build_number"
 
-app="$archive_path/Products/Applications/RailgunX.app"
+app="$archive_path/Products/Applications/Railgun.app"
 [[ -d "$app" ]] || {
-  printf 'error: archive did not produce RailgunX.app.\n' >&2
+  printf 'error: archive did not produce Railgun.app.\n' >&2
   exit 1
 }
 

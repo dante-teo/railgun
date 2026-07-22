@@ -30,7 +30,7 @@ describe("Knowledge page", () => {
   it("embeds a controlled destination without tabs or standalone navigation", async () => {
     Object.defineProperty(window, "railgunDesktop", { configurable: true, value: { ...api(), listSkills: async () => [], getSkill: vi.fn() } as unknown as RailgunDesktopApi });
     render(<KnowledgePage embedded destination="skills" />);
-    expect(screen.queryByRole("button", { name: "Back to Railgun" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back to Railgun Classic" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Knowledge destinations" })).toBeNull();
     expect(await screen.findByText("No skills installed")).toBeTruthy();
   });
@@ -108,7 +108,7 @@ describe("Knowledge page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Instructions/u }));
     const editor = await screen.findByRole("textbox", { name: "Markdown instructions" });
     fireEvent.change(editor, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to Railgun Classic" }));
     expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onBack).not.toHaveBeenCalled();

@@ -12,8 +12,8 @@ import {
 const runtime: AutomationRuntime = {
   uid: 501,
   home: "/Users/railgun",
-  executablePath: "/Applications/Railgun.app/Contents/MacOS/Railgun",
-  backendEntry: "/Applications/Railgun.app/Contents/Resources/backend/railgun/dist/backend.js",
+  executablePath: "/Applications/Railgun Classic.app/Contents/MacOS/Railgun Classic",
+  backendEntry: "/Applications/Railgun Classic.app/Contents/Resources/backend/railgun/dist/backend.js",
 };
 
 describe("background automation", () => {
@@ -59,8 +59,8 @@ describe("background automation", () => {
 
   it("recognizes healthy, stale, and unavailable service definitions", () => {
     expect(parseAutomationStatus({
-      scheduler: { file: true, print: "state = running\npath = /Applications/Railgun.app/Contents/MacOS/Railgun" },
-      dream: { file: true, print: "state = waiting\npath = /Applications/Railgun.app/Contents/MacOS/Railgun" },
+      scheduler: { file: true, print: "state = running\npath = /Applications/Railgun Classic.app/Contents/MacOS/Railgun Classic" },
+      dream: { file: true, print: "state = waiting\npath = /Applications/Railgun Classic.app/Contents/MacOS/Railgun Classic" },
     }, runtime)).toMatchObject({ state: "enabled", enabled: true, scheduler: "running", dream: "waiting" });
     expect(parseAutomationStatus({
       scheduler: { file: true, print: "path = /Applications/Old Railgun.app/Contents/MacOS/Railgun" },

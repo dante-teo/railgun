@@ -1,6 +1,6 @@
-# RailgunX legal notices
+# Railgun legal notices
 
-This catalog is generated from the locked Swift packages and the pnpm production dependency closure for RailgunX. Node runtime inputs are pinned in apps/macos/Runtime/node-runtime.json.
+This catalog is generated from the locked Swift packages and the pnpm production dependency closure for Railgun. Node runtime inputs are pinned in apps/macos/Runtime/node-runtime.json.
 
 ## Swift Markdown (0.8.0)
 

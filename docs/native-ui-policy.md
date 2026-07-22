@@ -167,7 +167,7 @@ command routing. Treat the following as implementation invariants:
   authentication, launch failure, and post-ready disconnection with
   `ContentUnavailableView` and a visible retry or restart button.
 - Preserve the typed authentication credential source. File-backed failures
-  direct the user to sign in outside RailgunX; environment-backed failures
+  direct the user to sign in outside Railgun; environment-backed failures
   direct them to update `DEVIN_TOKEN` in the launch environment and relaunch.
   Provider sign-in/out remains deferred to SWFT-057.
 - Keep restart single-flight and establish a fresh RPC generation. After it is

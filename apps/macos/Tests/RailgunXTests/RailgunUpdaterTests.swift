@@ -6,7 +6,7 @@ final class RailgunUpdaterTests: XCTestCase {
     func testUpdaterRequiresHTTPSFeedAndPublicEdDSAKey() {
         XCTAssertTrue(
             RailgunUpdater.isConfigured(infoDictionary: [
-                "SUFeedURL": "https://github.com/dante-teo/railgun/releases/latest/download/RailgunX-appcast-arm64.xml",
+                "SUFeedURL": "https://github.com/dante-teo/railgun/releases/latest/download/Railgun-appcast-arm64.xml",
                 "SUPublicEDKey": "public-key"
             ])
         )

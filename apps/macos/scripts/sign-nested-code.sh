@@ -44,9 +44,9 @@ sign_file() {
   fi
 }
 
-main_executable="$app/Contents/MacOS/RailgunX"
+main_executable="$app/Contents/MacOS/Railgun"
 [[ -f "$main_executable" ]] || {
-  printf 'error: expected RailgunX executable at %s.\n' "$main_executable" >&2
+  printf 'error: expected Railgun executable at %s.\n' "$main_executable" >&2
   exit 1
 }
 
@@ -70,4 +70,4 @@ done < <(/usr/bin/find "$app/Contents" -depth -type d \( \
 
 /usr/bin/codesign "${sign_arguments[@]}" --entitlements "$app_entitlements" "$app"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
-printf 'signed nested RailgunX code in %s\n' "$app"
+printf 'signed nested Railgun code in %s\n' "$app"

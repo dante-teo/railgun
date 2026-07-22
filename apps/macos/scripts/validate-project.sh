@@ -30,7 +30,7 @@ package_cache="$temporary_root/PackageCache"
 lockfile="$script_dir/../Package.resolved"
 project_file="$first_output/RailgunX.xcodeproj"
 generated_lockfile="$first_output/RailgunX.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-sparkle_framework="$derived_data/Build/Products/Debug/RailgunX.app/Contents/Frameworks/Sparkle.framework"
+sparkle_framework="$derived_data/Build/Products/Debug/Railgun.app/Contents/Frameworks/Sparkle.framework"
 
 build_scheme() {
   local action="$1"
@@ -112,8 +112,8 @@ fi
 
 build_scheme build
 
-"$validate_app_icon" "$derived_data/Build/Products/Debug/RailgunX.app"
-"$validate_backend" --app-bundle "$derived_data/Build/Products/Debug/RailgunX.app"
+"$validate_app_icon" "$derived_data/Build/Products/Debug/Railgun.app"
+"$validate_backend" --app-bundle "$derived_data/Build/Products/Debug/Railgun.app"
 
 if [[ ! -d "$sparkle_framework" ]]; then
   printf 'error: Sparkle.framework was not embedded in the generated app bundle.\n' >&2

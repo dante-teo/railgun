@@ -152,7 +152,7 @@ export const parseAutomationStatus = (
   }
   const expected = runtime.executablePath;
   if (!services.scheduler.print.includes(expected) || !services.dream.print.includes(expected)) {
-    return { state: "repair-needed", enabled: true, scheduler, dream, message: "Background automation points to an older Railgun app. Repair it to use this version." };
+    return { state: "repair-needed", enabled: true, scheduler, dream, message: "Background automation points to an older Railgun Classic app. Repair it to use this version." };
   }
   return { state: "enabled", enabled: true, scheduler, dream, message: "Scheduled prompts and nightly maintenance run in the background." };
 };

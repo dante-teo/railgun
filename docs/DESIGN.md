@@ -411,7 +411,7 @@ Retry cannot change the environment inherited by the running desktop process.
 RailgunX preserves the credential source in backend feature state and presents
 startup, authentication, launch failure, and post-ready disconnection through
 native loading or unavailable surfaces. File-backed authentication directs the
-user to sign in outside RailgunX; environment-backed authentication directs
+user to sign in outside Railgun; environment-backed authentication directs
 them to update `DEVIN_TOKEN` in the launch environment and relaunch. Provider
 sign-in/out remains deferred to SWFT-057. Recovery is single-flight, starts a
 fresh RPC generation, preserves the runtime's event and interaction consumers,
