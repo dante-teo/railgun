@@ -174,6 +174,8 @@ final class RailgunXAppTests: XCTestCase {
             transcriptSource.contains(".contentMargins(.leading, contentLeadingMargin, for: .scrollContent)")
         )
         XCTAssertTrue(source.contains("content.glassEffect("))
+        XCTAssertTrue(source.contains("#if compiler(>=6.2)"))
+        XCTAssertTrue(source.contains(".regularMaterial"))
         XCTAssertFalse(source.contains(".inspector(isPresented:"))
         XCTAssertTrue(activitySource.contains(".scrollContentBackground(.hidden)"))
     }
@@ -419,6 +421,10 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(
             transcriptSource.contains("scrollEdgeEffectStyle(.soft, for: .top)"),
             "The transcript must retain its native macOS 26 soft top-edge effect."
+        )
+        XCTAssertTrue(
+            transcriptSource.contains("#if compiler(>=6.2)"),
+            "macOS 26-only SwiftUI APIs must not be parsed by Xcode 16's macOS 15 SDK."
         )
 
         let forbiddenScrollerOverrides = [

@@ -575,11 +575,15 @@ enum RailgunActivityPaneLayout {
 private struct RailgunTranscriptSoftTopEdgeEffect: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
+#if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             content.scrollEdgeEffectStyle(.soft, for: .top)
         } else {
             content
         }
+#else
+        content
+#endif
     }
 }
 
@@ -670,6 +674,7 @@ struct RailgunTaskShell: View {
                     }
                 }
                 .toolbar {
+#if compiler(>=6.2)
                     if #available(macOS 26.0, *) {
                         ToolbarSpacer(.flexible)
                     } else {
@@ -677,6 +682,11 @@ struct RailgunTaskShell: View {
                             Spacer()
                         }
                     }
+#else
+                    ToolbarItem {
+                        Spacer()
+                    }
+#endif
 
                     ToolbarItemGroup(placement: .automatic) {
                         modelControlsMenu
@@ -1727,11 +1737,13 @@ private struct RailgunActivityPanelBackground: ViewModifier {
     func body(content: Content) -> some View {
         if !isEnabled {
             content
+#if compiler(>=6.2)
         } else if #available(macOS 26.0, *) {
             content.glassEffect(
                 .regular,
                 in: RoundedRectangle(cornerRadius: 32, style: .continuous)
             )
+#endif
         } else {
             content
                 .background(
