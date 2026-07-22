@@ -12,7 +12,7 @@ fail() {
 }
 
 usage() {
-  printf 'usage: %s [APP_BUNDLE | --app-bundle APP_BUNDLE]\n' "${0##*/}" >&2
+  printf 'usage: %s [--architecture arm64|x86_64] [APP_BUNDLE | --app-bundle APP_BUNDLE]\n' "${0##*/}" >&2
   exit 64
 }
 
@@ -39,17 +39,33 @@ assert_macho_architecture() {
 }
 
 app_bundle=''
-if [[ $# -eq 1 && "$1" != -* ]]; then
-  app_bundle="$1"
-elif [[ $# -eq 2 && "$1" == '--app-bundle' ]]; then
-  app_bundle="$2"
-elif [[ $# -ne 0 ]]; then
-  usage
-fi
+validation_architecture=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app-bundle)
+      [[ $# -ge 2 && -z "$app_bundle" ]] || usage
+      app_bundle="$2"
+      shift 2
+      ;;
+    --architecture)
+      [[ $# -ge 2 && -z "$validation_architecture" ]] || usage
+      validation_architecture="$2"
+      shift 2
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      [[ -z "$app_bundle" ]] || usage
+      app_bundle="$1"
+      shift
+      ;;
+  esac
+done
 
 [[ -x "$stage_backend" ]] || fail "backend staging script is missing or not executable."
 [[ -f "$lifecycle_validation" ]] || fail "packaged backend lifecycle validation script is missing."
-for command in file mktemp node pnpm rm; do
+for command in file mktemp node pnpm rm uname; do
   require_command "$command"
 done
 
@@ -58,6 +74,12 @@ cleanup() {
   rm -rf "$temporary_root"
 }
 trap cleanup EXIT
+
+if [[ -z "$validation_architecture" ]]; then
+  validation_architecture="$(uname -m)"
+fi
+[[ "$validation_architecture" == arm64 || "$validation_architecture" == x86_64 ]] \
+  || fail "unsupported backend architecture: $validation_architecture"
 
 assert_production_packages() {
   local railgun="$1"
@@ -151,7 +173,7 @@ validate_payload() {
   node "$lifecycle_validation" "$node_binary" "$entrypoint" "$architecture"
 }
 
-for architecture in arm64 x86_64; do
+for architecture in "$validation_architecture"; do
   output="$temporary_root/$architecture"
   printf 'validating isolated backend staging for %s\n' "$architecture"
   "$stage_backend" --architecture "$architecture" --output "$output"

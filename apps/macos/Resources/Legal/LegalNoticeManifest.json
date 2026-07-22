@@ -29,7 +29,7 @@
       "apps/macos/Resources/RailgunIcon/RailgunIcon-1024.png": "f01601d42e52f9e9270dc1b8298bdc3cf5e15cb58af0b9a335cd0bd2c20739d0"
     }
   },
-  "noticesSHA256": "f51abb8166743216be44d0242b04142a35239ef4c1c2cd9a904673aeb1fe8da4",
+  "noticesSHA256": "ebf49b8239fedfcf672c036a4477c0f23b58a687b2a530a34a347146317b4ad2",
   "components": [
     {
       "identifier": "swift-markdown",

@@ -1029,7 +1029,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(stagingScript.contains("rm -rf \"$deployed_railgun/node_modules/@types\""))
         XCTAssertTrue(stagingScript.contains("sqlite-vec-darwin-$darwin_arch/vec0.dylib"))
         XCTAssertTrue(stagingScript.contains("mv \"$staging_backend\" \"$output/backend\""))
-        XCTAssertTrue(validationScript.contains("for architecture in arm64 x86_64"))
+        XCTAssertTrue(validationScript.contains("validation_architecture=\"$(uname -m)\""))
         XCTAssertTrue(validationScript.contains("better-sqlite3"))
         XCTAssertTrue(validationScript.contains("sqliteVec.load(database)"))
         XCTAssertTrue(validationScript.contains("validate-packaged-backend-lifecycle.mjs"))

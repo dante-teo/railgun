@@ -218,13 +218,14 @@ requires Rosetta 2 and an Xcode Command Line Tools installation capable of
 running x86_64 build tools; both architectures also require `pnpm`, Python 3,
 `make`, and `clang++`.
 
-Validate both isolated architecture payloads with:
+Validate the host architecture's isolated payload with:
 
 ```sh
 apps/macos/scripts/validate-backend.sh
 ```
 
-In addition to checking architecture, production dependencies, and direct
+Native CI runs this validation on both arm64 and x86_64 runners. In addition
+to checking architecture, production dependencies, and direct
 `better-sqlite3` / `sqlite-vec` loading, this starts each packaged backend in
 an isolated temporary home. It verifies the machine-readable
 authentication-required startup path without credentials, then uses a
