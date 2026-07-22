@@ -177,7 +177,8 @@ apps/macos/scripts/stage-node-runtime.sh --architecture arm64 --output build/run
 The complete distribution is staged at `build/runtime-arm64/node`. The command
 refuses to replace an existing `node` output and verifies the archive checksum,
 LICENSE, Node version, archive layout, and Mach-O architecture before staging.
-`validate-node-runtime.sh` exercises both `arm64` and `x86_64`; it runs from
+`validate-node-runtime.sh` validates both `arm64` and `x86_64` archives on
+every host, while executing only the host-compatible runtime; it runs from
 `validate-project.sh` and native CI.
 
 ### Shared desktop-client lock

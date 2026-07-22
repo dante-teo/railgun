@@ -20,7 +20,7 @@ sha256() {
   shasum -a 256 "$1" | awk '{ print $1 }'
 }
 
-for command in cmp file node shasum; do
+for command in cmp file node shasum uname; do
   require_command "$command"
 done
 [[ -x "$stage_runtime" ]] || fail "Node runtime staging script is missing or not executable."
@@ -42,12 +42,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+host_architecture="$(uname -m)"
+case "$host_architecture" in
+  arm64|x86_64) ;;
+  *) fail "Unsupported host architecture for Node runtime validation: $host_architecture." ;;
+esac
+
 assert_runtime() {
   local architecture="$1"
   local expected_version="$2"
   local expected_macho_architecture="$3"
   local expected_archive_sha256="$4"
   local expected_license_sha256="$5"
+  local should_execute="$6"
   local runtime_directory="$temporary_root/$architecture/node"
   local binary="$runtime_directory/bin/node"
   local license="$runtime_directory/LICENSE"
@@ -58,7 +65,9 @@ assert_runtime() {
   [[ -x "$binary" && -f "$license" ]] || fail "$architecture runtime is missing an executable Node binary or LICENSE."
   [[ "$(sha256 "$license")" == "$expected_license_sha256" ]] || fail "$architecture LICENSE checksum did not match the manifest."
   cmp -s "$license" "$bundled_node_license" || fail "$architecture LICENSE did not match the bundled legal notice source."
-  [[ "$("$binary" --version)" == "v$expected_version" ]] || fail "$architecture Node version did not match the manifest."
+  if [[ "$should_execute" == true ]]; then
+    [[ "$("$binary" --version)" == "v$expected_version" ]] || fail "$architecture Node version did not match the manifest."
+  fi
 
   local binary_description
   binary_description="$(file -b "$binary")"
@@ -66,6 +75,13 @@ assert_runtime() {
 }
 
 while IFS=$'\t' read -r architecture version macho_architecture archive_sha256 license_sha256; do
-  "$stage_runtime" --architecture "$architecture" --output "$temporary_root/$architecture"
-  assert_runtime "$architecture" "$version" "$macho_architecture" "$archive_sha256" "$license_sha256"
+  should_execute=false
+  stage_arguments=(--architecture "$architecture" --output "$temporary_root/$architecture")
+  if [[ "$architecture" == "$host_architecture" ]]; then
+    should_execute=true
+  else
+    stage_arguments+=(--skip-execution)
+  fi
+  "$stage_runtime" "${stage_arguments[@]}"
+  assert_runtime "$architecture" "$version" "$macho_architecture" "$archive_sha256" "$license_sha256" "$should_execute"
 done <<< "$runtime_values"

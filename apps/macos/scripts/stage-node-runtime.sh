@@ -21,12 +21,13 @@ sha256() {
 }
 
 usage() {
-  printf 'usage: %s --architecture arm64|x86_64 --output DIRECTORY\n' "${0##*/}" >&2
+  printf 'usage: %s --architecture arm64|x86_64 --output DIRECTORY [--skip-execution]\n' "${0##*/}" >&2
   exit 64
 }
 
 architecture=''
 output=''
+verify_execution=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --architecture)
@@ -38,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || usage
       output="$2"
       shift 2
+      ;;
+    --skip-execution)
+      verify_execution=0
+      shift
       ;;
     *)
       usage
@@ -131,8 +136,10 @@ license_file="$runtime_directory/LICENSE"
 actual_license_sha256="$(sha256 "$license_file")"
 [[ "$actual_license_sha256" == "$license_sha256" ]] || fail "Node runtime license checksum did not match the runtime manifest."
 
-actual_version="$($node_binary --version)" || fail "Staged Node executable could not run."
-[[ "$actual_version" == "v$expected_version" ]] || fail "Staged Node version $actual_version did not match v$expected_version."
+if (( verify_execution )); then
+  actual_version="$($node_binary --version)" || fail "Staged Node executable could not run."
+  [[ "$actual_version" == "v$expected_version" ]] || fail "Staged Node version $actual_version did not match v$expected_version."
+fi
 
 binary_description="$(file -b "$node_binary")"
 case "$macho_architecture" in
