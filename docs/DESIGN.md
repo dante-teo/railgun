@@ -224,9 +224,11 @@ the same model; text entry is reserved for free-form answers and preset names.
 - The desktop composer gives message entry its own full-width row. Its quiet
   footer shows the active model, one combined Agent settings trigger, exact
   context usage, and Send/Stop without turning every action into a separate
-  glass pill. The searchable model dialog provides explicit `This task` and
-  `Make default` choices and initializes keyboard navigation on the active
-  model. Agent settings contains MoA, advisor, advisor model,
+  glass pill. The searchable model dialog updates both the active task and
+  default model when a model is selected, and initializes keyboard navigation
+  on the active model. It locks after a selection until the request settles,
+  preventing repeated input from queuing further model changes. Agent settings
+  contains MoA, advisor, advisor model,
   and manual Compact controls; portalled select menus stack above the dialog.
   Dialogs omit a decorative close control by default and use explicit trailing
   footer actions such as Done; the selection-driven command palette is the
@@ -242,6 +244,15 @@ the same model; text entry is reserved for free-form answers and preset names.
   available width. The text area begins at one line, grows with input to ten
   lines, never exposes a mouse resize handle, and reports the composer's live
   height so the transcript bottom inset follows it.
+
+- RailgunX exposes equivalent native Model and Agents toolbar menus. A model
+  selection updates the active task and default together; when the backend
+  forks a persisted task for that change, the app rehydrates the newly active
+  fork and refreshes the sidebar before further task actions. Both clients
+  disable controls during loading, a run, or a pending control mutation.
+  MoA choices are read-only configured presets plus Off. Advisor enablement
+  requires a catalog model. RailgunX preserves unknown advisor fields so newer
+  backend settings survive its client updates.
 
 - Desktop Settings replaces the Task shell while open and restores the same
   active task on Back. Its softly tinted sidebar groups General, Agent, and

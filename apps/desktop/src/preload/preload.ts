@@ -14,7 +14,6 @@ import {
   InteractionCorrelationIdSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
-  ModelPersistenceModeSchema,
   PromptTextSchema,
   PersistenceMessageIdSchema,
   SessionIdSchema,
@@ -174,11 +173,10 @@ export const createDesktopApi = (transport: IpcTransport): RailgunDesktopApi => 
     getChatControls: async () => ChatControlsSnapshotSchema.parse(
       await transport.invoke(DESKTOP_IPC.getChatControls),
     ),
-    setChatModel: async (modelId, persistence) => ControlMutationResultSchema.parse(
+    setChatModel: async modelId => ControlMutationResultSchema.parse(
       await transport.invoke(
         DESKTOP_IPC.setChatModel,
         ChatModelIdSchema.parse(modelId),
-        ModelPersistenceModeSchema.parse(persistence),
       ),
     ),
     updateAgentControls: async (update) => ControlMutationResultSchema.parse(

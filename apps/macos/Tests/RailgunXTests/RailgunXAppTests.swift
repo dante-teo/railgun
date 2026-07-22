@@ -185,6 +185,30 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.composerMaximumWidth, 736)
     }
 
+    func testTaskToolbarUsesNativeModelAndAgentMenusWithRecoverableControlStatus() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("selectionLabel(model.name"))
+        XCTAssertTrue(source.contains("controlsCoordinator.useModel(model.id)"))
+        XCTAssertFalse(source.contains("Use for This Task"))
+        XCTAssertFalse(source.contains("Use and Make Default"))
+        XCTAssertTrue(source.contains("controlsCoordinator.setModelDidChange"))
+        XCTAssertTrue(source.contains("refreshAfterModelChange(modelID: modelID)"))
+        XCTAssertTrue(source.contains("Menu(\"Mixture of Agents\")"))
+        XCTAssertTrue(source.contains("Toggle(\"Enable Advisor\""))
+        XCTAssertTrue(source.contains("Menu(\"Advisor Model\")"))
+        XCTAssertTrue(source.contains("task-model-menu"))
+        XCTAssertTrue(source.contains("task-agent-menu"))
+        XCTAssertTrue(source.contains("task-controls-error"))
+        XCTAssertTrue(source.contains(".disabled(controlsAreDisabled)"))
+        XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: false))
+        XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: true))
+    }
+
     func testInteractionPromptsUseNativeControlsAndKeepStopAvailable() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -629,6 +653,10 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(store.state.backend.phase, .ready)
         XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
         XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
+        XCTAssertTrue(store.state.controls.isLoaded)
+        XCTAssertEqual(store.state.controls.activeModelID, "mock-model")
+        XCTAssertEqual(store.state.controls.moaPresets.map(\.name), ["review"])
+        XCTAssertEqual(store.state.controls.advisor, .init(isEnabled: false, modelID: "mock-reference"))
 
         await runtime.shutdown()
     }

@@ -5,7 +5,6 @@ import type {
   ChatControlsSnapshot,
   ControlMutationResult,
   DesktopAgentEvent,
-  ModelPersistenceMode,
 } from "../../shared/types";
 import { Button } from "../components/ui/button";
 import { PaletteList, PaletteOption, PaletteSearch, PaletteState } from "../components/palette";
@@ -50,38 +49,51 @@ interface ModelDialogProps {
   readonly controls: ChatControlsSnapshot;
   readonly disabled: boolean;
   readonly error?: string;
-  readonly onSelect: (modelId: string, persistence: ModelPersistenceMode) => Promise<boolean>;
+  readonly onSelect: (modelId: string) => Promise<boolean>;
 }
 
 const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps): React.JSX.Element => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(controls.activeModelId);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const selectionInFlight = useRef(false);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return needle === "" ? controls.models : controls.models.filter(model =>
       model.name.toLocaleLowerCase().includes(needle) || model.id.toLocaleLowerCase().includes(needle));
   }, [controls.models, query]);
   const current = controls.models.find(model => model.id === controls.activeModelId);
-  const selectedIsVisible = filtered.some(model => model.id === selected);
   const setDialogOpen = (next: boolean): void => {
     setOpen(next);
     if (!next) return;
     setQuery("");
-    setSelected(controls.activeModelId);
   };
-  const apply = async (persistence: ModelPersistenceMode): Promise<void> => {
-    if (!selectedIsVisible) return;
-    if (await onSelect(selected, persistence)) setOpen(false);
+  const choose = async (modelId: string): Promise<void> => {
+    if (disabled || selectionInFlight.current) return;
+    selectionInFlight.current = true;
+    setIsSelecting(true);
+    try {
+      if (await onSelect(modelId)) setOpen(false);
+    } finally {
+      selectionInFlight.current = false;
+      setIsSelecting(false);
+    }
   };
-  const navigation = useListboxNavigation({ open, items: filtered, initialActiveKey: controls.activeModelId, getItemKey: model => model.id, onActivate: model => { if (model !== undefined) setSelected(model.id); } });
+  const selectionDisabled = disabled || isSelecting;
+  const navigation = useListboxNavigation({
+    open,
+    items: filtered,
+    initialActiveKey: controls.activeModelId,
+    getItemKey: model => model.id,
+    onActivate: model => { if (model !== undefined) void choose(model.id); },
+  });
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild><Button type="button" size="sm" variant="ghost" disabled={disabled} aria-label="Choose model">
         {current?.name ?? controls.activeModelId}<ChevronDown aria-hidden="true" />
       </Button></DialogTrigger>
       <DialogContent className="w-[min(36rem,calc(100vw_-_2rem))]">
-        <DialogHeader><DialogTitle>Choose a model</DialogTitle><DialogDescription>Select for this task or save it as the default.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Choose a model</DialogTitle><DialogDescription>Choosing a model updates this task and your default.</DialogDescription></DialogHeader>
         <PaletteSearch
           autoFocus
           aria-label="Search models"
@@ -91,6 +103,7 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
           aria-expanded="true"
           aria-activedescendant={filtered[navigation.activeIndex] === undefined ? undefined : `model-option-${String(navigation.activeIndex)}`}
           value={query}
+          disabled={selectionDisabled}
           onChange={event => setQuery(event.target.value)}
           onKeyDown={navigation.onKeyDown}
         />
@@ -100,20 +113,17 @@ const ModelDialog = ({ controls, disabled, error, onSelect }: ModelDialogProps):
               type="button"
               id={`model-option-${String(index)}`}
               role="option"
-              aria-selected={selected === model.id}
+              aria-selected={controls.activeModelId === model.id}
               active={index === navigation.activeIndex}
               key={model.id}
+              disabled={selectionDisabled}
               onMouseMove={() => navigation.setActiveIndex(index)}
-              onClick={() => setSelected(model.id)}
+              onClick={() => void choose(model.id)}
             ><span className="grid gap-1"><strong>{model.name}</strong><small className="text-caption text-foreground-secondary">{modelDetail(model)}</small></span></PaletteOption>
           ))}
         </PaletteList>
         {filtered.length === 0 ? <PaletteState>No models match “{query}”.</PaletteState> : null}
         {error === undefined ? null : <p className="mb-0 mt-3 text-destructive" role="alert">{error}</p>}
-        <DialogFooter className="mt-4">
-          <Button type="button" variant="secondary" disabled={disabled || !selectedIsVisible} onClick={() => void apply("chat")}>This task</Button>
-          <Button type="button" disabled={disabled || !selectedIsVisible} onClick={() => void apply("default")}>Make default</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -243,7 +253,7 @@ export const ChatToolbarControls = ({ running, available, resetKey }: ChatToolba
       controls={controls}
       disabled={disabled}
       {...(error === undefined ? {} : { error })}
-      onSelect={(modelId, persistence) => mutation(() => window.railgunDesktop.setChatModel(modelId, persistence), true)}
+      onSelect={modelId => mutation(() => window.railgunDesktop.setChatModel(modelId), true)}
     />
     <AgentDialog
       controls={controls}

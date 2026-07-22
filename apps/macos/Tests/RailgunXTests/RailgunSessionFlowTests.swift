@@ -246,6 +246,67 @@ final class RailgunSessionFlowTests: XCTestCase {
         XCTAssertEqual(store.state.activity, .initial)
     }
 
+    func testSuccessfulSessionActivationRefreshesTaskControls() async throws {
+        let store = RailgunAppStore()
+        var refreshCount = 0
+        let service = RailgunSessionService { command in
+            XCTAssertEqual(command.type, .sessionNew)
+            return try response(for: command.type, data: .object(["sessionId": .string("fresh")]))
+        }
+        let coordinator = RailgunSessionCoordinator(
+            store: store,
+            service: service,
+            controlsDidActivate: { refreshCount += 1 }
+        )
+
+        await coordinator.create()
+
+        XCTAssertEqual(store.state.session.activeSessionID, "fresh")
+        XCTAssertEqual(refreshCount, 1)
+    }
+
+    func testModelChangeRehydratesTheBackendActiveForkAndRefreshesTheSessionLists() async throws {
+        let store = RailgunAppStore()
+        let previous = RailgunSessionSummary(
+            id: "saved", model: "primary", startedAt: "Today", messageCount: 1, firstUserPreview: "Old task"
+        )
+        store.send(.session(.loaded([previous])))
+        store.send(.session(.selected("saved")))
+        store.send(.transcript(.submit(id: "old", text: "Old task", at: nil)))
+
+        let service = RailgunSessionService { command in
+            switch command.type {
+            case .getState:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("forked"), "running": .bool(false), "todos": .array([]),
+                ]))
+            case .sessionTranscript:
+                XCTAssertEqual(command.fields["sessionId"], .string("forked"))
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("forked"),
+                    "messages": .array([.object([
+                        "role": .string("user"), "text": .string("Forked task"),
+                    ])]),
+                ]))
+            case .sessionList:
+                return try response(for: command.type, data: .object(["sessions": .array([summary(id: "saved", preview: "Old task")])]))
+            case .sessionListArchived:
+                return try response(for: command.type, data: .object(["sessions": .array([])]))
+            default:
+                throw ResumeStubError.unexpectedCommand
+            }
+        }
+        let coordinator = RailgunSessionCoordinator(store: store, service: service)
+
+        await coordinator.refreshAfterModelChange(modelID: "selected")
+
+        XCTAssertEqual(store.state.session.activeSessionID, "forked")
+        XCTAssertEqual(store.state.session.selectedSession?.model, "selected")
+        XCTAssertFalse(store.state.session.selectedSession?.isPersisted ?? true)
+        XCTAssertEqual(store.state.transcript.messages.map(\.text), ["Forked task"])
+        XCTAssertEqual(store.state.session.sessions.map(\.id), ["saved"])
+    }
+
     func testSuccessfulSessionOperationClearsThePreviouslyPresentedError() async throws {
         let store = RailgunAppStore()
         let service = RailgunSessionService { command in

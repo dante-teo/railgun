@@ -10,7 +10,6 @@ import {
   DesktopAgentEventSchema,
   DESKTOP_ACTIVITY_LIMITS,
   ChatControlsSnapshotSchema,
-  ModelPersistenceModeSchema,
   AgentControlUpdateSchema,
   ControlMutationResultSchema,
   SessionSnapshotSchema,
@@ -100,7 +99,6 @@ describe("desktop boundary schemas", () => {
       contextWindow: 200_000,
     } as const;
     expect(ChatControlsSnapshotSchema.parse(controls)).toEqual(controls);
-    expect(ModelPersistenceModeSchema.parse("default")).toBe("default");
     expect(AgentControlUpdateSchema.parse({ moaPreset: null })).toEqual({ moaPreset: null });
     expect(AgentControlUpdateSchema.parse({ advisor: { enabled: true, modelId: "ref-a" } })).toBeTruthy();
     expect(ControlMutationResultSchema.parse({ controls, persistence: "partial", warning: "Task changed; default was not saved." })).toBeTruthy();

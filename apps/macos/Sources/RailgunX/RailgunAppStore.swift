@@ -124,6 +124,7 @@ enum RailgunAppReducer {
         switch event {
         case .runStarted:
             var next = reduce(state, .transcript(.runStarted))
+            next.controls = RailgunControlsReducer.reduce(next.controls, .backendRunChanged(true))
             next.activity = RailgunActivityReducer.reduce(next.activity, .runStarted)
             return next
         case .runEnded:
@@ -193,6 +194,7 @@ enum RailgunAppReducer {
     private static func settleRun(_ state: RailgunAppState) -> RailgunAppState {
         var next = state
         next.interactions = .initial
+        next.controls = RailgunControlsReducer.reduce(next.controls, .backendRunChanged(false))
         next.activity = RailgunActivityReducer.reduce(state.activity, .settle)
         return next
     }
@@ -633,29 +635,136 @@ enum RailgunTranscriptReducer {
 
 struct RailgunContextUsage: Equatable { let inputTokens: Int; let outputTokens: Int }
 
-struct RailgunModel: Equatable, Identifiable {
+struct RailgunModel: Equatable, Identifiable, Sendable {
     let id: String
     let name: String
+}
+
+struct RailgunMoAPreset: Equatable, Identifiable, Sendable {
+    let name: String
+    let referenceModelIDs: [String]
+    let aggregatorModelID: String
+    let referenceMaxTokens: Int?
+
+    var id: String { name }
+}
+
+struct RailgunAdvisorConfiguration: Equatable, Sendable {
+    let isEnabled: Bool
+    let modelID: String?
+
+    static let disabled = Self(isEnabled: false, modelID: nil)
+}
+
+struct RailgunControlsSnapshot: Equatable, Sendable {
+    let models: [RailgunModel]
+    let activeModelID: String
+    let defaultModelID: String?
+    let moaPresets: [RailgunMoAPreset]
+    let activeMoAPresetName: String?
+    let advisor: RailgunAdvisorConfiguration
+    let isBackendRunning: Bool
+
+    init(
+        models: [RailgunModel],
+        activeModelID: String,
+        defaultModelID: String?,
+        moaPresets: [RailgunMoAPreset],
+        activeMoAPresetName: String?,
+        advisor: RailgunAdvisorConfiguration,
+        isBackendRunning: Bool = false
+    ) {
+        self.models = models
+        self.activeModelID = activeModelID
+        self.defaultModelID = defaultModelID
+        self.moaPresets = moaPresets
+        self.activeMoAPresetName = activeMoAPresetName
+        self.advisor = advisor
+        self.isBackendRunning = isBackendRunning
+    }
+
+    func withModel(activeModelID: String, defaultModelID: String?) -> Self {
+        .init(
+            models: models,
+            activeModelID: activeModelID,
+            defaultModelID: defaultModelID,
+            moaPresets: moaPresets,
+            activeMoAPresetName: activeMoAPresetName,
+            advisor: advisor,
+            isBackendRunning: isBackendRunning
+        )
+    }
+
+    func withMoAPreset(_ name: String?) -> Self {
+        .init(
+            models: models,
+            activeModelID: activeModelID,
+            defaultModelID: defaultModelID,
+            moaPresets: moaPresets,
+            activeMoAPresetName: name,
+            advisor: advisor,
+            isBackendRunning: isBackendRunning
+        )
+    }
+
+    func withAdvisor(_ advisor: RailgunAdvisorConfiguration) -> Self {
+        .init(
+            models: models,
+            activeModelID: activeModelID,
+            defaultModelID: defaultModelID,
+            moaPresets: moaPresets,
+            activeMoAPresetName: activeMoAPresetName,
+            advisor: advisor,
+            isBackendRunning: isBackendRunning
+        )
+    }
 }
 
 struct RailgunControlsState: Equatable {
     var models: [RailgunModel]
     var activeModelID: String?
     var defaultModelID: String?
+    var moaPresets: [RailgunMoAPreset]
+    var activeMoAPresetName: String?
+    var advisor: RailgunAdvisorConfiguration
     var contextUsage: RailgunContextUsage?
     var lastContextReset: RailgunContextResetReason?
+    var isLoading: Bool
+    var isLoaded: Bool
+    var isBackendRunning: Bool
     var isMutating: Bool
     var error: String?
 
-    static let initial = Self(models: [], activeModelID: nil, defaultModelID: nil, contextUsage: nil, lastContextReset: nil, isMutating: false, error: nil)
+    static let initial = Self(
+        models: [],
+        activeModelID: nil,
+        defaultModelID: nil,
+        moaPresets: [],
+        activeMoAPresetName: nil,
+        advisor: .disabled,
+        contextUsage: nil,
+        lastContextReset: nil,
+        isLoading: false,
+        isLoaded: false,
+        isBackendRunning: false,
+        isMutating: false,
+        error: nil
+    )
+
+    var isReadyForMutation: Bool {
+        isLoaded && !isLoading && !isBackendRunning && !isMutating
+    }
 }
 
 enum RailgunControlsAction: Equatable {
-    case loaded(models: [RailgunModel], activeModelID: String, defaultModelID: String?)
+    case loading
+    case loaded(RailgunControlsSnapshot)
+    case loadFailed(String)
     case contextUsage(RailgunContextUsage)
     case contextReset(RailgunContextResetReason)
+    case backendRunChanged(Bool)
     case mutationStarted
-    case mutationFinished(activeModelID: String?)
+    case mutationFinished(RailgunControlsSnapshot, warning: String?)
     case mutationFailed(String)
 }
 
@@ -663,27 +772,50 @@ enum RailgunControlsReducer {
     static func reduce(_ state: RailgunControlsState, _ action: RailgunControlsAction) -> RailgunControlsState {
         var next = state
         switch action {
-        case let .loaded(models, activeModelID, defaultModelID):
-            next.models = models
-            next.activeModelID = activeModelID
-            next.defaultModelID = defaultModelID
+        case .loading:
+            next.isLoading = true
+            next.isLoaded = false
             next.isMutating = false
             next.error = nil
+        case let .loaded(snapshot):
+            apply(snapshot, to: &next)
+            next.isLoading = false
+            next.isLoaded = true
+            next.isMutating = false
+            next.error = nil
+        case let .loadFailed(message):
+            next.isLoading = false
+            next.isLoaded = false
+            next.isMutating = false
+            next.error = message
         case let .contextUsage(usage): next.contextUsage = usage
         case let .contextReset(reason):
             next.contextUsage = nil
             next.lastContextReset = reason
+        case let .backendRunChanged(isRunning):
+            next.isBackendRunning = isRunning
         case .mutationStarted:
             next.isMutating = true
             next.error = nil
-        case let .mutationFinished(activeModelID):
-            next.activeModelID = activeModelID
+        case let .mutationFinished(snapshot, warning):
+            apply(snapshot, to: &next)
             next.isMutating = false
+            next.error = warning
         case let .mutationFailed(message):
             next.isMutating = false
             next.error = message
         }
         return next
+    }
+
+    private static func apply(_ snapshot: RailgunControlsSnapshot, to state: inout RailgunControlsState) {
+        state.models = snapshot.models
+        state.activeModelID = snapshot.activeModelID
+        state.defaultModelID = snapshot.defaultModelID
+        state.moaPresets = snapshot.moaPresets
+        state.activeMoAPresetName = snapshot.activeMoAPresetName
+        state.advisor = snapshot.advisor
+        state.isBackendRunning = snapshot.isBackendRunning
     }
 }
 

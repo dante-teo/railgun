@@ -423,8 +423,6 @@ export const ChatControlsSnapshotSchema = z.strictObject({
   contextWindow: tokenLimit.nullable(),
 });
 
-export const ModelPersistenceModeSchema = z.enum(["chat", "default"]);
-
 export const AgentControlUpdateSchema = z.strictObject({
   moaPreset: controlPresetName.nullable().optional(),
   advisor: AdvisorControlSchema.optional(),

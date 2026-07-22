@@ -89,6 +89,27 @@ XcodeGen validation and DerivedData's `SourcePackages` directory for launcher
 builds. Keep both paths in the project definition; do not repair a generated
 project by editing its `.xcodeproj`.
 
+### Task controls
+
+Both clients load task controls when the backend and active task are ready, and
+disable changes while a run or another control request is in progress. Choosing
+a model changes the active task and saves that model as the default in one
+selection; there is no separate task-only/default choice. If saving the default
+fails after the task change succeeds, the selected task model remains in use
+and the client presents a recoverable warning.
+
+Changing a model can fork a persisted task. RailgunX rehydrates the backend's
+newly active task and refreshes its task list after a successful change, so its
+transcript, sidebar, and later task actions target the fork. The desktop model
+picker locks after a selection until that request settles, preventing queued
+model changes from repeated clicks or keyboard activation.
+
+The Agent control selects a configured Mixture of Agents preset or turns MoA
+off, and enables/disables the advisor with a catalog model. Presets are
+configuration-defined and read-only in both clients. RailgunX preserves
+backend advisor fields it does not recognize, and enabling the advisor requires
+a valid model.
+
 RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
 `0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
 `apps/macos/Package.resolved` is the reviewed source-controlled lockfile;

@@ -71,6 +71,15 @@ actor RailgunSessionService {
         return .init(id: sessionID, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
     }
 
+    /// Rehydrates the task currently active in the backend. Model changes can
+    /// fork a persisted task, so callers must not assume the prior session ID
+    /// is still active after `set_model` succeeds.
+    func activeSession() async throws -> RailgunRestoredSession {
+        let state = try await currentState()
+        let transcript = try await transcript(for: state.id)
+        return .init(id: state.id, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+    }
+
     func archive(_ sessionID: String) async throws -> String {
         let fields: [String: RailgunJSONValue] = ["sessionId": .string(sessionID)]
         return try await requestSessionID(from: RailgunRPCCommandType.sessionArchive, fields: fields)
@@ -148,16 +157,22 @@ actor RailgunSessionService {
     }
 
     private func restoredState(expectedSessionID: String) async throws -> (todos: [RailgunTodo], isRunning: Bool) {
+        let state = try await currentState()
+        guard state.id == expectedSessionID else { throw RailgunSessionServiceError.invalidResponse }
+        return (state.todos, state.isRunning)
+    }
+
+    private func currentState() async throws -> (id: String, todos: [RailgunTodo], isRunning: Bool) {
         let response = try await perform(.getState)
         guard let object = response.data?.objectValue,
               let sessionID = object["sessionId"]?.stringValue,
-              sessionID == expectedSessionID,
+              isValidIdentifier(sessionID),
               let isRunning = object["running"]?.boolValue,
               let todoValue = object["todos"],
               case let .array(todoValues) = todoValue,
               todoValues.count <= Self.maximumTodos
         else { throw RailgunSessionServiceError.invalidResponse }
-        return (try todoValues.map(parseTodo), isRunning)
+        return (sessionID, try todoValues.map(parseTodo), isRunning)
     }
 
     private func transcript(for sessionID: String) async throws -> [RailgunRestoredTranscriptEntry] {
@@ -288,10 +303,16 @@ actor RailgunSessionService {
 final class RailgunSessionCoordinator {
     private let store: RailgunAppStore
     private let service: RailgunSessionService
+    private let controlsDidActivate: (@MainActor () async -> Void)?
 
-    init(store: RailgunAppStore, service: RailgunSessionService) {
+    init(
+        store: RailgunAppStore,
+        service: RailgunSessionService,
+        controlsDidActivate: (@MainActor () async -> Void)? = nil
+    ) {
         self.store = store
         self.service = service
+        self.controlsDidActivate = controlsDidActivate
     }
 
     func refresh() async {
@@ -311,6 +332,7 @@ final class RailgunSessionCoordinator {
         do {
             let sessionID = try await service.create(modelID: modelID)
             activateNewSession(id: sessionID, model: modelID)
+            await controlsDidActivate?()
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }
@@ -325,6 +347,23 @@ final class RailgunSessionCoordinator {
                 todos: restored.todos,
                 isRunning: restored.isRunning
             )))
+            await controlsDidActivate?()
+        } catch {
+            store.send(.session(.failed(message: presentationMessage(for: error))))
+        }
+    }
+
+    func refreshAfterModelChange(modelID: String) async {
+        do {
+            let restored = try await service.activeSession()
+            activateNewSession(id: restored.id, model: modelID)
+            store.send(.session(.hydrated(
+                activeSessionID: restored.id,
+                transcript: restored.transcript,
+                todos: restored.todos,
+                isRunning: restored.isRunning
+            )))
+            await refresh()
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }
@@ -335,6 +374,7 @@ final class RailgunSessionCoordinator {
         do {
             let freshSessionID = try await service.archive(sessionID)
             activateNewSession(id: freshSessionID, model: model)
+            await controlsDidActivate?()
             await refresh()
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))

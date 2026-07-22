@@ -236,6 +236,7 @@ final class RailgunBackendRuntime {
     let sessionCoordinator: RailgunSessionCoordinator
     let promptCoordinator: RailgunPromptCoordinator
     let interactionCoordinator: RailgunInteractionCoordinator
+    let controlsCoordinator: RailgunControlsCoordinator
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
@@ -254,10 +255,20 @@ final class RailgunBackendRuntime {
         self.client = client
         self.store = store
         self.launch = configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory)
-        self.sessionCoordinator = RailgunSessionCoordinator(
+        let controlsCoordinator = RailgunControlsCoordinator(
             store: store,
-            service: RailgunSessionService(rpcClient: client)
+            service: RailgunControlsService(rpcClient: client)
         )
+        self.controlsCoordinator = controlsCoordinator
+        let sessionCoordinator = RailgunSessionCoordinator(
+            store: store,
+            service: RailgunSessionService(rpcClient: client),
+            controlsDidActivate: { [weak controlsCoordinator] in await controlsCoordinator?.refresh() }
+        )
+        self.sessionCoordinator = sessionCoordinator
+        controlsCoordinator.setModelDidChange { [weak sessionCoordinator] modelID in
+            await sessionCoordinator?.refreshAfterModelChange(modelID: modelID)
+        }
         self.promptCoordinator = RailgunPromptCoordinator(
             store: store,
             service: RailgunPromptService(rpcClient: client)
@@ -296,7 +307,9 @@ final class RailgunBackendRuntime {
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
             observeEvents()
             observeInteractions()
-            await sessionCoordinator.refresh()
+            async let controls: Void = controlsCoordinator.refresh()
+            async let sessions: Void = sessionCoordinator.refresh()
+            _ = await (controls, sessions)
         } catch let error as RailgunRPCError {
             if case .authenticationRequired = error {
                 store.send(.backend(.authenticationRequired))
@@ -523,6 +536,7 @@ struct RailgunTaskShell: View {
     private let sessionCoordinator: RailgunSessionCoordinator
     private let promptCoordinator: RailgunPromptCoordinator
     private let interactionCoordinator: RailgunInteractionCoordinator
+    private let controlsCoordinator: RailgunControlsCoordinator
     @State private var transcriptFollowState = RailgunTranscriptFollowState.initial
     @State private var previousTranscriptGeometry: RailgunScrollGeometry?
     @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
@@ -539,12 +553,14 @@ struct RailgunTaskShell: View {
         appStore: RailgunAppStore,
         sessionCoordinator: RailgunSessionCoordinator,
         promptCoordinator: RailgunPromptCoordinator,
-        interactionCoordinator: RailgunInteractionCoordinator
+        interactionCoordinator: RailgunInteractionCoordinator,
+        controlsCoordinator: RailgunControlsCoordinator
     ) {
         _appStore = Bindable(appStore)
         self.sessionCoordinator = sessionCoordinator
         self.promptCoordinator = promptCoordinator
         self.interactionCoordinator = interactionCoordinator
+        self.controlsCoordinator = controlsCoordinator
     }
 
     var body: some View {
@@ -584,6 +600,8 @@ struct RailgunTaskShell: View {
                     }
 
                     ToolbarItemGroup(placement: .automatic) {
+                        modelControlsMenu
+                        agentControlsMenu
                         Button {
                             createTask()
                         } label: {
@@ -619,6 +637,106 @@ struct RailgunTaskShell: View {
             canCreateTask: !appStore.state.session.isLoading,
             canStop: appStore.state.transcript.isRunning && !appStore.state.transcript.isStopping
         )
+    }
+
+    static func controlsAreDisabled(_ controls: RailgunControlsState, isRunActive: Bool) -> Bool {
+        !controls.isReadyForMutation || isRunActive
+    }
+
+    private var controlsAreDisabled: Bool {
+        Self.controlsAreDisabled(
+            appStore.state.controls,
+            isRunActive: appStore.state.transcript.isRunning
+        )
+    }
+
+    @ViewBuilder
+    private var modelControlsMenu: some View {
+        Menu {
+            ForEach(appStore.state.controls.models) { model in
+                Button {
+                    Task { await controlsCoordinator.useModel(model.id) }
+                } label: {
+                    selectionLabel(model.name, isSelected: appStore.state.controls.activeModelID == model.id)
+                }
+            }
+        } label: {
+            Label("Model", systemImage: "cpu")
+        }
+        .disabled(controlsAreDisabled)
+        .accessibilityIdentifier("task-model-menu")
+    }
+
+    @ViewBuilder
+    private var agentControlsMenu: some View {
+        Menu {
+            Menu("Mixture of Agents") {
+                Button {
+                    Task { await controlsCoordinator.selectMoAPreset(nil) }
+                } label: {
+                    selectionLabel("Off", isSelected: appStore.state.controls.activeMoAPresetName == nil)
+                }
+                ForEach(appStore.state.controls.moaPresets) { preset in
+                    Button {
+                        Task { await controlsCoordinator.selectMoAPreset(preset.name) }
+                    } label: {
+                        selectionLabel(
+                            preset.name,
+                            isSelected: appStore.state.controls.activeMoAPresetName == preset.name
+                        )
+                    }
+                }
+            }
+
+            Divider()
+
+            Toggle("Enable Advisor", isOn: advisorEnabledBinding)
+
+            Menu("Advisor Model") {
+                ForEach(appStore.state.controls.models) { model in
+                    Button {
+                        Task {
+                            await controlsCoordinator.configureAdvisor(.init(
+                                isEnabled: appStore.state.controls.advisor.isEnabled,
+                                modelID: model.id
+                            ))
+                        }
+                    } label: {
+                        selectionLabel(
+                            model.name,
+                            isSelected: appStore.state.controls.advisor.modelID == model.id
+                        )
+                    }
+                }
+            }
+        } label: {
+            Label("Agents", systemImage: "person.2")
+        }
+        .disabled(controlsAreDisabled)
+        .accessibilityIdentifier("task-agent-menu")
+    }
+
+    private var advisorEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { appStore.state.controls.advisor.isEnabled },
+            set: { isEnabled in
+                guard let modelID = appStore.state.controls.advisor.modelID
+                    ?? appStore.state.controls.activeModelID
+                else { return }
+                Task {
+                    await controlsCoordinator.configureAdvisor(.init(isEnabled: isEnabled, modelID: modelID))
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func selectionLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
     }
 
     private func createTask() {
@@ -766,6 +884,7 @@ struct RailgunTaskShell: View {
         VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
             interactionPrompts
             queuedMessageAcknowledgements
+            taskControlsStatus
             composerSurface
             composerSubmissionError
             composerKeyboardHint
@@ -773,6 +892,21 @@ struct RailgunTaskShell: View {
         .padding(RailgunSpacing.standard.points)
         .frame(maxWidth: Self.composerMaximumWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var taskControlsStatus: some View {
+        if let error = appStore.state.controls.error {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(RailgunFont.interface(.caption))
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("task-controls-error")
+        } else if appStore.state.controls.isLoading {
+            ProgressView("Loading task controls…")
+                .controlSize(.small)
+                .font(RailgunFont.interface(.caption))
+                .accessibilityIdentifier("task-controls-loading")
+        }
     }
 
     @ViewBuilder
@@ -1707,7 +1841,8 @@ struct RailgunXApp: App {
                 appStore: appStore,
                 sessionCoordinator: backendRuntime.sessionCoordinator,
                 promptCoordinator: backendRuntime.promptCoordinator,
-                interactionCoordinator: backendRuntime.interactionCoordinator
+                interactionCoordinator: backendRuntime.interactionCoordinator,
+                controlsCoordinator: backendRuntime.controlsCoordinator
             )
         case .authenticationRequired:
             RailgunBackendStatusView(

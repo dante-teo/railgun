@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatControlsSnapshot, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
+import type { ChatControlsSnapshot, ControlMutationResult, DesktopAgentEvent, RailgunDesktopApi } from "../../shared/types";
 import { ChatToolbarControls, formatContextUsage } from "./ChatControls";
 
 afterEach(cleanup);
@@ -50,8 +50,8 @@ describe("chat toolbar controls", () => {
     }
   });
 
-  it("searches models with keyboard selection and an explicit persistence choice", async () => {
-    const setChatModel = vi.fn(async () => ({ controls: { ...controls, activeModelId: "model-b", contextWindow: 100_000 }, persistence: "session-only" as const }));
+  it("selects a searched model with the keyboard and saves it as the default", async () => {
+    const setChatModel = vi.fn(async () => ({ controls: { ...controls, activeModelId: "model-b", defaultModelId: "model-b", contextWindow: 100_000 }, persistence: "saved" as const }));
     makeApi({ setChatModel });
     render(<ChatToolbarControls running={false} available resetKey={0} />);
     fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
@@ -59,13 +59,12 @@ describe("chat toolbar controls", () => {
     fireEvent.change(search, { target: { value: "vision" } });
     expect(screen.getByRole("option", { name: /Beta Vision/u })).toBeTruthy();
     fireEvent.keyDown(search, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: "This task" }));
-    await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b", "chat"));
+    await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b"));
   });
 
   it("starts keyboard navigation on the active model", async () => {
     const activeControls = { ...controls, activeModelId: "model-b" };
-    const setChatModel = vi.fn(async () => ({ controls: activeControls, persistence: "session-only" as const }));
+    const setChatModel = vi.fn(async () => ({ controls: activeControls, persistence: "saved" as const }));
     makeApi({ getChatControls: async () => activeControls, setChatModel });
     render(<ChatToolbarControls running={false} available resetKey={0} />);
     fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
@@ -73,19 +72,19 @@ describe("chat toolbar controls", () => {
 
     expect(search.getAttribute("aria-activedescendant")).toBe("model-option-1");
     fireEvent.keyDown(search, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: "This task" }));
 
-    await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b", "chat"));
+    await waitFor(() => expect(setChatModel).toHaveBeenCalledWith("model-b"));
   });
 
-  it("does not apply a model hidden by a search until the user selects a visible result", async () => {
-    const setChatModel = vi.fn(async () => ({ controls, persistence: "session-only" as const }));
+  it("does not change a model when the search has no visible result", async () => {
+    const setChatModel = vi.fn(async () => ({ controls, persistence: "saved" as const }));
     makeApi({ setChatModel });
     render(<ChatToolbarControls running={false} available resetKey={0} />);
     fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "vision" } });
 
-    expect(screen.getByRole("button", { name: "This task" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "This task" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Make default" })).toBeNull();
     expect(setChatModel).not.toHaveBeenCalled();
   });
 
@@ -128,9 +127,33 @@ describe("chat toolbar controls", () => {
     render(<ChatToolbarControls running={false} available resetKey={0} />);
     fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
     fireEvent.click(screen.getByRole("option", { name: /Beta Vision/u }));
-    fireEvent.click(screen.getByRole("button", { name: "Make default" }));
     expect((await screen.findByRole("alert")).textContent).toContain("selection rejected");
     expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("allows only one model selection while a change is pending", async () => {
+    let resolveSelection: ((result: ControlMutationResult) => void) | undefined;
+    const pendingSelection = new Promise<ControlMutationResult>(resolve => { resolveSelection = resolve; });
+    const setChatModel = vi.fn(() => pendingSelection);
+    makeApi({ setChatModel });
+    render(<ChatToolbarControls running={false} available resetKey={0} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Choose model" }));
+    fireEvent.click(screen.getByRole("option", { name: /Beta Vision/u }));
+
+    await waitFor(() => expect(setChatModel).toHaveBeenCalledOnce());
+    expect(screen.getByRole("option", { name: /Alpha/u })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("option", { name: /Beta Vision/u })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByRole("option", { name: /Alpha/u }));
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Search models" }), { key: "Enter" });
+    expect(setChatModel).toHaveBeenCalledOnce();
+
+    resolveSelection?.({
+      controls: { ...controls, activeModelId: "model-b", defaultModelId: "model-b" },
+      persistence: "saved",
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose a model" })).toBeNull());
   });
 
   it("exposes compaction in agent settings, resets usage after success, and disables empty history", async () => {

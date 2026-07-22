@@ -8,7 +8,6 @@ import type {
   MockScenarioSchema,
   TransportLogEntrySchema,
   ChatControlsSnapshotSchema,
-  ModelPersistenceModeSchema,
   AgentControlUpdateSchema,
   ControlMutationResultSchema,
   DesktopModelMetadataSchema,
@@ -49,7 +48,6 @@ export type DesktopAgentEvent = z.infer<typeof DesktopAgentEventSchema>;
 export type AppCommand = z.infer<typeof AppCommandSchema>;
 export type DesktopInteractionRequest = z.infer<typeof DesktopInteractionRequestSchema>;
 export type ChatControlsSnapshot = z.infer<typeof ChatControlsSnapshotSchema>;
-export type ModelPersistenceMode = z.infer<typeof ModelPersistenceModeSchema>;
 export type AgentControlUpdate = z.infer<typeof AgentControlUpdateSchema>;
 export type ControlMutationResult = z.infer<typeof ControlMutationResultSchema>;
 export type DesktopModelMetadata = z.infer<typeof DesktopModelMetadataSchema>;
@@ -128,7 +126,7 @@ export interface RailgunDesktopApi extends KnowledgeDesktopApi {
   showSessionContextMenu: (sessionId: string) => Promise<"fork" | null>;
   onSessionSnapshot: (listener: (snapshot: SessionSnapshot) => void) => () => void;
   getChatControls: () => Promise<ChatControlsSnapshot>;
-  setChatModel: (modelId: string, persistence: ModelPersistenceMode) => Promise<ControlMutationResult>;
+  setChatModel: (modelId: string) => Promise<ControlMutationResult>;
   updateAgentControls: (update: AgentControlUpdate) => Promise<ControlMutationResult>;
   compactContext: () => Promise<ControlMutationResult>;
   getSettings: () => Promise<SettingsSnapshot>;

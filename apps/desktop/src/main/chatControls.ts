@@ -4,13 +4,11 @@ import {
   ChatControlsSnapshotSchema,
   ControlMutationResultSchema,
   DESKTOP_CONTROL_LIMITS,
-  ModelPersistenceModeSchema,
 } from "../shared/schemas";
 import type {
   AgentControlUpdate,
   ChatControlsSnapshot,
   ControlMutationResult,
-  ModelPersistenceMode,
 } from "../shared/types";
 import type { BackendRpcCommand } from "./backendSupervisor";
 import { createMutationQueue } from "./mutationQueue";
@@ -141,15 +139,11 @@ export const createChatControlsService = (backend: ChatControlsBackend, mutation
 
   const mutate = <T>(operation: () => Promise<T>): Promise<T> => mutations.run(operation);
 
-  const setModel = (rawModelId: string, rawPersistence: ModelPersistenceMode): Promise<ControlMutationResult> => mutate(async () => {
+  const setModel = (rawModelId: string): Promise<ControlMutationResult> => mutate(async () => {
     const selectedModelId = modelId.parse(rawModelId);
-    const persistence = ModelPersistenceModeSchema.parse(rawPersistence);
     const before = await get();
     if (!before.models.some(model => model.id === selectedModelId)) throw new Error(`Unknown model: ${selectedModelId}`);
     await backend.call({ type: "set_model", modelId: selectedModelId }, validateEmpty);
-    if (persistence === "chat") {
-      return ControlMutationResultSchema.parse({ controls: await get(), persistence: "session-only" });
-    }
     try {
       await backend.call(
         { type: "config_update", patch: { model: selectedModelId } },

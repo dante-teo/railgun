@@ -147,6 +147,21 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertEqual(store.state.transcript.messages.last?.status, .complete)
         XCTAssertFalse(store.state.transcript.isRunning)
         XCTAssertFalse(store.state.transcript.isStopping)
+        XCTAssertFalse(store.state.controls.isBackendRunning)
+    }
+
+    func testRunStartMarksControlsUnavailableBeforeTheTranscriptSettles() {
+        let store = RailgunAppStore()
+
+        store.send(.agentEvent(.runStarted))
+
+        XCTAssertTrue(store.state.transcript.isRunning)
+        XCTAssertTrue(store.state.controls.isBackendRunning)
+        XCTAssertFalse(store.state.controls.isReadyForMutation)
+
+        store.send(.agentEvent(.runEnded))
+
+        XCTAssertFalse(store.state.controls.isBackendRunning)
     }
 
     func testSessionHydrationKeepsTranscriptChronologyAndActivitySeparate() {

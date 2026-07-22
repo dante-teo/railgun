@@ -314,7 +314,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-032` — Implement prompt, steering, follow-up, FIFO acknowledgement, and the Task, Settings, and sidebar menu commands that route those workflows. `[8h]`
 - [x] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`
 - [x] `SWFT-033` — Build arrival-ordered approval and clarification prompts with native buttons, fields, pickers, response settlement, focus recovery, and keyboard handling. `[8h]`
-- [ ] `SWFT-034` — Implement model selection and persistence plus MoA and advisor controls with native menus, mutation guards, and focused state tests. `[8h]`
+- [x] `SWFT-034` — Implement model selection and persistence plus MoA and advisor controls with native menus, mutation guards, and focused state tests. `[8h]`
 - [ ] `SWFT-086` — Implement context-usage presentation and compaction workflows, including availability, progress, completion, failure, and restored-session behavior. `[8h]`
 - [ ] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and restart recovery surfaces, including the retry command. `[8h]`
 
@@ -354,7 +354,8 @@ contract and Classic's supported behavior.
 ### 6. Settings, provider, and knowledge parity
 
 - [ ] `SWFT-053` — Build the native Settings shell and implement General and Trust forms, including search, model, timeout, archive retention, approval mode, smart review, mutation guards, and dirty-edit confirmation. `[8h]`
-- [ ] `SWFT-055` — Implement Agent MoA/advisor settings and mutation guards. `[8h]`
+- [ ] `SWFT-055` — Extend native Settings with Agent configuration management,
+  validation, and mutation guards. `[8h]`
 - [ ] `SWFT-057` — Implement provider status, sign-in/out, environment-token messaging, and recovery. `[8h]`
 - [ ] `SWFT-058` — Implement the redacted MCP list, status and detail presentation, refresh, and guarded removal. `[8h]`
 - [ ] `SWFT-089` — Implement MCP create/edit workflows with serialized configuration mutation, explicit secret replacement, unknown-field preservation, validation, and discard protection. `[8h]`

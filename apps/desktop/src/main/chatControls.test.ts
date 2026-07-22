@@ -48,7 +48,7 @@ describe("chat controls service", () => {
       const values = responses() as Record<string, unknown>;
       return validate(command.type === "get_state" ? { ...values.get_state as object, model: "model-a" } : values[command.type]);
     });
-    const result = await service.setModel("model-a", "default");
+    const result = await service.setModel("model-a");
     expect(call.mock.calls.map(([command]) => command.type)).toContain("set_model");
     expect(result.persistence).toBe("partial");
     expect(result.warning).toContain("default was not saved");

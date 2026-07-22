@@ -152,11 +152,10 @@ describe("preload desktop bridge", () => {
     await expect(api.getChatControls()).resolves.toEqual(controls);
     expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.getChatControls);
 
-    invoke.mockResolvedValueOnce({ controls, persistence: "session-only" });
-    await expect(api.setChatModel("model-a", "chat")).resolves.toMatchObject({ persistence: "session-only" });
-    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.setChatModel, "model-a", "chat");
-    await expect(api.setChatModel("", "chat")).rejects.toThrow();
-    await expect(api.setChatModel("model-a", "forever" as never)).rejects.toThrow();
+    invoke.mockResolvedValueOnce({ controls, persistence: "saved" });
+    await expect(api.setChatModel("model-a")).resolves.toMatchObject({ persistence: "saved" });
+    expect(invoke).toHaveBeenLastCalledWith(DESKTOP_IPC.setChatModel, "model-a");
+    await expect(api.setChatModel("")).rejects.toThrow();
 
     invoke.mockResolvedValueOnce({ controls, persistence: "saved" });
     await expect(api.updateAgentControls({ moaPreset: null })).resolves.toMatchObject({ persistence: "saved" });

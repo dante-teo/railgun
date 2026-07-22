@@ -26,7 +26,6 @@ import {
   InteractionCorrelationIdSchema,
   MockScenarioIdSchema,
   MockScenarioListSchema,
-  ModelPersistenceModeSchema,
   PromptTextSchema,
   SessionIdSchema,
   SessionSnapshotSchema,
@@ -397,10 +396,10 @@ const registerIpc = (): void => {
     assertAuthorizedIpcSender(event, senderContext);
     return chatControls.get();
   });
-  ipcMain.handle(DESKTOP_IPC.setChatModel, async (event, modelId: unknown, persistence: unknown) => {
+  ipcMain.handle(DESKTOP_IPC.setChatModel, async (event, modelId: unknown) => {
     assertAuthorizedIpcSender(event, senderContext);
     authenticationCoordinator.assertTaskMutationAllowed();
-    const result = await chatControls.setModel(ChatModelIdSchema.parse(modelId), ModelPersistenceModeSchema.parse(persistence));
+    const result = await chatControls.setModel(ChatModelIdSchema.parse(modelId));
     broadcastSessionSnapshot(await sessionService.snapshot());
     return result;
   });
