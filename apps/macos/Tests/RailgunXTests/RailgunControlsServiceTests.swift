@@ -89,7 +89,10 @@ final class RailgunControlsServiceTests: XCTestCase {
 
         let snapshot = try await service.load()
 
-        XCTAssertEqual(snapshot.models, [.init(id: "primary", name: "Primary"), .init(id: "advisor", name: "Advisor")])
+        XCTAssertEqual(snapshot.models, [
+            .init(id: "primary", name: "Primary", contextWindow: 100_000),
+            .init(id: "advisor", name: "Advisor", contextWindow: 100_000),
+        ])
         XCTAssertEqual(snapshot.activeModelID, "primary")
         XCTAssertEqual(snapshot.defaultModelID, "primary")
         XCTAssertTrue(snapshot.isBackendRunning)
@@ -286,6 +289,81 @@ final class RailgunControlsServiceTests: XCTestCase {
         XCTAssertEqual(commandsDuringRun.filter { $0.type == .setModel }.count, 0)
     }
 
+    func testCompactionServiceSendsAFieldlessRequestAndRequiresAnEmptyAcknowledgement() async throws {
+        let recorder = ControlsCommandRecorder()
+        let compactCommand = try RailgunRPCCommand(type: .compact)
+        let service = RailgunCompactionService { command in
+            await recorder.record(command)
+            return try controlsResponse(for: .compact)
+        }
+
+        try await service.compact()
+
+        let commands = await recorder.commands()
+        XCTAssertEqual(commands, [compactCommand])
+
+        let malformed = RailgunCompactionService { _ in
+            try controlsResponse(for: .compact, data: .object([:]))
+        }
+        do {
+            try await malformed.compact()
+            XCTFail("Expected malformed acknowledgement to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RailgunCompactionServiceError, .invalidResponse)
+        }
+    }
+
+    func testCompactionServiceRedactsRejectedErrorsAndCoordinatorAllowsRetryAfterFailure() async throws {
+        let attempts = CompactionAttemptCounter()
+        let compactCommand = try RailgunRPCCommand(type: .compact)
+        let service = RailgunCompactionService { command in
+            XCTAssertEqual(command, compactCommand)
+            if await attempts.next() == 1 {
+                return try controlsFailure(for: .compact, error: "token=secret")
+            }
+            return try controlsResponse(for: .compact)
+        }
+        let store = RailgunAppStore()
+        store.send(.controls(.loaded(compactionSnapshot)))
+        store.send(.transcript(.submit(id: "user", text: "Compact this", at: 0)))
+        store.send(.transcript(.runEnded(at: 1)))
+        let coordinator = RailgunCompactionCoordinator(store: store, service: service)
+
+        await coordinator.compact()
+
+        guard case let .failed(message) = store.state.controls.compactionStatus else {
+            return XCTFail("Expected a recoverable compaction failure")
+        }
+        XCTAssertFalse(message.contains("secret"))
+        XCTAssertTrue(store.state.controls.isReadyForMutation)
+
+        await coordinator.compact()
+
+        XCTAssertEqual(store.state.controls.compactionStatus, .completed)
+        XCTAssertNil(store.state.controls.contextUsage)
+        let attemptCount = await attempts.value
+        XCTAssertEqual(attemptCount, 2)
+    }
+
+    func testCompactionCoordinatorPreventsDuplicateRequestsWhileACompactionIsPending() async throws {
+        let recorder = ControlsCommandRecorder()
+        let service = RailgunCompactionService { command in
+            await recorder.record(command)
+            return try controlsResponse(for: .compact)
+        }
+        let store = RailgunAppStore()
+        store.send(.controls(.loaded(compactionSnapshot)))
+        store.send(.transcript(.submit(id: "user", text: "Compact this", at: 0)))
+        store.send(.controls(.compactionStarted))
+        let coordinator = RailgunCompactionCoordinator(store: store, service: service)
+
+        await coordinator.compact()
+
+        let commands = await recorder.commands()
+        XCTAssertTrue(commands.isEmpty)
+        XCTAssertEqual(store.state.controls.compactionStatus, .inProgress)
+    }
+
     private func assertInvalidControlsResponse(_ service: RailgunControlsService) async {
         do {
             _ = try await service.load()
@@ -307,6 +385,26 @@ private actor ControlsCommandRecorder {
 
     func commands() -> [RailgunRPCCommand] { recorded }
 }
+
+private actor CompactionAttemptCounter {
+    private var attempts = 0
+
+    func next() -> Int {
+        attempts += 1
+        return attempts
+    }
+
+    var value: Int { attempts }
+}
+
+private let compactionSnapshot = RailgunControlsSnapshot(
+    models: [.init(id: "primary", name: "Primary", contextWindow: 100_000)],
+    activeModelID: "primary",
+    defaultModelID: nil,
+    moaPresets: [],
+    activeMoAPresetName: nil,
+    advisor: .disabled
+)
 
 private func controlsModel(id: String, name: String? = nil) -> RailgunJSONValue {
     .object([

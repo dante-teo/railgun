@@ -237,6 +237,7 @@ final class RailgunBackendRuntime {
     let promptCoordinator: RailgunPromptCoordinator
     let interactionCoordinator: RailgunInteractionCoordinator
     let controlsCoordinator: RailgunControlsCoordinator
+    let compactionCoordinator: RailgunCompactionCoordinator
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
@@ -260,6 +261,10 @@ final class RailgunBackendRuntime {
             service: RailgunControlsService(rpcClient: client)
         )
         self.controlsCoordinator = controlsCoordinator
+        self.compactionCoordinator = RailgunCompactionCoordinator(
+            store: store,
+            service: RailgunCompactionService(rpcClient: client)
+        )
         let sessionCoordinator = RailgunSessionCoordinator(
             store: store,
             service: RailgunSessionService(rpcClient: client),
@@ -477,6 +482,29 @@ enum RailgunArchivedTasksSettingsPresentation: Equatable {
     }
 }
 
+struct RailgunContextUsagePresentation: Equatable {
+    let text: String
+    let accessibilityLabel: String
+
+    init(usage: RailgunContextUsage?, activeModel: RailgunModel?) {
+        guard let usage, let activeModel, activeModel.contextWindow > 0 else {
+            text = "Not measured yet"
+            accessibilityLabel = "Context usage not measured yet"
+            return
+        }
+
+        let used = usage.totalTokens
+        let window = activeModel.contextWindow
+        let percentage = used * 100 / window
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let usedText = formatter.string(from: used as NSNumber) ?? "\(used)"
+        let windowText = formatter.string(from: window as NSNumber) ?? "\(window)"
+        text = "\(usedText) / \(windowText) tokens (\(percentage)%)"
+        accessibilityLabel = "Latest provider-reported input plus output tokens: \(usedText) of \(windowText) tokens, \(percentage) percent"
+    }
+}
+
 private enum RailgunTaskSymbol {
     static let activity = "rectangle.3.group"
 }
@@ -537,6 +565,7 @@ struct RailgunTaskShell: View {
     private let promptCoordinator: RailgunPromptCoordinator
     private let interactionCoordinator: RailgunInteractionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
+    private let compactionCoordinator: RailgunCompactionCoordinator
     @State private var transcriptFollowState = RailgunTranscriptFollowState.initial
     @State private var previousTranscriptGeometry: RailgunScrollGeometry?
     @State private var transcriptScrollPosition = ScrollPosition(edge: .bottom)
@@ -554,13 +583,15 @@ struct RailgunTaskShell: View {
         sessionCoordinator: RailgunSessionCoordinator,
         promptCoordinator: RailgunPromptCoordinator,
         interactionCoordinator: RailgunInteractionCoordinator,
-        controlsCoordinator: RailgunControlsCoordinator
+        controlsCoordinator: RailgunControlsCoordinator,
+        compactionCoordinator: RailgunCompactionCoordinator
     ) {
         _appStore = Bindable(appStore)
         self.sessionCoordinator = sessionCoordinator
         self.promptCoordinator = promptCoordinator
         self.interactionCoordinator = interactionCoordinator
         self.controlsCoordinator = controlsCoordinator
+        self.compactionCoordinator = compactionCoordinator
     }
 
     var body: some View {
@@ -571,7 +602,8 @@ struct RailgunTaskShell: View {
                 activity: presentedActivity,
                 isActivityAvailable: isActivityAvailable,
                 isActivityCardVisible: $isActivityCardVisible,
-                isFloatingActivityPresented: isFloatingActivityPresented
+                isFloatingActivityPresented: isFloatingActivityPresented,
+                isSessionSelectionDisabled: isTaskControlLocked
             )
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
@@ -614,7 +646,7 @@ struct RailgunTaskShell: View {
                         } label: {
                             Label("Archive Task", systemImage: "archivebox")
                         }
-                        .disabled(Self.isArchiveActionDisabled(for: appStore.state.session))
+                        .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskControlLocked)
                     }
                 }
         }
@@ -634,9 +666,16 @@ struct RailgunTaskShell: View {
 
     private var commandAvailability: RailgunTaskCommandAvailability {
         .init(
-            canCreateTask: !appStore.state.session.isLoading,
+            canCreateTask: Self.canCreateTask(
+                session: appStore.state.session,
+                controls: appStore.state.controls
+            ),
             canStop: appStore.state.transcript.isRunning && !appStore.state.transcript.isStopping
         )
+    }
+
+    static func canCreateTask(session: RailgunSessionState, controls: RailgunControlsState) -> Bool {
+        !session.isLoading && !controls.compactionStatus.isInProgress
     }
 
     static func controlsAreDisabled(_ controls: RailgunControlsState, isRunActive: Bool) -> Bool {
@@ -647,6 +686,26 @@ struct RailgunTaskShell: View {
         Self.controlsAreDisabled(
             appStore.state.controls,
             isRunActive: appStore.state.transcript.isRunning
+        )
+    }
+
+    private var isTaskControlLocked: Bool {
+        appStore.state.controls.compactionStatus.isInProgress
+    }
+
+    static func isCompactionDisabled(
+        _ controls: RailgunControlsState,
+        isRunActive: Bool,
+        hasTranscript: Bool
+    ) -> Bool {
+        !controls.isReadyForMutation || isRunActive || !hasTranscript
+    }
+
+    private var isCompactionDisabled: Bool {
+        Self.isCompactionDisabled(
+            appStore.state.controls,
+            isRunActive: appStore.state.transcript.isRunning,
+            hasTranscript: !appStore.state.transcript.messages.isEmpty
         )
     }
 
@@ -709,6 +768,20 @@ struct RailgunTaskShell: View {
                     }
                 }
             }
+
+            Divider()
+
+            Button {
+                Task { await compactionCoordinator.compact() }
+            } label: {
+                Label(
+                    appStore.state.controls.compactionStatus.isInProgress
+                        ? "Compacting context…"
+                        : "Compact Context",
+                    systemImage: "arrow.triangle.2.circlepath"
+                )
+            }
+            .disabled(isCompactionDisabled)
         } label: {
             Label("Agents", systemImage: "person.2")
         }
@@ -896,16 +969,37 @@ struct RailgunTaskShell: View {
 
     @ViewBuilder
     private var taskControlsStatus: some View {
-        if let error = appStore.state.controls.error {
-            Label(error, systemImage: "exclamationmark.triangle.fill")
-                .font(RailgunFont.interface(.caption))
-                .foregroundStyle(.orange)
-                .accessibilityIdentifier("task-controls-error")
-        } else if appStore.state.controls.isLoading {
-            ProgressView("Loading task controls…")
+        switch appStore.state.controls.compactionStatus {
+        case .inProgress:
+            ProgressView("Compacting context…")
                 .controlSize(.small)
                 .font(RailgunFont.interface(.caption))
-                .accessibilityIdentifier("task-controls-loading")
+                .accessibilityIdentifier("context-compaction-progress")
+        case .completed:
+            Label(
+                "Compacted conversation history to stay under the context limit.",
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(RailgunFont.interface(.caption))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("context-compaction-completed")
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(RailgunFont.interface(.caption))
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("context-compaction-error")
+        case .unavailable:
+            if let error = appStore.state.controls.error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(RailgunFont.interface(.caption))
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("task-controls-error")
+            } else if appStore.state.controls.isLoading {
+                ProgressView("Loading task controls…")
+                    .controlSize(.small)
+                    .font(RailgunFont.interface(.caption))
+                    .accessibilityIdentifier("task-controls-loading")
+            }
         }
     }
 
@@ -1195,6 +1289,8 @@ struct RailgunTaskShell: View {
                     .accessibilityLabel("Submitting message")
             }
 
+            contextUsageFooter
+
             Spacer(minLength: 0)
 
             if appStore.state.transcript.isRunning {
@@ -1219,6 +1315,19 @@ struct RailgunTaskShell: View {
                 .accessibilityIdentifier("task-composer-send")
             }
         }
+    }
+
+    private var contextUsageFooter: some View {
+        let presentation = RailgunContextUsagePresentation(
+            usage: appStore.state.controls.contextUsage,
+            activeModel: appStore.state.controls.activeModel
+        )
+        return Text(presentation.text)
+            .font(RailgunFont.interface(.caption))
+            .foregroundStyle(.secondary)
+            .help("Latest provider-reported input plus output tokens")
+            .accessibilityLabel(presentation.accessibilityLabel)
+            .accessibilityIdentifier("context-usage")
     }
 
     private var composerInput: some View {
@@ -1279,6 +1388,7 @@ struct RailgunTaskShell: View {
         !isComposerSubmissionInFlight
             && !appStore.state.transcript.isStopping
             && appStore.state.interactions.requests.isEmpty
+            && !isTaskControlLocked
     }
 
     private var canSubmitComposerDraft: Bool {
@@ -1470,6 +1580,7 @@ private struct RailgunTaskSidebar: View {
     let isActivityAvailable: Bool
     let isActivityCardVisible: Binding<Bool>
     let isFloatingActivityPresented: Binding<Bool>
+    let isSessionSelectionDisabled: Bool
 
     var body: some View {
         ScrollView {
@@ -1490,6 +1601,7 @@ private struct RailgunTaskSidebar: View {
                         isSelected: selection.wrappedValue == summary.id,
                         select: { selection.wrappedValue = summary.id }
                     )
+                    .disabled(isSessionSelectionDisabled)
                 }
             }
             }
@@ -1842,7 +1954,8 @@ struct RailgunXApp: App {
                 sessionCoordinator: backendRuntime.sessionCoordinator,
                 promptCoordinator: backendRuntime.promptCoordinator,
                 interactionCoordinator: backendRuntime.interactionCoordinator,
-                controlsCoordinator: backendRuntime.controlsCoordinator
+                controlsCoordinator: backendRuntime.controlsCoordinator,
+                compactionCoordinator: backendRuntime.compactionCoordinator
             )
         case .authenticationRequired:
             RailgunBackendStatusView(

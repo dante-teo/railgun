@@ -204,10 +204,10 @@ actor RailgunControlsService {
                   inputValues.allSatisfy({ $0.stringValue == "text" || $0.stringValue == "image" }),
                   object["supportsTools"]?.boolValue == true,
                   object["reasoning"]?.boolValue != nil,
-                  positiveInteger(object["contextWindow"]) != nil,
+                  let contextWindow = positiveInteger(object["contextWindow"]),
                   positiveInteger(object["maxTokens"]) != nil
             else { throw RailgunControlsServiceError.invalidResponse }
-            return .init(id: id, name: name)
+            return .init(id: id, name: name, contextWindow: contextWindow)
         }
     }
 

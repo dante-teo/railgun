@@ -68,7 +68,11 @@ enum RailgunAppReducer {
             switch next.backend.phase {
             case let .failed(message), let .disconnected(message):
                 return settleInterruptedRun(next, message: message)
-            case .starting, .ready, .authenticationRequired:
+            case .starting:
+                next.controls = RailgunControlsReducer.reduce(next.controls, .contextReset(.backend))
+                next.controls = RailgunControlsReducer.reduce(next.controls, .compactionUnavailable)
+                return next
+            case .ready, .authenticationRequired:
                 return next
             }
         case let .session(action):
@@ -81,6 +85,8 @@ enum RailgunAppReducer {
                 next.activity = RailgunActivityReducer.hydrate(transcript, todos: todos)
                 next.session.activeSessionID = activeSessionID
                 next.interactions = .initial
+                next.controls = RailgunControlsReducer.reduce(next.controls, .contextReset(.newChat))
+                next.controls = RailgunControlsReducer.reduce(next.controls, .compactionUnavailable)
                 return next
             case .created:
                 var next = state
@@ -88,6 +94,8 @@ enum RailgunAppReducer {
                 next.transcript = .initial
                 next.activity = .initial
                 next.interactions = .initial
+                next.controls = RailgunControlsReducer.reduce(next.controls, .contextReset(.newChat))
+                next.controls = RailgunControlsReducer.reduce(next.controls, .compactionUnavailable)
                 return next
             default:
                 var next = state
@@ -633,11 +641,23 @@ enum RailgunTranscriptReducer {
     }
 }
 
-struct RailgunContextUsage: Equatable { let inputTokens: Int; let outputTokens: Int }
+struct RailgunContextUsage: Equatable {
+    let inputTokens: Int
+    let outputTokens: Int
+
+    var totalTokens: Int { inputTokens + outputTokens }
+}
 
 struct RailgunModel: Equatable, Identifiable, Sendable {
     let id: String
     let name: String
+    let contextWindow: Int
+
+    init(id: String, name: String, contextWindow: Int = 0) {
+        self.id = id
+        self.name = name
+        self.contextWindow = contextWindow
+    }
 }
 
 struct RailgunMoAPreset: Equatable, Identifiable, Sendable {
@@ -733,6 +753,7 @@ struct RailgunControlsState: Equatable {
     var isLoaded: Bool
     var isBackendRunning: Bool
     var isMutating: Bool
+    var compactionStatus: RailgunCompactionStatus
     var error: String?
 
     static let initial = Self(
@@ -748,11 +769,28 @@ struct RailgunControlsState: Equatable {
         isLoaded: false,
         isBackendRunning: false,
         isMutating: false,
+        compactionStatus: .unavailable,
         error: nil
     )
 
     var isReadyForMutation: Bool {
-        isLoaded && !isLoading && !isBackendRunning && !isMutating
+        isLoaded && !isLoading && !isBackendRunning && !isMutating && !compactionStatus.isInProgress
+    }
+
+    var activeModel: RailgunModel? {
+        models.first(where: { $0.id == activeModelID })
+    }
+}
+
+enum RailgunCompactionStatus: Equatable {
+    case unavailable
+    case inProgress
+    case completed
+    case failed(String)
+
+    var isInProgress: Bool {
+        if case .inProgress = self { return true }
+        return false
     }
 }
 
@@ -766,6 +804,10 @@ enum RailgunControlsAction: Equatable {
     case mutationStarted
     case mutationFinished(RailgunControlsSnapshot, warning: String?)
     case mutationFailed(String)
+    case compactionUnavailable
+    case compactionStarted
+    case compactionFinished
+    case compactionFailed(String)
 }
 
 enum RailgunControlsReducer {
@@ -776,17 +818,21 @@ enum RailgunControlsReducer {
             next.isLoading = true
             next.isLoaded = false
             next.isMutating = false
+            next.compactionStatus = .unavailable
             next.error = nil
         case let .loaded(snapshot):
             apply(snapshot, to: &next)
+            resetUsageIfModelChanged(from: state.activeModelID, to: snapshot.activeModelID, state: &next)
             next.isLoading = false
             next.isLoaded = true
             next.isMutating = false
+            next.compactionStatus = .unavailable
             next.error = nil
         case let .loadFailed(message):
             next.isLoading = false
             next.isLoaded = false
             next.isMutating = false
+            next.compactionStatus = .unavailable
             next.error = message
         case let .contextUsage(usage): next.contextUsage = usage
         case let .contextReset(reason):
@@ -796,14 +842,29 @@ enum RailgunControlsReducer {
             next.isBackendRunning = isRunning
         case .mutationStarted:
             next.isMutating = true
+            next.compactionStatus = .unavailable
             next.error = nil
         case let .mutationFinished(snapshot, warning):
             apply(snapshot, to: &next)
+            resetUsageIfModelChanged(from: state.activeModelID, to: snapshot.activeModelID, state: &next)
             next.isMutating = false
+            next.compactionStatus = .unavailable
             next.error = warning
         case let .mutationFailed(message):
             next.isMutating = false
+            next.compactionStatus = .unavailable
             next.error = message
+        case .compactionUnavailable:
+            next.compactionStatus = .unavailable
+        case .compactionStarted:
+            next.compactionStatus = .inProgress
+            next.error = nil
+        case .compactionFinished:
+            next.contextUsage = nil
+            next.lastContextReset = .compaction
+            next.compactionStatus = .completed
+        case let .compactionFailed(message):
+            next.compactionStatus = .failed(message)
         }
         return next
     }
@@ -816,6 +877,16 @@ enum RailgunControlsReducer {
         state.activeMoAPresetName = snapshot.activeMoAPresetName
         state.advisor = snapshot.advisor
         state.isBackendRunning = snapshot.isBackendRunning
+    }
+
+    private static func resetUsageIfModelChanged(
+        from previousModelID: String?,
+        to activeModelID: String,
+        state: inout RailgunControlsState
+    ) {
+        guard let previousModelID, previousModelID != activeModelID else { return }
+        state.contextUsage = nil
+        state.lastContextReset = .model
     }
 }
 

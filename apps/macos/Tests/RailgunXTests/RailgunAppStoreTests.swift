@@ -268,6 +268,83 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertFalse(state.transcript.isRunning)
     }
 
+    func testContextUsageResetsForModelSessionAndBackendBoundariesWithoutHydratingTranscriptUsage() {
+        let snapshot = RailgunControlsSnapshot(
+            models: [.init(id: "primary", name: "Primary", contextWindow: 100_000)],
+            activeModelID: "primary",
+            defaultModelID: nil,
+            moaPresets: [],
+            activeMoAPresetName: nil,
+            advisor: .disabled
+        )
+        let changed = RailgunControlsSnapshot(
+            models: snapshot.models + [.init(id: "secondary", name: "Secondary", contextWindow: 200_000)],
+            activeModelID: "secondary",
+            defaultModelID: nil,
+            moaPresets: [],
+            activeMoAPresetName: nil,
+            advisor: .disabled
+        )
+        var state = RailgunAppReducer.reduce(.initial, .controls(.loaded(snapshot)))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextUsage(inputTokens: 30, outputTokens: 20)))
+        state = RailgunAppReducer.reduce(state, .controls(.mutationFinished(changed, warning: nil)))
+        XCTAssertNil(state.controls.contextUsage)
+        XCTAssertEqual(state.controls.lastContextReset, .model)
+
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextUsage(inputTokens: 30, outputTokens: 20)))
+        state = RailgunAppReducer.reduce(state, .controls(.loaded(snapshot)))
+        XCTAssertNil(state.controls.contextUsage)
+        XCTAssertEqual(state.controls.lastContextReset, .model)
+
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextUsage(inputTokens: 30, outputTokens: 20)))
+        state = RailgunAppReducer.reduce(state, .session(.created(id: "new", model: "secondary")))
+        XCTAssertNil(state.controls.contextUsage)
+        XCTAssertEqual(state.controls.lastContextReset, .newChat)
+
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextUsage(inputTokens: 30, outputTokens: 20)))
+        state = RailgunAppReducer.reduce(state, .backend(.starting))
+        XCTAssertNil(state.controls.contextUsage)
+        XCTAssertEqual(state.controls.lastContextReset, .backend)
+
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextUsage(inputTokens: 30, outputTokens: 20)))
+        state = RailgunAppReducer.reduce(state, .session(.hydrated(
+            activeSessionID: "restored",
+            transcript: [.message(role: .user, text: "Restored")],
+            todos: [],
+            isRunning: false
+        )))
+        XCTAssertNil(state.controls.contextUsage)
+        XCTAssertEqual(state.controls.lastContextReset, .newChat)
+    }
+
+    func testCompactionTransitionsResetUsageAndUnlockControlsAfterFailure() {
+        let snapshot = RailgunControlsSnapshot(
+            models: [.init(id: "primary", name: "Primary", contextWindow: 100_000)],
+            activeModelID: "primary",
+            defaultModelID: nil,
+            moaPresets: [],
+            activeMoAPresetName: nil,
+            advisor: .disabled
+        )
+        var state = RailgunAppReducer.reduce(.initial, .controls(.loaded(snapshot)))
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextUsage(inputTokens: 70, outputTokens: 30)))
+        state = RailgunAppReducer.reduce(state, .controls(.compactionStarted))
+        XCTAssertEqual(state.controls.compactionStatus, .inProgress)
+        XCTAssertFalse(state.controls.isReadyForMutation)
+
+        state = RailgunAppReducer.reduce(state, .controls(.compactionFailed("Try again")))
+        XCTAssertEqual(state.controls.compactionStatus, .failed("Try again"))
+        XCTAssertTrue(state.controls.isReadyForMutation)
+
+        state = RailgunAppReducer.reduce(state, .controls(.compactionFinished))
+        XCTAssertEqual(state.controls.compactionStatus, .completed)
+        XCTAssertNil(state.controls.contextUsage)
+        XCTAssertEqual(state.controls.lastContextReset, .compaction)
+
+        state = RailgunAppReducer.reduce(state, .agentEvent(.contextReset(reason: .compaction)))
+        XCTAssertEqual(state.controls.compactionStatus, .completed)
+    }
+
     func testDuplicateActivityStartDoesNotConsumeAChronologySlot() {
         var state = RailgunAppState.initial
         state = RailgunAppReducer.reduce(state, .agentEvent(.toolStarted(id: "tool", name: "read_file", input: nil)))

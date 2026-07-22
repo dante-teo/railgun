@@ -55,6 +55,14 @@ final class RailgunXAppTests: XCTestCase {
         )
     }
 
+    func testNewTaskAvailabilityRespectsTheCompactionLock() {
+        var controls = RailgunControlsState.initial
+        controls.compactionStatus = .inProgress
+
+        XCTAssertFalse(RailgunTaskShell.canCreateTask(session: .initial, controls: controls))
+        XCTAssertTrue(RailgunTaskShell.canCreateTask(session: .initial, controls: .initial))
+    }
+
     func testTaskCommandsUseNativeSceneRoutingAndKeyboardShortcuts() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -204,9 +212,41 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("task-model-menu"))
         XCTAssertTrue(source.contains("task-agent-menu"))
         XCTAssertTrue(source.contains("task-controls-error"))
+        XCTAssertTrue(source.contains("Compact Context"))
+        XCTAssertTrue(source.contains("Compacting context…"))
+        XCTAssertTrue(source.contains("context-compaction-completed"))
+        XCTAssertTrue(source.contains("context-compaction-error"))
         XCTAssertTrue(source.contains(".disabled(controlsAreDisabled)"))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: false))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: true))
+        XCTAssertTrue(RailgunTaskShell.isCompactionDisabled(.initial, isRunActive: false, hasTranscript: true))
+    }
+
+    func testContextUsagePresentationUsesExactTotalsAndAccessibleProviderSource() throws {
+        let model = RailgunModel(id: "model", name: "Model", contextWindow: 200_000)
+        var controls = RailgunControlsState.initial
+        controls.models = [model]
+        controls.activeModelID = model.id
+        XCTAssertEqual(controls.activeModel, model)
+        XCTAssertEqual(
+            RailgunContextUsagePresentation(
+                usage: .init(inputTokens: 100_000, outputTokens: 50_000),
+                activeModel: model
+            ).text,
+            "150,000 / 200,000 tokens (75%)"
+        )
+        XCTAssertEqual(
+            RailgunContextUsagePresentation(usage: nil, activeModel: model).text,
+            "Not measured yet"
+        )
+
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("Latest provider-reported input plus output tokens"))
+        XCTAssertTrue(source.contains("context-usage"))
     }
 
     func testInteractionPromptsUseNativeControlsAndKeepStopAvailable() throws {

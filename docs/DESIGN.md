@@ -234,7 +234,10 @@ the same model; text entry is reserved for free-form answers and preset names.
   footer actions such as Done; the selection-driven command palette is the
   intentional close-less exception. Anchored dropdowns include a material arrow
   and share the dense readable menu recipe with selects.
-  Compact is disabled during runs/control mutations and for empty history.
+  Compact is disabled during runs/control mutations and for empty history. While
+  a manual compaction is pending, every task-changing path—including the New
+  Task command, task selection, archiving, and composer submission—remains
+  locked until the compaction succeeds or fails.
   Context usage is the latest provider-reported input plus output total against
   the active model's context window and reads `Not measured yet` after model
   changes, compaction, restart, or New Task until another provider turn reports

@@ -315,7 +315,7 @@ contained, and RailgunX cannot run concurrently with Classic on shared data.
 - [x] `SWFT-085` — Implement Stop and cancellation, including delayed `runStarted` protection, partial-response settlement, queue blocking, and the Stop command. `[8h]`
 - [x] `SWFT-033` — Build arrival-ordered approval and clarification prompts with native buttons, fields, pickers, response settlement, focus recovery, and keyboard handling. `[8h]`
 - [x] `SWFT-034` — Implement model selection and persistence plus MoA and advisor controls with native menus, mutation guards, and focused state tests. `[8h]`
-- [ ] `SWFT-086` — Implement context-usage presentation and compaction workflows, including availability, progress, completion, failure, and restored-session behavior. `[8h]`
+- [x] `SWFT-086` — Implement context-usage presentation and compaction workflows, including availability, progress, completion, failure, and restored-session behavior. `[8h]`
 - [ ] `SWFT-036` — Add native loading, unavailable, authentication, disconnect, retry, and restart recovery surfaces, including the retry command. `[8h]`
 
 Milestone exit: the native app supports the core Task journey, restoration,
