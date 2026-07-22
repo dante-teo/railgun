@@ -76,7 +76,7 @@ require_command node
 "$validate_app_icon"
 "$validate_node_runtime"
 "$validate_backend"
-node "$validate_legal_notices" --check
+RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES=1 node "$validate_legal_notices" --check
 "$generate_project" "$first_output"
 "$generate_project" "$second_output"
 

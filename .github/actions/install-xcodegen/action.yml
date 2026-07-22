@@ -1,0 +1,21 @@
+name: Install pinned XcodeGen
+description: Download and verify the repository's pinned XcodeGen release.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/xcodegen-2.45.4.zip"
+        destination="$RUNNER_TEMP/xcodegen-2.45.4"
+        curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+          --output "$archive" \
+          https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+        echo '090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  '"$archive" | shasum -a 256 -c -
+        mkdir -p "$destination"
+        ditto -x -k "$archive" "$destination"
+        executable="$destination/xcodegen/bin/xcodegen"
+        chmod +x "$executable"
+        "$executable" --version | grep -q '2.45.4'
+        echo "$destination/xcodegen/bin" >> "$GITHUB_PATH"
