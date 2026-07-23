@@ -3,8 +3,6 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-project_root="$(cd "$script_dir/.." && pwd)"
-repository_root="$(cd "$project_root/../.." && pwd)"
 generate_project="$script_dir/generate-project.sh"
 sign_nested_code="$script_dir/sign-nested-code.sh"
 
@@ -76,6 +74,7 @@ xcodebuild archive \
   ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_IDENTITY="$identity" \
   RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY="$RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY" \
+  RAILGUNX_SPARKLE_FEED_ARCHITECTURE="$architecture" \
   MARKETING_VERSION="$version" \
   CURRENT_PROJECT_VERSION="$build_number"
 

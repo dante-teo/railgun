@@ -70,6 +70,13 @@ seed_backend_staging_inputs() {
   chmod +x "$scripts_directory/stage-backend.sh" "$scripts_directory/stage-node-runtime.sh"
 }
 
+seed_info_plist() {
+  local resources_directory="$output_directory/Resources"
+
+  mkdir -p "$resources_directory"
+  cp "$project_root/Resources/Info.plist" "$resources_directory/Info.plist"
+}
+
 if [[ $# -ne 1 ]]; then
   usage
 fi
@@ -86,3 +93,4 @@ xcodegen generate \
 
 seed_package_lockfile
 seed_backend_staging_inputs
+seed_info_plist

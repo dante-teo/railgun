@@ -9,6 +9,7 @@
     "start:mock": "RAILGUN_DESKTOP_BACKEND_MODE=mock electron-forge start",
     "typecheck": "tsc --noEmit",
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
+    "build:mock-backend": "vite build --config vite.mock.config.ts",
     "build:backend-assets": "node scripts/build-backend.mjs",
     "build": "pnpm run package",
     "package": "pnpm run build:backend-assets && electron-forge package",

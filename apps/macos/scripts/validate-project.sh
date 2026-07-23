@@ -3,6 +3,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_root="$(cd "$script_dir/../../.." && pwd)"
 generate_project="$script_dir/generate-project.sh"
 validate_app_icon="$script_dir/validate-app-icon-assets.sh"
 validate_legal_notices="$script_dir/generate-legal-notices.mjs"
@@ -73,7 +74,9 @@ validate_debug_launch_scheme() {
 
 require_command xcodebuild
 require_command node
+require_command pnpm
 "$validate_app_icon"
+pnpm --dir "$repository_root/apps/desktop" run build:mock-backend
 "$validate_node_runtime"
 "$validate_backend"
 RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES=1 node "$validate_legal_notices" --check

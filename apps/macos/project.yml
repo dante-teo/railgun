@@ -152,21 +152,12 @@ targets:
         # Keep the source/test module stable while the distributed app is named Railgun.
         PRODUCT_MODULE_NAME: RailgunX
         PRODUCT_BUNDLE_PACKAGE_TYPE: APPL
-        GENERATE_INFOPLIST_FILE: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Resources/Info.plist
         # Release tooling injects these from apps/desktop/package.json and the
         # tagged CI run. Keep the generated project independently buildable.
-        INFOPLIST_KEY_CFBundleShortVersionString: "$(MARKETING_VERSION)"
-        INFOPLIST_KEY_CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        INFOPLIST_KEY_CFBundleIconName: AppIcon
-        INFOPLIST_KEY_CFBundleDisplayName: Railgun
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
-        INFOPLIST_KEY_SUFeedURL: "https://github.com/dante-teo/railgun/releases/latest/download/Railgun-appcast-$(CURRENT_ARCH).xml"
-        INFOPLIST_KEY_SUPublicEDKey: "$(RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY)"
-        INFOPLIST_KEY_SUEnableAutomaticChecks: YES
-        INFOPLIST_KEY_SUAllowsAutomaticUpdates: YES
-        INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction: YES
-        INFOPLIST_KEY_SURequireSignedFeed: YES
+        RAILGUNX_SPARKLE_FEED_ARCHITECTURE: "$(CURRENT_ARCH)"
       configs:
         Debug:
           CODE_SIGNING_ALLOWED: NO

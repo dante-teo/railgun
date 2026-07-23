@@ -203,9 +203,14 @@ final class RailgunDesignSystemTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
             encoding: .utf8
         )
+        let infoPlist = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/Resources/Info.plist"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(project.contains("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon"))
-        XCTAssertTrue(project.contains("INFOPLIST_KEY_CFBundleIconName: AppIcon"))
+        XCTAssertTrue(infoPlist.contains("<key>CFBundleIconName</key>"))
+        XCTAssertTrue(infoPlist.contains("<string>AppIcon</string>"))
     }
 
     func testNativePresentationSurfacesUseTheBundleAppIcon() {

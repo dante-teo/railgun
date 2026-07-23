@@ -52,4 +52,4 @@ run(
 );
 console.log(`Verified better-sqlite3 for Electron ${electronVersion} (${process.arch}).`);
 
-run("pnpm", ["exec", "vite", "build", "--config", "vite.mock.config.ts"], desktopRoot);
+run("pnpm", ["run", "build:mock-backend"], desktopRoot);

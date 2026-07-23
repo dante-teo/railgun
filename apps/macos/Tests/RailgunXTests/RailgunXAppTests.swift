@@ -1061,6 +1061,56 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(project.contains("TEST_HOST: \"$(BUILT_PRODUCTS_DIR)/Railgun.app/Contents/MacOS/Railgun\""))
     }
 
+    func testNativeReleaseUsesAnExplicitSparkleInfoPlistAndArchitecture() throws {
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
+            encoding: .utf8
+        )
+        let infoPlist = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/Resources/Info.plist"),
+            encoding: .utf8
+        )
+        let archiveScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/archive-release.sh"),
+            encoding: .utf8
+        )
+        let projectGenerator = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/generate-project.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(project.contains("INFOPLIST_FILE: Resources/Info.plist"))
+        XCTAssertTrue(infoPlist.contains("<key>SUFeedURL</key>"))
+        XCTAssertTrue(infoPlist.contains("Railgun-appcast-$(RAILGUNX_SPARKLE_FEED_ARCHITECTURE).xml"))
+        XCTAssertTrue(infoPlist.contains("<key>SUPublicEDKey</key>"))
+        XCTAssertTrue(archiveScript.contains("RAILGUNX_SPARKLE_FEED_ARCHITECTURE=\"$architecture\""))
+        XCTAssertTrue(projectGenerator.contains("cp \"$project_root/Resources/Info.plist\""))
+    }
+
+    func testNativeValidationBuildsTheIgnoredMockBackendForCleanCheckouts() throws {
+        let package = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/desktop/package.json"),
+            encoding: .utf8
+        )
+        let validation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-project.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(package.contains("\"build:mock-backend\": \"vite build --config vite.mock.config.ts\""))
+        XCTAssertTrue(validation.contains("run build:mock-backend"))
+    }
+
+    func testReleaseValidationRequiresSparkleEdDSASignaturesOnly() throws {
+        let validation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-release-artifact.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(validation.contains("sparkle:edSignature="))
+        XCTAssertFalse(validation.contains("sparkle:signature="))
+    }
+
     func testLegalNoticesAreBundledWithTheApplication() throws {
         XCTAssertNotNil(LegalNotices.noticesURL)
         XCTAssertNotNil(LegalNotices.manifestURL)

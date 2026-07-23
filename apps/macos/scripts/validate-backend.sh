@@ -173,12 +173,10 @@ validate_payload() {
   node "$lifecycle_validation" "$node_binary" "$entrypoint" "$architecture"
 }
 
-for architecture in "$validation_architecture"; do
-  output="$temporary_root/$architecture"
-  printf 'validating isolated backend staging for %s\n' "$architecture"
-  "$stage_backend" --architecture "$architecture" --output "$output"
-  validate_payload "$output/backend" "$architecture"
-done
+output="$temporary_root/$validation_architecture"
+printf 'validating isolated backend staging for %s\n' "$validation_architecture"
+"$stage_backend" --architecture "$validation_architecture" --output "$output"
+validate_payload "$output/backend" "$validation_architecture"
 
 if [[ -n "$app_bundle" ]]; then
   [[ -d "$app_bundle" ]] || fail "application bundle does not exist: $app_bundle"

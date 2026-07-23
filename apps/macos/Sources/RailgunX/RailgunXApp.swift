@@ -1735,27 +1735,37 @@ private struct RailgunActivityPanelBackground: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+#if compiler(>=6.2)
         if !isEnabled {
             content
-#if compiler(>=6.2)
         } else if #available(macOS 26.0, *) {
             content.glassEffect(
                 .regular,
                 in: RoundedRectangle(cornerRadius: 32, style: .continuous)
             )
-#endif
         } else {
-            content
-                .background(
-                    .regularMaterial,
-                    in: RoundedRectangle(cornerRadius: 32, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .stroke(.separator.opacity(0.2), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.06), radius: 12, y: 6)
+            fallbackBackground(content: content)
         }
+#else
+        if !isEnabled {
+            content
+        } else {
+            fallbackBackground(content: content)
+        }
+#endif
+    }
+
+    private func fallbackBackground(content: Content) -> some View {
+        content
+            .background(
+                .regularMaterial,
+                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    .stroke(.separator.opacity(0.2), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.06), radius: 12, y: 6)
     }
 }
 

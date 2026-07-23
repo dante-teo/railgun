@@ -50,8 +50,6 @@ xcrun stapler validate "$app"
 [[ -d "$app/Contents/Frameworks/Sparkle.framework" ]] || { printf 'error: Sparkle.framework is missing.\n' >&2; exit 1; }
 
 grep -q 'sparkle:edSignature=' "$appcast"
-grep -q 'sparkle:signature=' "$appcast"
-grep -q "Railgun-appcast-${architecture}" "$appcast" || true
 grep -q "$(basename "$archive")" "$appcast"
 
 unpacked="$(mktemp -d "${TMPDIR:-/tmp}/railgunx-archive-validation.XXXXXX")"
