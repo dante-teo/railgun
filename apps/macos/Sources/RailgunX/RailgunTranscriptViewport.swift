@@ -230,6 +230,34 @@ enum RailgunTranscriptOrdering {
     }
 }
 
+/// Keeps the destructive branch action tied to persisted assistant turn
+/// boundaries that actually have visible history to abandon.
+enum RailgunBranchAffordance {
+    static func isAvailable(
+        for message: RailgunTranscriptMessage,
+        in visibleMessages: [RailgunTranscriptMessage],
+        session: RailgunSessionState,
+        isRunActive: Bool,
+        isTaskLocked: Bool,
+        isBranchInFlight: Bool
+    ) -> Bool {
+        guard message.role == .assistant,
+              message.status == .complete,
+              message.branchable,
+              let messageID = message.messageID,
+              messageID > 0,
+              session.selectedSession?.isPersisted == true,
+              !session.isLoading,
+              session.restoreInFlightSessionID == nil,
+              !isRunActive,
+              !isTaskLocked,
+              !isBranchInFlight,
+              let messageIndex = visibleMessages.firstIndex(where: { $0.id == message.id })
+        else { return false }
+        return visibleMessages.indices.contains(visibleMessages.index(after: messageIndex))
+    }
+}
+
 enum RailgunTranscriptMessageRendering {
     /// Only immutable completed assistant history is safe to interpret as Markdown.
     static func usesMarkdown(role: RailgunTranscriptMessage.Role, status: RailgunMessageStatus) -> Bool {
@@ -241,12 +269,17 @@ struct RailgunTranscriptActivityViewport: View {
     let messages: [RailgunTranscriptMessage]
     let activity: RailgunActivityState
     let isRunActive: Bool
+    let isBranchAvailable: (RailgunTranscriptMessage) -> Bool
+    let branch: (RailgunTranscriptMessage) -> Void
 
     var body: some View {
         ForEach(Array(presentation.enumerated()), id: \.offset) { _, item in
             switch item {
             case let .message(message):
-                RailgunTranscriptMessageRow(message: message)
+                RailgunTranscriptMessageRow(
+                    message: message,
+                    branchAction: isBranchAvailable(message) ? { branch(message) } : nil
+                )
                     .frame(maxWidth: 720)
             case let .activityRows(entries):
                 RailgunActivityRows(entries: entries)
@@ -275,8 +308,21 @@ struct RailgunTranscriptActivityViewport: View {
 
 struct RailgunTranscriptMessageRow: View {
     let message: RailgunTranscriptMessage
+    let branchAction: (() -> Void)?
 
     var body: some View {
+        if let branchAction {
+            messageContent.contextMenu {
+                Button("Branch from this message") {
+                    branchAction()
+                }
+            }
+        } else {
+            messageContent
+        }
+    }
+
+    private var messageContent: some View {
         VStack(alignment: contentAlignment, spacing: RailgunSpacing.standard.points) {
             if message.role == .user {
                 HStack {

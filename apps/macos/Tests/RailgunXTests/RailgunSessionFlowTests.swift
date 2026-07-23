@@ -249,6 +249,148 @@ final class RailgunSessionFlowTests: XCTestCase {
         }
     }
 
+    func testBranchValidatesMutationThenReloadsTheAuthoritativePaginatedSnapshot() async throws {
+        let service = RailgunSessionService { command in
+            switch command.type {
+            case .sessionBranch:
+                XCTAssertEqual(command.fields, [
+                    "messageId": .number(12),
+                    "summarize": .bool(false),
+                    "includeMessages": .bool(false),
+                ])
+                return try response(for: command.type, data: .object([
+                    "recentMessages": .array([.object([
+                        "id": .number(12), "role": .string("assistant"), "preview": .string("Boundary"),
+                    ])]),
+                ]))
+            case .getState:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("saved"), "running": .bool(false),
+                    "todos": .array([.object([
+                        "id": .string("todo"), "content": .string("Retained"), "status": .string("pending"),
+                    ])]),
+                ]))
+            case .sessionTranscript:
+                XCTAssertEqual(command.fields["sessionId"], .string("saved"))
+                XCTAssertEqual(command.fields["limit"], .number(100))
+                if command.fields["cursor"] == .number(0) {
+                    return try response(for: command.type, data: .object([
+                        "sessionId": .string("saved"),
+                        "messages": .array([
+                            .object(["role": .string("user"), "text": .string("Keep this")]),
+                            .object(["role": .string("tool"), "id": .string("tool"), "name": .string("read_file"), "failed": .bool(false)]),
+                        ]),
+                        "nextCursor": .number(2),
+                    ]))
+                }
+                XCTAssertEqual(command.fields["cursor"], .number(2))
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("saved"),
+                    "messages": .array([.object([
+                        "role": .string("assistant"), "text": .string("Boundary"),
+                        "messageId": .number(12), "branchable": .bool(true),
+                    ])]),
+                ]))
+            default:
+                throw ResumeStubError.unexpectedCommand
+            }
+        }
+
+        let restored = try await service.branch(messageID: 12)
+
+        XCTAssertEqual(restored.id, "saved")
+        XCTAssertEqual(restored.transcript, [
+            .message(role: .user, text: "Keep this"),
+            .tool(id: "tool", name: "read_file", failed: false),
+            .message(role: .assistant, text: "Boundary", messageID: 12, branchable: true),
+        ])
+        XCTAssertEqual(restored.todos, [.init(id: "todo", content: "Retained", status: .pending)])
+        XCTAssertFalse(restored.isRunning)
+    }
+
+    func testBranchRejectsMalformedMutationWithoutReplacingCurrentTranscriptOrSelection() async throws {
+        let store = RailgunAppStore()
+        let active = RailgunSessionSummary(
+            id: "saved", model: "gpt-5", startedAt: "Today", messageCount: 3, firstUserPreview: "Keep this"
+        )
+        store.send(.session(.loaded([active])))
+        store.send(.session(.selected("saved")))
+        store.send(.transcript(.submit(id: "current", text: "Keep current", at: 1)))
+        let original = store.state
+        let service = RailgunSessionService { command in
+            XCTAssertEqual(command.type, .sessionBranch)
+            return try response(for: command.type, data: .object([
+                "recentMessages": .array([]),
+                "unexpected": .bool(true),
+            ]))
+        }
+        let coordinator = RailgunSessionCoordinator(store: store, service: service)
+
+        await coordinator.branch(messageID: 12)
+
+        XCTAssertEqual(store.state.transcript, original.transcript)
+        XCTAssertEqual(store.state.activity, original.activity)
+        XCTAssertEqual(store.state.session.activeSessionID, "saved")
+        XCTAssertEqual(store.state.session.error, "The backend returned invalid task data.")
+    }
+
+    func testBranchHydratesActiveSessionAndRefreshesTaskListsAndControls() async throws {
+        let store = RailgunAppStore()
+        let active = RailgunSessionSummary(
+            id: "saved", model: "gpt-5", startedAt: "Today", messageCount: 4, firstUserPreview: "Keep this"
+        )
+        store.send(.session(.loaded([active])))
+        store.send(.session(.selected("saved")))
+        var controlsRefreshes = 0
+        let service = RailgunSessionService { command in
+            switch command.type {
+            case .sessionBranch:
+                return try response(for: command.type, data: .object([
+                    "recentMessages": .array([.object([
+                        "id": .number(12), "role": .string("assistant"), "preview": .string("Boundary"),
+                    ])]),
+                ]))
+            case .getState:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("saved"), "running": .bool(false), "todos": .array([]),
+                ]))
+            case .sessionTranscript:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("saved"),
+                    "messages": .array([
+                        .object(["role": .string("user"), "text": .string("Keep this")]),
+                        .object(["role": .string("assistant"), "text": .string("Boundary"), "messageId": .number(12), "branchable": .bool(true)]),
+                    ]),
+                ]))
+            case .sessionList:
+                return try response(for: command.type, data: .object(["sessions": .array([
+                    summary(id: "saved", preview: "Keep this"),
+                ])]))
+            case .sessionListArchived:
+                return try response(for: command.type, data: .object(["sessions": .array([
+                    summary(id: "abandoned", preview: "Later messages", archivedAt: "2026-07-19T10:30:00Z"),
+                ])]))
+            default:
+                throw ResumeStubError.unexpectedCommand
+            }
+        }
+        let coordinator = RailgunSessionCoordinator(
+            store: store,
+            service: service,
+            controlsDidActivate: { controlsRefreshes += 1 }
+        )
+
+        await coordinator.branch(messageID: 12)
+
+        XCTAssertEqual(store.state.session.activeSessionID, "saved")
+        XCTAssertEqual(store.state.transcript.messages.map(\.text), ["Keep this", "Boundary"])
+        XCTAssertEqual(store.state.transcript.messages.map(\.order), [1, 2])
+        XCTAssertEqual(store.state.session.sessions.map(\.id), ["saved"])
+        XCTAssertEqual(store.state.session.archivedSessions.map(\.id), ["abandoned"])
+        XCTAssertEqual(controlsRefreshes, 1)
+        XCTAssertNil(store.state.session.error)
+    }
+
     func testNewSessionResetsFeatureStateWithoutAddingAnUnsavedSessionToTheList() async throws {
         let store = RailgunAppStore()
         store.send(.transcript(.submit(id: "user", text: "Discard this", at: nil)))

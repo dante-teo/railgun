@@ -153,6 +153,24 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(appSource.contains("SidebarCommands()"))
     }
 
+    func testBranchingUsesANativeConfirmationBeforeSubmittingTheDestructiveAction() throws {
+        let appSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        let transcriptSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunTranscriptViewport.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(transcriptSource.contains("Button(\"Branch from this message\")"))
+        XCTAssertTrue(appSource.contains(".confirmationDialog("))
+        XCTAssertTrue(appSource.contains("Later messages will move to the abandoned branch."))
+        XCTAssertTrue(appSource.contains("await sessionCoordinator.branch(messageID: messageID)"))
+    }
+
     func testActivityUsesAFloatingGlassPanelAlongsideTheTranscript() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -1076,6 +1094,8 @@ final class RailgunXAppTests: XCTestCase {
             encoding: .utf8
         )
 
+        XCTAssertTrue(runScript.contains("Debug/Railgun.app"))
+        XCTAssertTrue(runScript.contains("Contents/MacOS/Railgun"))
         XCTAssertTrue(runScript.contains("open -n -W \"$app_bundle\""))
         XCTAssertTrue(runScript.contains("--railgunx-backend-mode=source"))
         XCTAssertTrue(runScript.contains("--railgunx-backend-mode=mock"))

@@ -211,6 +211,61 @@ final class RailgunTranscriptViewportTests: XCTestCase {
         XCTAssertNil(RailgunTranscriptStatusPresentation(status: .complete))
     }
 
+    func testBranchAffordanceRequiresAPersistedIdleTaskAndLaterVisibleContent() {
+        let candidate = RailgunTranscriptMessage(
+            id: "candidate", role: .assistant, text: "Boundary", status: .complete,
+            order: 2, messageID: 12, branchable: true, startedAt: nil, completedAt: nil
+        )
+        let later = RailgunTranscriptMessage(
+            id: "later", role: .user, text: "Later", status: .complete,
+            order: 3, messageID: 13, branchable: false, startedAt: nil, completedAt: nil
+        )
+        let persisted = RailgunSessionSummary(
+            id: "saved", model: "gpt-5", startedAt: "Today", messageCount: 3, firstUserPreview: "Task"
+        )
+        let session = RailgunSessionState(
+            activeSessionID: "saved", sessions: [persisted], archivedSessions: [], isLoading: false
+        )
+
+        XCTAssertTrue(RailgunBranchAffordance.isAvailable(
+            for: candidate, in: [candidate, later], session: session,
+            isRunActive: false, isTaskLocked: false, isBranchInFlight: false
+        ))
+        XCTAssertFalse(RailgunBranchAffordance.isAvailable(
+            for: candidate, in: [candidate], session: session,
+            isRunActive: false, isTaskLocked: false, isBranchInFlight: false
+        ))
+        XCTAssertFalse(RailgunBranchAffordance.isAvailable(
+            for: candidate, in: [candidate, later], session: session,
+            isRunActive: true, isTaskLocked: false, isBranchInFlight: false
+        ))
+        XCTAssertFalse(RailgunBranchAffordance.isAvailable(
+            for: candidate, in: [candidate, later], session: session,
+            isRunActive: false, isTaskLocked: true, isBranchInFlight: false
+        ))
+        XCTAssertFalse(RailgunBranchAffordance.isAvailable(
+            for: candidate, in: [candidate, later], session: session,
+            isRunActive: false, isTaskLocked: false, isBranchInFlight: true
+        ))
+
+        let unsaved = RailgunSessionState(
+            activeSessionID: "saved",
+            sessions: [],
+            archivedSessions: [],
+            isLoading: false,
+            activeSession: .init(id: "saved", model: "gpt-5", startedAt: "Now", messageCount: 3, firstUserPreview: "Task", isPersisted: false)
+        )
+        XCTAssertFalse(RailgunBranchAffordance.isAvailable(
+            for: candidate, in: [candidate, later], session: unsaved,
+            isRunActive: false, isTaskLocked: false, isBranchInFlight: false
+        ))
+        XCTAssertFalse(RailgunBranchAffordance.isAvailable(
+            for: .init(id: "not-branchable", role: .assistant, text: "No", status: .complete, order: 2, messageID: 12, branchable: false, startedAt: nil, completedAt: nil),
+            in: [candidate, later], session: session,
+            isRunActive: false, isTaskLocked: false, isBranchInFlight: false
+        ))
+    }
+
     private func message(id: String, order: Int) -> RailgunTranscriptMessage {
         .init(
             id: id,

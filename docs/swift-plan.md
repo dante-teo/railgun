@@ -334,7 +334,7 @@ update feeds.
 ### 5. Remaining Task, Files, and Scheduled parity
 
 - [x] `SWFT-045` — Expand the minimal Settings restore list into full archived-task browsing with native context menus and filtering. `[8h]`
-- [ ] `SWFT-046` — Implement branch selection and authoritative reloads, preserving selection and chronological transcript state across backend responses. `[8h]`
+- [x] `SWFT-046` — Implement branch selection and authoritative reloads, preserving selection and chronological transcript state across backend responses. `[8h]`
 - [ ] `SWFT-087` — Implement summarization and fork workflows, including progress, failure, cancellation, and authoritative post-operation reloads. `[8h]`
 - [ ] `SWFT-047` — Build the home-rooted file tree using native outline/list behavior and filesystem protections. `[8h]`
 - [ ] `SWFT-048` — Add native text/image preview, safe Quick Look, and Reveal in Finder. `[8h]`

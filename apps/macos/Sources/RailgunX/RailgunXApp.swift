@@ -614,6 +614,8 @@ struct RailgunTaskShell: View {
     @State private var isComposerFocused = false
     @State private var composerHeight = RailgunComposer.minimumHeight()
     @State private var isComposerSubmissionInFlight = false
+    @State private var pendingBranchMessage: RailgunTranscriptMessage?
+    @State private var isBranchInFlight = false
     @FocusState private var interactionFocus: RailgunInteractionFocus?
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
@@ -708,6 +710,18 @@ struct RailgunTaskShell: View {
         )
         .onChange(of: appStore.state.interactions.requests) { previous, current in
             handleInteractionFocusChange(from: previous, to: current)
+        }
+        .confirmationDialog(
+            "Branch from this message?",
+            isPresented: isBranchConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Branch Here", role: .destructive) {
+                confirmBranch()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Later messages will move to the abandoned branch.")
         }
     }
 
@@ -896,6 +910,48 @@ struct RailgunTaskShell: View {
 
     private var hasScrollableTranscript: Bool {
         !presentedTranscriptMessages.isEmpty || !presentedActivity.entries.isEmpty
+    }
+
+    private var isBranchConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { pendingBranchMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingBranchMessage = nil
+                }
+            }
+        )
+    }
+
+    private func isBranchAvailable(for message: RailgunTranscriptMessage) -> Bool {
+        RailgunBranchAffordance.isAvailable(
+            for: message,
+            in: presentedTranscriptMessages,
+            session: appStore.state.session,
+            isRunActive: appStore.state.transcript.isRunning,
+            isTaskLocked: isTaskControlLocked,
+            isBranchInFlight: isBranchInFlight
+        )
+    }
+
+    private func requestBranch(from message: RailgunTranscriptMessage) {
+        guard isBranchAvailable(for: message) else { return }
+        pendingBranchMessage = message
+    }
+
+    private func confirmBranch() {
+        guard let pendingBranchMessage,
+              presentedTranscriptMessages.contains(pendingBranchMessage),
+              isBranchAvailable(for: pendingBranchMessage),
+              let messageID = pendingBranchMessage.messageID,
+              !isBranchInFlight
+        else { return }
+        pendingBranchMessage = nil
+        isBranchInFlight = true
+        Task {
+            await sessionCoordinator.branch(messageID: messageID)
+            isBranchInFlight = false
+        }
     }
 
     private var isActivityAvailable: Bool {
@@ -1544,7 +1600,9 @@ struct RailgunTaskShell: View {
                 RailgunTranscriptActivityViewport(
                     messages: presentedTranscriptMessages,
                     activity: presentedActivity,
-                    isRunActive: appStore.state.transcript.isRunning
+                    isRunActive: appStore.state.transcript.isRunning,
+                    isBranchAvailable: isBranchAvailable(for:),
+                    branch: requestBranch(from:)
                 )
             }
             .padding(.vertical, RailgunSpacing.layout.points)

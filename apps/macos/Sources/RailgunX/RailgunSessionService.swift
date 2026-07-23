@@ -29,6 +29,9 @@ actor RailgunSessionService {
     private static let maximumToolTargetLength = 256
     private static let maximumTodos = 256
     private static let maximumTodoTextLength = 2_000
+    private static let maximumRecentMessages = 100
+    private static let maximumRecentMessageRoleLength = 32
+    private static let maximumRecentMessagePreviewLength = 500
     private static let maximumSafeInteger = 9_007_199_254_740_991
 
     private let request: Request
@@ -90,6 +93,25 @@ actor RailgunSessionService {
         _ = try await requestSessionID(from: RailgunRPCCommandType.sessionUnarchive, fields: fields)
     }
 
+    /// Rewinds the active persisted session at a completed assistant boundary.
+    /// The mutation payload is only a safety acknowledgement; the reloaded
+    /// backend state and complete transcript are the authoritative result.
+    func branch(messageID: Int) async throws -> RailgunRestoredSession {
+        guard messageID > 0, messageID <= Self.maximumSafeInteger else {
+            throw RailgunSessionServiceError.invalidResponse
+        }
+        let response = try await perform(.sessionBranch, fields: [
+            "messageId": .number(Double(messageID)),
+            "summarize": .bool(false),
+            "includeMessages": .bool(false),
+        ])
+        try validateBranchMutation(response)
+
+        let state = try await currentState()
+        let transcript = try await transcript(for: state.id)
+        return .init(id: state.id, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+    }
+
     private func list(_ type: RailgunRPCCommandType) async throws -> [RailgunSessionSummary] {
         let values = try await sessionValues(for: type)
         return try values.map(parseSummary)
@@ -117,6 +139,25 @@ actor RailgunSessionService {
               isValidIdentifier(identifier)
         else { throw RailgunSessionServiceError.invalidResponse }
         return identifier
+    }
+
+    private func validateBranchMutation(_ response: RailgunRPCResponse) throws {
+        guard let object = response.data?.objectValue,
+              Set(object.keys) == Set(["recentMessages"]),
+              case let .array(messages) = object["recentMessages"],
+              messages.count <= Self.maximumRecentMessages
+        else { throw RailgunSessionServiceError.invalidResponse }
+
+        for message in messages {
+            guard let entry = message.objectValue,
+                  Set(entry.keys) == Set(["id", "role", "preview"]),
+                  (try optionalPositiveInteger(entry["id"])) != nil,
+                  let role = entry["role"]?.stringValue,
+                  role.count <= Self.maximumRecentMessageRoleLength,
+                  let preview = entry["preview"]?.stringValue,
+                  preview.count <= Self.maximumRecentMessagePreviewLength
+            else { throw RailgunSessionServiceError.invalidResponse }
+        }
     }
 
     private func perform(
@@ -416,6 +457,22 @@ final class RailgunSessionCoordinator {
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }
         store.send(.session(.restoreFinished(sessionID)))
+    }
+
+    func branch(messageID: Int) async {
+        do {
+            let restored = try await service.branch(messageID: messageID)
+            store.send(.session(.hydrated(
+                activeSessionID: restored.id,
+                transcript: restored.transcript,
+                todos: restored.todos,
+                isRunning: restored.isRunning
+            )))
+            await controlsDidActivate?()
+            await refresh()
+        } catch {
+            store.send(.session(.failed(message: presentationMessage(for: error))))
+        }
     }
 
     private func activateNewSession(id: String, model: String?) {

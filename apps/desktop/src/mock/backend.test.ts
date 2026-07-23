@@ -88,7 +88,7 @@ describe("mock backend process", () => {
       send(child, { id: "list", type: "session_list" });
       const list = JSON.parse((await nextLine(child)).line) as { data: { sessions: Array<{ id: string }> } };
       expect(list.data.sessions[0]?.id).toBe("mock-session-complex-task");
-      expect(list.data.sessions).toHaveLength(4);
+      expect(list.data.sessions).toHaveLength(5);
 
       send(child, { id: "load", type: "session_load", sessionId: "mock-session-rich-history", includeMessages: false });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ id: "load", success: true, data: { sessionId: "mock-session-rich-history" } });
@@ -174,6 +174,41 @@ describe("mock backend process", () => {
       await nextLine(child);
       send(child, { id: "source-state", type: "get_state" });
       expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { sessionId: "mock-session-older", messageCount: 2 } });
+    } finally { child.kill(); }
+  });
+
+  it("branches from a completed boundary beyond the first transcript page", async () => {
+    const child = startMock("ready-idle");
+    try {
+      const sessionId = "mock-session-paginated-history";
+      send(child, { id: "load", type: "session_load", sessionId, includeMessages: false });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({
+        id: "load", success: true, data: { sessionId },
+      });
+
+      send(child, { id: "first-page", type: "session_transcript", sessionId, cursor: 0, limit: 100 });
+      const firstPage = JSON.parse((await nextLine(child)).line) as {
+        data: { messages: Array<{ messageId?: number }>; nextCursor?: number };
+      };
+      expect(firstPage.data.messages).toHaveLength(100);
+      expect(firstPage.data.nextCursor).toBe(100);
+
+      send(child, {
+        id: "second-page", type: "session_transcript", sessionId,
+        cursor: firstPage.data.nextCursor, limit: 100,
+      });
+      const secondPage = JSON.parse((await nextLine(child)).line) as {
+        data: { messages: Array<{ messageId?: number; branchable?: true }> };
+      };
+      const branchPoint = secondPage.data.messages.find(message => message.branchable === true)?.messageId;
+      if (branchPoint === undefined) throw new Error("mock transcript has no second-page branch boundary");
+
+      send(child, { id: "branch", type: "session_branch", messageId: branchPoint, summarize: false, includeMessages: false });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({
+        id: "branch", success: true, data: { recentMessages: expect.arrayContaining([expect.objectContaining({ id: branchPoint })]) },
+      });
+      send(child, { id: "state", type: "get_state" });
+      expect(JSON.parse((await nextLine(child)).line)).toMatchObject({ data: { sessionId, messageCount: 102 } });
     } finally { child.kill(); }
   });
 

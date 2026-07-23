@@ -562,6 +562,12 @@ with:
 pnpm --filter @dantea/railgun-desktop build:backend-assets
 ```
 
+The `ready-idle` mock includes the saved `mock-session-paginated-history`
+fixture with 101 completed turns. Resume it to manually verify paginated
+transcript restoration, then use **Branch from this message** on an assistant
+response after the initial 100 projected entries. Mock branch validation checks
+eligible completed-turn boundaries across the entire restored history.
+
 For a custom source root or mock scenario, invoke the common launcher directly:
 
 ```sh

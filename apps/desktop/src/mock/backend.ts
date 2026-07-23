@@ -1,6 +1,5 @@
 import { createInterface } from "node:readline";
 import { createRpcTranscriptPage } from "../../../../src/rpc/sessionTranscript.js";
-import type { RpcTranscriptMessage } from "../../../../src/rpc/sessionTranscript.js";
 import { getMockScenario } from "./scenarios";
 import { parseCronSchedule } from "../shared/cron";
 
@@ -76,6 +75,11 @@ const complexTaskMessages: unknown[] = [
   { role: "assistant", content: [{ type: "text", text: "Implemented bounded, retry-aware polling for background sync: transient failures now retry up to three times with cancellation-safe backoff, then surface a clear paused state with manual recovery. Updated the shared status contract, main-process service, renderer panel, and focused tests.\n\nVerification: desktop typecheck and the full desktop test suite pass.\n\nRemaining risk: the retry limit is currently fixed; if production telemetry shows a different failure profile, make it configurable rather than changing the transport contract again." }] },
 ];
 
+const paginatedBranchHistoryMessages: unknown[] = Array.from({ length: 101 }, (_, index) => [
+  { role: "user", content: `Long-history prompt ${String(index + 1)}` },
+  { role: "assistant", content: [{ type: "text", text: `Long-history response ${String(index + 1)}` }] },
+]).flat();
+
 const savedSessions: MockSession[] = [
   {
     id: "mock-session-complex-task", startedAt: "2026-07-14T09:55:00.000Z", startedAtLocal: "7/14/2026, 5:55:00 PM", model: "mock-model", persistence: "saved",
@@ -86,6 +90,11 @@ const savedSessions: MockSession[] = [
       { id: "complex-ui", content: "Expose an actionable paused state", status: "completed" },
       { id: "complex-verify", content: "Run focused and full desktop verification", status: "completed" },
     ],
+  },
+  {
+    id: "mock-session-paginated-history", startedAt: "2026-07-14T09:30:00.000Z", startedAtLocal: "7/14/2026, 5:30:00 PM", model: "mock-model", persistence: "saved",
+    messages: paginatedBranchHistoryMessages,
+    todos: [],
   },
   {
     id: "mock-session-rich-history", startedAt: "2026-07-14T08:45:00.000Z", startedAtLocal: "7/14/2026, 4:45:00 PM", model: "mock-model", persistence: "saved",
@@ -128,6 +137,22 @@ let nextMessageId = 1_000;
 const ensureMessageIds = (session: MockSession): number[] => {
   if (session.messageIds === undefined) session.messageIds = session.messages.map(() => nextMessageId++);
   return session.messageIds;
+};
+const branchableMessageIds = (session: MockSession): ReadonlySet<number> => {
+  const messageIds = ensureMessageIds(session);
+  const branchable = new Set<number>();
+  let cursor = 0;
+
+  while (true) {
+    const page = createRpcTranscriptPage(session.id, session.messages, cursor, 100, messageIds);
+    for (const message of page.messages) {
+      if (message.role !== "tool" && message.branchable === true && message.messageId !== undefined) {
+        branchable.add(message.messageId);
+      }
+    }
+    if (page.nextCursor === undefined) return branchable;
+    cursor = page.nextCursor;
+  }
 };
 savedSessions.forEach(ensureMessageIds);
 let activeSession: MockSession = {
@@ -435,9 +460,7 @@ if (scenario.behavior === "authentication-required") {
       if (activeSession.persistence !== "saved") { respond(type, command.id, { error: "active session must be saved before branching" }); return; }
       const index = ensureMessageIds(activeSession).indexOf(command.messageId as number);
       if (index < 0) { respond(type, command.id, { error: `message ${String(command.messageId)} is not on the active branch` }); return; }
-      const branchableIds = new Set(createRpcTranscriptPage(activeSession.id, activeSession.messages, 0, 100, ensureMessageIds(activeSession)).messages
-        .filter((message): message is RpcTranscriptMessage & { branchable: true; messageId: number } => message.role !== "tool" && message.branchable === true && message.messageId !== undefined)
-        .map(message => message.messageId));
+      const branchableIds = branchableMessageIds(activeSession);
       if (!branchableIds.has(command.messageId as number)) { respond(type, command.id, { error: `message ${String(command.messageId)} is not a complete turn boundary` }); return; }
       activeSession.messages = activeSession.messages.slice(0, index + 1);
       activeSession.messageIds = ensureMessageIds(activeSession).slice(0, index + 1);
