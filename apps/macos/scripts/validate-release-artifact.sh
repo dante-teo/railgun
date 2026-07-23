@@ -7,7 +7,7 @@ validate_backend="$script_dir/validate-backend.sh"
 validate_icon="$script_dir/validate-app-icon-assets.sh"
 
 usage() {
-  printf 'usage: %s --app PATH --archive ZIP --architecture arm64|x86_64 --appcast XML\n' "${0##*/}" >&2
+  printf 'usage: %s --app PATH --archive ZIP --architecture arm64 --appcast XML\n' "${0##*/}" >&2
   exit 64
 }
 
@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -d "$app" && -f "$archive" && -f "$appcast" ]] || usage
-[[ "$architecture" == arm64 || "$architecture" == x86_64 ]] || usage
+[[ "$architecture" == arm64 ]] || usage
 
 info_plist="$app/Contents/Info.plist"
 [[ -f "$info_plist" ]] || { printf 'error: app bundle is missing Info.plist.\n' >&2; exit 1; }
@@ -41,8 +41,11 @@ public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$info_plist")"
 [[ -n "$public_key" && "$public_key" != *'$('* ]] || { printf 'error: Sparkle public EdDSA key was not injected.\n' >&2; exit 1; }
 
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
-/usr/bin/codesign -dvvv "$app" 2>&1 | grep -q 'Runtime Version'
-/usr/bin/codesign -d --entitlements :- "$app/Contents/Resources/backend/node/bin/node" 2>/dev/null | grep -q 'com.apple.security.cs.allow-jit'
+codesign_details="$(/usr/bin/codesign -dvvv "$app" 2>&1)"
+grep -q 'Runtime Version' <<< "$codesign_details"
+node_entitlements="$(/usr/bin/codesign -d --entitlements :- \
+  "$app/Contents/Resources/backend/node/bin/node" 2>/dev/null)"
+grep -q 'com.apple.security.cs.allow-jit' <<< "$node_entitlements"
 spctl --assess --type execute --verbose=2 "$app"
 xcrun stapler validate "$app"
 "$validate_backend" --app-bundle "$app"

@@ -77,6 +77,11 @@ seed_info_plist() {
   cp "$project_root/Resources/Info.plist" "$resources_directory/Info.plist"
 }
 
+seed_release_entitlements() {
+  cp "$project_root/RailgunXRelease.entitlements" \
+    "$output_directory/RailgunXRelease.entitlements"
+}
+
 if [[ $# -ne 1 ]]; then
   usage
 fi
@@ -94,3 +99,4 @@ xcodegen generate \
 seed_package_lockfile
 seed_backend_staging_inputs
 seed_info_plist
+seed_release_entitlements

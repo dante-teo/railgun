@@ -17,7 +17,7 @@ fail() {
 }
 
 usage() {
-  printf 'usage: %s --architecture arm64|x86_64 --output DIRECTORY\n' "${0##*/}" >&2
+  printf 'usage: %s --architecture arm64 --output DIRECTORY\n' "${0##*/}" >&2
   exit 64
 }
 
@@ -27,18 +27,9 @@ require_command() {
 
 assert_macho_architecture() {
   local description="$1"
-  local architecture="$2"
 
-  case "$architecture" in
-    arm64)
-      [[ "$description" == *'Mach-O'* && "$description" == *'arm64'* && "$description" != *'x86_64'* ]] \
-        || fail "staged native addon is not an arm64 Mach-O binary."
-      ;;
-    x86_64)
-      [[ "$description" == *'Mach-O'* && "$description" == *'x86_64'* && "$description" != *'arm64'* ]] \
-        || fail "staged native addon is not an x86_64 Mach-O binary."
-      ;;
-  esac
+  [[ "$description" == *'Mach-O'* && "$description" == *'arm64'* && "$description" != *'universal binary'* ]] \
+    || fail "staged native addon is not an arm64-only Mach-O binary."
 }
 
 architecture=''
@@ -61,7 +52,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$architecture" == 'arm64' || "$architecture" == 'x86_64' ]] || usage
+[[ "$architecture" == 'arm64' ]] || usage
 [[ -n "$output" && "$output" != '/' && "$output" != '.' && "$output" != '..' ]] || usage
 [[ -x "$stage_runtime" ]] || fail "Node runtime staging script is missing or not executable."
 [[ -f "$repository_root/package.json" && -f "$repository_root/pnpm-lock.yaml" ]] \
@@ -69,7 +60,7 @@ done
 [[ -f "$repository_root/tsconfig.build.json" ]] || fail "backend build configuration is missing."
 [[ -f "$node_gyp_script" ]] || fail "direct node-gyp dependency is missing: $node_gyp_script"
 
-for command in clang++ corepack file make mkdir mktemp mv node python3 rm; do
+for command in clang++ corepack file find make mkdir mktemp mv node python3 rm; do
   require_command "$command"
 done
 
@@ -135,6 +126,20 @@ PATH="$staged_node_root/bin:$PATH" \
 # must not become part of the shipped production closure.
 rm -rf "$deployed_railgun/node_modules/@types"
 
+onnx_runtime_root="$deployed_railgun/node_modules/onnxruntime-node/bin/napi-v6"
+onnx_runtime_arm64="$onnx_runtime_root/darwin/arm64"
+[[ -d "$onnx_runtime_arm64" ]] \
+  || fail "deployed ONNX runtime is missing its darwin/arm64 payload."
+while IFS= read -r -d '' candidate; do
+  [[ "$candidate" == "$onnx_runtime_root/darwin" ]] || rm -rf "$candidate"
+done < <(find "$onnx_runtime_root" -mindepth 1 -maxdepth 1 -print0)
+while IFS= read -r -d '' candidate; do
+  [[ "$candidate" == "$onnx_runtime_arm64" ]] || rm -rf "$candidate"
+done < <(find "$onnx_runtime_root/darwin" -mindepth 1 -maxdepth 1 -print0)
+[[ -z "$(find "$onnx_runtime_root" -mindepth 1 -maxdepth 2 -type d \
+  ! -path "$onnx_runtime_root/darwin" ! -path "$onnx_runtime_arm64" -print -quit)" ]] \
+  || fail "deployed ONNX runtime contains a non-darwin/arm64 payload."
+
 better_sqlite3="$deployed_railgun/node_modules/better-sqlite3"
 addon="$better_sqlite3/build/Release/better_sqlite3.node"
 [[ -d "$better_sqlite3" && -f "$better_sqlite3/binding.gyp" ]] \
@@ -142,35 +147,27 @@ addon="$better_sqlite3/build/Release/better_sqlite3.node"
 [[ -f "$staged_node_root/include/node/node.h" ]] \
   || fail "staged Node headers are missing; refusing to download a different header set."
 
-darwin_arch="$architecture"
-[[ "$darwin_arch" == 'x86_64' ]] && darwin_arch='x64'
-sqlite_vec_addon="$deployed_railgun/node_modules/sqlite-vec-darwin-$darwin_arch/vec0.dylib"
+sqlite_vec_addon="$deployed_railgun/node_modules/sqlite-vec-darwin-arm64/vec0.dylib"
 [[ -f "$sqlite_vec_addon" ]] \
   || fail "deployed sqlite-vec does not contain the $architecture native addon."
-other_darwin_arch='arm64'
-[[ "$darwin_arch" == 'arm64' ]] && other_darwin_arch='x64'
-[[ ! -e "$deployed_railgun/node_modules/sqlite-vec-darwin-$other_darwin_arch" ]] \
-  || fail "deployed sqlite-vec contains the mismatched $other_darwin_arch native addon."
-assert_macho_architecture "$(file -b "$sqlite_vec_addon")" "$architecture"
+assert_macho_architecture "$(file -b "$sqlite_vec_addon")"
 
 # pnpm deploy may have run better-sqlite3's install hook and left a prebuild in
 # place. Remove it before invoking node-gyp so the published addon is always
 # compiled by the staged runtime against the staged runtime's headers.
 rm -rf "$better_sqlite3/build"
 
-node_arch="$architecture"
-[[ "$node_arch" == 'x86_64' ]] && node_arch='x64'
 printf 'rebuilding better-sqlite3 against Node ABI %s\n' "$($staged_node -p 'process.versions.modules')"
 (
   cd "$better_sqlite3"
-  npm_config_arch="$node_arch" \
+  npm_config_arch=arm64 \
   npm_config_build_from_source=true \
   npm_config_nodedir="$staged_node_root" \
     "$staged_node" "$node_gyp_script" rebuild --nodedir="$staged_node_root"
 )
 
 [[ -f "$addon" ]] || fail "node-gyp did not produce better_sqlite3.node."
-assert_macho_architecture "$(file -b "$addon")" "$architecture"
+assert_macho_architecture "$(file -b "$addon")"
 
 "$staged_node" -e '
   const Database = require(process.argv[1]);

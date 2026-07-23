@@ -291,9 +291,9 @@ deterministic test infrastructure plus an enforceable native-first UI policy.
 - [x] `SWFT-019` — Implement approval and clarification correlation, ordering, settlement, and invalid-response handling. `[6h]`
 - [x] `SWFT-020` — Add the shared desktop-client lock to RailgunX and Classic, including stale-lock recovery and conflict UI. `[8h]`
 - [x] `SWFT-021` — Implement login/logout helpers using the bundled backend and coordinated restart. `[6h]`
-- [x] `SWFT-022` — Verify packaged backend startup, SQLite loading, authentication startup, crash, restart, and shutdown on both architectures. `[8h]`
+- [x] `SWFT-022` — Verify arm64 packaged backend startup, SQLite loading, authentication startup, crash, restart, and shutdown. `[8h]`
 
-Milestone exit: both architectures run the bundled backend through RPC v1,
+Milestone exit: arm64 runs the bundled backend through RPC v1,
 authentication and recovery work, malformed or stale transport data is safely
 contained, and Railgun cannot run concurrently with Classic on shared data.
 

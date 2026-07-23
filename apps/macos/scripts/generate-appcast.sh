@@ -38,7 +38,7 @@ updates_directory="$(mktemp -d "${TMPDIR:-/tmp}/railgunx-appcast.XXXXXX")"
 cleanup() { rm -rf "$updates_directory"; }
 trap cleanup EXIT
 
-/usr/bin/cp "$archive" "$updates_directory/"
+/bin/cp "$archive" "$updates_directory/"
 printf '%s' "$RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY" | "$generate_appcast" \
   --ed-key-file - \
   --download-url-prefix "$download_url_prefix" \
@@ -50,5 +50,5 @@ generated_appcast="$(/usr/bin/find "$updates_directory" -maxdepth 1 -type f -nam
   exit 1
 }
 mkdir -p "$(dirname "$output")"
-/usr/bin/cp "$generated_appcast" "$output"
+/bin/cp "$generated_appcast" "$output"
 printf 'generated signed Sparkle appcast: %s\n' "$output"

@@ -7,7 +7,7 @@ generate_project="$script_dir/generate-project.sh"
 sign_nested_code="$script_dir/sign-nested-code.sh"
 
 usage() {
-  printf 'usage: %s --architecture arm64|x86_64 --version VERSION --build NUMBER --identity IDENTITY --output DIRECTORY --source-packages-output DIRECTORY [--keychain PATH]\n' "${0##*/}" >&2
+  printf 'usage: %s --architecture arm64 --version VERSION --build NUMBER --identity IDENTITY --output DIRECTORY --source-packages-output DIRECTORY [--keychain PATH]\n' "${0##*/}" >&2
   exit 64
 }
 
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$architecture" == arm64 || "$architecture" == x86_64 ]] || usage
+[[ "$architecture" == arm64 ]] || usage
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || usage
 [[ "$build_number" =~ ^[0-9]+$ && -n "$identity" && -n "$output_directory" && -n "$source_packages_output" ]] || usage
 : "${RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY:?set RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY to the Sparkle public key}"

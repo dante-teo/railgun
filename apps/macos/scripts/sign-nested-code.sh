@@ -30,7 +30,10 @@ done
   exit 1
 }
 
-sign_arguments=(--force --sign "$identity" --options runtime --timestamp)
+sign_arguments=(--force --sign "$identity" --options runtime)
+if [[ "$identity" != - ]]; then
+  sign_arguments+=(--timestamp)
+fi
 if [[ -n "$keychain" ]]; then
   sign_arguments+=(--keychain "$keychain")
 fi

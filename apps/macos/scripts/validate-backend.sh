@@ -12,7 +12,7 @@ fail() {
 }
 
 usage() {
-  printf 'usage: %s [--architecture arm64|x86_64] [APP_BUNDLE | --app-bundle APP_BUNDLE]\n' "${0##*/}" >&2
+  printf 'usage: %s [--architecture arm64] [APP_BUNDLE | --app-bundle APP_BUNDLE]\n' "${0##*/}" >&2
   exit 64
 }
 
@@ -22,20 +22,9 @@ require_command() {
 
 assert_macho_architecture() {
   local description="$1"
-  local architecture="$2"
-  case "$architecture" in
-    arm64)
-      [[ "$description" == *'Mach-O'* && "$description" == *'arm64'* && "$description" != *'x86_64'* ]] \
-        || fail "expected an arm64 Mach-O binary, got: $description"
-      ;;
-    x86_64)
-      [[ "$description" == *'Mach-O'* && "$description" == *'x86_64'* && "$description" != *'arm64'* ]] \
-        || fail "expected an x86_64 Mach-O binary, got: $description"
-      ;;
-    *)
-      fail "unsupported backend architecture: $architecture"
-      ;;
-  esac
+
+  [[ "$description" == *'Mach-O'* && "$description" == *'arm64'* && "$description" != *'universal binary'* ]] \
+    || fail "expected an arm64-only Mach-O binary, got: $description"
 }
 
 app_bundle=''
@@ -78,8 +67,8 @@ trap cleanup EXIT
 if [[ -z "$validation_architecture" ]]; then
   validation_architecture="$(uname -m)"
 fi
-[[ "$validation_architecture" == arm64 || "$validation_architecture" == x86_64 ]] \
-  || fail "unsupported backend architecture: $validation_architecture"
+[[ "$validation_architecture" == arm64 ]] \
+  || fail "native backend validation requires arm64, got: $validation_architecture"
 
 assert_production_packages() {
   local railgun="$1"
@@ -134,26 +123,20 @@ validate_payload() {
   local railgun="$backend/railgun"
   local entrypoint="$railgun/dist/backend.js"
   local addon="$railgun/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
-  local darwin_arch="$architecture"
-  [[ "$darwin_arch" == 'x86_64' ]] && darwin_arch='x64'
-  local sqlite_vec_addon="$railgun/node_modules/sqlite-vec-darwin-$darwin_arch/vec0.dylib"
-  local other_darwin_arch='arm64'
-  [[ "$darwin_arch" == 'arm64' ]] && other_darwin_arch='x64'
+  local sqlite_vec_addon="$railgun/node_modules/sqlite-vec-darwin-arm64/vec0.dylib"
 
   [[ -d "$backend" && -d "$railgun" ]] || fail "$architecture backend directory layout is incomplete."
   [[ -x "$node_binary" ]] || fail "$architecture bundled Node executable is missing."
   [[ -f "$entrypoint" ]] || fail "$architecture deployed backend entrypoint is missing."
   [[ -f "$addon" ]] || fail "$architecture rebuilt better_sqlite3.node is missing."
   [[ -f "$sqlite_vec_addon" ]] || fail "$architecture sqlite-vec native addon is missing."
-  [[ ! -e "$railgun/node_modules/sqlite-vec-darwin-$other_darwin_arch" ]] \
-    || fail "$architecture payload contains the mismatched $other_darwin_arch sqlite-vec addon."
   [[ -f "$railgun/package.json" && -d "$railgun/node_modules" ]] \
     || fail "$architecture deployed backend package layout is incomplete."
 
   assert_production_packages "$railgun"
-  assert_macho_architecture "$(file -b "$node_binary")" "$architecture"
-  assert_macho_architecture "$(file -b "$addon")" "$architecture"
-  assert_macho_architecture "$(file -b "$sqlite_vec_addon")" "$architecture"
+  assert_macho_architecture "$(file -b "$node_binary")"
+  assert_macho_architecture "$(file -b "$addon")"
+  assert_macho_architecture "$(file -b "$sqlite_vec_addon")"
 
   "$node_binary" -e '
     const Database = require(process.argv[1]);
@@ -186,12 +169,7 @@ if [[ -n "$app_bundle" ]]; then
 
   bundled_node="$bundled_backend/node/bin/node"
   [[ -x "$bundled_node" ]] || fail "application bundle is missing its bundled Node executable."
-  bundled_description="$(file -b "$bundled_node")"
-  case "$bundled_description" in
-    *'arm64'*) bundled_architecture='arm64' ;;
-    *'x86_64'*) bundled_architecture='x86_64' ;;
-    *) fail "application bundle Node executable is not a supported Mach-O architecture." ;;
-  esac
-  validate_payload "$bundled_backend" "$bundled_architecture"
+  assert_macho_architecture "$(file -b "$bundled_node")"
+  validate_payload "$bundled_backend" arm64
   printf 'validated bundled backend in %s\n' "$app_bundle"
 fi

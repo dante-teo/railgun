@@ -4,7 +4,7 @@
   "inputHashes": {
     "backendLockfileSHA256": "09ff4b0b90b07ecf6a79cfa8afb76780a7e989a42035b1b81a0df36fe0acb9c5",
     "packageResolvedSHA256": "f44102c79145d149f2d56aec9b4dd30fe0548fe0bc3345ef7cb0f0b2a2842b56",
-    "nodeRuntimeManifestSHA256": "3998d43bfd45138cc0b748b721620d5536ef18cc12dbf859ecc221301a4c811f",
+    "nodeRuntimeManifestSHA256": "6c11b0205fc3e7cb16085f3570545ef47f74b603978c2ba37e0692ef1705a1a2",
     "railgunLicenseSHA256": "7951ebcac33ae6a213b04a66f97af7a24c1f65b807841fc641f0c97dba1b1b8b",
     "legalSourceHashes": {
       "Apache-2.0.txt": "170b3cf054f64ba86f14b91a94928350728487de3f860ffa07861805b446d8cb",
@@ -29,7 +29,7 @@
       "apps/macos/Resources/RailgunIcon/RailgunIcon-1024.png": "f01601d42e52f9e9270dc1b8298bdc3cf5e15cb58af0b9a335cd0bd2c20739d0"
     }
   },
-  "noticesSHA256": "ebf49b8239fedfcf672c036a4477c0f23b58a687b2a530a34a347146317b4ad2",
+  "noticesSHA256": "5ff8567896eff3bc4ef451f497b235075cbffa9e74d280eda8f3d3e4682239b3",
   "components": [
     {
       "identifier": "swift-markdown",
@@ -76,10 +76,10 @@
       "name": "Node.js 24 LTS",
       "version": "24.18.0",
       "revision": null,
-      "archive": "node-v24.18.0-darwin-arm64.tar.xz; node-v24.18.0-darwin-x64.tar.xz",
+      "archive": "node-v24.18.0-darwin-arm64.tar.xz",
       "copyright": null,
       "license": "MIT",
-      "sourceLocation": "apps/macos/Runtime/node-runtime.json; arm64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.xz#sha256=4477b9f78efb77744cf5eb57a0e9594dba66466b38b4e93fa9f35cb907a095a6; x86_64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-x64.tar.xz#sha256=4a3b6bc81542154430825128d9a279e8b364e8d90581544e506ef7579fd1ab6f",
+      "sourceLocation": "apps/macos/Runtime/node-runtime.json; arm64: https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.xz#sha256=4477b9f78efb77744cf5eb57a0e9594dba66466b38b4e93fa9f35cb907a095a6",
       "licenseSource": "https://github.com/nodejs/node/blob/v24.18.0/LICENSE",
       "noticeContentSHA256": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5"
     },
@@ -396,19 +396,6 @@
       "noticeContentSHA256": "f54d67b4ce4bb03697745f7ee5e5cc63cb130b5fdb98a76ce27895d3674b34bd"
     },
     {
-      "identifier": "npm:@img/sharp-darwin-x64@0.34.5",
-      "kind": "backend-production-package",
-      "name": "@img/sharp-darwin-x64",
-      "version": "0.34.5",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "Apache-2.0",
-      "sourceLocation": "pnpm-lock.yaml#@img/sharp-darwin-x64@0.34.5",
-      "licenseSource": "node_modules/@img/sharp-darwin-arm64/LICENSE",
-      "noticeContentSHA256": "f54d67b4ce4bb03697745f7ee5e5cc63cb130b5fdb98a76ce27895d3674b34bd"
-    },
-    {
       "identifier": "npm:@img/sharp-libvips-darwin-arm64@1.2.4",
       "kind": "backend-production-package",
       "name": "@img/sharp-libvips-darwin-arm64",
@@ -418,19 +405,6 @@
       "copyright": null,
       "license": "LGPL-3.0-or-later",
       "sourceLocation": "pnpm-lock.yaml#@img/sharp-libvips-darwin-arm64@1.2.4",
-      "licenseSource": "node_modules/@img/sharp-libvips-darwin-arm64/package.json",
-      "noticeContentSHA256": "ae05d3e5697c64a15e87f280e4c3a7e7482e04ae58f88daca719cc3bfdc32f88"
-    },
-    {
-      "identifier": "npm:@img/sharp-libvips-darwin-x64@1.2.4",
-      "kind": "backend-production-package",
-      "name": "@img/sharp-libvips-darwin-x64",
-      "version": "1.2.4",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "LGPL-3.0-or-later",
-      "sourceLocation": "pnpm-lock.yaml#@img/sharp-libvips-darwin-x64@1.2.4",
       "licenseSource": "node_modules/@img/sharp-libvips-darwin-arm64/package.json",
       "noticeContentSHA256": "ae05d3e5697c64a15e87f280e4c3a7e7482e04ae58f88daca719cc3bfdc32f88"
     },
@@ -2264,19 +2238,6 @@
       "copyright": null,
       "license": "MIT OR Apache",
       "sourceLocation": "pnpm-lock.yaml#sqlite-vec-darwin-arm64@0.1.9",
-      "licenseSource": "node_modules/sqlite-vec-darwin-arm64/package.json",
-      "noticeContentSHA256": "641f03d468872b7e054a80f5b48ef004269f01ccf83b1048d36e702043b284bd"
-    },
-    {
-      "identifier": "npm:sqlite-vec-darwin-x64@0.1.9",
-      "kind": "backend-production-package",
-      "name": "sqlite-vec-darwin-x64",
-      "version": "0.1.9",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT OR Apache",
-      "sourceLocation": "pnpm-lock.yaml#sqlite-vec-darwin-x64@0.1.9",
       "licenseSource": "node_modules/sqlite-vec-darwin-arm64/package.json",
       "noticeContentSHA256": "641f03d468872b7e054a80f5b48ef004269f01ccf83b1048d36e702043b284bd"
     },

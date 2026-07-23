@@ -18,7 +18,7 @@ const productionLockfilePath = join(repositoryDirectory, 'pnpm-lock.yaml');
 const packageResolvedPath = join(macosDirectory, 'Package.resolved');
 const runtimeManifestPath = join(macosDirectory, 'Runtime', 'node-runtime.json');
 const requireFromRepository = createRequire(join(repositoryDirectory, 'package.json'));
-const nodeRuntimeArchitectures = ['arm64', 'x86_64'];
+const nodeRuntimeArchitectures = ['arm64'];
 
 const hash = (content) => createHash('sha256').update(content).digest('hex');
 const normalized = (content) => `${content.replace(/\r\n/g, '\n').replace(/\n*$/, '')}\n`;
@@ -273,7 +273,7 @@ const supportsMacOS = (entry = {}) => {
     const supportedOS = entry.os ?? [];
     const supportedCPU = entry.cpu ?? [];
     return (!supportedOS.length || supportedOS.includes('darwin'))
-        && (!supportedCPU.length || supportedCPU.some((cpu) => cpu === 'arm64' || cpu === 'x64'));
+        && (!supportedCPU.length || supportedCPU.includes('arm64'));
 };
 
 // This is pnpm's production inventory: start from the production importer and
@@ -313,10 +313,6 @@ const licenseFiles = (directory) => readdirSync(directory, { withFileTypes: true
 const metadataFor = (metadataByPackage, name, version) => {
     const exact = metadataByPackage.get(packageKey(name, version));
     if (exact) return exact;
-
-    const counterpartName = name.replace(/-(arm64|x64)$/, (_, architecture) => architecture === 'arm64' ? '-x64' : '-arm64');
-    const counterpart = metadataByPackage.get(packageKey(counterpartName, version));
-    if (counterpart) return counterpart;
 
     throw new Error(`No staged package metadata for locked production package ${name}@${version}.`);
 };

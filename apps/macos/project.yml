@@ -7,6 +7,7 @@ options:
 
 settings:
   base:
+    ARCHS: arm64
     SDKROOT: macosx
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: 0.1.0

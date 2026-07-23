@@ -21,7 +21,7 @@ sha256() {
 }
 
 usage() {
-  printf 'usage: %s --architecture arm64|x86_64 --output DIRECTORY [--skip-execution]\n' "${0##*/}" >&2
+  printf 'usage: %s --architecture arm64 --output DIRECTORY [--skip-execution]\n' "${0##*/}" >&2
   exit 64
 }
 
@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$architecture" == 'arm64' || "$architecture" == 'x86_64' ]] || usage
+[[ "$architecture" == 'arm64' ]] || usage
 [[ -n "$output" ]] || usage
 [[ -f "$runtime_manifest" ]] || fail "Node runtime manifest is missing: $runtime_manifest"
 
@@ -70,8 +70,7 @@ try {
 }
 const runtime = manifest?.architectures?.[architecture];
 const isSHA256 = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
-const archiveArchitecture = architecture === "x86_64" ? "x64" : architecture;
-const expectedArchive = `node-v${manifest?.version}-darwin-${archiveArchitecture}.tar.xz`;
+const expectedArchive = `node-v${manifest?.version}-darwin-arm64.tar.xz`;
 if (manifest?.schemaVersion !== 1
   || typeof manifest.version !== "string"
   || !runtime
@@ -89,10 +88,8 @@ process.stdout.write([manifest.version, runtime.archive, runtime.url, runtime.sh
 ' "$runtime_manifest" "$architecture")" || fail "Unable to read Node runtime manifest."
 IFS=$'\t' read -r expected_version archive_name archive_url archive_sha256 license_sha256 macho_architecture <<< "$manifest_values"
 
-case "$macho_architecture" in
-  arm64|x86_64) ;;
-  *) fail "Node runtime manifest declares an invalid Mach-O architecture." ;;
-esac
+[[ "$macho_architecture" == arm64 ]] \
+  || fail "Node runtime manifest must declare an arm64 Mach-O architecture."
 
 if [[ -e "$output/node" || -L "$output/node" ]]; then
   fail "Refusing to overwrite existing runtime output: $output/node"
@@ -142,14 +139,8 @@ if (( verify_execution )); then
 fi
 
 binary_description="$(file -b "$node_binary")"
-case "$macho_architecture" in
-  arm64)
-    [[ "$binary_description" == *'Mach-O'* && "$binary_description" == *'arm64'* && "$binary_description" != *'x86_64'* ]] || fail "Staged Node executable is not an arm64 Mach-O binary."
-    ;;
-  x86_64)
-    [[ "$binary_description" == *'Mach-O'* && "$binary_description" == *'x86_64'* && "$binary_description" != *'arm64'* ]] || fail "Staged Node executable is not an x86_64 Mach-O binary."
-    ;;
-esac
+[[ "$binary_description" == *'Mach-O'* && "$binary_description" == *'arm64'* && "$binary_description" != *'universal binary'* ]] \
+  || fail "Staged Node executable is not an arm64-only Mach-O binary."
 
 mkdir -p "$output"
 if [[ -e "$output/node" || -L "$output/node" ]]; then

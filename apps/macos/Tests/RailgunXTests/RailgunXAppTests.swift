@@ -1012,15 +1012,17 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(runSourceScript.contains("--source-root \"$repository_root\""))
     }
 
-    func testNativeBackendStagingContractUsesTheTargetArchitectureAndAtomicPayload() throws {
+    func testNativeBackendStagingContractUsesArm64AndAnAtomicPayload() throws {
         let stagingScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/stage-backend.sh")
         let validationScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-backend.sh")
+        let desktopStagingScriptURL = repositoryRoot.appendingPathComponent("apps/desktop/scripts/build-backend.mjs")
         let lifecycleValidationScriptURL = repositoryRoot.appendingPathComponent(
             "apps/macos/scripts/validate-packaged-backend-lifecycle.mjs"
         )
         let projectURL = repositoryRoot.appendingPathComponent("apps/macos/project.yml")
         let stagingScript = try String(contentsOf: stagingScriptURL, encoding: .utf8)
         let validationScript = try String(contentsOf: validationScriptURL, encoding: .utf8)
+        let desktopStagingScript = try String(contentsOf: desktopStagingScriptURL, encoding: .utf8)
         let lifecycleValidationScript = try String(contentsOf: lifecycleValidationScriptURL, encoding: .utf8)
         let project = try String(contentsOf: projectURL, encoding: .utf8)
 
@@ -1033,7 +1035,14 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(stagingScript.contains("npm_config_build_from_source=true"))
         XCTAssertTrue(stagingScript.contains("--nodedir=\"$staged_node_root\""))
         XCTAssertTrue(stagingScript.contains("rm -rf \"$deployed_railgun/node_modules/@types\""))
-        XCTAssertTrue(stagingScript.contains("sqlite-vec-darwin-$darwin_arch/vec0.dylib"))
+        XCTAssertTrue(stagingScript.contains("sqlite-vec-darwin-arm64/vec0.dylib"))
+        XCTAssertTrue(stagingScript.contains("npm_config_arch=arm64"))
+        XCTAssertTrue(stagingScript.contains("[[ \"$architecture\" == 'arm64' ]]"))
+        XCTAssertTrue(stagingScript.contains("onnx_runtime_arm64=\"$onnx_runtime_root/darwin/arm64\""))
+        XCTAssertTrue(stagingScript.contains("non-darwin/arm64 payload"))
+        XCTAssertTrue(desktopStagingScript.contains("process.platform !== \"darwin\" || process.arch !== \"arm64\""))
+        XCTAssertTrue(desktopStagingScript.contains("retainOnlyDirectory(onnxRuntimeRoot, \"darwin\")"))
+        XCTAssertTrue(desktopStagingScript.contains("retainOnlyDirectory(resolve(onnxRuntimeRoot, \"darwin\"), \"arm64\")"))
         XCTAssertTrue(stagingScript.contains("mv \"$staging_backend\" \"$output/backend\""))
         XCTAssertTrue(validationScript.contains("validation_architecture=\"$(uname -m)\""))
         XCTAssertTrue(validationScript.contains("better-sqlite3"))
@@ -1078,13 +1087,33 @@ final class RailgunXAppTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/generate-project.sh"),
             encoding: .utf8
         )
+        let projectValidation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-project.sh"),
+            encoding: .utf8
+        )
+        let appcastGenerator = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/generate-appcast.sh"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(project.contains("INFOPLIST_FILE: Resources/Info.plist"))
+        XCTAssertTrue(project.contains("CODE_SIGN_ENTITLEMENTS: RailgunXRelease.entitlements"))
         XCTAssertTrue(infoPlist.contains("<key>SUFeedURL</key>"))
         XCTAssertTrue(infoPlist.contains("Railgun-appcast-$(RAILGUNX_SPARKLE_FEED_ARCHITECTURE).xml"))
         XCTAssertTrue(infoPlist.contains("<key>SUPublicEDKey</key>"))
         XCTAssertTrue(archiveScript.contains("RAILGUNX_SPARKLE_FEED_ARCHITECTURE=\"$architecture\""))
         XCTAssertTrue(projectGenerator.contains("cp \"$project_root/Resources/Info.plist\""))
+        XCTAssertTrue(projectGenerator.contains("cp \"$project_root/RailgunXRelease.entitlements\""))
+        XCTAssertTrue(projectValidation.contains("archive_release_configuration"))
+        XCTAssertTrue(projectValidation.contains("-configuration Release"))
+        XCTAssertTrue(projectValidation.contains("release_archive=\"$temporary_root/RailgunRelease.xcarchive\""))
+        XCTAssertTrue(projectValidation.contains("release_app=\"$release_archive/Products/Applications/Railgun.app\""))
+        XCTAssertTrue(projectValidation.contains("\"$sign_nested_code\" --app \"$release_app\" --identity -"))
+        XCTAssertTrue(projectValidation.contains("RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY=\"$sparkle_private_key\""))
+        XCTAssertTrue(projectValidation.contains("grep -q 'sparkle:edSignature='"))
+        XCTAssertTrue(appcastGenerator.contains("/bin/cp \"$archive\""))
+        XCTAssertTrue(appcastGenerator.contains("/bin/cp \"$generated_appcast\""))
+        XCTAssertFalse(appcastGenerator.contains("/usr/bin/cp"))
     }
 
     func testNativeValidationBuildsTheIgnoredMockBackendForCleanCheckouts() throws {
@@ -1137,13 +1166,13 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(records["nodejs-24-lts"]?.version, "24.18.0")
         XCTAssertEqual(
             records["nodejs-24-lts"]?.archive,
-            "node-v24.18.0-darwin-arm64.tar.xz; node-v24.18.0-darwin-x64.tar.xz"
+            "node-v24.18.0-darwin-arm64.tar.xz"
         )
         XCTAssertEqual(records["railgun-icon-artwork"]?.copyright, "© 2026 Dante Teo")
         XCTAssertEqual(records["railgun"]?.license, "MIT")
     }
 
-    func testLegalNoticeManifestContainsOnlyProductionBackendClosureWithBothMacOSNativeVariants() throws {
+    func testLegalNoticeManifestContainsOnlyTheArm64ProductionBackendClosure() throws {
         let manifest = try LegalNotices.loadManifest()
         let backendRecords = manifest.components.filter { $0.kind == .backendProductionPackage }
         let backendNames = Set(backendRecords.map(\.name))
@@ -1154,7 +1183,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(backendNames.contains("vitest"))
         XCTAssertFalse(backendNames.contains("@types/better-sqlite3"))
         XCTAssertTrue(backendNames.contains("sqlite-vec-darwin-arm64"))
-        XCTAssertTrue(backendNames.contains("sqlite-vec-darwin-x64"))
+        XCTAssertFalse(backendNames.contains("sqlite-vec-darwin-x64"))
         XCTAssertTrue(backendRecords.allSatisfy { !$0.noticeContentSHA256.isEmpty })
     }
 

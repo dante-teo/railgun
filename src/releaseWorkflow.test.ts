@@ -14,8 +14,12 @@ describe("desktop release artifacts", () => {
 
   it("publishes arm64 direct updater archives only", () => {
     expect(workflow).toContain('destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-arm64.zip"');
+    expect(workflow).toContain('railgun_arm64_zip="dist/Railgun-${version}-darwin-arm64.zip"');
+    expect(workflow).toContain('railgun_arm64_appcast="dist/Railgun-appcast-arm64.xml"');
     expect(workflow).not.toContain("macos-15-intel");
     expect(workflow).not.toContain("darwin-x64");
+    expect(workflow).not.toContain("x86_64");
+    expect(workflow).not.toContain("matrix.arch");
   });
 
   it("installs Electron with a shared retried action before desktop builds", () => {

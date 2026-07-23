@@ -42,6 +42,15 @@ The native job needs `RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY` and
 provided to Sparkle via standard input only; store the exported key-file text,
 not a base64 wrapper, in that secret.
 
+Native CI generates the disposable Xcode project and exercises the complete
+Release configuration before a tag is published. It creates an ad-hoc signed
+arm64 archive, verifies nested runtime entitlements and packaged backend
+startup, and generates a signed Sparkle appcast with a disposable matching
+keypair. The tagged release repeats those steps with the Developer ID and
+production Sparkle keys before notarization, stapling, and upload.
+Both desktop packagers discard foreign ONNX runtime payloads and retain only
+the macOS arm64 native binaries.
+
 Before packaging, the workflow prefetches the arm64 Electron binary with up to
 three attempts. This avoids Electron's lazy download during the backend build;
 if all attempts fail, retry the release job after the artifact host is
