@@ -155,10 +155,10 @@ navigation, focus indicators, and VoiceOver-friendly semantics are supported.
 ### Distribution and automation
 
 Direct signed releases and Homebrew Cask releases are separate immutable
-update channels. Direct installations use the in-app updater and retain
-`darwin-arm64` or `darwin-x64` artifact names. Homebrew installations disable
-the in-app updater so Homebrew owns updates. The update-check modal reuses the
-packaged renderer with a dedicated surface flag.
+update channels. Direct installations use the in-app updater and retain the
+`darwin-arm64` artifact name. Homebrew installations disable the in-app updater
+so Homebrew owns updates. The update-check modal reuses the packaged renderer
+with a dedicated surface flag.
 
 The Scheduled page owns job definitions. Settings → General owns the
 background-automation opt-in. When enabled, Railgun installs only

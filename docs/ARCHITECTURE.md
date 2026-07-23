@@ -50,9 +50,9 @@ archived summary queries expose the newest 500 entries, matching the validated
 desktop boundary without deleting older persisted sessions.
 
 Desktop release configuration is owned by `apps/desktop/package.json`. The
-release pipeline publishes direct builds only. Direct releases retain
-`darwin-arm64` or `darwin-x64` in their GitHub ZIP artifact names so the
-GitHub-backed Electron updater can find them. Direct installations check
+release pipeline publishes direct arm64 builds only. Direct releases retain
+`darwin-arm64` in their GitHub ZIP artifact names so the GitHub-backed Electron
+updater can find them. Direct installations check
 automatically and expose **Railgun → Check for Updates…** for an explicit
 check; downloaded updates require the user's restart confirmation. The updater
 still recognizes the legacy Homebrew channel so existing installations do not

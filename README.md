@@ -57,7 +57,7 @@ you want Railgun to invoke.
 `pnpm dev` runs the desktop app from source. `pnpm dev:mock` uses the desktop
 mock backend. The release version is defined only in
 `apps/desktop/package.json`; releases use `vX.Y.Z` tags and build direct
-artifacts for arm64 and x64. Create the version commit and tag with
+artifacts for arm64. Create the version commit and tag with
 `pnpm release:version patch`; see
 [release instructions](docs/RELEASING.md) for the artifact and signing checks.
 
@@ -128,7 +128,7 @@ Native Railgun release archives are built through
 `apps/macos/scripts/archive-release.sh`, not from a generated `.xcodeproj`.
 The release workflow injects the desktop release version, signs the app and
 bundled Node runtime, submits it for notarization, staples the result, creates
-one ZIP per architecture, and publishes separate signed Sparkle appcasts. It
+an arm64 ZIP, and publishes its signed Sparkle appcast. It
 requires these repository secrets in addition to the existing Developer ID and
 Apple notarization secrets:
 
@@ -136,8 +136,8 @@ Apple notarization secrets:
 - `RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY` — the private key file contents; it is
   passed to Sparkle on standard input and is never written to the checkout.
 
-The native updater uses only HTTPS feeds and keeps its two `Railgun` appcasts
-separate from Classic's GitHub updater artifacts.
+The native updater uses only an HTTPS feed, separate from Classic's GitHub
+updater artifacts.
 
 ### Native legal notices
 
@@ -177,9 +177,8 @@ apps/macos/scripts/stage-node-runtime.sh --architecture arm64 --output build/run
 The complete distribution is staged at `build/runtime-arm64/node`. The command
 refuses to replace an existing `node` output and verifies the archive checksum,
 LICENSE, Node version, archive layout, and Mach-O architecture before staging.
-`validate-node-runtime.sh` validates both `arm64` and `x86_64` archives on
-every host, while executing only the host-compatible runtime; it runs from
-`validate-project.sh` and native CI.
+`validate-node-runtime.sh` validates the configured native runtime archives;
+it runs from `validate-project.sh` and native CI.
 
 ### Shared desktop-client lock
 
@@ -212,11 +211,8 @@ pinned Node 24 runtime, and invokes the direct exact root `node-gyp` dependency
 with that runtime's headers. It deletes any downloaded `better-sqlite3`
 prebuild before compiling, then loads both `better-sqlite3` and the
 architecture-specific `sqlite-vec` extension under the staged Node ABI. The
-production deploy runs under the staged runtime so pnpm selects optional native
-dependencies for the requested architecture. On Apple silicon, x86_64 staging
-requires Rosetta 2 and an Xcode Command Line Tools installation capable of
-running x86_64 build tools; both architectures also require `pnpm`, Python 3,
-`make`, and `clang++`.
+production deploy runs under the staged runtime so pnpm selects arm64 optional
+native dependencies. It requires `pnpm`, Python 3, `make`, and `clang++`.
 
 Validate the host architecture's isolated payload with:
 
@@ -224,8 +220,8 @@ Validate the host architecture's isolated payload with:
 apps/macos/scripts/validate-backend.sh
 ```
 
-Native CI runs this validation on both arm64 and x86_64 runners. In addition
-to checking architecture, production dependencies, and direct
+Native CI runs this validation on arm64. In addition to checking architecture,
+production dependencies, and direct
 `better-sqlite3` / `sqlite-vec` loading, this starts each packaged backend in
 an isolated temporary home. It verifies the machine-readable
 authentication-required startup path without credentials, then uses a

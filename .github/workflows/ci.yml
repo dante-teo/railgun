@@ -85,16 +85,8 @@ jobs:
         run: pnpm --filter @dantea/railgun-desktop exec electron-forge package --arch arm64
 
   native:
-    name: Railgun (${{ matrix.architecture }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - architecture: arm64
-            runner: macos-15
-          - architecture: x86_64
-            runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+    name: Railgun (arm64)
+    runs-on: macos-15
 
     steps:
       - name: Check out repository

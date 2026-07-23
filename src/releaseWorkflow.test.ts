@@ -12,8 +12,10 @@ describe("desktop release artifacts", () => {
     expect(workflow).not.toContain('      - "desktop-v*"');
   });
 
-  it("retains darwin architecture identifiers for direct updater archives", () => {
-    expect(workflow).toContain('destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-${{ matrix.arch }}.zip"');
+  it("publishes arm64 direct updater archives only", () => {
+    expect(workflow).toContain('destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-arm64.zip"');
+    expect(workflow).not.toContain("macos-15-intel");
+    expect(workflow).not.toContain("darwin-x64");
   });
 
   it("installs Electron with a shared retried action before desktop builds", () => {

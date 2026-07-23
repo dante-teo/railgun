@@ -14,16 +14,8 @@ concurrency:
 
 jobs:
   build-desktop:
-    name: Desktop (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: x64
-            runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+    name: Desktop (arm64)
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
@@ -90,9 +82,9 @@ jobs:
           pnpm --filter @dantea/railgun-desktop build:backend-assets
           max_attempts=3
           for attempt in $(seq 1 "$max_attempts"); do
-            log="$RUNNER_TEMP/electron-forge-make-${{ matrix.arch }}-$attempt.log"
+            log="$RUNNER_TEMP/electron-forge-make-arm64-$attempt.log"
             set +e
-            pnpm --filter @dantea/railgun-desktop exec electron-forge make --arch "${{ matrix.arch }}" 2>&1 | tee "$log"
+            pnpm --filter @dantea/railgun-desktop exec electron-forge make --arch arm64 2>&1 | tee "$log"
             status=${PIPESTATUS[0]}
             set -e
 
@@ -111,7 +103,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app="apps/desktop/out/Railgun Classic-darwin-${{ matrix.arch }}/Railgun Classic.app"
+          app="apps/desktop/out/Railgun Classic-darwin-arm64/Railgun Classic.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
@@ -122,8 +114,8 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.metadata.outputs.version }}"
-          source="$(find "apps/desktop/out/make/zip/darwin/${{ matrix.arch }}" -maxdepth 1 -name '*.zip' -print -quit)"
-          destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-${{ matrix.arch }}.zip"
+          source="$(find "apps/desktop/out/make/zip/darwin/arm64" -maxdepth 1 -name '*.zip' -print -quit)"
+          destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-arm64.zip"
           test -n "$source"
           mv "$source" "$destination"
           echo "path=$destination" >> "$GITHUB_OUTPUT"
@@ -131,22 +123,14 @@ jobs:
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v7
         with:
-          name: railgun-desktop-direct-${{ matrix.arch }}
+          name: railgun-desktop-direct-arm64
           path: ${{ steps.artifact.outputs.path }}
           if-no-files-found: error
           retention-days: 7
 
   build-railgunx:
-    name: Railgun (${{ matrix.architecture }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - architecture: arm64
-            runner: macos-15
-          - architecture: x86_64
-            runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+    name: Railgun (arm64)
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
@@ -208,7 +192,7 @@ jobs:
           RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY }}
         run: |
           apps/macos/scripts/archive-release.sh \
-            --architecture "${{ matrix.architecture }}" \
+            --architecture arm64 \
             --version "${{ steps.metadata.outputs.version }}" \
             --build "$GITHUB_RUN_NUMBER" \
             --identity 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)' \
@@ -216,13 +200,13 @@ jobs:
             --output "$RUNNER_TEMP/railgunx" \
             --source-packages-output "$RUNNER_TEMP/railgunx-source-packages"
 
-      - name: Generate signed architecture-specific Sparkle appcast
+      - name: Generate signed Sparkle appcast
         env:
           RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY }}
         run: |
           apps/macos/scripts/generate-appcast.sh \
-            --archive "$RUNNER_TEMP/railgunx/Railgun-${{ steps.metadata.outputs.version }}-darwin-${{ matrix.architecture }}.zip" \
-            --output "$RUNNER_TEMP/railgunx/Railgun-appcast-${{ matrix.architecture }}.xml" \
+            --archive "$RUNNER_TEMP/railgunx/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+            --output "$RUNNER_TEMP/railgunx/Railgun-appcast-arm64.xml" \
             --download-url-prefix "https://github.com/dante-teo/railgun/releases/download/${GITHUB_REF_NAME}/" \
             --source-packages "$RUNNER_TEMP/railgunx-source-packages"
 
@@ -230,14 +214,14 @@ jobs:
         run: |
           apps/macos/scripts/validate-release-artifact.sh \
             --app "$RUNNER_TEMP/railgunx/Railgun.app" \
-            --archive "$RUNNER_TEMP/railgunx/Railgun-${{ steps.metadata.outputs.version }}-darwin-${{ matrix.architecture }}.zip" \
-            --architecture "${{ matrix.architecture }}" \
-            --appcast "$RUNNER_TEMP/railgunx/Railgun-appcast-${{ matrix.architecture }}.xml"
+            --archive "$RUNNER_TEMP/railgunx/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+            --architecture arm64 \
+            --appcast "$RUNNER_TEMP/railgunx/Railgun-appcast-arm64.xml"
 
       - name: Upload Railgun artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: railgun-native-${{ matrix.architecture }}
+          name: railgun-native-arm64
           path: |
             ${{ runner.temp }}/railgunx/Railgun-*.zip
             ${{ runner.temp }}/railgunx/Railgun-appcast-*.xml
@@ -271,25 +255,17 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           arm64_zip="dist/Railgun-direct-${version}-darwin-arm64.zip"
-          x64_zip="dist/Railgun-direct-${version}-darwin-x64.zip"
           railgun_arm64_zip="dist/Railgun-${version}-darwin-arm64.zip"
-          railgun_x64_zip="dist/Railgun-${version}-darwin-x86_64.zip"
           railgun_arm64_appcast="dist/Railgun-appcast-arm64.xml"
-          railgun_x64_appcast="dist/Railgun-appcast-x86_64.xml"
           test -f "$arm64_zip"
-          test -f "$x64_zip"
           test -f "$railgun_arm64_zip"
-          test -f "$railgun_x64_zip"
           test -f "$railgun_arm64_appcast"
-          test -f "$railgun_x64_appcast"
           arm64_sha256="$(sha256sum "$arm64_zip" | awk '{print $1}')"
-          x64_sha256="$(sha256sum "$x64_zip" | awk '{print $1}')"
           prerelease=false
           if [[ "$version" == *-* ]]; then prerelease=true; fi
           {
             echo "version=$version"
             echo "arm64_sha256=$arm64_sha256"
-            echo "x64_sha256=$x64_sha256"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 

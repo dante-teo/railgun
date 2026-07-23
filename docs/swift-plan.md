@@ -36,8 +36,7 @@ user-data migration.
   through availability checks and retain macOS 15 fallbacks.
 - Keep the TypeScript backend authoritative for existing agent behavior and
   preserve the versioned RPC command and capability contract.
-- Release separate arm64 and x86_64 signed, notarized artifacts and Sparkle
-  appcasts.
+- Release a signed, notarized arm64 artifact and Sparkle appcast.
 - Add focused tests before or alongside every behavior change. Tests use
   temporary home directories and must never touch the real `~/.railgun`.
 
@@ -153,10 +152,9 @@ signing are required. The app, bundled Node runtime, native addons, and other
 nested code are signed in the correct inside-out order before notarization and
 stapling.
 
-Publish separate arm64 and x86_64 direct artifacts. Sparkle uses separate HTTPS
-appcasts for each architecture with EdDSA verification. Classic update channels
-remain unchanged during the side-by-side period. Homebrew moves to native
-Railgun only during final replacement.
+Publish an arm64 direct artifact. Sparkle uses an HTTPS appcast with EdDSA
+verification. Classic update channels remain unchanged during the side-by-side
+period. Homebrew moves to native Railgun only during final replacement.
 
 ## Native UI implementation contract
 
@@ -326,7 +324,7 @@ production-shaped backend package.
 - [x] `SWFT-039` — Integrate Sparkle, generate signed architecture-specific HTTPS appcasts with EdDSA verification, and leave Classic’s update channels unchanged. `[8h]`
 - [x] `SWFT-040` — Add version injection, archive export, notarization, stapling, ZIP creation, and verification scripts. `[8h]`
 - [x] `SWFT-041` — Extend CI to generate, resolve, build, test, and validate native Railgun assets and packaged-bundle structure. `[8h]`
-- [x] `SWFT-042` — Extend publishing to release signed arm64 and x86_64 native Railgun builds beside Classic builds. `[8h]`
+- [x] `SWFT-042` — Extend publishing to release a signed arm64 native Railgun build beside Classic builds. `[8h]`
 - [x] `SWFT-044` — Add packaged signature, Gatekeeper, notarization, backend, icon, and updater smoke checks. `[8h]`
 
 Milestone exit: Railgun ships as an independently updatable, signed and
@@ -375,10 +373,10 @@ backend state.
 - [ ] `SWFT-069` — Measure and optimize large transcripts, streaming, scrolling, Markdown, and memory use. `[8h]`
 - [ ] `SWFT-070` — Test malformed transport, crashes, stale responses, restart, cancellation, authentication failure, and termination. `[8h]`
 - [ ] `SWFT-071` — Review filesystem, URL, process, secret, diagnostic, update, and release security boundaries. `[8h]`
-- [ ] `SWFT-072` — Run native unit, integration, UI, accessibility, packaged, arm64, and x86_64 verification. `[8h]`
+- [ ] `SWFT-072` — Run native unit, integration, UI, accessibility, packaged, and arm64 verification. `[8h]`
 
 Milestone exit: the app meets the native quality, accessibility, performance,
-recovery, security, layout, and dual-architecture acceptance contracts below.
+recovery, security, layout, and arm64 acceptance contracts below.
 
 ### 8. Rename and retirement
 
@@ -430,7 +428,7 @@ These IDs remain retired for traceability and are never reused:
 - Alpha acceptance requires core Task behavior, crash and disconnect recovery,
   signing, notarization, Sparkle updates, and production icon assets.
 - Replacement acceptance requires full feature parity, accessibility and
-  performance audits, arm64 and x86_64 artifacts, shared-data coexistence, and
+  performance audits, arm64 artifacts, shared-data coexistence, and
   packaged smoke tests.
 
 Design and review follow Apple's guidance for
@@ -487,7 +485,7 @@ Release RailgunX beside Electron only when:
   reduced-transparency behavior has been exercised;
 - the production icon is correct in Finder, Dock, Launchpad, About,
   notifications, and update presentation; and
-- arm64 and x86_64 builds are signed, notarized, stapled, updateable, and pass
+- arm64 builds are signed, notarized, stapled, updateable, and pass
   packaged backend smoke tests.
 
 ### Final replacement
