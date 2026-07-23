@@ -277,13 +277,23 @@ struct RailgunSessionSummary: Equatable, Identifiable, Sendable {
     }
 }
 
+/// Archive-specific metadata stays separate from active task summaries so a
+/// missing or malformed archive timestamp cannot be represented in UI state.
+struct RailgunArchivedSessionSummary: Equatable, Identifiable, Sendable {
+    let session: RailgunSessionSummary
+    let archivedAt: Date
+
+    var id: String { session.id }
+}
+
 struct RailgunSessionState: Equatable {
     var activeSessionID: String?
     var sessions: [RailgunSessionSummary]
-    var archivedSessions: [RailgunSessionSummary]
+    var archivedSessions: [RailgunArchivedSessionSummary]
     var isLoading: Bool
     var error: String? = nil
     var activeSession: RailgunSessionSummary? = nil
+    var restoreInFlightSessionID: String? = nil
 
     static let initial = Self(activeSessionID: nil, sessions: [], archivedSessions: [], isLoading: false)
 
@@ -312,7 +322,9 @@ enum RailgunRestoredTranscriptEntry: Equatable {
 enum RailgunSessionAction: Equatable {
     case loading
     case loaded([RailgunSessionSummary])
-    case archivedLoaded([RailgunSessionSummary])
+    case archivedLoaded([RailgunArchivedSessionSummary])
+    case restoreStarted(String)
+    case restoreFinished(String)
     case created(id: String, model: String?)
     case selected(String?)
     case hydrated(activeSessionID: String, transcript: [RailgunRestoredTranscriptEntry], todos: [RailgunTodo], isRunning: Bool)
@@ -339,6 +351,17 @@ enum RailgunSessionReducer {
             next.archivedSessions = sessions
             next.isLoading = false
             next.error = nil
+            return next
+        case let .restoreStarted(sessionID):
+            guard state.restoreInFlightSessionID == nil else { return state }
+            var next = state
+            next.restoreInFlightSessionID = sessionID
+            next.error = nil
+            return next
+        case let .restoreFinished(sessionID):
+            guard state.restoreInFlightSessionID == sessionID else { return state }
+            var next = state
+            next.restoreInFlightSessionID = nil
             return next
         case let .created(id, model):
             var next = state

@@ -104,6 +104,31 @@ or bridge gains a material new behavior or variant.
   editor with equivalent sizing, scrolling, command routing, focus, selection,
   paste, undo, text-services, and VoiceOver behavior.
 
+### `RailgunTaskIDPasteboard`
+
+- **Unmet requirement:** The Archived Tasks table offers a discrete **Copy
+  Task ID** operation so users can share the exact backend identifier without
+  selecting a truncated table cell.
+- **Native APIs evaluated:** SwiftUI `Table`, row context menus, and buttons
+  provide the browser and its actions, but none exposes a macOS system
+  clipboard write API.
+- **Deployment-target limitation:** macOS 15 SwiftUI cannot perform this
+  clipboard operation without an AppKit `NSPasteboard` call.
+- **Accessibility and interaction contract:** The table retains native row
+  selection, keyboard navigation, VoiceOver column semantics, and context-menu
+  actions. Task-specific context-menu actions appear only for exactly one
+  selected row; multi-row selection intentionally exposes neither Restore nor
+  Copy Task ID. Copy stays available while a restore is in flight; Restore is
+  disabled when the backend is unavailable or any restore is pending.
+- **Supported variants:** Plain-text task IDs only; the helper clears and
+  writes the system pasteboard as one atomic user-initiated action. Tests may
+  inject a named pasteboard.
+- **Shared ownership:** This is feature-local in `RailgunX` because it copies
+  one archive-browser identifier and has no shared UI component contract.
+- **Retirement trigger:** Remove the helper when a supported SwiftUI API can
+  write a plain string to the macOS pasteboard with the same native behavior;
+  route the existing action to that API.
+
 ## Approved AppKit bridge register
 
 AppKit bridges are narrow adapters around behavior unavailable through the
@@ -115,6 +140,7 @@ and accessibility behavior.
 | Advanced composer (`NSTextView`) | One-through-ten-line sizing; overflow scrolling; paste; text selection; focus; submit versus newline handling; VoiceOver behavior. | Encapsulate the text view behind a SwiftUI-facing API; keep the full document taller than the capped viewport on overflow, and retain native editing, focus, selection, keyboard, and VoiceOver semantics. |
 | Quick Look | Native preview behavior for validated local files. | Use only validated local URLs and retain the platform preview interaction. |
 | Precise window coordination | Window behavior that supported SwiftUI presentation or scene APIs cannot provide. | Minimize the AppKit surface and preserve standard window, focus, and keyboard behavior. |
+| Archived task-ID pasteboard | Copy a selected archived task's opaque ID as plain text. | Keep the AppKit call inside an injectable helper; SwiftUI remains responsible for browser state, selection, menu presentation, and restore availability. |
 
 Future bridges require a decision record with documented proof that macOS 15
 SwiftUI cannot meet the requirement. They are not approved merely for visual

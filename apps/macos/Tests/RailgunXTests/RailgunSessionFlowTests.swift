@@ -19,7 +19,9 @@ final class RailgunSessionFlowTests: XCTestCase {
             case .sessionListArchived:
                 return try response(
                     for: command.type,
-                    data: .object(["sessions": .array([summary(id: "archived", preview: "Archived task")])])
+                    data: .object(["sessions": .array([
+                        summary(id: "archived", preview: "Archived task", archivedAt: "2026-07-19T10:30:00Z"),
+                    ])])
                 )
             default:
                 XCTFail("Unexpected command: \(command.type)")
@@ -32,6 +34,28 @@ final class RailgunSessionFlowTests: XCTestCase {
 
         XCTAssertEqual(sessions.map(\.id), ["newer", "older"])
         XCTAssertEqual(archived.map(\.id), ["archived"])
+        XCTAssertEqual(archived.first?.archivedAt, Date(timeIntervalSince1970: 1_784_457_000))
+    }
+
+    func testSessionServiceRejectsMissingOrMalformedArchivedTimestamp() async throws {
+        for archivedAt in [nil, "not-an-iso-8601-timestamp"] {
+            let service = RailgunSessionService { command in
+                XCTAssertEqual(command.type, .sessionListArchived)
+                return try response(
+                    for: command.type,
+                    data: .object(["sessions": .array([
+                        summary(id: "archived", preview: "Archived task", archivedAt: archivedAt),
+                    ])])
+                )
+            }
+
+            do {
+                _ = try await service.listArchivedSessions()
+                XCTFail("Expected invalid archive metadata to be rejected")
+            } catch {
+                XCTAssertEqual(error as? RailgunSessionServiceError, .invalidResponse)
+            }
+        }
     }
 
     func testSessionServiceRejectsMalformedSummaryWithoutUpdatingTheStore() async throws {
@@ -344,18 +368,82 @@ final class RailgunSessionFlowTests: XCTestCase {
         XCTAssertEqual(store.state.session.sessions.map(\.id), ["archived"])
         XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
     }
+
+    func testRestoreIsSingleFlightAndRefreshesBothListsAfterSuccess() async throws {
+        let store = RailgunAppStore()
+        let gate = RestoreRequestGate()
+        let archived = RailgunArchivedSessionSummary(
+            session: .init(id: "archived", model: "gpt-5", startedAt: "Yesterday", messageCount: 2, firstUserPreview: "Restore me"),
+            archivedAt: Date(timeIntervalSince1970: 1_784_457_000)
+        )
+        store.send(.session(.archivedLoaded([archived])))
+        let service = RailgunSessionService { command in
+            switch command.type {
+            case .sessionUnarchive:
+                await gate.beginRestore()
+                return try response(for: command.type, data: .object(["sessionId": .string("archived")]))
+            case .sessionList:
+                return try response(for: command.type, data: .object(["sessions": .array([
+                    summary(id: "archived", preview: "Restored task"),
+                ])]))
+            case .sessionListArchived:
+                return try response(for: command.type, data: .object(["sessions": .array([])]))
+            default:
+                throw ResumeStubError.unexpectedCommand
+            }
+        }
+        let coordinator = RailgunSessionCoordinator(store: store, service: service)
+
+        let firstRestore = Task { await coordinator.restore("archived") }
+        await gate.waitUntilRestoreBegins()
+        await coordinator.restore("archived")
+        let restoreCount = await gate.restoreCount
+        XCTAssertEqual(restoreCount, 1)
+        XCTAssertEqual(store.state.session.restoreInFlightSessionID, "archived")
+
+        await gate.finishRestore()
+        await firstRestore.value
+
+        XCTAssertEqual(store.state.session.sessions.map(\.id), ["archived"])
+        XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
+        XCTAssertNil(store.state.session.restoreInFlightSessionID)
+    }
+
+    func testRestoreFailurePreservesArchivedRowsAndAllowsRetry() async throws {
+        let store = RailgunAppStore()
+        let archived = RailgunArchivedSessionSummary(
+            session: .init(id: "archived", model: "gpt-5", startedAt: "Yesterday", messageCount: 2, firstUserPreview: "Restore me"),
+            archivedAt: Date(timeIntervalSince1970: 1_784_457_000)
+        )
+        store.send(.session(.archivedLoaded([archived])))
+        let service = RailgunSessionService { command in
+            XCTAssertEqual(command.type, .sessionUnarchive)
+            throw ResumeStubError.unexpectedCommand
+        }
+        let coordinator = RailgunSessionCoordinator(store: store, service: service)
+
+        await coordinator.restore("archived")
+
+        XCTAssertEqual(store.state.session.archivedSessions, [archived])
+        XCTAssertEqual(store.state.session.error, "The task request could not be completed.")
+        XCTAssertNil(store.state.session.restoreInFlightSessionID)
+    }
 }
 
 private enum ResumeStubError: Error { case unexpectedCommand }
 
-private func summary(id: String, preview: String) -> RailgunJSONValue {
-    .object([
+private func summary(id: String, preview: String, archivedAt: String? = nil) -> RailgunJSONValue {
+    var fields: [String: RailgunJSONValue] = [
         "id": .string(id),
         "model": .string("gpt-5"),
         "startedAtLocal": .string("Today"),
         "messageCount": .number(2),
         "firstUserPreview": .string(preview),
-    ])
+    ]
+    if let archivedAt {
+        fields["archivedAt"] = .string(archivedAt)
+    }
+    return .object(fields)
 }
 
 private func response(for command: RailgunRPCCommandType, data: RailgunJSONValue) throws -> RailgunRPCResponse {
@@ -384,7 +472,9 @@ private actor SessionRepositoryStub {
             let sessions: [RailgunJSONValue] = isArchived ? [] : [summary(id: "archived", preview: "Restored task")]
             return try response(for: command.type, data: .object(["sessions": .array(sessions)]))
         case .sessionListArchived:
-            let sessions: [RailgunJSONValue] = isArchived ? [summary(id: "archived", preview: "Archived task")] : []
+            let sessions: [RailgunJSONValue] = isArchived
+                ? [summary(id: "archived", preview: "Archived task", archivedAt: "2026-07-19T10:30:00Z")]
+                : []
             return try response(for: command.type, data: .object(["sessions": .array(sessions)]))
         default:
             throw StubError.unexpectedCommand
@@ -392,4 +482,27 @@ private actor SessionRepositoryStub {
     }
 
     private enum StubError: Error { case unexpectedCommand }
+}
+
+private actor RestoreRequestGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var restoreCount = 0
+
+    func beginRestore() async {
+        restoreCount += 1
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilRestoreBegins() async {
+        while restoreCount == 0 {
+            await Task.yield()
+        }
+    }
+
+    func finishRestore() {
+        continuation?.resume()
+        continuation = nil
+    }
 }

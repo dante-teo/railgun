@@ -1,4 +1,5 @@
 import CryptoKit
+import AppKit
 import XCTest
 import RailgunCore
 import RailgunServices
@@ -390,16 +391,18 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(source.contains("dismiss: { isActivityCardVisible"))
     }
 
-    func testSettingsUsesExplicitInterfaceTypographyWithoutANativeListReset() throws {
+    func testArchivedTaskBrowserUsesNativeTableSearchAndContextMenu() throws {
         let source = try String(
             contentsOf: repositoryRoot
-                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunArchivedTaskBrowser.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("RailgunArchivedTaskRow"))
-        XCTAssertFalse(source.contains("List(tasks)"))
-        XCTAssertTrue(source.contains("Text(\"Restore\").font(RailgunFont.interface(.body, weight: .semibold))"))
+        XCTAssertTrue(source.contains("Table(tasks, selection:"))
+        XCTAssertTrue(source.contains(".searchable(text: $searchText"))
+        XCTAssertTrue(source.contains(".contextMenu(forSelectionType:"))
+        XCTAssertTrue(source.contains("if taskIDs.count == 1, let taskID = taskIDs.first"))
+        XCTAssertTrue(source.contains("Button(\"Copy Task ID\")"))
     }
 
     func testTranscriptSoftEdgePreservesTheNativeScrollerContract() throws {
@@ -476,28 +479,102 @@ final class RailgunXAppTests: XCTestCase {
         )))
     }
 
-    func testSettingsPresentsArchivedTasksForRestoration() {
-        let archived = RailgunSessionSummary(
-            id: "archived",
-            model: "gpt-5",
-            startedAt: "Yesterday",
-            messageCount: 3,
-            firstUserPreview: "Restore this"
+    func testArchivedTaskBrowserFiltersTitleModelAndIDAndDistinguishesEmptyStates() {
+        let archived = RailgunArchivedSessionSummary(
+            session: .init(
+                id: "task-archive-123",
+                model: "gpt-5",
+                startedAt: "Yesterday",
+                messageCount: 3,
+                firstUserPreview: "Restore this"
+            ),
+            archivedAt: Date(timeIntervalSince1970: 1_784_457_000)
+        )
+        let other = RailgunArchivedSessionSummary(
+            session: .init(
+                id: "other-task",
+                model: "gpt-5-mini",
+                startedAt: "Yesterday",
+                messageCount: 1,
+                firstUserPreview: "Different task"
+            ),
+            archivedAt: Date(timeIntervalSince1970: 1_784_457_001)
+        )
+        let session = RailgunSessionState(
+            activeSessionID: nil,
+            sessions: [],
+            archivedSessions: [archived, other],
+            isLoading: false
         )
 
         XCTAssertEqual(
-            RailgunArchivedTasksSettingsPresentation(session: .initial),
+            RailgunArchivedTaskBrowserPresentation(session: .initial, query: ""),
             .empty
         )
         XCTAssertEqual(
-            RailgunArchivedTasksSettingsPresentation(session: .init(
-                activeSessionID: nil,
-                sessions: [],
-                archivedSessions: [archived],
-                isLoading: false
-            )),
+            RailgunArchivedTaskBrowserPresentation(session: session, query: " Restore "),
             .tasks([archived])
         )
+        XCTAssertEqual(
+            RailgunArchivedTaskBrowserPresentation(session: session, query: "mini"),
+            .tasks([other])
+        )
+        XCTAssertEqual(
+            RailgunArchivedTaskBrowserPresentation(session: session, query: "archive-123"),
+            .tasks([archived])
+        )
+        XCTAssertEqual(
+            RailgunArchivedTaskBrowserPresentation(session: session, query: "missing"),
+            .noResults
+        )
+    }
+
+    func testArchivedTaskBrowserPresentsLoadingAndDisablesRestoreWhenUnavailableOrMutating() {
+        XCTAssertEqual(
+            RailgunArchivedTaskBrowserPresentation(
+                session: .init(activeSessionID: nil, sessions: [], archivedSessions: [], isLoading: true),
+                query: ""
+            ),
+            .loading
+        )
+        XCTAssertTrue(RailgunArchivedTaskBrowserAvailability(session: .initial, backendPhase: .ready).canRestore)
+
+        var session = RailgunSessionState.initial
+        session.restoreInFlightSessionID = "archived"
+        XCTAssertFalse(RailgunArchivedTaskBrowserAvailability(session: session, backendPhase: .ready).canRestore)
+        XCTAssertFalse(RailgunArchivedTaskBrowserAvailability(session: .initial, backendPhase: .failed("Offline")).canRestore)
+    }
+
+    func testTaskIDPasteboardWritesToAnInjectedNamedPasteboard() {
+        let pasteboard = NSPasteboard(name: .init("RailgunXTests-\(UUID().uuidString)"))
+        let copier = RailgunTaskIDPasteboard(pasteboard: pasteboard)
+
+        XCTAssertTrue(copier.copy("task-archive-123"))
+        XCTAssertEqual(pasteboard.string(forType: .string), "task-archive-123")
+    }
+
+    func testNativeUIPolicyDocumentsTheArchivePasteboardBoundary() throws {
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(nativeUIPolicy.contains("### `RailgunTaskIDPasteboard`"))
+        XCTAssertTrue(nativeUIPolicy.contains("macOS 15 SwiftUI cannot perform this"))
+        XCTAssertTrue(nativeUIPolicy.contains("Archived Tasks table"))
+        XCTAssertTrue(nativeUIPolicy.contains("only for exactly one"))
+    }
+
+    func testReadmeDocumentsTheArchivedTaskBrowserBehavior() throws {
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(readme.contains("### Archived task browser"))
+        XCTAssertTrue(readme.contains("full task ID"))
+        XCTAssertTrue(readme.contains("exactly one selected row"))
+        XCTAssertTrue(readme.contains("without opening or resuming it"))
     }
 
     func testAppUsesThePrimaryLifecycleConfiguration() {

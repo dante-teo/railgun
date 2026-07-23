@@ -521,17 +521,6 @@ enum RailgunBackendPresentation: Equatable {
     }
 }
 
-enum RailgunArchivedTasksSettingsPresentation: Equatable {
-    case empty
-    case tasks([RailgunSessionSummary])
-
-    init(session: RailgunSessionState) {
-        self = session.archivedSessions.isEmpty
-            ? .empty
-            : .tasks(session.archivedSessions)
-    }
-}
-
 struct RailgunContextUsagePresentation: Equatable {
     let text: String
     let accessibilityLabel: String
@@ -1814,66 +1803,17 @@ private struct RailgunSettingsView: View {
             Text("Archived Tasks")
                 .font(RailgunFont.interface(.title2, weight: .semibold))
 
-            if let error = appStore.state.session.error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(RailgunFont.interface(.callout))
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("archived-task-error")
-            }
-
-            switch RailgunArchivedTasksSettingsPresentation(session: appStore.state.session) {
-            case .empty:
-                ContentUnavailableView(
-                    "No Archived Tasks",
-                    systemImage: "archivebox",
-                    description: Text("Tasks you archive will appear here.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case let .tasks(tasks):
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: RailgunSpacing.standard.points) {
-                        ForEach(tasks) { task in
-                            RailgunArchivedTaskRow(task: task) {
-                                Task { await sessionCoordinator.restore(task.id) }
-                            }
-                        }
-                    }
-                    .padding(.vertical, RailgunSpacing.compact.points)
+            RailgunArchivedTaskBrowser(
+                session: appStore.state.session,
+                backendPhase: appStore.state.backend.phase,
+                restore: { sessionID in
+                    Task { await sessionCoordinator.restore(sessionID) }
                 }
-                .font(RailgunFont.interface())
-            }
+            )
+            .font(RailgunFont.interface())
         }
         .padding(RailgunSpacing.layout.points)
         .frame(minWidth: 520, minHeight: 360)
-    }
-}
-
-private struct RailgunArchivedTaskRow: View {
-    let task: RailgunSessionSummary
-    let restore: () -> Void
-
-    var body: some View {
-        HStack(spacing: RailgunSpacing.relaxed.points) {
-            VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
-                Text(task.displayTitle)
-                    .font(RailgunFont.interface(.body))
-                    .lineLimit(1)
-                Text("\(task.model) • \(task.startedAt)")
-                    .font(RailgunFont.interface(.caption))
-                    .foregroundStyle(RailgunColorRole.secondaryText.color)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Button(action: restore) {
-                Text("Restore").font(RailgunFont.interface(.body, weight: .semibold))
-            }
-            .accessibilityIdentifier("restore-archived-task-\(task.id)")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(RailgunSpacing.standard.points)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

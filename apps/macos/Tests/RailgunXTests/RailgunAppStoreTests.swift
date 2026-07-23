@@ -46,6 +46,16 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertEqual(summary.displayTitle, "Untitled Task")
     }
 
+    func testRestoreCompletionOnlyClearsItsMatchingInFlightSession() {
+        var state = RailgunAppReducer.reduce(.initial, .session(.restoreStarted("first")))
+
+        state = RailgunAppReducer.reduce(state, .session(.restoreFinished("stale")))
+        XCTAssertEqual(state.session.restoreInFlightSessionID, "first")
+
+        state = RailgunAppReducer.reduce(state, .session(.restoreFinished("first")))
+        XCTAssertNil(state.session.restoreInFlightSessionID)
+    }
+
     func testTaskDetailPresentationHandlesLoadingEmptySelectedAndStaleSelections() {
         let summary = RailgunSessionSummary(
             id: "session-1",

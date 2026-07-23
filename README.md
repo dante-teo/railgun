@@ -470,9 +470,23 @@ not belong in the registry.
 RailgunX currently provides one restorable primary SwiftUI scene, identified as
 `primary`. It opens at 1024×700, enforces a 760×520 content minimum, and remains
 user-resizable above that minimum. The native `Settings` scene provides the
-standard macOS Settings command and lists archived tasks with native Restore
-actions. The richer searchable preferences and archive-management surfaces
-remain deferred to their assigned Swift milestones.
+standard macOS Settings command and an archived-task browser. The browser is a
+native `Table` that shows task title, model, message count, and localized
+archive time. Search matches title, model, or the full task ID without changing
+the backend's archive order; clearing the search restores that order.
+
+### Archived task browser
+
+Archive a persisted selected task from the Task toolbar, then open **Settings →
+Archived Tasks** to browse it. Restore is available inline and from the native
+row context menu; a successful restore returns the task to the active task list
+without opening or resuming it. The context menu can also copy a task's exact
+ID, but task-specific context actions require exactly one selected row so a
+multi-row selection can never restore or copy an arbitrary task. Restore is
+disabled while the backend is unavailable or any archive restore is in flight;
+copying remains available. This browser intentionally does not expose archive
+deletion or transcript previews because the archive-list contract provides only
+task summaries.
 
 A selected, hydrated task renders its restored and live messages in a native
 `ScrollView` and `LazyVStack`. User messages and incomplete, failed, or stopped
@@ -565,7 +579,9 @@ RPC backend: after a successful readiness probe, RailgunX loads active and
 archived tasks and enables new, resume, archive, and restore operations.
 **Archive Task** is enabled only for a selected persisted task; unsaved new
 tasks cannot invoke a backend operation that will be rejected. Restore actions
-live in Settings rather than the Task toolbar. A backend launch,
+live in Settings rather than the Task toolbar. The Settings archive browser
+supports title, model, and full-ID search, inline restore, and single-row
+context-menu restore or task-ID copy. A backend launch,
 authentication, or later connection failure replaces the task shell with an
 actionable status and retry control; rejected task operations are shown next to
 the task detail area.

@@ -47,8 +47,8 @@ actor RailgunSessionService {
         try await list(.sessionList)
     }
 
-    func listArchivedSessions() async throws -> [RailgunSessionSummary] {
-        try await list(.sessionListArchived)
+    func listArchivedSessions() async throws -> [RailgunArchivedSessionSummary] {
+        try await archivedList()
     }
 
     func create(modelID: String?) async throws -> String {
@@ -91,11 +91,21 @@ actor RailgunSessionService {
     }
 
     private func list(_ type: RailgunRPCCommandType) async throws -> [RailgunSessionSummary] {
+        let values = try await sessionValues(for: type)
+        return try values.map(parseSummary)
+    }
+
+    private func archivedList() async throws -> [RailgunArchivedSessionSummary] {
+        let values = try await sessionValues(for: .sessionListArchived)
+        return try values.map(parseArchivedSummary)
+    }
+
+    private func sessionValues(for type: RailgunRPCCommandType) async throws -> [RailgunJSONValue] {
         let response = try await perform(type)
         guard let sessions = response.data?.objectValue?["sessions"], case let .array(values) = sessions,
               values.count <= Self.maximumSessions
         else { throw RailgunSessionServiceError.invalidResponse }
-        return try values.map(parseSummary)
+        return values
     }
 
     private func requestSessionID(
@@ -136,6 +146,21 @@ actor RailgunSessionService {
               let firstUserPreview = validText(object["firstUserPreview"], allowsEmpty: true)
         else { throw RailgunSessionServiceError.invalidResponse }
         return .init(id: id, model: model, startedAt: startedAt, messageCount: messageCount, firstUserPreview: firstUserPreview)
+    }
+
+    private func parseArchivedSummary(_ value: RailgunJSONValue) throws -> RailgunArchivedSessionSummary {
+        guard let object = value.objectValue,
+              let archivedAt = parseArchiveTimestamp(object["archivedAt"])
+        else { throw RailgunSessionServiceError.invalidResponse }
+        return .init(session: try parseSummary(value), archivedAt: archivedAt)
+    }
+
+    private func parseArchiveTimestamp(_ value: RailgunJSONValue?) -> Date? {
+        guard let text = validText(value) else { return nil }
+        let fractionalSecondsFormatter = ISO8601DateFormatter()
+        fractionalSecondsFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalSecondsFormatter.date(from: text) { return date }
+        return ISO8601DateFormatter().date(from: text)
     }
 
     private func isValidIdentifier(_ value: String) -> Bool {
@@ -382,12 +407,15 @@ final class RailgunSessionCoordinator {
     }
 
     func restore(_ sessionID: String) async {
+        guard store.state.session.restoreInFlightSessionID == nil else { return }
+        store.send(.session(.restoreStarted(sessionID)))
         do {
             try await service.restore(sessionID)
             await refresh()
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }
+        store.send(.session(.restoreFinished(sessionID)))
     }
 
     private func activateNewSession(id: String, model: String?) {
