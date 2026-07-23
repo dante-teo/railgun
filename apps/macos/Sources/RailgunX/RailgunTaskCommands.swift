@@ -27,7 +27,6 @@ extension FocusedValues {
 struct RailgunTaskCommands: Commands {
     @FocusedValue(\.railgunTaskCommandActions) private var taskActions
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -54,13 +53,6 @@ struct RailgunTaskCommands: Commands {
                 openWindow(id: AppLifecycleConfiguration.primary.primaryWindowRestorationIdentifier)
             }
             .keyboardShortcut("1", modifiers: .command)
-        }
-
-        CommandGroup(replacing: .appSettings) {
-            Button("Settings") {
-                openSettings()
-            }
-            .keyboardShortcut(",", modifiers: .command)
         }
     }
 }

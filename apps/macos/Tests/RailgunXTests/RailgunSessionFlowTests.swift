@@ -255,7 +255,7 @@ final class RailgunSessionFlowTests: XCTestCase {
             case .sessionBranch:
                 XCTAssertEqual(command.fields, [
                     "messageId": .number(12),
-                    "summarize": .bool(false),
+                    "summarize": .bool(true),
                     "includeMessages": .bool(false),
                 ])
                 return try response(for: command.type, data: .object([
@@ -296,7 +296,7 @@ final class RailgunSessionFlowTests: XCTestCase {
             }
         }
 
-        let restored = try await service.branch(messageID: 12)
+        let restored = try await service.branch(messageID: 12, summarize: true)
 
         XCTAssertEqual(restored.id, "saved")
         XCTAssertEqual(restored.transcript, [
@@ -326,7 +326,7 @@ final class RailgunSessionFlowTests: XCTestCase {
         }
         let coordinator = RailgunSessionCoordinator(store: store, service: service)
 
-        await coordinator.branch(messageID: 12)
+        await coordinator.branch(messageID: 12, summarize: false)
 
         XCTAssertEqual(store.state.transcript, original.transcript)
         XCTAssertEqual(store.state.activity, original.activity)
@@ -380,13 +380,141 @@ final class RailgunSessionFlowTests: XCTestCase {
             controlsDidActivate: { controlsRefreshes += 1 }
         )
 
-        await coordinator.branch(messageID: 12)
+        await coordinator.branch(messageID: 12, summarize: false)
 
         XCTAssertEqual(store.state.session.activeSessionID, "saved")
         XCTAssertEqual(store.state.transcript.messages.map(\.text), ["Keep this", "Boundary"])
         XCTAssertEqual(store.state.transcript.messages.map(\.order), [1, 2])
         XCTAssertEqual(store.state.session.sessions.map(\.id), ["saved"])
         XCTAssertEqual(store.state.session.archivedSessions.map(\.id), ["abandoned"])
+        XCTAssertEqual(controlsRefreshes, 1)
+        XCTAssertNil(store.state.session.error)
+    }
+
+    func testForkValidatesResponseAndReloadsTheAuthoritativePaginatedSnapshot() async throws {
+        let service = RailgunSessionService { command in
+            switch command.type {
+            case .sessionFork:
+                XCTAssertEqual(command.fields, [
+                    "sessionId": .string("saved"),
+                    "includeMessages": .bool(false),
+                ])
+                return try response(for: command.type, data: .object(["sessionId": .string("forked")]))
+            case .getState:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("forked"), "running": .bool(false), "todos": .array([]),
+                ]))
+            case .sessionTranscript:
+                XCTAssertEqual(command.fields["sessionId"], .string("forked"))
+                if command.fields["cursor"] == .number(0) {
+                    return try response(for: command.type, data: .object([
+                        "sessionId": .string("forked"),
+                        "messages": .array([.object(["role": .string("user"), "text": .string("Forked task")])]),
+                        "nextCursor": .number(1),
+                    ]))
+                }
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("forked"),
+                    "messages": .array([.object(["role": .string("assistant"), "text": .string("Ready")])]),
+                ]))
+            default:
+                throw ResumeStubError.unexpectedCommand
+            }
+        }
+
+        let restored = try await service.fork(sessionID: "saved")
+
+        XCTAssertEqual(restored.id, "forked")
+        XCTAssertEqual(restored.transcript, [
+            .message(role: .user, text: "Forked task"),
+            .message(role: .assistant, text: "Ready"),
+        ])
+    }
+
+    func testForkServiceRejectsMismatchedActiveSession() async throws {
+        let service = mismatchedForkService()
+
+        do {
+            _ = try await service.fork(sessionID: "saved")
+            XCTFail("Expected a mismatched active fork to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RailgunSessionServiceError, .invalidResponse)
+        }
+    }
+
+    func testForkServiceRejectsAResponseThatReusesTheSourceID() async throws {
+        let service = RailgunSessionService { command in
+            guard command.type == .sessionFork else { throw ResumeStubError.unexpectedCommand }
+            return try response(for: command.type, data: .object(["sessionId": .string("saved")]))
+        }
+
+        do {
+            _ = try await service.fork(sessionID: "saved")
+            XCTFail("Expected a fork reusing the source ID to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RailgunSessionServiceError, .invalidResponse)
+        }
+    }
+
+    func testForkFailurePreservesCurrentSelectionAndTranscript() async throws {
+        let store = RailgunAppStore()
+        store.send(.session(.created(id: "current", model: nil)))
+        store.send(.transcript(.submit(id: "current-message", text: "Keep current", at: 1)))
+        let original = store.state
+        let service = mismatchedForkService()
+        let coordinator = RailgunSessionCoordinator(store: store, service: service)
+
+        let succeeded = await coordinator.fork(sessionID: "saved")
+
+        XCTAssertFalse(succeeded)
+        XCTAssertEqual(store.state.transcript, original.transcript)
+        XCTAssertEqual(store.state.session.activeSessionID, original.session.activeSessionID)
+        XCTAssertEqual(store.state.session.error, "The backend returned invalid task data.")
+    }
+
+    func testForkHydratesTheCreatedTaskAndRefreshesControlsAndLists() async throws {
+        let store = RailgunAppStore()
+        let source = RailgunSessionSummary(
+            id: "saved", model: "gpt-5", startedAt: "Today", messageCount: 1, firstUserPreview: "Source task"
+        )
+        store.send(.session(.loaded([source])))
+        store.send(.session(.selected("saved")))
+        var controlsRefreshes = 0
+        let service = RailgunSessionService { command in
+            switch command.type {
+            case .sessionFork:
+                return try response(for: command.type, data: .object(["sessionId": .string("forked")]))
+            case .getState:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("forked"), "running": .bool(false), "todos": .array([]),
+                ]))
+            case .sessionTranscript:
+                return try response(for: command.type, data: .object([
+                    "sessionId": .string("forked"),
+                    "messages": .array([.object(["role": .string("user"), "text": .string("Forked task")])]),
+                ]))
+            case .sessionList:
+                return try response(for: command.type, data: .object(["sessions": .array([
+                    summary(id: "forked", preview: "Forked task"), summary(id: "saved", preview: "Source task"),
+                ])]))
+            case .sessionListArchived:
+                return try response(for: command.type, data: .object(["sessions": .array([])]))
+            default:
+                throw ResumeStubError.unexpectedCommand
+            }
+        }
+        let coordinator = RailgunSessionCoordinator(
+            store: store,
+            service: service,
+            controlsDidActivate: { controlsRefreshes += 1 }
+        )
+
+        let succeeded = await coordinator.fork(sessionID: "saved")
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(store.state.session.activeSessionID, "forked")
+        XCTAssertEqual(store.state.transcript.messages.map(\.text), ["Forked task"])
+        XCTAssertEqual(store.state.session.sessions.map(\.id), ["forked", "saved"])
         XCTAssertEqual(controlsRefreshes, 1)
         XCTAssertNil(store.state.session.error)
     }
@@ -595,6 +723,21 @@ private func response(for command: RailgunRPCCommandType, data: RailgunJSONValue
         "success": .bool(true),
         "data": data,
     ])))
+}
+
+private func mismatchedForkService() -> RailgunSessionService {
+    RailgunSessionService { command in
+        switch command.type {
+        case .sessionFork:
+            return try response(for: command.type, data: .object(["sessionId": .string("forked")]))
+        case .getState:
+            return try response(for: command.type, data: .object([
+                "sessionId": .string("other"), "running": .bool(false), "todos": .array([]),
+            ]))
+        default:
+            throw ResumeStubError.unexpectedCommand
+        }
+    }
 }
 
 private actor SessionRepositoryStub {

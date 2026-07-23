@@ -96,13 +96,13 @@ actor RailgunSessionService {
     /// Rewinds the active persisted session at a completed assistant boundary.
     /// The mutation payload is only a safety acknowledgement; the reloaded
     /// backend state and complete transcript are the authoritative result.
-    func branch(messageID: Int) async throws -> RailgunRestoredSession {
+    func branch(messageID: Int, summarize: Bool) async throws -> RailgunRestoredSession {
         guard messageID > 0, messageID <= Self.maximumSafeInteger else {
             throw RailgunSessionServiceError.invalidResponse
         }
         let response = try await perform(.sessionBranch, fields: [
             "messageId": .number(Double(messageID)),
-            "summarize": .bool(false),
+            "summarize": .bool(summarize),
             "includeMessages": .bool(false),
         ])
         try validateBranchMutation(response)
@@ -110,6 +110,26 @@ actor RailgunSessionService {
         let state = try await currentState()
         let transcript = try await transcript(for: state.id)
         return .init(id: state.id, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+    }
+
+    /// Forks a saved task and only exposes the backend's reloaded active
+    /// snapshot once it agrees with the mutation response.
+    func fork(sessionID: String) async throws -> RailgunRestoredSession {
+        guard isValidIdentifier(sessionID) else {
+            throw RailgunSessionServiceError.invalidResponse
+        }
+        let forkID = try await requestSessionID(
+            from: .sessionFork,
+            fields: [
+                "sessionId": .string(sessionID),
+                "includeMessages": .bool(false),
+            ]
+        )
+        guard forkID != sessionID else { throw RailgunSessionServiceError.invalidResponse }
+        let state = try await currentState()
+        guard state.id == forkID else { throw RailgunSessionServiceError.invalidResponse }
+        let transcript = try await transcript(for: forkID)
+        return .init(id: forkID, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
     }
 
     private func list(_ type: RailgunRPCCommandType) async throws -> [RailgunSessionSummary] {
@@ -370,6 +390,7 @@ final class RailgunSessionCoordinator {
     private let store: RailgunAppStore
     private let service: RailgunSessionService
     private let controlsDidActivate: (@MainActor () async -> Void)?
+    private var isSessionMutationInFlight = false
 
     init(
         store: RailgunAppStore,
@@ -459,20 +480,45 @@ final class RailgunSessionCoordinator {
         store.send(.session(.restoreFinished(sessionID)))
     }
 
-    func branch(messageID: Int) async {
+    @discardableResult
+    func branch(messageID: Int, summarize: Bool) async -> Bool {
+        await performSessionMutation {
+            try await self.service.branch(messageID: messageID, summarize: summarize)
+        }
+    }
+
+    @discardableResult
+    func fork(sessionID: String) async -> Bool {
+        await performSessionMutation {
+            try await self.service.fork(sessionID: sessionID)
+        }
+    }
+
+    private func performSessionMutation(
+        _ operation: @MainActor () async throws -> RailgunRestoredSession
+    ) async -> Bool {
+        guard !isSessionMutationInFlight else { return false }
+        isSessionMutationInFlight = true
+        defer { isSessionMutationInFlight = false }
         do {
-            let restored = try await service.branch(messageID: messageID)
-            store.send(.session(.hydrated(
-                activeSessionID: restored.id,
-                transcript: restored.transcript,
-                todos: restored.todos,
-                isRunning: restored.isRunning
-            )))
-            await controlsDidActivate?()
-            await refresh()
+            let restored = try await operation()
+            await hydrateMutation(restored)
+            return true
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
+            return false
         }
+    }
+
+    private func hydrateMutation(_ restored: RailgunRestoredSession) async {
+        store.send(.session(.hydrated(
+            activeSessionID: restored.id,
+            transcript: restored.transcript,
+            todos: restored.todos,
+            isRunning: restored.isRunning
+        )))
+        await controlsDidActivate?()
+        await refresh()
     }
 
     private func activateNewSession(id: String, model: String?) {

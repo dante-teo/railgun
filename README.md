@@ -488,6 +488,23 @@ copying remains available. This browser intentionally does not expose archive
 deletion or transcript previews because the archive-list contract provides only
 task summaries.
 
+### Branching and forking tasks
+
+For a persisted idle task, **Branch from this message** is available on a
+completed assistant boundary only when later visible transcript content exists.
+The native branch sheet can optionally **Summarize later messages** before
+rewinding. It stays open during submission, can be cancelled before submission,
+and presents retryable failures inline; the app dismisses it only after the
+backend's authoritative task state and transcript have been restored.
+
+Use **Fork Task** from a persisted task's sidebar context menu to create and
+activate a separate copy without changing the source task. RailgunX verifies
+that the backend returned a distinct task ID, then restores the fork and
+refreshes active and archived task lists. While a branch or fork is in flight,
+task selection, creation, controls, and composer submission are unavailable to
+prevent competing task mutations; fork progress and recoverable failures appear
+in the native task-operation presentation.
+
 A selected, hydrated task renders its restored and live messages in a native
 `ScrollView` and `LazyVStack`. User messages and incomplete, failed, or stopped
 assistant fragments remain selectable plain text; completed assistant messages
@@ -582,7 +599,8 @@ generated `.railgun-source-root` marker. Xcode generates shared `RailgunX
 Source Backend` and `RailgunX Mock Backend` Debug schemes that use that marker
 instead of embedding a developer-specific path. Both selections launch a live
 RPC backend: after a successful readiness probe, RailgunX loads active and
-archived tasks and enables new, resume, archive, and restore operations.
+archived tasks and enables new, resume, archive, restore, branch, and fork
+operations.
 **Archive Task** is enabled only for a selected persisted task; unsaved new
 tasks cannot invoke a backend operation that will be rejected. Restore actions
 live in Settings rather than the Task toolbar. The Settings archive browser

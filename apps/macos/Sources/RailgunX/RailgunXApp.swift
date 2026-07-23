@@ -603,6 +603,21 @@ struct RailgunTaskShell: View {
         session.selectedSession?.isPersisted != true
     }
 
+    static func isForkAvailable(
+        sessionID: String,
+        session: RailgunSessionState,
+        isRunActive: Bool,
+        isTaskLocked: Bool,
+        isMutationInFlight: Bool
+    ) -> Bool {
+        session.sessions.contains(where: { $0.id == sessionID })
+            && !session.isLoading
+            && session.restoreInFlightSessionID == nil
+            && !isRunActive
+            && !isTaskLocked
+            && !isMutationInFlight
+    }
+
     @Bindable private var appStore: RailgunAppStore
     private let sessionCoordinator: RailgunSessionCoordinator
     private let promptCoordinator: RailgunPromptCoordinator
@@ -615,7 +630,10 @@ struct RailgunTaskShell: View {
     @State private var composerHeight = RailgunComposer.minimumHeight()
     @State private var isComposerSubmissionInFlight = false
     @State private var pendingBranchMessage: RailgunTranscriptMessage?
+    @State private var branchSummarize = false
+    @State private var branchError: String?
     @State private var isBranchInFlight = false
+    @State private var isForkInFlight = false
     @FocusState private var interactionFocus: RailgunInteractionFocus?
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
@@ -645,7 +663,9 @@ struct RailgunTaskShell: View {
                 isActivityAvailable: isActivityAvailable,
                 isActivityCardVisible: $isActivityCardVisible,
                 isFloatingActivityPresented: isFloatingActivityPresented,
-                isSessionSelectionDisabled: isTaskControlLocked
+                isSessionSelectionDisabled: isTaskOperationInFlight,
+                isForkAvailable: isForkAvailable(for:),
+                fork: requestFork(sessionID:)
             )
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
@@ -694,7 +714,7 @@ struct RailgunTaskShell: View {
                         } label: {
                             Label("Archive Task", systemImage: "archivebox")
                         }
-                        .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskControlLocked)
+                        .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskOperationInFlight)
                     }
                 }
         }
@@ -711,17 +731,14 @@ struct RailgunTaskShell: View {
         .onChange(of: appStore.state.interactions.requests) { previous, current in
             handleInteractionFocusChange(from: previous, to: current)
         }
-        .confirmationDialog(
-            "Branch from this message?",
-            isPresented: isBranchConfirmationPresented,
-            titleVisibility: .visible
-        ) {
-            Button("Branch Here", role: .destructive) {
-                confirmBranch()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Later messages will move to the abandoned branch.")
+        .sheet(isPresented: isBranchSheetPresented) {
+            RailgunBranchDialog(
+                summarize: $branchSummarize,
+                isSubmitting: isBranchInFlight,
+                error: branchError,
+                cancel: cancelBranch,
+                submit: confirmBranch
+            )
         }
     }
 
@@ -729,15 +746,22 @@ struct RailgunTaskShell: View {
         .init(
             canCreateTask: Self.canCreateTask(
                 session: appStore.state.session,
-                controls: appStore.state.controls
+                controls: appStore.state.controls,
+                isSessionMutationInFlight: isSessionMutationInFlight
             ),
             canStop: appStore.state.transcript.isRunning && !appStore.state.transcript.isStopping,
             canRetry: canRetryComposerSubmission
         )
     }
 
-    static func canCreateTask(session: RailgunSessionState, controls: RailgunControlsState) -> Bool {
-        !session.isLoading && !controls.compactionStatus.isInProgress
+    static func canCreateTask(
+        session: RailgunSessionState,
+        controls: RailgunControlsState,
+        isSessionMutationInFlight: Bool = false
+    ) -> Bool {
+        !session.isLoading
+            && !controls.compactionStatus.isInProgress
+            && !isSessionMutationInFlight
     }
 
     static func controlsAreDisabled(_ controls: RailgunControlsState, isRunActive: Bool) -> Bool {
@@ -753,6 +777,14 @@ struct RailgunTaskShell: View {
 
     private var isTaskControlLocked: Bool {
         appStore.state.controls.compactionStatus.isInProgress
+    }
+
+    private var isSessionMutationInFlight: Bool {
+        isBranchInFlight || isForkInFlight
+    }
+
+    private var isTaskOperationInFlight: Bool {
+        isTaskControlLocked || isSessionMutationInFlight
     }
 
     static func isCompactionDisabled(
@@ -784,7 +816,7 @@ struct RailgunTaskShell: View {
         } label: {
             Label("Model", systemImage: "cpu")
         }
-        .disabled(controlsAreDisabled)
+        .disabled(controlsAreDisabled || isSessionMutationInFlight)
         .accessibilityIdentifier("task-model-menu")
     }
 
@@ -847,7 +879,7 @@ struct RailgunTaskShell: View {
         } label: {
             Label("Agents", systemImage: "person.2")
         }
-        .disabled(controlsAreDisabled)
+        .disabled(controlsAreDisabled || isSessionMutationInFlight)
         .accessibilityIdentifier("task-agent-menu")
     }
 
@@ -912,12 +944,12 @@ struct RailgunTaskShell: View {
         !presentedTranscriptMessages.isEmpty || !presentedActivity.entries.isEmpty
     }
 
-    private var isBranchConfirmationPresented: Binding<Bool> {
+    private var isBranchSheetPresented: Binding<Bool> {
         Binding(
             get: { pendingBranchMessage != nil },
             set: { isPresented in
-                if !isPresented {
-                    pendingBranchMessage = nil
+                if !isPresented, !isBranchInFlight {
+                    cancelBranch()
                 }
             }
         )
@@ -930,13 +962,22 @@ struct RailgunTaskShell: View {
             session: appStore.state.session,
             isRunActive: appStore.state.transcript.isRunning,
             isTaskLocked: isTaskControlLocked,
-            isBranchInFlight: isBranchInFlight
+            isBranchInFlight: isSessionMutationInFlight
         )
     }
 
     private func requestBranch(from message: RailgunTranscriptMessage) {
         guard isBranchAvailable(for: message) else { return }
+        branchSummarize = false
+        branchError = nil
         pendingBranchMessage = message
+    }
+
+    private func cancelBranch() {
+        guard !isBranchInFlight else { return }
+        pendingBranchMessage = nil
+        branchSummarize = false
+        branchError = nil
     }
 
     private func confirmBranch() {
@@ -946,11 +987,38 @@ struct RailgunTaskShell: View {
               let messageID = pendingBranchMessage.messageID,
               !isBranchInFlight
         else { return }
-        pendingBranchMessage = nil
         isBranchInFlight = true
+        branchError = nil
         Task {
-            await sessionCoordinator.branch(messageID: messageID)
+            let succeeded = await sessionCoordinator.branch(
+                messageID: messageID,
+                summarize: branchSummarize
+            )
             isBranchInFlight = false
+            if succeeded {
+                cancelBranch()
+            } else {
+                branchError = appStore.state.session.error
+            }
+        }
+    }
+
+    private func isForkAvailable(for sessionID: String) -> Bool {
+        Self.isForkAvailable(
+            sessionID: sessionID,
+            session: appStore.state.session,
+            isRunActive: appStore.state.transcript.isRunning,
+            isTaskLocked: isTaskControlLocked,
+            isMutationInFlight: isSessionMutationInFlight
+        )
+    }
+
+    private func requestFork(sessionID: String) {
+        guard isForkAvailable(for: sessionID) else { return }
+        isForkInFlight = true
+        Task {
+            _ = await sessionCoordinator.fork(sessionID: sessionID)
+            isForkInFlight = false
         }
     }
 
@@ -985,6 +1053,10 @@ struct RailgunTaskShell: View {
     private var taskDetailStateOverlay: some View {
         ZStack(alignment: .top) {
             taskDetailStateContent
+
+            if isForkInFlight {
+                sessionOperationProgressBanner("Forking task…")
+            }
 
             if let error = RailgunSessionOperationErrorPresentation(
                 session: appStore.state.session
@@ -1047,6 +1119,22 @@ struct RailgunTaskShell: View {
             .padding(.horizontal, RailgunSpacing.layout.points)
             .padding(.top, RailgunSpacing.layout.points)
             .accessibilityIdentifier("session-operation-error")
+    }
+
+    private func sessionOperationProgressBanner(_ title: String) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            ProgressView()
+                .controlSize(.small)
+        }
+        .font(RailgunFont.interface(.callout))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(RailgunSpacing.relaxed.points)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, RailgunSpacing.layout.points)
+        .padding(.top, RailgunSpacing.layout.points)
+        .accessibilityIdentifier("session-operation-progress")
     }
 
     private var composerArea: some View {
@@ -1492,7 +1580,7 @@ struct RailgunTaskShell: View {
         !isComposerSubmissionInFlight
             && !appStore.state.transcript.isStopping
             && appStore.state.interactions.requests.isEmpty
-            && !isTaskControlLocked
+            && !isTaskOperationInFlight
     }
 
     private var canSubmitComposerDraft: Bool {
@@ -1634,6 +1722,8 @@ private struct RailgunTaskSidebar: View {
     let isActivityCardVisible: Binding<Bool>
     let isFloatingActivityPresented: Binding<Bool>
     let isSessionSelectionDisabled: Bool
+    let isForkAvailable: (String) -> Bool
+    let fork: (String) -> Void
 
     var body: some View {
         ScrollView {
@@ -1652,7 +1742,9 @@ private struct RailgunTaskSidebar: View {
                     RailgunSidebarSessionRow(
                         summary: summary,
                         isSelected: selection.wrappedValue == summary.id,
-                        select: { selection.wrappedValue = summary.id }
+                        select: { selection.wrappedValue = summary.id },
+                        canFork: isForkAvailable(summary.id),
+                        fork: { fork(summary.id) }
                     )
                     .disabled(isSessionSelectionDisabled)
                 }
@@ -1728,6 +1820,8 @@ private struct RailgunSidebarSessionRow: View {
     let summary: RailgunSessionSummary
     let isSelected: Bool
     let select: () -> Void
+    let canFork: Bool
+    let fork: () -> Void
 
     var body: some View {
         Button(action: select) {
@@ -1754,7 +1848,50 @@ private struct RailgunSidebarSessionRow: View {
             isSelected ? RailgunColorRole.accent.color : .clear,
             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
+        .contextMenu {
+            Button("Fork Task", systemImage: "arrow.triangle.branch") {
+                fork()
+            }
+            .disabled(!canFork)
+        }
         .accessibilityValue(isSelected ? "Selected" : "")
+    }
+}
+
+private struct RailgunBranchDialog: View {
+    @Binding var summarize: Bool
+    let isSubmitting: Bool
+    let error: String?
+    let cancel: () -> Void
+    let submit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
+            Text("Branch from this message?")
+                .font(RailgunFont.interface(.title2, weight: .semibold))
+            Text("This rewinds the active task to this message. Later messages remain preserved in the abandoned branch.")
+                .font(RailgunFont.interface(.body))
+                .foregroundStyle(.secondary)
+            Toggle("Summarize later messages", isOn: $summarize)
+                .disabled(isSubmitting)
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(RailgunFont.interface(.callout))
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("branch-operation-error")
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel)
+                    .disabled(isSubmitting)
+                Button(isSubmitting ? "Branching…" : "Branch", action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isSubmitting)
+            }
+        }
+        .padding(RailgunSpacing.layout.points)
+        .frame(width: 400)
+        .interactiveDismissDisabled(isSubmitting)
     }
 }
 

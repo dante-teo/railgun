@@ -62,6 +62,11 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertFalse(RailgunTaskShell.canCreateTask(session: .initial, controls: controls))
         XCTAssertTrue(RailgunTaskShell.canCreateTask(session: .initial, controls: .initial))
+        XCTAssertFalse(RailgunTaskShell.canCreateTask(
+            session: .initial,
+            controls: .initial,
+            isSessionMutationInFlight: true
+        ))
     }
 
     func testRetryCommandAvailabilityPrefersExplicitRecoveryTargets() {
@@ -135,7 +140,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("CommandGroup(replacing: .newItem)"))
         XCTAssertTrue(source.contains(".keyboardShortcut(\"n\", modifiers: .command)"))
         XCTAssertTrue(source.contains(".keyboardShortcut(\"1\", modifiers: .command)"))
-        XCTAssertTrue(source.contains("@Environment(\\.openSettings)"))
+        XCTAssertFalse(source.contains("@Environment(\\.openSettings)"))
+        XCTAssertFalse(source.contains("CommandGroup(replacing: .appSettings)"))
         XCTAssertTrue(source.contains("openWindow(id:"))
         XCTAssertTrue(source.contains("Button(\"Stop\""))
         XCTAssertTrue(source.contains("taskActions?.stop()"))
@@ -153,7 +159,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(appSource.contains("SidebarCommands()"))
     }
 
-    func testBranchingUsesANativeConfirmationBeforeSubmittingTheDestructiveAction() throws {
+    func testBranchingUsesANativeModalWithSummaryCancellationAndInFlightLocking() throws {
         let appSource = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
@@ -166,9 +172,48 @@ final class RailgunXAppTests: XCTestCase {
         )
 
         XCTAssertTrue(transcriptSource.contains("Button(\"Branch from this message\")"))
-        XCTAssertTrue(appSource.contains(".confirmationDialog("))
-        XCTAssertTrue(appSource.contains("Later messages will move to the abandoned branch."))
-        XCTAssertTrue(appSource.contains("await sessionCoordinator.branch(messageID: messageID)"))
+        XCTAssertTrue(appSource.contains(".sheet(isPresented: isBranchSheetPresented)"))
+        XCTAssertTrue(appSource.contains("Toggle(\"Summarize later messages\""))
+        XCTAssertTrue(appSource.contains("Button(\"Cancel\", action: cancel)"))
+        XCTAssertTrue(appSource.contains(".interactiveDismissDisabled(isSubmitting)"))
+        XCTAssertTrue(appSource.contains("await sessionCoordinator.branch("))
+        XCTAssertTrue(appSource.contains("summarize: branchSummarize"))
+        XCTAssertTrue(appSource.contains("branchError = appStore.state.session.error"))
+    }
+
+    func testSidebarForkIsOnlyAvailableForPersistedIdleTasks() throws {
+        let saved = RailgunSessionSummary(
+            id: "saved", model: "gpt-5", startedAt: "Today", messageCount: 1, firstUserPreview: "Task"
+        )
+        let session = RailgunSessionState(
+            activeSessionID: "saved", sessions: [saved], archivedSessions: [], isLoading: false
+        )
+
+        XCTAssertTrue(RailgunTaskShell.isForkAvailable(
+            sessionID: "saved", session: session, isRunActive: false, isTaskLocked: false, isMutationInFlight: false
+        ))
+        XCTAssertFalse(RailgunTaskShell.isForkAvailable(
+            sessionID: "missing", session: session, isRunActive: false, isTaskLocked: false, isMutationInFlight: false
+        ))
+        XCTAssertFalse(RailgunTaskShell.isForkAvailable(
+            sessionID: "saved", session: session, isRunActive: true, isTaskLocked: false, isMutationInFlight: false
+        ))
+        XCTAssertFalse(RailgunTaskShell.isForkAvailable(
+            sessionID: "saved", session: session, isRunActive: false, isTaskLocked: true, isMutationInFlight: false
+        ))
+        XCTAssertFalse(RailgunTaskShell.isForkAvailable(
+            sessionID: "saved", session: session, isRunActive: false, isTaskLocked: false, isMutationInFlight: true
+        ))
+
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("Button(\"Fork Task\", systemImage: \"arrow.triangle.branch\")"))
+        XCTAssertTrue(source.contains(".contextMenu {"))
+        XCTAssertTrue(source.contains("sessionOperationProgressBanner(\"Forking task…\")"))
+        XCTAssertTrue(source.contains(".accessibilityIdentifier(\"session-operation-error\")"))
     }
 
     func testActivityUsesAFloatingGlassPanelAlongsideTheTranscript() throws {
