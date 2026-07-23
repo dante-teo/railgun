@@ -1050,6 +1050,17 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(project.contains("UNLOCALIZED_RESOURCES_FOLDER_PATH"))
     }
 
+    func testNativeProductKeepsItsInternalSwiftModuleNameAcrossThePublicRename() throws {
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(project.contains("PRODUCT_NAME: Railgun"))
+        XCTAssertTrue(project.contains("PRODUCT_MODULE_NAME: RailgunX"))
+        XCTAssertTrue(project.contains("TEST_HOST: \"$(BUILT_PRODUCTS_DIR)/Railgun.app/Contents/MacOS/Railgun\""))
+    }
+
     func testLegalNoticesAreBundledWithTheApplication() throws {
         XCTAssertNotNil(LegalNotices.noticesURL)
         XCTAssertNotNil(LegalNotices.manifestURL)

@@ -149,6 +149,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.anvia.railgun
         PRODUCT_NAME: Railgun
+        # Keep the source/test module stable while the distributed app is named Railgun.
+        PRODUCT_MODULE_NAME: RailgunX
         PRODUCT_BUNDLE_PACKAGE_TYPE: APPL
         GENERATE_INFOPLIST_FILE: YES
         # Release tooling injects these from apps/desktop/package.json and the
