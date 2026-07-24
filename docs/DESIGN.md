@@ -376,6 +376,13 @@ the missing and available IDs plus interactive recovery instructions. Resumes
 remain pinned to their stored model because changing it would alter conversation
 semantics. Proactive/general model switching is available from the model controls.
 
+RPC is the protocol-only exception to that non-interactive failure path. It
+starts with the configured default when that model is available; when a saved
+default has disappeared, it starts with the first available provider model
+without rewriting the saved preference. This keeps desktop controls available
+for an explicit replacement and never writes an Ink chooser or other terminal
+UI to the JSONL stdout stream.
+
 ## Authentication and recovery
 
 `login` and `logout` are startup subcommands, not in-REPL slash commands. They

@@ -98,6 +98,12 @@ selection; there is no separate task-only/default choice. If saving the default
 fails after the task change succeeds, the selected task model remains in use
 and the client presents a recoverable warning.
 
+Desktop startup uses that saved default. If the provider no longer offers it,
+the RPC backend starts with its first currently available model instead, without
+overwriting the saved preference, so the client can load the model controls and
+the user can choose a replacement. RPC startup never renders a terminal model
+chooser: stdout remains JSONL-only for the desktop client and other RPC callers.
+
 Changing a model can fork a persisted task. RailgunX rehydrates the backend's
 newly active task and refreshes its task list after a successful change, so its
 transcript, sidebar, and later task actions target the fork. The desktop model

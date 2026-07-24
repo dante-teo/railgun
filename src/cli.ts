@@ -26,7 +26,7 @@ import type { PersistedSession, SessionStore, SessionSummary } from "./persisten
 import { runRepl } from "./repl/App.js";
 import type { ReplPersistenceOptions } from "./repl/App.js";
 import { runSessionChooser } from "./repl/SessionChooser.js";
-import { initDevinSession, initFreshDevinSession } from "./session.js";
+import { initDevinSession, initFreshDevinSession, RequestedModelUnavailableError } from "./session.js";
 import type { DevinSession } from "./session.js";
 import type { DevinProvider, DevinModel } from "widevin";
 import { startScheduler } from "./cron/scheduler.js";
@@ -504,8 +504,11 @@ const dispatchCliCore = async (mode: CliMode, dependencies: CliDependencies, dia
 
   if (mode.kind === "rpc") {
     const surface: RuntimeSurface = process.env[DESKTOP_RPC_ENV] === "1" ? "desktop" : "rpc";
-    const session = await dependencies.initSession(undefined, undefined, surface);
     const config = await dependencies.loadConfig();
+    const session = await dependencies.initSession(config.model ?? undefined, undefined, surface)
+      .catch(error => error instanceof RequestedModelUnavailableError
+        ? dependencies.initSession(undefined, undefined, surface)
+        : Promise.reject(error));
     const { runner, cleanup } = await bootstrapExtensions("rpc", config);
     try {
       await withStores(dependencies, async (sessionStore, memoryStore, noteStore) => {

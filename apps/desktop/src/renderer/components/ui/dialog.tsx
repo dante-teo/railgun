@@ -19,7 +19,7 @@ export const DialogContent = forwardRef<React.ComponentRef<typeof DialogPrimitiv
   ({ className, children, showClose = false, ...props }, ref) => (
     <DialogPrimitive.Portal>
       <DialogOverlay />
-      <DialogPrimitive.Content ref={ref} data-glass-surface="dialog" className={cn("fixed left-1/2 top-1/2 z-[var(--layer-dialog)] max-h-[calc(100vh_-_2rem)] w-[min(28rem,calc(100vw_-_2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-[var(--material-dialog)] p-6 text-foreground shadow-dialog backdrop-blur-[24px] focus:outline-none", className)} {...props}>
+      <DialogPrimitive.Content ref={ref} data-glass-surface="dialog" className={cn("fixed left-1/2 top-1/2 z-[var(--layer-dialog)] max-h-[calc(100vh_-_2rem)] w-[min(28rem,calc(100vw_-_2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-[var(--material-dialog)] p-6 text-foreground shadow-dialog backdrop-blur-[24px] focus:outline-none [-webkit-app-region:no-drag]", className)} {...props}>
         {children}
         {showClose ? <DialogPrimitive.Close className="absolute right-3 top-3 grid size-control-icon place-items-center rounded-full border-0 bg-transparent text-foreground-secondary hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-label="Close"><X className="size-4" aria-hidden="true" /></DialogPrimitive.Close> : null}
       </DialogPrimitive.Content>

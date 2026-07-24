@@ -700,7 +700,7 @@ struct RailgunTaskShell: View {
 #endif
 
                     ToolbarItemGroup(placement: .automatic) {
-                        modelControlsMenu
+                        modelControlsPicker
                         agentControlsMenu
                         Button {
                             createTask()
@@ -804,20 +804,25 @@ struct RailgunTaskShell: View {
     }
 
     @ViewBuilder
-    private var modelControlsMenu: some View {
-        Menu {
+    private var modelControlsPicker: some View {
+        Picker("Model", selection: modelSelection) {
             ForEach(appStore.state.controls.models) { model in
-                Button {
-                    Task { await controlsCoordinator.useModel(model.id) }
-                } label: {
-                    selectionLabel(model.name, isSelected: appStore.state.controls.activeModelID == model.id)
-                }
+                Text(model.name).tag(Optional(model.id))
             }
-        } label: {
-            Label("Model", systemImage: "cpu")
         }
+        .pickerStyle(.menu)
         .disabled(controlsAreDisabled || isSessionMutationInFlight)
         .accessibilityIdentifier("task-model-menu")
+    }
+
+    private var modelSelection: Binding<String?> {
+        Binding(
+            get: { appStore.state.controls.activeModelID },
+            set: { modelID in
+                guard let modelID else { return }
+                Task { await controlsCoordinator.useModel(modelID) }
+            }
+        )
     }
 
     @ViewBuilder

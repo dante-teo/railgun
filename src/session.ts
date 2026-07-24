@@ -54,6 +54,13 @@ const buildSession = async (devin: DevinProvider, model: DevinModel, memoriesTex
 const availableIds = (models: readonly DevinModel[]): string =>
   models.map(candidate => candidate.id).join(", ") || "none";
 
+export class RequestedModelUnavailableError extends Error {
+  constructor(modelId: string, models: readonly DevinModel[]) {
+    super(`Saved model "${modelId}" is unavailable. Available models: ${availableIds(models)}.`);
+    this.name = "RequestedModelUnavailableError";
+  }
+}
+
 export const initDevinSession = async (requiredModelId?: string, memoriesText?: string | null, surface: RuntimeSurface = "interactive"): Promise<DevinSession> => {
   const { devin } = await createAuthenticatedProvider();
   const models = await devin.listModels();
@@ -61,7 +68,7 @@ export const initDevinSession = async (requiredModelId?: string, memoriesText?: 
     ? models[0]
     : models.find(candidate => candidate.id === requiredModelId);
   if (requiredModelId !== undefined && !model) {
-    throw new Error(`Saved model "${requiredModelId}" is unavailable. Available models: ${availableIds(models)}.`);
+    throw new RequestedModelUnavailableError(requiredModelId, models);
   }
   if (!model) throw new Error("Devin returned no available models");
   return buildSession(devin, model, memoriesText, surface);

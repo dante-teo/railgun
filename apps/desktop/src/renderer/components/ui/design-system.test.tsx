@@ -143,7 +143,8 @@ describe("overlays", () => {
       </Dialog>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Open dialog" }));
-    expect(await screen.findByRole("dialog", { name: "Connection details" })).toBeTruthy();
+    const dialog = await screen.findByRole("dialog", { name: "Connection details" });
+    expect(dialog.className).toContain("[-webkit-app-region:no-drag]");
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

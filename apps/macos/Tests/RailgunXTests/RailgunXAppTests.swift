@@ -354,8 +354,10 @@ final class RailgunXAppTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("selectionLabel(model.name"))
-        XCTAssertTrue(source.contains("controlsCoordinator.useModel(model.id)"))
+        XCTAssertTrue(source.contains("Picker(\"Model\", selection: modelSelection)"))
+        XCTAssertTrue(source.contains("Text(model.name).tag(Optional(model.id))"))
+        XCTAssertTrue(source.contains("Task { await controlsCoordinator.useModel(modelID) }"))
+        XCTAssertTrue(source.contains(".pickerStyle(.menu)"))
         XCTAssertFalse(source.contains("Use for This Task"))
         XCTAssertFalse(source.contains("Use and Make Default"))
         XCTAssertTrue(source.contains("controlsCoordinator.setModelDidChange"))
@@ -370,7 +372,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("Compacting context…"))
         XCTAssertTrue(source.contains("context-compaction-completed"))
         XCTAssertTrue(source.contains("context-compaction-error"))
-        XCTAssertTrue(source.contains(".disabled(controlsAreDisabled)"))
+        XCTAssertTrue(source.contains(".disabled(controlsAreDisabled || isSessionMutationInFlight)"))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: false))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: true))
         XCTAssertTrue(RailgunTaskShell.isCompactionDisabled(.initial, isRunActive: false, hasTranscript: true))
@@ -955,7 +957,7 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertEqual(
             store.state.session.sessions.map(\.id),
-            ["mock-session-complex-task", "mock-session-rich-history", "mock-session-recent", "mock-session-older"]
+            ["mock-session-complex-task", "mock-session-paginated-history", "mock-session-rich-history", "mock-session-recent", "mock-session-older"]
         )
         await runtime.shutdown()
     }
@@ -1350,6 +1352,7 @@ final class RailgunXAppTests: XCTestCase {
         let inheritedEnvironment = ProcessInfo.processInfo.environment
         let nodeSearchPath = [
             inheritedEnvironment["PATH"],
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/bin").path,
             "/opt/homebrew/bin",
             "/usr/local/bin"
         ]

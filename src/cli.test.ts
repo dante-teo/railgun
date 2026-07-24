@@ -4,7 +4,7 @@ import * as sqliteVec from "sqlite-vec";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { DevinSession } from "./session.js";
+import { RequestedModelUnavailableError, type DevinSession } from "./session.js";
 import type { AppConfig } from "./config.js";
 import type { PersistedSession, SessionStore, SessionSummary } from "./persistence/sessionStore.js";
 import { desktopAuthenticationRequiredFrame, dispatchCli, establishHomeWorkingDirectory, parseCliArgs, resolveCliModePaths, type CliDependencies } from "./cli.js";
@@ -347,15 +347,17 @@ describe("dispatchCli", () => {
     expect(deps.runRepl).toHaveBeenCalledOnce();
   });
 
-  it("dispatches rpc mode with persistent stores and closes them after shutdown", async () => {
+  it("starts rpc mode with the configured default model and persistent stores", async () => {
     const store = fakeStore();
     const deps = dependencies(store);
+    vi.mocked(deps.loadConfig).mockResolvedValue({ model: "configured-model" });
     await dispatchCli({ kind: "rpc" }, deps);
-    expect(deps.initSession).toHaveBeenCalledWith(undefined, undefined, "rpc");
+    expect(deps.initSession).toHaveBeenCalledWith("configured-model", undefined, "rpc");
+    expect(deps.initFreshSession).not.toHaveBeenCalled();
     expect(deps.loadConfig).toHaveBeenCalledOnce();
     expect(deps.runRpc).toHaveBeenCalledWith(expect.objectContaining({
       session: fakeSession,
-      config: expect.objectContaining({ model: null }),
+      config: expect.objectContaining({ model: "configured-model" }),
       sessionStore: store,
       memoryStore: expect.anything(),
       noteStore: expect.anything(),
@@ -363,6 +365,22 @@ describe("dispatchCli", () => {
     expect(deps.createStore).toHaveBeenCalledOnce();
     expect(store.close).toHaveBeenCalledOnce();
     expect(deps.runRepl).not.toHaveBeenCalled();
+  });
+
+  it("falls back to an available model when the configured rpc default is unavailable", async () => {
+    const deps = dependencies();
+    vi.mocked(deps.loadConfig).mockResolvedValue({ model: "stale-model" });
+    vi.mocked(deps.initSession).mockImplementation(async modelId => {
+      if (modelId === "stale-model") throw new RequestedModelUnavailableError("stale-model", []);
+      return fakeSession;
+    });
+
+    await dispatchCli({ kind: "rpc" }, deps);
+
+    expect(deps.initSession).toHaveBeenNthCalledWith(1, "stale-model", undefined, "rpc");
+    expect(deps.initSession).toHaveBeenNthCalledWith(2, undefined, undefined, "rpc");
+    expect(deps.initFreshSession).not.toHaveBeenCalled();
+    expect(deps.runRpc).toHaveBeenCalledWith(expect.objectContaining({ session: fakeSession }));
   });
 
   it("dispatches acp mode: initializes session and calls runAcp without opening the store", async () => {
