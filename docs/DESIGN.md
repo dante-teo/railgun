@@ -183,15 +183,14 @@ the same model; text entry is reserved for free-form answers and preset names.
   is textual and status glyphs are supplemental. These surfaces retain Reduce
   Transparency, Increase Contrast, and Reduce Motion behavior through the
   existing semantic tokens.
-  The separate Files pane uses an opaque split tree/preview surface with a
-  clear divider. Its header aligns to the toolbar centerline without inheriting
-  the toolbar's extra visual depth: the open action stays in the Task toolbar
-  while collapsed, where it shares one divided glass capsule with the Activity
-  Dashboard toggle, and the collapse action moves into the pane header while open.
-  Files reserves width while the expanded-sidebar layout leaves at least 20rem
-  for Task. Below that threshold it becomes a right overlay rather than
-  silently clipping transcript or composer content. Collapsing the sidebar can
-  release enough width to restore the reserved layout.
+  Files is a separate trailing native inspector, opened and closed by the
+  `Files` toolbar control. The inspector owns its standard toolbar: **Refresh
+  Files** appears only while the inspector is presented, never in the Task
+  toolbar. Its home-rooted tree uses native list/disclosure behavior, loads
+  folders on expansion, and remains read-only. Selecting a file establishes
+  the selection handoff for preview; text/image preview, Quick Look, and Reveal
+  in Finder are deferred to SWFT-048. The inspector reserves its own column
+  rather than becoming part of the Task canvas.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission
   remains a danger-styled inline row with its Retry action rather than

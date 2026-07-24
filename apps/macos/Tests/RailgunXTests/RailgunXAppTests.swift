@@ -33,6 +33,17 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }
 
+    func testActivityToggleTracksTheSidebarVisibilityState() {
+        XCTAssertTrue(RailgunTaskShell.isSidebarVisible(for: .all))
+        XCTAssertFalse(RailgunTaskShell.isSidebarVisible(for: .detailOnly))
+    }
+
+    func testTaskShellKeepsFilesInspectorSeparateFromTheMainPane() {
+        XCTAssertEqual(RailgunTaskShell.filesInspectorMinimumWidth, 280)
+        XCTAssertEqual(RailgunTaskShell.filesInspectorPreferredWidth, 320)
+        XCTAssertEqual(RailgunTaskShell.filesInspectorMinimumWindowWidth, 1_024)
+    }
+
     func testProjectSourceSupportsBothGeneratedPackageHeaderLayouts() throws {
         let project = try String(
             contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
@@ -240,7 +251,6 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("content.glassEffect("))
         XCTAssertTrue(source.contains("#if compiler(>=6.2)"))
         XCTAssertTrue(source.contains(".regularMaterial"))
-        XCTAssertFalse(source.contains(".inspector(isPresented:"))
         XCTAssertTrue(activitySource.contains(".scrollContentBackground(.hidden)"))
     }
 
@@ -452,6 +462,8 @@ final class RailgunXAppTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("accessibilityIdentifier(\"toggle-activity\")"))
+        XCTAssertTrue(source.contains("NavigationSplitView(columnVisibility: $navigationSplitViewVisibility)"))
+        XCTAssertTrue(source.contains("if isSidebarVisible {"))
         XCTAssertFalse(source.contains("close-activity"))
         XCTAssertFalse(source.contains("dismiss: { isActivityCardVisible"))
     }

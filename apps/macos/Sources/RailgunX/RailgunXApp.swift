@@ -596,6 +596,10 @@ struct RailgunTaskShell: View {
     static let activityPanelReservedWidth: CGFloat = 376
     static let activityPopoverHeight: CGFloat = 360
     static let sidebarMinimumWidth: CGFloat = 180
+    static let filesInspectorMinimumWidth: CGFloat = 280
+    static let filesInspectorPreferredWidth: CGFloat = 320
+    static let filesInspectorMaximumWidth: CGFloat = 420
+    static let filesInspectorMinimumWindowWidth: CGFloat = 1_024
     /// Matches the Electron chat's 46-rem content column at the 16-point base size.
     static let composerMaximumWidth: CGFloat = 736
 
@@ -624,6 +628,8 @@ struct RailgunTaskShell: View {
     private let interactionCoordinator: RailgunInteractionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
     private let compactionCoordinator: RailgunCompactionCoordinator
+    @State private var filesBrowserStore: RailgunFilesBrowserStore
+    @State private var navigationSplitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var detailViewportWidth: CGFloat = 0
     @State private var composerDraft = ""
     @State private var isComposerFocused = false
@@ -637,6 +643,8 @@ struct RailgunTaskShell: View {
     @FocusState private var interactionFocus: RailgunInteractionFocus?
     @SceneStorage("railgun.task.activityCard.isPresented")
     private var isActivityCardVisible = activityCardDefaultVisibility
+    @SceneStorage("railgun.task.filesInspector.isPresented")
+    private var isFilesInspectorPresented = false
 
     init(
         appStore: RailgunAppStore,
@@ -644,9 +652,11 @@ struct RailgunTaskShell: View {
         promptCoordinator: RailgunPromptCoordinator,
         interactionCoordinator: RailgunInteractionCoordinator,
         controlsCoordinator: RailgunControlsCoordinator,
-        compactionCoordinator: RailgunCompactionCoordinator
+        compactionCoordinator: RailgunCompactionCoordinator,
+        fileService: RailgunFileService
     ) {
         _appStore = Bindable(appStore)
+        _filesBrowserStore = State(initialValue: RailgunFilesBrowserStore(listing: fileService))
         self.sessionCoordinator = sessionCoordinator
         self.promptCoordinator = promptCoordinator
         self.interactionCoordinator = interactionCoordinator
@@ -655,7 +665,7 @@ struct RailgunTaskShell: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $navigationSplitViewVisibility) {
             RailgunTaskSidebar(
                 session: appStore.state.session,
                 selection: selectedSessionID,
@@ -663,6 +673,7 @@ struct RailgunTaskShell: View {
                 isActivityAvailable: isActivityAvailable,
                 isActivityCardVisible: $isActivityCardVisible,
                 isFloatingActivityPresented: isFloatingActivityPresented,
+                isSidebarVisible: isSidebarVisible,
                 isSessionSelectionDisabled: isTaskOperationInFlight,
                 isForkAvailable: isForkAvailable(for:),
                 fork: requestFork(sessionID:)
@@ -715,10 +726,23 @@ struct RailgunTaskShell: View {
                             Label("Archive Task", systemImage: "archivebox")
                         }
                         .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskOperationInFlight)
+                        Button("Files", systemImage: "sidebar.trailing") {
+                            isFilesInspectorPresented.toggle()
+                        }
+                        .help("Show Files")
                     }
                 }
         }
         .toolbarRole(.editor)
+        .inspector(isPresented: $isFilesInspectorPresented) {
+            RailgunFilesInspector(store: filesBrowserStore, isPresented: $isFilesInspectorPresented)
+        }
+        .inspectorColumnWidth(
+            min: Self.filesInspectorMinimumWidth,
+            ideal: Self.filesInspectorPreferredWidth,
+            max: Self.filesInspectorMaximumWidth
+        )
+        .frame(minWidth: isFilesInspectorPresented ? Self.filesInspectorMinimumWindowWidth : 0)
         .focusedSceneValue(
             \.railgunTaskCommandActions,
             RailgunTaskCommandActions(
@@ -1029,6 +1053,14 @@ struct RailgunTaskShell: View {
 
     private var isActivityAvailable: Bool {
         RailgunActivityDashboardPresentation(activity: presentedActivity).isVisible
+    }
+
+    static func isSidebarVisible(for visibility: NavigationSplitViewVisibility) -> Bool {
+        visibility != .detailOnly
+    }
+
+    private var isSidebarVisible: Bool {
+        Self.isSidebarVisible(for: navigationSplitViewVisibility)
     }
 
     private var activityPanePresentation: RailgunActivityPanePresentation {
@@ -1708,7 +1740,7 @@ struct RailgunTaskShell: View {
                 .padding(.leading, activityReservedContentWidth)
         }
         .overlay(alignment: .leading) {
-            if isActivityPanelDocked {
+            if isActivityPanelDocked && isSidebarVisible {
                 RailgunActivityPanel(activity: presentedActivity)
                 .frame(minWidth: 280, idealWidth: Self.activityPanelPreferredWidth, maxWidth: 360)
                 .padding(.vertical, Self.activityPanelMargin)
@@ -1726,6 +1758,7 @@ private struct RailgunTaskSidebar: View {
     let isActivityAvailable: Bool
     let isActivityCardVisible: Binding<Bool>
     let isFloatingActivityPresented: Binding<Bool>
+    let isSidebarVisible: Bool
     let isSessionSelectionDisabled: Bool
     let isForkAvailable: (String) -> Bool
     let fork: (String) -> Void
@@ -1758,8 +1791,10 @@ private struct RailgunTaskSidebar: View {
             .padding(RailgunSpacing.standard.points)
         }
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                activityToggleButton
+            if isSidebarVisible {
+                ToolbarItem(placement: .automatic) {
+                    activityToggleButton
+                }
             }
         }
     }
@@ -2026,6 +2061,7 @@ struct RailgunXApp: App {
     // not recreate feature state.
     @State private var appStore = RailgunAppStore()
     @State private var backendRuntime: RailgunBackendRuntime
+    private let fileService: RailgunFileService
     private let updater: RailgunUpdater?
 
     init() {
@@ -2039,6 +2075,7 @@ struct RailgunXApp: App {
         _backendRuntime = State(
             initialValue: RailgunBackendRuntime(configuration: backendLaunchConfiguration, store: appStore)
         )
+        fileService = RailgunFileService()
         updater = RailgunUpdater.makeIfConfigured()
     }
 
@@ -2097,6 +2134,7 @@ struct RailgunXApp: App {
         .commands {
             RailgunTaskCommands()
             SidebarCommands()
+            InspectorCommands()
             if let updater {
                 CommandGroup(after: .appInfo) {
                     Button("Check for Updates…") {
@@ -2139,7 +2177,8 @@ struct RailgunXApp: App {
                 promptCoordinator: backendRuntime.promptCoordinator,
                 interactionCoordinator: backendRuntime.interactionCoordinator,
                 controlsCoordinator: backendRuntime.controlsCoordinator,
-                compactionCoordinator: backendRuntime.compactionCoordinator
+                compactionCoordinator: backendRuntime.compactionCoordinator,
+                fileService: fileService
             )
         case let .authenticationRequired(title, message):
             RailgunBackendStatusView(
