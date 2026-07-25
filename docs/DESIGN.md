@@ -99,8 +99,9 @@ the same model; text entry is reserved for free-form answers and preset names.
   re-enables the composer for active-run steering and follow-ups; queue drafts
   clear after their short-lived acknowledgements. Its
   surrounding shell uses the shared 736-point content column, a bordered
-  material card, send affordance, queue/error presentation, and an attached
-  keyboard-hint pill so the native client retains Railgun's chat hierarchy.
+  material card, Add control, context ring, model menu, Send/Stop affordance,
+  and visible queue/error recovery so the native client retains Railgun's chat
+  hierarchy.
 - Native macOS interactions: backend approval and clarification requests stack
   above the composer in arrival order. Any pending request disables and
   unfocuses the composer, but Stop remains available throughout. Approval uses
@@ -173,24 +174,22 @@ the same model; text entry is reserved for free-form answers and preset names.
   `concern`, and `blocker` notes in a hover- and focus-accessible popover;
   subagent rows expose their full goal, lifecycle status, and final result in
   the same way. Final results render sanitized GFM Markdown, matching completed
-  assistant replies. The card wraps its content, independently caps its Todo and
-  Subagent lists, and is controlled from the native sidebar toolbar. When
-  requested with at least 900pt of detail width, it docks as a leading glass
-  panel beside the sidebar and reserves 376pt of transcript width. At narrower
-  widths, it becomes a 320×360 floating popover and reserves no transcript
-  width. Its own scroll content stays transparent so the glass surface remains
-  visible, and the toolbar toggle is the sole visibility control. Todo progress
-  is textual and status glyphs are supplemental. These surfaces retain Reduce
-  Transparency, Increase Contrast, and Reduce Motion behavior through the
-  existing semantic tokens.
+  assistant replies. The toolbar Activity button presents the dashboard only as
+  a 320×360 popover, never as a persistent pane. The dashboard uses one native
+  `ScrollView` so large Todo and Subagent sections remain reachable, hides only
+  the default scroll-content background, and adds no custom glass, tint,
+  material, stroke, or shadow inside the system popover. The toolbar button is
+  the sole visibility control. Todo progress is textual and status glyphs are
+  supplemental. These surfaces retain Increase Contrast and Reduce Motion
+  behavior through the existing semantic tokens.
   Files is a separate trailing native inspector, opened and closed by the
-  `Files` toolbar control. The inspector owns its standard toolbar: **Refresh
-  Files** appears only while the inspector is presented, never in the Task
-  toolbar. Its home-rooted tree uses native list/disclosure behavior, loads
-  folders on expansion, and remains read-only. Selecting a file establishes
-  the selection handoff for preview; text/image preview, Quick Look, and Reveal
-  in Finder are deferred to SWFT-048. The inspector reserves its own column
-  rather than becoming part of the Task canvas.
+  `Sidebar` toolbar control. The inspector owns its standard toolbar:
+  **Refresh Files** appears only while the inspector is presented, never in the
+  Task toolbar. Its home-rooted tree uses native list/disclosure behavior,
+  loads folders on expansion, and remains read-only. Selecting a file
+  establishes the selection handoff for preview; text/image preview, Quick
+  Look, and Reveal in Finder are deferred to SWFT-048. The inspector reserves
+  its own column rather than becoming part of the Task canvas.
   Tool-call IDs identify only active invocations; a later turn that reuses an
   ID still receives a distinct chronological row. Failed prompt submission
   remains a danger-styled inline row with its Retry action rather than
@@ -224,41 +223,36 @@ the same model; text entry is reserved for free-form answers and preset names.
   trailing content insets, so multi-turn conversations retain a comfortable
   reading rhythm.
 
-- The desktop composer gives message entry its own full-width row. Its quiet
-  footer shows the active model, one combined Agent settings trigger, exact
-  context usage, and Send/Stop without turning every action into a separate
-  glass pill. The searchable model dialog updates both the active task and
-  default model when a model is selected, and initializes keyboard navigation
-  on the active model. It locks after a selection until the request settles,
-  preventing repeated input from queuing further model changes. Agent settings
-  contains MoA, advisor, advisor model,
-  and manual Compact controls; portalled select menus stack above the dialog.
-  Dialogs omit a decorative close control by default and use explicit trailing
-  footer actions such as Done; the selection-driven command palette is the
-  intentional close-less exception. Anchored dropdowns include a material arrow
-  and share the dense readable menu recipe with selects.
-  Compact is disabled during runs/control mutations and for empty history. While
-  a manual compaction is pending, every task-changing path—including the New
-  Task command, task selection, archiving, and composer submission—remains
+- The desktop composer gives message entry its own full-width row. Its action
+  row contains Add, a hoverable context ring, a native model `Menu`, and
+  Send/Stop without turning every action into a separate glass pill. The model
+  selector remains a `Menu` of individual model `Button` actions; it updates
+  both the active task and default model and locks until the request settles.
+  A divider inside that same menu precedes **Compact Context**. RailgunX does
+  not expose Advisor or MoA enable/disable controls on the Task surface; it
+  consumes their backend-owned configuration.
+  Compact is disabled during runs/control mutations and for empty history.
+  While a manual compaction is pending, every task-changing path—including the
+  New Task command, task selection, archiving, and composer submission—remains
   locked until the compaction succeeds or fails.
   Context usage is the latest provider-reported input plus output total against
-  the active model's context window and reads `Not measured yet` after model
-  changes, compaction, restart, or New Task until another provider turn reports
-  usage. Loading and mutation failures stay inline and retryable. Transcript
-  rows and the composer fill the available Task column up to the shared 46rem
-  maximum and retain minimum side gutters as Files or the sidebar changes the
-  available width. The text area begins at one line, grows with input to ten
-  lines, never exposes a mouse resize handle, and reports the composer's live
-  height so the transcript bottom inset follows it.
+  the active model's context window. The ring and its hover popover read
+  `Not measured yet` after model changes, compaction, restart, or New Task until
+  another provider turn reports usage; they never substitute zero for a missing
+  measurement. Prompt, queue, and Stop failures remain visible in an inline
+  error row with Retry, matching the focused Retry command. Transcript rows and
+  the composer fill the available Task column up to the shared 46rem maximum
+  and retain minimum side gutters as Files or the sidebar changes the available
+  width. The text area begins at one line, grows with input to ten lines, never
+  exposes a mouse resize handle, and reports the composer's live height so the
+  transcript bottom inset follows it.
 
-- RailgunX exposes equivalent native Model and Agents toolbar menus. A model
-  selection updates the active task and default together; when the backend
-  forks a persisted task for that change, the app rehydrates the newly active
-  fork and refreshes the sidebar before further task actions. Both clients
-  disable controls during loading, a run, or a pending control mutation.
-  MoA choices are read-only configured presets plus Off. Advisor enablement
-  requires a catalog model. RailgunX preserves unknown advisor fields so newer
-  backend settings survive its client updates.
+- A model selection can fork a persisted task. RailgunX rehydrates the newly
+  active fork and refreshes the sidebar before further task actions. Model and
+  compaction controls remain disabled during loading, a run, or a pending
+  mutation. Configured MoA and advisor state remains available to runtime and
+  Activity presentation without user-facing Task controls, and unknown advisor
+  fields remain preserved for forward compatibility.
 
 - Desktop Settings replaces the Task shell while open and restores the same
   active task on Back. Its softly tinted sidebar groups General, Agent, and

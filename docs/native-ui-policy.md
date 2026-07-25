@@ -98,8 +98,9 @@ or bridge gains a material new behavior or variant.
   not the bridge, owns draft clearing and prompt, steering, and follow-up RPC
   workflows. The shell keeps the editor inside Railgun's shared chat surface:
   a centered 736-point content column, bordered material card, idle send
-  affordance, queue/error presentation, and attached keyboard hint. AppKit
-  remains limited to the text editor and command interception.
+  affordance, context ring, native model menu, and visible queue/error
+  presentation. AppKit remains limited to the text editor and command
+  interception.
 - **Retirement trigger:** Replace it when SwiftUI provides a native multiline
   editor with equivalent sizing, scrolling, command routing, focus, selection,
   paste, undo, text-services, and VoiceOver behavior.
@@ -184,6 +185,32 @@ overflow, Return, Tab, and Shift-Return behavior, disabled callback
 suppression, multiline paste and selection preservation, accessibility
 configuration, SwiftUI state synchronization, and first-responder handoff.
 
+## Task toolbar and composer controls invariant
+
+The Task shell preserves the mocked native control hierarchy while routing real
+operations:
+
+- Keep New Task and Archive in the navigation toolbar group. Keep Activity and
+  the trailing inspector control as primary toolbar actions.
+- `ToolbarSpacer` is a macOS 26 / Swift 6.2 API. Keep every reference behind
+  `#if compiler(>=6.2)` as well as `#available(macOS 26.0, *)`, and retain a
+  `ToolbarItem` plus `Spacer` fallback so Xcode 16 can type-check the source.
+- Keep model selection as a SwiftUI `Menu` of `Button` actions. Put
+  **Compact Context** after a divider in that same menu; disable it during a
+  run, control mutation, compaction, or empty transcript.
+- Do not expose Advisor or MoA enable/disable controls on the Task surface.
+  Runtime and Activity presentation continue consuming backend-owned
+  configuration and events.
+- Treat context usage as optional. The ring tooltip, accessibility label, and
+  hover popover must report `Not measured yet` until a provider measurement
+  exists; do not substitute zero.
+- Render prompt, queued-follow-up, and Stop failures in a visible inline error
+  row with Retry. The focused Retry command supplements this control and never
+  replaces it.
+
+`RailgunXAppTests` protects the toolbar compiler guard, model-menu composition,
+manual-compaction availability, visible recovery, and optional context usage.
+
 ## Backend recovery invariant
 
 SWFT-036 keeps backend recovery in native SwiftUI presentation and focused
@@ -264,7 +291,7 @@ layout. Treat the following as implementation invariants:
   native bottom.
 - Do not disable the root scroll view while it is empty or loading. Disabling
   it during initial layout can prevent the edge effect from initializing.
-- Keep non-scrolling UI, including the docked Activity pane and empty-state
+- Keep non-scrolling UI, including the Activity popover and empty-state
   overlays, outside the `ScrollView` content hierarchy.
 - Present refresh, create, resume, and archive failures in the non-scrolling
   `session-operation-error` overlay banner. Do not make error visibility depend
@@ -277,7 +304,7 @@ launch without resizing:
 1. Use a short window height and a transcript long enough to overflow.
 2. Scroll transcript text beneath the top edge and confirm the soft blur is
    visible immediately.
-3. Repeat with Activity hidden, docked, and floating.
+3. Repeat with the Activity popover closed and open.
 4. Confirm loading and content-unavailable presentations remain centered and
    do not scroll, and that a previous task's retained rows are neither visible
    nor exposed to accessibility.
@@ -290,30 +317,23 @@ message and operation-error presentation rules. The visual blur itself still
 requires the manual check above because XCTest cannot reliably assert
 compositor output.
 
-## Activity panel layout invariant
+## Activity popover layout invariant
 
-Activity is a non-scrolling companion to the transcript. Its presentation must
-not feed back into transcript scroll geometry:
+Activity is a toolbar-anchored popover and never a persistent companion pane:
 
-- Base the docked-versus-floating decision on a stable detail viewport
-  measurement outside the transcript `ScrollView`. Do not derive it from
-  `onScrollGeometryChange` or a scroll-content width: changing the docked
-  content margin can otherwise repeatedly change the measured width and hang or
-  crash while toggling Activity.
-- At 900pt or more of detail width, overlay the glass panel at the leading edge
-  and reserve 376pt of transcript content width. Below that threshold, present
-  the 320×360 panel as a toolbar-anchored popover and reserve no transcript
-  width.
-- Keep the Activity panel outside transcript scroll content. Its dashboard
-  `ScrollView` must apply `.scrollContentBackground(.hidden)` so it does not
-  paint over the glass material.
-- The sidebar-toolbar Activity toggle is the sole visibility control. The
-  panel has no independent close button.
+- Present the dashboard from the toolbar Activity button in a 320×360 popover.
+- Do not reserve transcript width or derive Activity presentation from detail
+  viewport or scroll geometry.
+- Keep the dashboard inside a native `ScrollView` and hide only its default
+  scroll-content background so large Todo and Subagent sections remain reachable.
+- Do not add custom glass, tint, material, stroke, or shadow chrome inside the
+  system popover.
+- The toolbar Activity button is the sole visibility control. The dashboard has
+  no independent close button.
 
-The focused source-contract tests protect the stable detail viewport measurement,
-presentation threshold, transparent dashboard scroll content, and sole-toggle
-visibility contract. Visual verification still requires testing both compact
-and wide window widths in light and dark appearance.
+Focused source-contract tests protect the fixed popover size, native scrolling,
+absence of custom glass chrome, and sole-button visibility contract. Visual
+verification still requires checking the popover in light and dark appearance.
 
 ## Shared-component governance
 

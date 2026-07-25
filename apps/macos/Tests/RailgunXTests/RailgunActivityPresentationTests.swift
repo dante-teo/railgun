@@ -1,9 +1,19 @@
+import Foundation
 import RailgunTransport
 import XCTest
 @testable import RailgunX
 
 @MainActor
 final class RailgunActivityPresentationTests: XCTestCase {
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     func testKnownToolUsesStatusAwareActionAndBasenameTarget() {
         XCTAssertEqual(
             RailgunActivityPresentation.tool(
@@ -177,6 +187,20 @@ final class RailgunActivityPresentationTests: XCTestCase {
         XCTAssertEqual(loading.sections, [.todos])
         XCTAssertEqual(loading.todoProgress, "Updating todos…")
         XCTAssertFalse(RailgunActivityDashboardPresentation(activity: .initial).isVisible)
+    }
+
+    func testDashboardRemainsScrollableWithoutCustomBackgroundChrome() throws {
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunX/RailgunActivityPresentation.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("struct RailgunActivityDashboard: View"))
+        XCTAssertTrue(source.contains("ScrollView {"))
+        XCTAssertTrue(source.contains(".scrollContentBackground(.hidden)"))
+        XCTAssertFalse(source.contains(".glassEffect("))
     }
 
     private func tool(_ id: String, _ name: String, _ status: RailgunActivityStatus, order: Int) -> RailgunActivityEntry {

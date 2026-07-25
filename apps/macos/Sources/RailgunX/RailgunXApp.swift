@@ -548,19 +548,6 @@ private enum RailgunTaskSymbol {
     static let activity = "rectangle.3.group"
 }
 
-enum RailgunActivityPanePresentation: Equatable {
-    case docked
-    case floating
-}
-
-enum RailgunActivityPaneLayout {
-    static let dockedMinimumDetailWidth: CGFloat = 900
-
-    static func presentation(for detailWidth: CGFloat) -> RailgunActivityPanePresentation {
-        detailWidth >= dockedMinimumDetailWidth ? .docked : .floating
-    }
-}
-
 private struct RailgunTranscriptSoftTopEdgeEffect: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -590,10 +577,7 @@ private enum RailgunInteractionFocus: Hashable {
 }
 
 struct RailgunTaskShell: View {
-    static let activityCardDefaultVisibility = false
-    static let activityPanelMargin = RailgunSpacing.standard.points
     static let activityPanelPreferredWidth: CGFloat = 320
-    static let activityPanelReservedWidth: CGFloat = 376
     static let activityPopoverHeight: CGFloat = 360
     static let sidebarMinimumWidth: CGFloat = 180
     static let filesInspectorMinimumWidth: CGFloat = 280
@@ -630,7 +614,6 @@ struct RailgunTaskShell: View {
     private let compactionCoordinator: RailgunCompactionCoordinator
     @State private var filesBrowserStore: RailgunFilesBrowserStore
     @State private var navigationSplitViewVisibility: NavigationSplitViewVisibility = .all
-    @State private var detailViewportWidth: CGFloat = 0
     @State private var composerDraft = ""
     @State private var isComposerFocused = false
     @State private var composerHeight = RailgunComposer.minimumHeight()
@@ -641,8 +624,7 @@ struct RailgunTaskShell: View {
     @State private var isBranchInFlight = false
     @State private var isForkInFlight = false
     @FocusState private var interactionFocus: RailgunInteractionFocus?
-    @SceneStorage("railgun.task.activityCard.isPresented")
-    private var isActivityCardVisible = activityCardDefaultVisibility
+    @State private var isActivityPopoverPresented = false
     @SceneStorage("railgun.task.filesInspector.isPresented")
     private var isFilesInspectorPresented = false
 
@@ -669,50 +651,32 @@ struct RailgunTaskShell: View {
             RailgunTaskSidebar(
                 session: appStore.state.session,
                 selection: selectedSessionID,
-                activity: presentedActivity,
-                isActivityAvailable: isActivityAvailable,
-                isActivityCardVisible: $isActivityCardVisible,
-                isFloatingActivityPresented: isFloatingActivityPresented,
-                isSidebarVisible: isSidebarVisible,
                 isSessionSelectionDisabled: isTaskOperationInFlight,
                 isForkAvailable: isForkAvailable(for:),
                 fork: requestFork(sessionID:)
             )
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
-            VStack(spacing: 0) {
-                transcriptScrollView
-                composerArea
-            }
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear
-                            .onAppear {
-                                detailViewportWidth = geometry.size.width
-                            }
-                            .onChange(of: geometry.size.width) { _, width in
-                                detailViewportWidth = width
-                            }
-                    }
+            transcriptScrollView
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    shellComposer
                 }
                 .toolbar {
 #if compiler(>=6.2)
                     if #available(macOS 26.0, *) {
-                        ToolbarSpacer(.flexible)
+                        ToolbarSpacer(.flexible, placement: .principal)
                     } else {
-                        ToolbarItem {
+                        ToolbarItem(placement: .principal) {
                             Spacer()
                         }
                     }
 #else
-                    ToolbarItem {
+                    ToolbarItem(placement: .principal) {
                         Spacer()
                     }
 #endif
 
-                    ToolbarItemGroup(placement: .automatic) {
-                        modelControlsPicker
-                        agentControlsMenu
+                    ToolbarItemGroup(placement: .navigation) {
                         Button {
                             createTask()
                         } label: {
@@ -726,14 +690,20 @@ struct RailgunTaskShell: View {
                             Label("Archive Task", systemImage: "archivebox")
                         }
                         .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskOperationInFlight)
-                        Button("Files", systemImage: "sidebar.trailing") {
+                    }
+
+                    ToolbarItem(placement: .primaryAction) {
+                        activityToolbarButton
+                    }
+
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Sidebar", systemImage: "sidebar.right") {
                             isFilesInspectorPresented.toggle()
                         }
-                        .help("Show Files")
+                        .help(isFilesInspectorPresented ? "Hide Files" : "Show Files")
                     }
                 }
         }
-        .toolbarRole(.editor)
         .inspector(isPresented: $isFilesInspectorPresented) {
             RailgunFilesInspector(store: filesBrowserStore, isPresented: $isFilesInspectorPresented)
         }
@@ -766,6 +736,64 @@ struct RailgunTaskShell: View {
         }
     }
 
+    private var shellComposer: some View {
+        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
+            interactionPrompts
+            queuedMessageAcknowledgements
+            taskControlsStatus
+            composerSubmissionError
+
+            VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
+                composerInput
+
+                HStack(spacing: RailgunSpacing.standard.points) {
+                    Button("Add", systemImage: "plus") {
+                        isFilesInspectorPresented = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .help("Add context files")
+
+                    Spacer(minLength: 0)
+                    contextRing
+                    modelMenu
+
+                    if appStore.state.transcript.isRunning {
+                        Button(role: .destructive, action: requestStop) {
+                            Image(systemName: "stop.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.circle)
+                        .disabled(!commandAvailability.canStop)
+                        .accessibilityLabel("Stop")
+                        .accessibilityIdentifier("task-composer-stop")
+                    } else {
+                        Button(action: submitDraftFromComposerAction) {
+                            Image(systemName: "arrow.up")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.circle)
+                        .disabled(!canSubmitComposerDraft)
+                        .accessibilityLabel("Send")
+                        .accessibilityIdentifier("task-composer-send")
+                    }
+                }
+            }
+            .padding(RailgunSpacing.relaxed.points)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.16))
+            }
+            .accessibilityIdentifier("task-composer-surface")
+        }
+        .frame(maxWidth: Self.composerMaximumWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, RailgunSpacing.standard.points)
+        .padding(.vertical, RailgunSpacing.compact.points)
+        .background(.bar)
+    }
+
     private var commandAvailability: RailgunTaskCommandAvailability {
         .init(
             canCreateTask: Self.canCreateTask(
@@ -792,6 +820,14 @@ struct RailgunTaskShell: View {
         !controls.isReadyForMutation || isRunActive
     }
 
+    static func isCompactionDisabled(
+        _ controls: RailgunControlsState,
+        isRunActive: Bool,
+        hasTranscript: Bool
+    ) -> Bool {
+        !controls.isReadyForMutation || isRunActive || !hasTranscript
+    }
+
     private var controlsAreDisabled: Bool {
         Self.controlsAreDisabled(
             appStore.state.controls,
@@ -811,14 +847,6 @@ struct RailgunTaskShell: View {
         isTaskControlLocked || isSessionMutationInFlight
     }
 
-    static func isCompactionDisabled(
-        _ controls: RailgunControlsState,
-        isRunActive: Bool,
-        hasTranscript: Bool
-    ) -> Bool {
-        !controls.isReadyForMutation || isRunActive || !hasTranscript
-    }
-
     private var isCompactionDisabled: Bool {
         Self.isCompactionDisabled(
             appStore.state.controls,
@@ -827,111 +855,47 @@ struct RailgunTaskShell: View {
         )
     }
 
-    @ViewBuilder
-    private var modelControlsPicker: some View {
-        Picker("Model", selection: modelSelection) {
+    private var modelMenu: some View {
+        Menu {
             ForEach(appStore.state.controls.models) { model in
-                Text(model.name).tag(Optional(model.id))
+                Button {
+                    Task { await controlsCoordinator.useModel(model.id) }
+                } label: {
+                    if appStore.state.controls.activeModelID == model.id {
+                        Label(model.name, systemImage: "checkmark")
+                    } else {
+                        Text(model.name)
+                    }
+                }
             }
+
+            Divider()
+
+            Button("Compact Context", systemImage: "arrow.triangle.2.circlepath") {
+                Task { await compactionCoordinator.compact() }
+            }
+            .disabled(isCompactionDisabled)
+        } label: {
+            Text(appStore.state.controls.activeModel?.name ?? "Selected Model")
         }
-        .pickerStyle(.menu)
+        .menuStyle(.borderlessButton)
         .disabled(controlsAreDisabled || isSessionMutationInFlight)
         .accessibilityIdentifier("task-model-menu")
     }
 
-    private var modelSelection: Binding<String?> {
-        Binding(
-            get: { appStore.state.controls.activeModelID },
-            set: { modelID in
-                guard let modelID else { return }
-                Task { await controlsCoordinator.useModel(modelID) }
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var agentControlsMenu: some View {
-        Menu {
-            Menu("Mixture of Agents") {
-                Button {
-                    Task { await controlsCoordinator.selectMoAPreset(nil) }
-                } label: {
-                    selectionLabel("Off", isSelected: appStore.state.controls.activeMoAPresetName == nil)
-                }
-                ForEach(appStore.state.controls.moaPresets) { preset in
-                    Button {
-                        Task { await controlsCoordinator.selectMoAPreset(preset.name) }
-                    } label: {
-                        selectionLabel(
-                            preset.name,
-                            isSelected: appStore.state.controls.activeMoAPresetName == preset.name
-                        )
-                    }
-                }
-            }
-
-            Divider()
-
-            Toggle("Enable Advisor", isOn: advisorEnabledBinding)
-
-            Menu("Advisor Model") {
-                ForEach(appStore.state.controls.models) { model in
-                    Button {
-                        Task {
-                            await controlsCoordinator.configureAdvisor(.init(
-                                isEnabled: appStore.state.controls.advisor.isEnabled,
-                                modelID: model.id
-                            ))
-                        }
-                    } label: {
-                        selectionLabel(
-                            model.name,
-                            isSelected: appStore.state.controls.advisor.modelID == model.id
-                        )
-                    }
-                }
-            }
-
-            Divider()
-
-            Button {
-                Task { await compactionCoordinator.compact() }
-            } label: {
-                Label(
-                    appStore.state.controls.compactionStatus.isInProgress
-                        ? "Compacting context…"
-                        : "Compact Context",
-                    systemImage: "arrow.triangle.2.circlepath"
-                )
-            }
-            .disabled(isCompactionDisabled)
+    private var activityToolbarButton: some View {
+        Button {
+            isActivityPopoverPresented.toggle()
         } label: {
-            Label("Agents", systemImage: "person.2")
+            Label("Activity", systemImage: RailgunTaskSymbol.activity)
         }
-        .disabled(controlsAreDisabled || isSessionMutationInFlight)
-        .accessibilityIdentifier("task-agent-menu")
-    }
-
-    private var advisorEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { appStore.state.controls.advisor.isEnabled },
-            set: { isEnabled in
-                guard let modelID = appStore.state.controls.advisor.modelID
-                    ?? appStore.state.controls.activeModelID
-                else { return }
-                Task {
-                    await controlsCoordinator.configureAdvisor(.init(isEnabled: isEnabled, modelID: modelID))
-                }
-            }
-        )
-    }
-
-    @ViewBuilder
-    private func selectionLabel(_ title: String, isSelected: Bool) -> some View {
-        if isSelected {
-            Label(title, systemImage: "checkmark")
-        } else {
-            Text(title)
+        .disabled(!isActivityAvailable)
+        .help(isActivityAvailable ? "Show Activity" : "No activity yet")
+        .accessibilityIdentifier("toggle-activity")
+        .popover(isPresented: $isActivityPopoverPresented, arrowEdge: .top) {
+            RailgunActivityPanel(activity: presentedActivity)
+                .frame(width: Self.activityPanelPreferredWidth, height: Self.activityPopoverHeight)
+                .padding(RailgunSpacing.standard.points)
         }
     }
 
@@ -1055,38 +1019,6 @@ struct RailgunTaskShell: View {
         RailgunActivityDashboardPresentation(activity: presentedActivity).isVisible
     }
 
-    static func isSidebarVisible(for visibility: NavigationSplitViewVisibility) -> Bool {
-        visibility != .detailOnly
-    }
-
-    private var isSidebarVisible: Bool {
-        Self.isSidebarVisible(for: navigationSplitViewVisibility)
-    }
-
-    private var activityPanePresentation: RailgunActivityPanePresentation {
-        RailgunActivityPaneLayout.presentation(for: detailViewportWidth)
-    }
-
-    private var isActivityPanelDocked: Bool {
-        isActivityAvailable && isActivityCardVisible && activityPanePresentation == .docked
-    }
-
-    private var activityReservedContentWidth: CGFloat {
-        isActivityPanelDocked ? Self.activityPanelReservedWidth : 0
-    }
-
-    private var isFloatingActivityPresented: Binding<Bool> {
-        Binding(
-            get: {
-                isActivityAvailable && isActivityCardVisible && activityPanePresentation == .floating
-            },
-            set: { isPresented in
-                guard !isPresented, activityPanePresentation == .floating else { return }
-                isActivityCardVisible = false
-            }
-        )
-    }
-
     private var taskDetailStateOverlay: some View {
         ZStack(alignment: .top) {
             taskDetailStateContent
@@ -1172,28 +1104,6 @@ struct RailgunTaskShell: View {
         .padding(.horizontal, RailgunSpacing.layout.points)
         .padding(.top, RailgunSpacing.layout.points)
         .accessibilityIdentifier("session-operation-progress")
-    }
-
-    private var composerArea: some View {
-        VStack(spacing: 0) {
-            Divider()
-            composerContent
-        }
-        .background(.bar)
-    }
-
-    private var composerContent: some View {
-        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
-            interactionPrompts
-            queuedMessageAcknowledgements
-            taskControlsStatus
-            composerSurface
-            composerSubmissionError
-            composerKeyboardHint
-        }
-        .padding(RailgunSpacing.standard.points)
-        .frame(maxWidth: Self.composerMaximumWidth, alignment: .leading)
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -1480,7 +1390,9 @@ struct RailgunTaskShell: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(RailgunFont.interface(.callout))
                     .foregroundStyle(.red)
+
                 Spacer(minLength: 0)
+
                 Button("Retry", action: retryComposerSubmission)
                     .disabled(!canRetryComposerSubmission)
             }
@@ -1488,75 +1400,24 @@ struct RailgunTaskShell: View {
         }
     }
 
-    private var composerSurface: some View {
-        VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
-            composerInput
-            composerActionRow
-        }
-        .padding(RailgunSpacing.relaxed.points)
-        .background(
-            RailgunColorRole.surface.color,
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+    private var contextRing: some View {
+        let usage = appStore.state.controls.contextUsage
+        let totalTokens = appStore.state.controls.activeModel?.contextWindow ?? 0
+        return ContextRing(
+            usedTokens: usage?.totalTokens,
+            totalTokens: totalTokens
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(
-                    isComposerFocused ? Color.accentColor : Color.secondary.opacity(0.28),
-                    lineWidth: isComposerFocused ? 1.5 : 1
-                )
-        }
-        .shadow(color: .black.opacity(0.08), radius: 4, y: 1)
-        .accessibilityIdentifier("task-composer-surface")
-    }
-
-    @ViewBuilder
-    private var composerActionRow: some View {
-        HStack(spacing: RailgunSpacing.standard.points) {
-            if isComposerSubmissionInFlight {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Submitting message")
-            }
-
-            contextUsageFooter
-
-            Spacer(minLength: 0)
-
-            if appStore.state.transcript.isRunning {
-                Button(role: .destructive, action: requestStop) {
-                    Image(systemName: "stop.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!commandAvailability.canStop)
-                .help("Stop task")
-                .accessibilityLabel("Stop")
-                .accessibilityIdentifier("task-composer-stop")
-            } else {
-                Button(action: submitDraftFromComposerAction) {
-                    Label("Send", systemImage: "paperplane.fill")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(!canSubmitComposerDraft)
-                .help("Send task")
-                .accessibilityIdentifier("task-composer-send")
-            }
-        }
-    }
-
-    private var contextUsageFooter: some View {
-        let presentation = RailgunContextUsagePresentation(
-            usage: appStore.state.controls.contextUsage,
+        .frame(width: 24, height: 24)
+        .help(RailgunContextUsagePresentation(
+            usage: usage,
             activeModel: appStore.state.controls.activeModel
+        ).text)
+        .accessibilityLabel(
+            RailgunContextUsagePresentation(
+                usage: usage,
+                activeModel: appStore.state.controls.activeModel
+            ).accessibilityLabel
         )
-        return Text(presentation.text)
-            .font(RailgunFont.interface(.caption))
-            .foregroundStyle(.secondary)
-            .help("Latest provider-reported input plus output tokens")
-            .accessibilityLabel(presentation.accessibilityLabel)
-            .accessibilityIdentifier("context-usage")
     }
 
     private var composerInput: some View {
@@ -1576,41 +1437,6 @@ struct RailgunTaskShell: View {
     private var followUpEnqueueHandler: ((String) -> Void)? {
         guard appStore.state.transcript.isRunning, !appStore.state.transcript.isStopping else { return nil }
         return enqueueFollowUp
-    }
-
-    private var composerKeyboardHint: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            Text(
-                appStore.state.transcript.isRunning
-                    ? "Return steers · Tab queues follow-up · Shift-Return adds a line"
-                    : "Return sends · Shift-Return adds a line"
-            )
-            .font(RailgunFont.interface(.caption))
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, RailgunSpacing.relaxed.points)
-            .padding(.vertical, RailgunSpacing.compact.points)
-            .background(.thinMaterial, in: UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 8,
-                bottomTrailingRadius: 8,
-                topTrailingRadius: 0,
-                style: .continuous
-            ))
-            .overlay {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: 8,
-                    bottomTrailingRadius: 8,
-                    topTrailingRadius: 0,
-                    style: .continuous
-                )
-                .strokeBorder(Color.secondary.opacity(0.2))
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.top, -RailgunSpacing.compact.points)
-        .accessibilityIdentifier("composer-keyboard-hint")
     }
 
     private var isComposerEnabled: Bool {
@@ -1718,7 +1544,7 @@ struct RailgunTaskShell: View {
                 messages: presentedTranscriptMessages,
                 activityEntries: presentedActivity.entries
             ),
-            contentLeadingMargin: activityReservedContentWidth,
+            contentLeadingMargin: 0,
             hasScrollableContent: hasScrollableTranscript
         ) {
             LazyVStack(alignment: .center, spacing: RailgunSpacing.expanded.points) {
@@ -1737,28 +1563,13 @@ struct RailgunTaskShell: View {
         .modifier(RailgunTranscriptSoftTopEdgeEffect())
         .overlay {
             taskDetailStateOverlay
-                .padding(.leading, activityReservedContentWidth)
-        }
-        .overlay(alignment: .leading) {
-            if isActivityPanelDocked && isSidebarVisible {
-                RailgunActivityPanel(activity: presentedActivity)
-                .frame(minWidth: 280, idealWidth: Self.activityPanelPreferredWidth, maxWidth: 360)
-                .padding(.vertical, Self.activityPanelMargin)
-                .padding(.leading, Self.activityPanelMargin)
-                .ignoresSafeArea(.container, edges: .top)
-            }
         }
     }
-}
+ }
 
 private struct RailgunTaskSidebar: View {
     let session: RailgunSessionState
     let selection: Binding<String?>
-    let activity: RailgunActivityState
-    let isActivityAvailable: Bool
-    let isActivityCardVisible: Binding<Bool>
-    let isFloatingActivityPresented: Binding<Bool>
-    let isSidebarVisible: Bool
     let isSessionSelectionDisabled: Bool
     let isForkAvailable: (String) -> Bool
     let fork: (String) -> Void
@@ -1788,42 +1599,6 @@ private struct RailgunTaskSidebar: View {
                 }
             }
             }
-            .padding(RailgunSpacing.standard.points)
-        }
-        .toolbar {
-            if isSidebarVisible {
-                ToolbarItem(placement: .automatic) {
-                    activityToggleButton
-                }
-            }
-        }
-    }
-
-    private var activityToggleButton: some View {
-        Button {
-            isActivityCardVisible.wrappedValue.toggle()
-        } label: {
-            Label("Activity", systemImage: RailgunTaskSymbol.activity)
-                .labelStyle(.iconOnly)
-        }
-        .help(
-            !isActivityAvailable
-                ? "No activity yet"
-                : isActivityCardVisible.wrappedValue
-                ? "Hide Activity"
-                : "Show Activity"
-        )
-        .disabled(!isActivityAvailable)
-        .accessibilityIdentifier("toggle-activity")
-        .popover(
-            isPresented: isFloatingActivityPresented,
-            arrowEdge: .leading
-        ) {
-            RailgunActivityPanel(
-                activity: activity,
-                displaysPanelBackground: false
-            )
-            .frame(width: RailgunTaskShell.activityPanelPreferredWidth, height: RailgunTaskShell.activityPopoverHeight)
             .padding(RailgunSpacing.standard.points)
         }
     }
@@ -1937,7 +1712,6 @@ private struct RailgunBranchDialog: View {
 
 private struct RailgunActivityPanel: View {
     let activity: RailgunActivityState
-    var displaysPanelBackground = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
@@ -1948,48 +1722,7 @@ private struct RailgunActivityPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(RailgunSpacing.section.points)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .modifier(RailgunActivityPanelBackground(isEnabled: displaysPanelBackground))
         .font(RailgunFont.interface())
-    }
-}
-
-private struct RailgunActivityPanelBackground: ViewModifier {
-    let isEnabled: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-#if compiler(>=6.2)
-        if !isEnabled {
-            content
-        } else if #available(macOS 26.0, *) {
-            content.glassEffect(
-                .regular,
-                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
-            )
-        } else {
-            fallbackBackground(content: content)
-        }
-#else
-        if !isEnabled {
-            content
-        } else {
-            fallbackBackground(content: content)
-        }
-#endif
-    }
-
-    private func fallbackBackground(content: Content) -> some View {
-        content
-            .background(
-                .regularMaterial,
-                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .stroke(.separator.opacity(0.2), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.06), radius: 12, y: 6)
     }
 }
 
@@ -2203,5 +1936,109 @@ struct RailgunXApp: App {
 
     private func restartBackend() {
         Task { await backendRuntime.restart() }
+    }
+}
+
+struct ContextRing: View {
+    let usedTokens: Int?
+    let totalTokens: Int
+
+    @State private var isHovering = false
+    @State private var showPopover = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    private var progress: Double {
+        guard let usedTokens, totalTokens > 0 else { return 0 }
+        return min(Double(usedTokens) / Double(totalTokens), 1)
+    }
+
+    var body: some View {
+        ring
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovering = hovering
+                hoverTask?.cancel()
+
+                if hovering {
+                    hoverTask = Task {
+                        try? await Task.sleep(for: .milliseconds(450))
+
+                        guard !Task.isCancelled, isHovering else {
+                            return
+                        }
+
+                        showPopover = true
+                    }
+                } else {
+                    showPopover = false
+                }
+            }
+            .popover(
+                isPresented: $showPopover,
+                arrowEdge: .bottom
+            ) {
+                ContextPopover(
+                    usedTokens: usedTokens,
+                    totalTokens: totalTokens
+                )
+                .padding(14)
+                .frame(width: 230)
+            }
+    }
+
+    private var ring: some View {
+        ZStack {
+            Circle()
+                .stroke(.secondary.opacity(0.18), lineWidth: 2)
+
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(
+                    .secondary,
+                    style: StrokeStyle(
+                        lineWidth: 2,
+                        lineCap: .round
+                    )
+                )
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 16, height: 16)
+        .frame(width: 26, height: 26)
+    }
+}
+
+struct ContextPopover: View {
+    let usedTokens: Int?
+    let totalTokens: Int
+
+    private var percentage: Int? {
+        guard let usedTokens, totalTokens > 0 else { return nil }
+        return Int(Double(usedTokens) / Double(totalTokens) * 100)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Context")
+                .font(.headline)
+
+            if let usedTokens, let percentage {
+                ProgressView(
+                    value: Double(usedTokens),
+                    total: Double(totalTokens)
+                )
+
+                HStack {
+                    Text("\(percentage)% used")
+                    Spacer()
+                    Text("\(usedTokens.formatted()) of \(totalTokens.formatted())")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } else {
+                Text("Not measured yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }

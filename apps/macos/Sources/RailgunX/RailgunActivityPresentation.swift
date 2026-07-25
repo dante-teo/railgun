@@ -554,12 +554,13 @@ struct RailgunActivityDashboard: View {
         let presentation = RailgunActivityDashboardPresentation(activity: activity)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
-            if presentation.sections.contains(.advisor) {
+                if presentation.sections.contains(.advisor) {
                     RailgunActivityDashboardSection("Advisor") {
                         RailgunAdvisorDashboardRow(notes: activity.advisorNotes)
                     }
-            }
-            if presentation.sections.contains(.todos) {
+                }
+
+                if presentation.sections.contains(.todos) {
                     RailgunActivityDashboardSection("Todos") {
                         Text(presentation.todoProgress)
                             .font(RailgunFont.interface(.caption))
@@ -571,8 +572,9 @@ struct RailgunActivityDashboard: View {
                             }
                         }
                     }
-            }
-            if presentation.sections.contains(.subagents) {
+                }
+
+                if presentation.sections.contains(.subagents) {
                     RailgunActivityDashboardSection("Subagents") {
                         LazyVStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
                             ForEach(activity.subagents, id: \.index) { subagent in
@@ -580,7 +582,7 @@ struct RailgunActivityDashboard: View {
                             }
                         }
                     }
-            }
+                }
             }
             .padding(.vertical, RailgunSpacing.compact.points)
         }

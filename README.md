@@ -106,15 +106,15 @@ chooser: stdout remains JSONL-only for the desktop client and other RPC callers.
 
 Changing a model can fork a persisted task. RailgunX rehydrates the backend's
 newly active task and refreshes its task list after a successful change, so its
-transcript, sidebar, and later task actions target the fork. The desktop model
-picker locks after a selection until that request settles, preventing queued
-model changes from repeated clicks or keyboard activation.
+transcript, sidebar, and later task actions target the fork. Its composer keeps
+model selection in a native `Menu` whose models are individual `Button`
+actions; the menu locks after a selection until that request settles,
+preventing repeated model changes.
 
-The Agent control selects a configured Mixture of Agents preset or turns MoA
-off, and enables/disables the advisor with a catalog model. Presets are
-configuration-defined and read-only in both clients. RailgunX preserves
-backend advisor fields it does not recognize, and enabling the advisor requires
-a valid model.
+RailgunX consumes configured Mixture of Agents and advisor behavior but does
+not expose controls to enable, disable, or select them on the Task surface.
+Presets and advisor configuration remain backend-owned, and unknown advisor
+fields remain preserved when task controls are loaded.
 
 RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
 `0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
@@ -546,15 +546,12 @@ cold-launch verification contract is documented in
 Message rows use a comfortable 32-point inter-message gap, with 32-point
 leading and 24-point trailing transcript content insets.
 
-The Activity toggle lives in the native sidebar toolbar. When Activity is
-requested and the detail viewport is at least 900 points wide, a full-height
-leading glass panel reserves 376 points beside the transcript. At narrower
-widths, the same toggle presents Activity as a 320×360 floating popover and
-reserves no transcript space. Neither presentation is part of the transcript
-scroll content; the dashboard hides its scroll-content background so the panel
-glass remains visible. The toolbar toggle is the sole visibility control. The
-dashboard orders Advisor, Todos, and Subagents, with bounded Todo and Subagent
-lists; its toggle is disabled when none of those dashboard data sources are
+The Activity button lives in the native toolbar and presents a 320×360 popover.
+Activity never occupies persistent transcript space and does not add its own
+glass or material background inside the system popover. The toolbar button is
+the sole visibility control. The dashboard orders Advisor, Todos, and Subagents,
+and scrolls as one native surface when those sections exceed the popover
+height. Its button is disabled when none of those dashboard data sources are
 available.
 
 Validate deterministic generation, clean-cache package resolution, the

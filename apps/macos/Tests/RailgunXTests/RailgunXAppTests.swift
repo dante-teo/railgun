@@ -25,17 +25,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration.primaryWindowTitle, "Railgun")
     }
 
-    func testTaskShellDefaultsTheActivityCardToHidden() {
-        XCTAssertFalse(RailgunTaskShell.activityCardDefaultVisibility)
-    }
-
     func testTaskShellUsesANativeMinimumSidebarWidth() {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
-    }
-
-    func testActivityToggleTracksTheSidebarVisibilityState() {
-        XCTAssertTrue(RailgunTaskShell.isSidebarVisible(for: .all))
-        XCTAssertFalse(RailgunTaskShell.isSidebarVisible(for: .detailOnly))
     }
 
     func testTaskShellKeepsFilesInspectorSeparateFromTheMainPane() {
@@ -77,6 +68,28 @@ final class RailgunXAppTests: XCTestCase {
             session: .initial,
             controls: .initial,
             isSessionMutationInFlight: true
+        ))
+    }
+
+    func testManualCompactionRequiresReadyIdleControlsAndTranscriptHistory() {
+        var controls = RailgunControlsState.initial
+        controls.isLoaded = true
+        controls.compactionStatus = .completed
+
+        XCTAssertFalse(RailgunTaskShell.isCompactionDisabled(
+            controls,
+            isRunActive: false,
+            hasTranscript: true
+        ))
+        XCTAssertTrue(RailgunTaskShell.isCompactionDisabled(
+            controls,
+            isRunActive: true,
+            hasTranscript: true
+        ))
+        XCTAssertTrue(RailgunTaskShell.isCompactionDisabled(
+            controls,
+            isRunActive: false,
+            hasTranscript: false
         ))
     }
 
@@ -227,49 +240,32 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityIdentifier(\"session-operation-error\")"))
     }
 
-    func testActivityUsesAFloatingGlassPanelAlongsideTheTranscript() throws {
+    func testActivityUsesAPopoverWithoutFloatingGlassChrome() throws {
         let source = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
             encoding: .utf8
         )
-        let activitySource = try String(
-            contentsOf: repositoryRoot
-                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunActivityPresentation.swift"),
-            encoding: .utf8
-        )
-        let transcriptSource = try String(
-            contentsOf: repositoryRoot
-                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunTranscriptViewport.swift"),
-            encoding: .utf8
-        )
-
         XCTAssertTrue(source.contains("RailgunActivityPanel("))
-        XCTAssertTrue(
-            transcriptSource.contains(".contentMargins(.leading, contentLeadingMargin, for: .scrollContent)")
-        )
-        XCTAssertTrue(source.contains("content.glassEffect("))
-        XCTAssertTrue(source.contains("#if compiler(>=6.2)"))
-        XCTAssertTrue(source.contains(".regularMaterial"))
-        XCTAssertTrue(activitySource.contains(".scrollContentBackground(.hidden)"))
+        XCTAssertTrue(source.contains(".popover(isPresented: $isActivityPopoverPresented"))
+        XCTAssertFalse(source.contains("RailgunActivityPanelBackground"))
+        XCTAssertFalse(source.contains("content.glassEffect("))
+        XCTAssertFalse(source.contains("displaysPanelBackground"))
     }
 
-    func testActivityPanelPresentationUsesStableDetailWidth() throws {
+    func testActivityPopoverUsesStableSize() throws {
         let source = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("@State private var detailViewportWidth: CGFloat = 0"))
-        XCTAssertTrue(source.contains("GeometryReader { geometry in"))
-        XCTAssertTrue(source.contains("detailViewportWidth = geometry.size.width"))
+        XCTAssertTrue(source.contains("@State private var isActivityPopoverPresented = false"))
+        XCTAssertTrue(source.contains(".popover(isPresented: $isActivityPopoverPresented"))
+        XCTAssertTrue(source.contains(".frame(width: Self.activityPanelPreferredWidth, height: Self.activityPopoverHeight)"))
+        XCTAssertFalse(source.contains("detailViewportWidth"))
         XCTAssertFalse(source.contains("transcriptViewportWidth = geometry.viewportWidth"))
-    }
-
-    func testActivityPanelUsesCompactMapsLikeDimensions() {
         XCTAssertEqual(RailgunTaskShell.activityPanelPreferredWidth, 320)
-        XCTAssertEqual(RailgunTaskShell.activityPanelReservedWidth, 376)
         XCTAssertEqual(RailgunTaskShell.activityPopoverHeight, 360)
     }
 
@@ -301,7 +297,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(transcriptSource.contains(".scrollPosition("))
     }
 
-    func testDesktopDocumentationCapturesActivityAndTranscriptLayoutContracts() throws {
+    func testDesktopDocumentationCapturesActivityPopoverAndTranscriptLayoutContracts() throws {
         let readme = try String(
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
@@ -313,10 +309,12 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(readme.contains("4, 8, 12, 16, 24, and 32 point scale"))
         XCTAssertTrue(readme.contains("32-point inter-message gap"))
-        XCTAssertTrue(readme.contains("376 points beside the transcript"))
-        XCTAssertTrue(nativeUIPolicy.contains("## Activity panel layout invariant"))
-        XCTAssertTrue(nativeUIPolicy.contains("stable detail viewport measurement"))
-        XCTAssertTrue(nativeUIPolicy.contains(".scrollContentBackground(.hidden)"))
+        XCTAssertTrue(readme.contains("presents a 320×360 popover"))
+        XCTAssertTrue(readme.contains("scrolls as one native surface"))
+        XCTAssertTrue(nativeUIPolicy.contains("## Activity popover layout invariant"))
+        XCTAssertTrue(nativeUIPolicy.contains("Do not reserve transcript width"))
+        XCTAssertTrue(nativeUIPolicy.contains("Do not add custom glass"))
+        XCTAssertTrue(nativeUIPolicy.contains("Keep the dashboard inside a native `ScrollView`"))
     }
 
     func testNativeComposerPolicyDocumentsItsAppKitAndSubmissionBoundaries() throws {
@@ -336,6 +334,26 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("SWFT-032"))
     }
 
+    func testTaskControlDocumentationCapturesTheCurrentShellContract() throws {
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(readme.contains("native `Menu` whose models are individual `Button`"))
+        XCTAssertTrue(nativeUIPolicy.contains("## Task toolbar and composer controls invariant"))
+        XCTAssertTrue(nativeUIPolicy.contains("`#if compiler(>=6.2)`"))
+        XCTAssertTrue(nativeUIPolicy.contains("Keep model selection as a SwiftUI `Menu` of `Button` actions"))
+        XCTAssertTrue(nativeUIPolicy.contains("Do not expose Advisor or MoA enable/disable controls"))
+        XCTAssertTrue(nativeUIPolicy.contains("must report `Not measured yet`"))
+        XCTAssertTrue(nativeUIPolicy.contains("visible inline error"))
+        XCTAssertTrue(nativeUIPolicy.contains("row with Retry"))
+    }
+
     func testTaskComposerUsesTheSharedProductSurfaceHierarchy() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -346,46 +364,64 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("task-composer-surface"))
         XCTAssertTrue(source.contains("Message Railgun…"))
         XCTAssertTrue(source.contains(".background(.bar)"))
-        XCTAssertTrue(source.contains("RailgunColorRole.surface.color"))
         XCTAssertTrue(source.contains("task-composer-send"))
         XCTAssertTrue(source.contains("task-composer-stop"))
         XCTAssertTrue(source.contains("Image(systemName: \"stop.fill\")"))
         XCTAssertTrue(source.contains(".accessibilityLabel(\"Stop\")"))
-        XCTAssertTrue(source.contains("composerKeyboardHint"))
-        XCTAssertTrue(source.contains("composerActionRow"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Send\")"))
+        XCTAssertTrue(source.contains("contextRing"))
         XCTAssertTrue(source.contains("canRetryComposerSubmission"))
+        XCTAssertTrue(source.contains("composerSubmissionError"))
+        XCTAssertTrue(source.contains("Button(\"Retry\", action: retryComposerSubmission)"))
+        XCTAssertTrue(source.contains("composer-submission-error"))
         XCTAssertEqual(RailgunTaskShell.composerMaximumWidth, 736)
     }
 
-    func testTaskToolbarUsesNativeModelAndAgentMenusWithRecoverableControlStatus() throws {
+    func testTaskToolbarUsesNativeModelMenuWithRecoverableControlStatus() throws {
         let source = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("Picker(\"Model\", selection: modelSelection)"))
-        XCTAssertTrue(source.contains("Text(model.name).tag(Optional(model.id))"))
-        XCTAssertTrue(source.contains("Task { await controlsCoordinator.useModel(modelID) }"))
-        XCTAssertTrue(source.contains(".pickerStyle(.menu)"))
+        XCTAssertTrue(source.contains("Menu {"))
+        XCTAssertTrue(source.contains("Text(appStore.state.controls.activeModel?.name ?? \"Selected Model\")"))
+        XCTAssertTrue(source.contains("Task { await controlsCoordinator.useModel(model.id) }"))
+        XCTAssertFalse(source.contains("Picker(\"Model\", selection: modelSelection)"))
         XCTAssertFalse(source.contains("Use for This Task"))
         XCTAssertFalse(source.contains("Use and Make Default"))
         XCTAssertTrue(source.contains("controlsCoordinator.setModelDidChange"))
         XCTAssertTrue(source.contains("refreshAfterModelChange(modelID: modelID)"))
-        XCTAssertTrue(source.contains("Menu(\"Mixture of Agents\")"))
-        XCTAssertTrue(source.contains("Toggle(\"Enable Advisor\""))
-        XCTAssertTrue(source.contains("Menu(\"Advisor Model\")"))
+        XCTAssertTrue(source.contains("Label(\"Activity\", systemImage: RailgunTaskSymbol.activity)"))
+        XCTAssertEqual(source.components(separatedBy: "ToolbarItem(placement: .primaryAction)").count - 1, 2)
+        XCTAssertFalse(source.contains("ToolbarItem(placement: .topBarTrailing)"))
+        XCTAssertTrue(source.contains("ToolbarItemGroup(placement: .navigation)"))
+        XCTAssertTrue(source.contains("Button(\"Sidebar\", systemImage: \"sidebar.right\")"))
+        XCTAssertTrue(source.contains("isFilesInspectorPresented.toggle()"))
+        XCTAssertFalse(source.contains("ToolbarItemGroup(placement: .automatic)"))
+        XCTAssertTrue(source.contains(
+            "#if compiler(>=6.2)\n                    if #available(macOS 26.0, *) {\n                        ToolbarSpacer(.flexible, placement: .principal)"
+        ))
+        XCTAssertTrue(source.contains("ToolbarSpacer(.flexible, placement: .principal)"))
+        XCTAssertTrue(source.contains(
+            "#else\n                    ToolbarItem(placement: .principal) {\n                        Spacer()"
+        ))
+        XCTAssertFalse(source.contains(".toolbarRole(.editor)"))
+        XCTAssertFalse(source.contains("Menu(\"Mixture of Agents\")"))
+        XCTAssertFalse(source.contains("Toggle(\"Enable Advisor\""))
+        XCTAssertFalse(source.contains("Menu(\"Advisor Model\")"))
         XCTAssertTrue(source.contains("task-model-menu"))
-        XCTAssertTrue(source.contains("task-agent-menu"))
+        XCTAssertTrue(source.contains("toggle-activity"))
         XCTAssertTrue(source.contains("task-controls-error"))
-        XCTAssertTrue(source.contains("Compact Context"))
         XCTAssertTrue(source.contains("Compacting context…"))
         XCTAssertTrue(source.contains("context-compaction-completed"))
         XCTAssertTrue(source.contains("context-compaction-error"))
+        XCTAssertTrue(source.contains("Button(\"Compact Context\", systemImage: \"arrow.triangle.2.circlepath\")"))
+        XCTAssertTrue(source.contains("Task { await compactionCoordinator.compact() }"))
+        XCTAssertTrue(source.contains("compactionCoordinator: backendRuntime.compactionCoordinator"))
         XCTAssertTrue(source.contains(".disabled(controlsAreDisabled || isSessionMutationInFlight)"))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: false))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: true))
-        XCTAssertTrue(RailgunTaskShell.isCompactionDisabled(.initial, isRunActive: false, hasTranscript: true))
     }
 
     func testContextUsagePresentationUsesExactTotalsAndAccessibleProviderSource() throws {
@@ -412,7 +448,10 @@ final class RailgunXAppTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(source.contains("Latest provider-reported input plus output tokens"))
-        XCTAssertTrue(source.contains("context-usage"))
+        XCTAssertTrue(source.contains("ContextRing("))
+        XCTAssertTrue(source.contains("usedTokens: usage?.totalTokens"))
+        XCTAssertFalse(source.contains("usedTokens: usage?.totalTokens ?? 0"))
+        XCTAssertTrue(source.contains("Text(\"Not measured yet\")"))
     }
 
     func testInteractionPromptsUseNativeControlsAndKeepStopAvailable() throws {
@@ -463,7 +502,8 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(source.contains("accessibilityIdentifier(\"toggle-activity\")"))
         XCTAssertTrue(source.contains("NavigationSplitView(columnVisibility: $navigationSplitViewVisibility)"))
-        XCTAssertTrue(source.contains("if isSidebarVisible {"))
+        XCTAssertTrue(source.contains("isActivityPopoverPresented.toggle()"))
+        XCTAssertTrue(source.contains(".popover(isPresented: $isActivityPopoverPresented"))
         XCTAssertFalse(source.contains("close-activity"))
         XCTAssertFalse(source.contains("dismiss: { isActivityCardVisible"))
     }

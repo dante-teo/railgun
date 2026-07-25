@@ -156,7 +156,8 @@ final class RailgunFileServiceTests: XCTestCase {
         )
 
         XCTAssertFalse(appSource.contains("Button(\"Refresh Files\", systemImage: \"arrow.clockwise\")"))
-        XCTAssertTrue(appSource.contains("Button(\"Files\", systemImage: \"sidebar.trailing\")"))
+        XCTAssertTrue(appSource.contains("Button(\"Sidebar\", systemImage: \"sidebar.right\")"))
+        XCTAssertTrue(appSource.contains("isFilesInspectorPresented.toggle()"))
         XCTAssertTrue(appSource.contains(".inspector(isPresented: $isFilesInspectorPresented)"))
         XCTAssertTrue(appSource.contains("isPresented: $isFilesInspectorPresented"))
         XCTAssertTrue(appSource.contains(".inspectorColumnWidth("))

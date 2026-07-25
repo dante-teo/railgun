@@ -58,7 +58,9 @@ final class RailgunDesignSystemTests: XCTestCase {
         XCTAssertTrue(activitySource.contains("RailgunActivityDashboardSection"))
         XCTAssertTrue(activitySource.contains(".font(RailgunFont.interface(.headline, weight: .semibold))"))
         XCTAssertFalse(activitySource.contains("List {"))
-        XCTAssertTrue(appSource.contains(".modifier(RailgunActivityPanelBackground(isEnabled: displaysPanelBackground))\n        .font(RailgunFont.interface())"))
+        XCTAssertTrue(activitySource.contains("ScrollView {"))
+        XCTAssertTrue(activitySource.contains(".scrollContentBackground(.hidden)"))
+        XCTAssertFalse(appSource.contains("RailgunActivityPanelBackground"))
     }
 
     func testTypographyUsesDynamicTextStyles() {
