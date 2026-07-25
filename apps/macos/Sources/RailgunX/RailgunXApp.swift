@@ -1596,32 +1596,32 @@ private struct RailgunTaskSidebar: View {
     let fork: (String) -> Void
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
-            if session.isLoading {
-                ProgressView("Loading tasks…")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else if session.sessions.isEmpty {
-                ContentUnavailableView(
-                    "No Tasks",
-                    systemImage: "tray",
-                    description: Text("Tasks will appear here when they are available.")
-                )
-            } else {
-                ForEach(session.sessions) { summary in
-                    RailgunSidebarSessionRow(
-                        summary: summary,
-                        isSelected: selection.wrappedValue == summary.id,
-                        select: { selection.wrappedValue = summary.id },
-                        canFork: isForkAvailable(summary.id),
-                        fork: { fork(summary.id) }
+        List {
+            Section("Tasks") {
+                if session.isLoading {
+                    ProgressView("Loading tasks")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if session.sessions.isEmpty {
+                    ContentUnavailableView(
+                        "No Tasks",
+                        systemImage: "tray",
+                        description: Text("Tasks will appear here when they are available.")
                     )
-                    .disabled(isSessionSelectionDisabled)
+                } else {
+                    ForEach(session.sessions) { summary in
+                        RailgunSidebarSessionRow(
+                            summary: summary,
+                            isSelected: selection.wrappedValue == summary.id,
+                            select: { selection.wrappedValue = summary.id },
+                            canFork: isForkAvailable(summary.id),
+                            fork: { fork(summary.id) }
+                        )
+                        .disabled(isSessionSelectionDisabled)
+                    }
                 }
             }
-            }
-            .padding(RailgunSpacing.standard.points)
         }
+        .listStyle(.sidebar)
     }
 }
 

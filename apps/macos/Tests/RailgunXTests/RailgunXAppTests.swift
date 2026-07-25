@@ -729,6 +729,18 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration, .primary)
     }
 
+    func testNativeUITaskSidebarPolicyDocumentsTheNativeListContract() throws {
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(nativeUIPolicy.contains("## Task sidebar invariant"))
+        XCTAssertTrue(nativeUIPolicy.contains("native `.sidebar`-styled `List`"))
+        XCTAssertTrue(nativeUIPolicy.contains("`ContentUnavailableView` with the"))
+        XCTAssertTrue(nativeUIPolicy.contains("**Fork Task** context menu"))
+    }
+
     func testPrimaryWindowAndSettingsUseTheSharedMatchaTintAndSidebarSelection() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -743,6 +755,9 @@ final class RailgunXAppTests: XCTestCase {
             "Both the primary window and Settings scene must inherit the shared matcha tint."
         )
         XCTAssertTrue(source.contains("RailgunSidebarSessionRow"))
+        XCTAssertTrue(source.contains("Section(\"Tasks\")"))
+        XCTAssertTrue(source.contains(".listStyle(.sidebar)"))
+        XCTAssertTrue(source.contains("systemImage: \"tray\""))
         XCTAssertTrue(source.contains("isSelected ? RailgunColorRole.accent.color : .clear"))
         XCTAssertFalse(source.contains("List(selection: selection)"))
     }

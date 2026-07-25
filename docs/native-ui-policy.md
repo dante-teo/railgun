@@ -22,6 +22,16 @@ an unmet requirement. Railgun's approved application typography is Barlow for
 interface text and Departure Mono Nerd Font for code; it continues to use
 SwiftUI text styles for Dynamic Type scaling.
 
+## Task sidebar invariant
+
+`RailgunTaskSidebar` is a native `.sidebar`-styled `List` with a `Tasks`
+section. Keep its scrolling, section spacing, and sidebar appearance system
+owned; do not substitute a custom `ScrollView` stack. Loading uses
+`ProgressView`, and the empty state uses `ContentUnavailableView` with the
+`tray` SF Symbol. Task rows carry the app-specific selection state and the
+**Fork Task** context menu while preserving native button and context-menu
+semantics.
+
 ## Customization decision record
 
 Before adding a custom component or an AppKit bridge, add a completed record to
