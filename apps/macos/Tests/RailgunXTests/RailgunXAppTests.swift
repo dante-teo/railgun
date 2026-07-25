@@ -249,8 +249,21 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("RailgunActivityPanel("))
         XCTAssertTrue(source.contains(".popover(isPresented: $isActivityPopoverPresented"))
         XCTAssertFalse(source.contains("RailgunActivityPanelBackground"))
-        XCTAssertFalse(source.contains("content.glassEffect("))
         XCTAssertFalse(source.contains("displaysPanelBackground"))
+
+        let activityPanelStart = try XCTUnwrap(
+            source.range(of: "private struct RailgunActivityPanel: View {")
+        )
+        let activityPanelEnd = try XCTUnwrap(
+            source.range(
+                of: "private struct RailgunBackendStatusView: View {",
+                range: activityPanelStart.upperBound..<source.endIndex
+            )
+        )
+        let activityPanelSource = String(
+            source[activityPanelStart.lowerBound..<activityPanelEnd.lowerBound]
+        )
+        XCTAssertFalse(activityPanelSource.contains("content.glassEffect("))
     }
 
     func testActivityPopoverUsesStableSize() throws {
@@ -329,8 +342,11 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(design.contains("Native macOS composer"))
         XCTAssertTrue(design.contains("one through ten visual lines"))
+        XCTAssertTrue(design.contains("Liquid Glass shell on macOS 26"))
         XCTAssertTrue(nativeUIPolicy.contains("### `RailgunComposer`"))
         XCTAssertTrue(nativeUIPolicy.contains("accessible name `Message`"))
+        XCTAssertTrue(nativeUIPolicy.contains("macOS 26 and newer"))
+        XCTAssertTrue(nativeUIPolicy.contains("macOS 15–25"))
         XCTAssertTrue(nativeUIPolicy.contains("SWFT-032"))
     }
 
@@ -363,7 +379,7 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(source.contains("task-composer-surface"))
         XCTAssertTrue(source.contains("Message Railgun…"))
-        XCTAssertTrue(source.contains(".background(.bar)"))
+        XCTAssertTrue(source.contains(".modifier(RailgunComposerGlass())"))
         XCTAssertTrue(source.contains("task-composer-send"))
         XCTAssertTrue(source.contains("task-composer-stop"))
         XCTAssertTrue(source.contains("Image(systemName: \"stop.fill\")"))
@@ -375,6 +391,21 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("Button(\"Retry\", action: retryComposerSubmission)"))
         XCTAssertTrue(source.contains("composer-submission-error"))
         XCTAssertEqual(RailgunTaskShell.composerMaximumWidth, 736)
+    }
+
+    func testTaskComposerUsesLiquidGlassWithTheMaterialFallback() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("private struct RailgunComposerGlass: ViewModifier"))
+        XCTAssertTrue(source.contains("#if compiler(>=6.2)"))
+        XCTAssertTrue(source.contains("content.glassEffect(.regular, in: Self.shape)"))
+        XCTAssertTrue(source.contains("if #available(macOS 26.0, *)"))
+        XCTAssertTrue(source.contains(".background(.regularMaterial, in: Self.shape)"))
+        XCTAssertTrue(source.contains(".modifier(RailgunComposerGlass())"))
     }
 
     func testTaskToolbarUsesNativeModelMenuWithRecoverableControlStatus() throws {

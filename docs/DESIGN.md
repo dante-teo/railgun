@@ -46,7 +46,8 @@ Material communicates hierarchy rather than covering every layer. Glass is
 reserved for the inset sidebar, continuous top toolbar, floating composer
 shell, anchored popovers, and dialogs. Cards, lists, fields, and prompts use
 opaque or lightly tonal content surfaces with hairlines and restrained depth;
-the composer's bar-material shell contains a stable system control surface so
+the composer's Liquid Glass shell on macOS 26, with its bordered material
+fallback on macOS 15–25, contains a stable system control surface so
 the editor, placeholder, and disabled send affordance remain legible in every
 appearance. Ordinary action buttons use four flat, shadow-free system-like recipes:
 tinted capsule, plain text action, filled accent capsule, or white/tonal

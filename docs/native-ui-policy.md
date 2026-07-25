@@ -97,10 +97,16 @@ or bridge gains a material new behavior or variant.
   `RailgunUI` component. SWFT-032 mounts it in `RailgunTaskShell`; the shell,
   not the bridge, owns draft clearing and prompt, steering, and follow-up RPC
   workflows. The shell keeps the editor inside Railgun's shared chat surface:
-  a centered 736-point content column, bordered material card, idle send
+  a centered 736-point content column, Liquid Glass on macOS 26 with the
+  existing bordered material card as the macOS 15–25 fallback, idle send
   affordance, context ring, native model menu, and visible queue/error
   presentation. AppKit remains limited to the text editor and command
   interception.
+- **Glass compatibility:** The composer surface uses SwiftUI Liquid Glass on
+  macOS 26 and newer, with the existing bordered `regularMaterial` card on
+  macOS 15–25. Keep the Liquid Glass branch behind both the compiler guard for
+  the macOS 26 SDK and the runtime availability check so the macOS 15
+  deployment target remains buildable.
 - **Retirement trigger:** Replace it when SwiftUI provides a native multiline
   editor with equivalent sizing, scrolling, command routing, focus, selection,
   paste, undo, text-services, and VoiceOver behavior.

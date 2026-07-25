@@ -563,6 +563,32 @@ private struct RailgunTranscriptSoftTopEdgeEffect: ViewModifier {
     }
 }
 
+private struct RailgunComposerGlass: ViewModifier {
+    private static let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: Self.shape)
+        } else {
+            fallback(content)
+        }
+#else
+        fallback(content)
+#endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(.regularMaterial, in: Self.shape)
+            .overlay {
+                Self.shape
+                    .strokeBorder(Color.secondary.opacity(0.16))
+            }
+    }
+}
+
 private enum RailgunInteractionFocus: Hashable {
     case approvalDeny(String)
     case clarificationAnswer(String)
@@ -659,7 +685,7 @@ struct RailgunTaskShell: View {
         } detail: {
             transcriptScrollView
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    shellComposer
+                    shellComposer.padding(.bottom, 16)
                 }
                 .toolbar {
 #if compiler(>=6.2)
@@ -780,18 +806,13 @@ struct RailgunTaskShell: View {
                 }
             }
             .padding(RailgunSpacing.relaxed.points)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.16))
-            }
+            .modifier(RailgunComposerGlass())
             .accessibilityIdentifier("task-composer-surface")
         }
         .frame(maxWidth: Self.composerMaximumWidth)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, RailgunSpacing.standard.points)
         .padding(.vertical, RailgunSpacing.compact.points)
-        .background(.bar)
     }
 
     private var commandAvailability: RailgunTaskCommandAvailability {
