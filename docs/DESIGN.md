@@ -183,8 +183,13 @@ the same model; text entry is reserved for free-form answers and preset names.
   the sole visibility control. Todo progress is textual and status glyphs are
   supplemental. These surfaces retain Increase Contrast and Reduce Motion
   behavior through the existing semantic tokens.
+  Scheduled is a dedicated sidebar destination with a local-time subtitle,
+  native schedule editor sheet, and destructive delete confirmation. It
+  replaces task-only controls and content while active; the last active task
+  remains stored but has no selected sidebar treatment until Tasks is resumed.
   Files is a separate trailing native inspector, opened and closed by the
-  `Sidebar` toolbar control. The inspector owns its standard toolbar:
+  `Sidebar` toolbar control only while a Task destination is active. The
+  inspector owns its standard toolbar:
   **Refresh Files** appears only while the inspector is presented, never in the
   Task toolbar. Its home-rooted tree uses native list/disclosure behavior,
   loads folders on expansion, and remains read-only. Selecting a file

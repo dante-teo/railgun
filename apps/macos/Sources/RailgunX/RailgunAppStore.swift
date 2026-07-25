@@ -9,20 +9,24 @@ import RailgunTransport
 /// feature deterministic to test and prevents raw backend frames from leaking
 /// into SwiftUI state.
 struct RailgunAppState: Equatable {
+    var destination: RailgunDestination
     var backend: RailgunBackendState
     var session: RailgunSessionState
     var transcript: RailgunTranscriptState
     var controls: RailgunControlsState
     var interactions: RailgunInteractionState
     var activity: RailgunActivityState
+    var scheduled: RailgunScheduledState
 
     static let initial = Self(
+        destination: .task,
         backend: .initial,
         session: .initial,
         transcript: .initial,
         controls: .initial,
         interactions: .initial,
-        activity: .initial
+        activity: .initial,
+        scheduled: .initial
     )
 }
 
@@ -45,12 +49,14 @@ final class RailgunAppStore {
 }
 
 enum RailgunAppAction: Equatable {
+    case destination(RailgunDestination)
     case backend(RailgunBackendAction)
     case session(RailgunSessionAction)
     case transcript(RailgunTranscriptAction)
     case controls(RailgunControlsAction)
     case interaction(RailgunInteractionAction)
     case activity(RailgunActivityAction)
+    case scheduled(RailgunScheduledAction)
     case agentEvent(RailgunAgentEvent, at: Int? = nil)
 
     fileprivate func stamped(at timestamp: Int) -> Self {
@@ -62,6 +68,10 @@ enum RailgunAppAction: Equatable {
 enum RailgunAppReducer {
     static func reduce(_ state: RailgunAppState, _ action: RailgunAppAction) -> RailgunAppState {
         switch action {
+        case let .destination(destination):
+            var next = state
+            next.destination = destination
+            return next
         case let .backend(action):
             var next = state
             next.backend = RailgunBackendReducer.reduce(state.backend, action)
@@ -118,6 +128,10 @@ enum RailgunAppReducer {
         case let .activity(action):
             var next = state
             next.activity = RailgunActivityReducer.reduce(state.activity, action)
+            return next
+        case let .scheduled(action):
+            var next = state
+            next.scheduled = RailgunScheduledReducer.reduce(state.scheduled, action)
             return next
         case let .agentEvent(event, timestamp):
             return reduceAgentEvent(state, event, timestamp: timestamp)

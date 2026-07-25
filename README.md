@@ -17,7 +17,13 @@ behavior; use the direct release for current installations.
 
 ## Scheduled work and maintenance
 
-Use the **Scheduled** page to create, edit, or remove prompts. Scheduled data,
+Use the **Scheduled** sidebar destination to create, edit, or remove prompts.
+It shows the current local-time context and each job's normalized five-field
+cron expression, most recent run time, completion status, and safe failure
+message when applicable. **New Schedule** and Edit open a native sheet with a
+prompt plus schedule field; the schedule field shows a five-field example.
+The app requires a nonblank prompt and exactly five cron fields before saving;
+the backend remains authoritative for cron syntax and ranges. Scheduled data,
 credentials, sessions, skills, memories, and logs remain in `~/.railgun`.
 
 Use **Settings → General** to control background automation. It is opt-in and

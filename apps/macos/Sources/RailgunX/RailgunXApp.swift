@@ -237,6 +237,7 @@ final class RailgunBackendRuntime {
     let interactionCoordinator: RailgunInteractionCoordinator
     let controlsCoordinator: RailgunControlsCoordinator
     let compactionCoordinator: RailgunCompactionCoordinator
+    let scheduledCoordinator: RailgunScheduledCoordinator
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
@@ -263,6 +264,10 @@ final class RailgunBackendRuntime {
         self.compactionCoordinator = RailgunCompactionCoordinator(
             store: store,
             service: RailgunCompactionService(rpcClient: client)
+        )
+        self.scheduledCoordinator = RailgunScheduledCoordinator(
+            store: store,
+            service: RailgunScheduledService(rpcClient: client)
         )
         let sessionCoordinator = RailgunSessionCoordinator(
             store: store,
@@ -327,7 +332,8 @@ final class RailgunBackendRuntime {
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
             async let controls: Void = controlsCoordinator.refresh()
             async let sessions: Void = sessionCoordinator.refresh()
-            _ = await (controls, sessions)
+            async let scheduled: Void = scheduledCoordinator.refresh()
+            _ = await (controls, sessions, scheduled)
         } catch let error as RailgunRPCError {
             if case let .authenticationRequired(source) = error {
                 store.send(.backend(.authenticationRequired(source: source)))
@@ -638,6 +644,7 @@ struct RailgunTaskShell: View {
     private let interactionCoordinator: RailgunInteractionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
     private let compactionCoordinator: RailgunCompactionCoordinator
+    private let scheduledCoordinator: RailgunScheduledCoordinator
     @State private var filesBrowserStore: RailgunFilesBrowserStore
     @State private var navigationSplitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var composerDraft = ""
@@ -661,6 +668,7 @@ struct RailgunTaskShell: View {
         interactionCoordinator: RailgunInteractionCoordinator,
         controlsCoordinator: RailgunControlsCoordinator,
         compactionCoordinator: RailgunCompactionCoordinator,
+        scheduledCoordinator: RailgunScheduledCoordinator,
         fileService: RailgunFileService
     ) {
         _appStore = Bindable(appStore)
@@ -670,12 +678,15 @@ struct RailgunTaskShell: View {
         self.interactionCoordinator = interactionCoordinator
         self.controlsCoordinator = controlsCoordinator
         self.compactionCoordinator = compactionCoordinator
+        self.scheduledCoordinator = scheduledCoordinator
     }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $navigationSplitViewVisibility) {
             RailgunTaskSidebar(
                 session: appStore.state.session,
+                destination: appStore.state.destination,
+                selectScheduled: selectScheduled,
                 selection: selectedSessionID,
                 isSessionSelectionDisabled: isTaskOperationInFlight,
                 isForkAvailable: isForkAvailable(for:),
@@ -683,7 +694,11 @@ struct RailgunTaskShell: View {
             )
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
-            transcriptScrollView
+            Group {
+                if appStore.state.destination == .scheduled {
+                    RailgunScheduledWorkspace(appStore: appStore, coordinator: scheduledCoordinator)
+                } else {
+                    transcriptScrollView
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     shellComposer.padding(.bottom, 16)
                 }
@@ -729,8 +744,13 @@ struct RailgunTaskShell: View {
                         .help(isFilesInspectorPresented ? "Hide Files" : "Show Files")
                     }
                 }
+                }
+            }
         }
-        .inspector(isPresented: $isFilesInspectorPresented) {
+        .inspector(isPresented: Binding(
+            get: { appStore.state.destination == .task && isFilesInspectorPresented },
+            set: { isFilesInspectorPresented = $0 }
+        )) {
             RailgunFilesInspector(store: filesBrowserStore, isPresented: $isFilesInspectorPresented)
         }
         .inspectorColumnWidth(
@@ -738,18 +758,24 @@ struct RailgunTaskShell: View {
             ideal: Self.filesInspectorPreferredWidth,
             max: Self.filesInspectorMaximumWidth
         )
-        .frame(minWidth: isFilesInspectorPresented ? Self.filesInspectorMinimumWindowWidth : 0)
+        .frame(minWidth: appStore.state.destination == .task && isFilesInspectorPresented ? Self.filesInspectorMinimumWindowWidth : 0)
         .focusedSceneValue(
             \.railgunTaskCommandActions,
-            RailgunTaskCommandActions(
-                availability: commandAvailability,
-                createTask: createTask,
-                stop: requestStop,
-                retry: retryComposerSubmission
-            )
+            appStore.state.destination == .task
+                ? RailgunTaskCommandActions(
+                    availability: commandAvailability,
+                    createTask: createTask,
+                    stop: requestStop,
+                    retry: retryComposerSubmission
+                )
+                : nil
         )
         .onChange(of: appStore.state.interactions.requests) { previous, current in
             handleInteractionFocusChange(from: previous, to: current)
+        }
+        .onChange(of: appStore.state.destination) { _, destination in
+            guard destination == .scheduled else { return }
+            Task { await scheduledCoordinator.refresh() }
         }
         .sheet(isPresented: isBranchSheetPresented) {
             RailgunBranchDialog(
@@ -929,6 +955,7 @@ struct RailgunTaskShell: View {
         Binding(
             get: { appStore.state.session.activeSessionID },
             set: { selection in
+                appStore.send(.destination(.task))
                 guard let selection else {
                     appStore.send(.session(.selected(nil)))
                     return
@@ -936,6 +963,10 @@ struct RailgunTaskShell: View {
                 Task { await sessionCoordinator.resume(selection) }
             }
         )
+    }
+
+    private func selectScheduled() {
+        appStore.send(.destination(.scheduled))
     }
 
     private var taskDetailPresentation: RailgunTaskDetailPresentation {
@@ -1590,6 +1621,8 @@ struct RailgunTaskShell: View {
 
 private struct RailgunTaskSidebar: View {
     let session: RailgunSessionState
+    let destination: RailgunDestination
+    let selectScheduled: () -> Void
     let selection: Binding<String?>
     let isSessionSelectionDisabled: Bool
     let isForkAvailable: (String) -> Bool
@@ -1597,6 +1630,28 @@ private struct RailgunTaskSidebar: View {
 
     var body: some View {
         List {
+            Section {
+                Button(action: selectScheduled) {
+                    HStack(spacing: RailgunSpacing.standard.points) {
+                        Label("Scheduled", systemImage: "clock")
+                        Spacer(minLength: 0)
+                    }
+                        .padding(.horizontal, RailgunSpacing.standard.points)
+                        .padding(.vertical, RailgunSpacing.relaxed.points)
+                        .foregroundStyle(
+                            destination == .scheduled ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color
+                        )
+                        .contentShape(Rectangle())
+                        .background(
+                            destination == .scheduled ? Color.primary.opacity(0.08) : .clear,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityValue(destination == .scheduled ? "Selected" : "")
+            }
+
             Section("Tasks") {
                 if session.isLoading {
                     ProgressView("Loading tasks")
@@ -1611,7 +1666,7 @@ private struct RailgunTaskSidebar: View {
                     ForEach(session.sessions) { summary in
                         RailgunSidebarSessionRow(
                             summary: summary,
-                            isSelected: selection.wrappedValue == summary.id,
+                            isSelected: destination == .task && selection.wrappedValue == summary.id,
                             select: { selection.wrappedValue = summary.id },
                             canFork: isForkAvailable(summary.id),
                             fork: { fork(summary.id) }
@@ -1667,12 +1722,12 @@ private struct RailgunSidebarSessionRow: View {
                 Text("\(summary.model) • \(summary.startedAt)")
                     .font(RailgunFont.interface(.caption))
                     .foregroundStyle(
-                        isSelected ? Color.white.opacity(0.8) : RailgunColorRole.secondaryText.color
+                        isSelected ? RailgunColorRole.accent.color.opacity(0.75) : RailgunColorRole.secondaryText.color
                     )
                     .lineLimit(1)
             }
             .foregroundStyle(
-                isSelected ? Color.white : RailgunColorRole.primaryText.color
+                isSelected ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color
             )
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, RailgunSpacing.standard.points)
@@ -1681,7 +1736,7 @@ private struct RailgunSidebarSessionRow: View {
         }
         .buttonStyle(.plain)
         .background(
-            isSelected ? RailgunColorRole.accent.color : .clear,
+            isSelected ? Color.primary.opacity(0.08) : .clear,
             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
         .contextMenu {
@@ -1932,6 +1987,7 @@ struct RailgunXApp: App {
                 interactionCoordinator: backendRuntime.interactionCoordinator,
                 controlsCoordinator: backendRuntime.controlsCoordinator,
                 compactionCoordinator: backendRuntime.compactionCoordinator,
+                scheduledCoordinator: backendRuntime.scheduledCoordinator,
                 fileService: fileService
             )
         case let .authenticationRequired(title, message):

@@ -758,7 +758,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("Section(\"Tasks\")"))
         XCTAssertTrue(source.contains(".listStyle(.sidebar)"))
         XCTAssertTrue(source.contains("systemImage: \"tray\""))
-        XCTAssertTrue(source.contains("isSelected ? RailgunColorRole.accent.color : .clear"))
+        XCTAssertTrue(source.contains("isSelected ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color"))
+        XCTAssertTrue(source.contains("isSelected ? Color.primary.opacity(0.08) : .clear"))
         XCTAssertFalse(source.contains("List(selection: selection)"))
     }
 

@@ -24,13 +24,29 @@ SwiftUI text styles for Dynamic Type scaling.
 
 ## Task sidebar invariant
 
-`RailgunTaskSidebar` is a native `.sidebar`-styled `List` with a `Tasks`
-section. Keep its scrolling, section spacing, and sidebar appearance system
-owned; do not substitute a custom `ScrollView` stack. Loading uses
+`RailgunTaskSidebar` is a native `.sidebar`-styled `List` with a full-width
+**Scheduled** destination followed by a `Tasks` section. Keep its scrolling,
+section spacing, and sidebar appearance system owned; do not substitute a
+custom `ScrollView` stack. The destination and task rows are native buttons
+with matcha icon/text tint plus a subtle neutral rounded selection frame.
+Selecting Scheduled clears task-row selection visually without discarding the
+last active task, so returning to Tasks restores that task. Loading uses
 `ProgressView`, and the empty state uses `ContentUnavailableView` with the
-`tray` SF Symbol. Task rows carry the app-specific selection state and the
-**Fork Task** context menu while preserving native button and context-menu
-semantics.
+`tray` SF Symbol. Task rows retain the **Fork Task** context menu while
+preserving native button and context-menu semantics.
+
+## Scheduled destination invariant
+
+Scheduled is a dedicated workspace, not a task transcript variant. It owns a
+title, local-time subtitle, **New Schedule** action, job list, native editor
+sheet, and destructive confirmation dialog. Its jobs display the normalized
+five-field cron expression, last-run state, and a bounded safe error for failed
+runs. The editor requires a nonblank prompt and exactly five whitespace-
+normalized cron fields before submitting; backend validation remains
+authoritative for cron semantics. While Scheduled is active, omit task actions,
+the composer, Activity controls, focused Task commands, and the Files
+inspector. Keep the Files inspector's stored open state so it is available
+again after returning to Tasks.
 
 ## Customization decision record
 
