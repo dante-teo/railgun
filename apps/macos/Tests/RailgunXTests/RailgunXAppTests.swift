@@ -729,6 +729,11 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration, .primary)
     }
 
+    func testSettingsDefaultDestinationIsArchivedTasks() {
+        XCTAssertEqual(RailgunSettingsDestination.defaultSelection, .archivedTasks)
+        XCTAssertEqual(RailgunSettingsView.windowID, "settings")
+    }
+
     func testNativeUITaskSidebarPolicyDocumentsTheNativeListContract() throws {
         let nativeUIPolicy = try String(
             contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
@@ -741,8 +746,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("**Fork Task** context menu"))
     }
 
-    func testPrimaryWindowAndSettingsUseTheSharedMatchaTintAndSidebarSelection() throws {
-        let source = try String(
+    func testPrimaryWindowUsesTheSharedMatchaTintAndSidebarSelection() throws {
+        let appSource = try String(
             contentsOf: repositoryRoot
                 .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
             encoding: .utf8
@@ -750,17 +755,48 @@ final class RailgunXAppTests: XCTestCase {
         let sharedTint = ".tint(RailgunColorRole.accent.color)"
 
         XCTAssertEqual(
-            source.components(separatedBy: sharedTint).count - 1,
-            2,
-            "Both the primary window and Settings scene must inherit the shared matcha tint."
+            appSource.components(separatedBy: sharedTint).count - 1,
+            1,
+            "The primary window must inherit the shared matcha tint."
         )
-        XCTAssertTrue(source.contains("RailgunSidebarSessionRow"))
-        XCTAssertTrue(source.contains("Section(\"Tasks\")"))
-        XCTAssertTrue(source.contains(".listStyle(.sidebar)"))
-        XCTAssertTrue(source.contains("systemImage: \"tray\""))
-        XCTAssertTrue(source.contains("isSelected ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color"))
-        XCTAssertTrue(source.contains("isSelected ? Color.primary.opacity(0.08) : .clear"))
-        XCTAssertFalse(source.contains("List(selection: selection)"))
+        XCTAssertTrue(appSource.contains("RailgunSidebarSessionRow"))
+        XCTAssertTrue(appSource.contains("Section(\"Tasks\")"))
+        XCTAssertTrue(appSource.contains(".listStyle(.sidebar)"))
+        XCTAssertTrue(appSource.contains("systemImage: \"tray\""))
+        XCTAssertTrue(appSource.contains("isSelected ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color"))
+        XCTAssertTrue(appSource.contains("isSelected ? Color.primary.opacity(0.08) : .clear"))
+        XCTAssertFalse(appSource.contains("List(selection: selection)"))
+    }
+
+    func testSettingsUsesTheSharedMatchaTintAndSplitViewShell() throws {
+        let appSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        let settingsSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunSettingsView.swift"),
+            encoding: .utf8
+        )
+        let sharedTint = ".tint(RailgunColorRole.accent.color)"
+
+        XCTAssertEqual(
+            settingsSource.components(separatedBy: sharedTint).count - 1,
+            1,
+            "The Settings window must inherit the shared matcha tint."
+        )
+        XCTAssertTrue(settingsSource.contains("NavigationSplitView"))
+        XCTAssertTrue(settingsSource.contains("List(selection: $selection)"))
+        XCTAssertTrue(settingsSource.contains("Label(\"Archived Tasks\", systemImage: \"archivebox\")"))
+        XCTAssertTrue(settingsSource.contains(".navigationSplitViewColumnWidth("))
+        XCTAssertTrue(settingsSource.contains(".navigationSplitViewStyle(.prominentDetail)"))
+        XCTAssertTrue(settingsSource.contains("CommandGroup(replacing: .appSettings)"))
+        XCTAssertTrue(settingsSource.contains("openWindow(id: RailgunSettingsView.windowID)"))
+        XCTAssertTrue(appSource.contains("Window(\"Settings\", id: RailgunSettingsView.windowID)"))
+        XCTAssertFalse(appSource.contains("Settings {"))
+        XCTAssertTrue(appSource.contains("width: RailgunSettingsView.defaultWindowWidth"))
+        XCTAssertTrue(appSource.contains(".windowResizability(.contentMinSize)"))
     }
 
     func testDesktopClientLockCreatesAndReleasesTheSharedLockRecord() async throws {

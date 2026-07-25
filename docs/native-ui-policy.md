@@ -10,7 +10,7 @@ Native SwiftUI is the default. Begin with the system components and styling
 appropriate to the feature, including `NavigationSplitView`, `List`, `Table`,
 `Form`, `Section`, `Toolbar`, `Button`, `TextField`, `TextEditor`,
 `SecureField`, `Toggle`, `Picker`, `Menu`, `DisclosureGroup`, `ProgressView`,
-`ContentUnavailableView`, `Settings`, sheets, alerts, confirmation dialogs,
+`ContentUnavailableView`, `Window`, sheets, alerts, confirmation dialogs,
 and inspectors.
 
 Do not recreate system controls, menus, dialogs, sidebars, toolbars, forms,
@@ -34,6 +34,16 @@ last active task, so returning to Tasks restores that task. Loading uses
 `ProgressView`, and the empty state uses `ContentUnavailableView` with the
 `tray` SF Symbol. Task rows retain the **Fork Task** context menu while
 preserving native button and context-menu semantics.
+
+## Settings window invariant
+
+**Settings…** (⌘,) opens one regular SwiftUI `Window`, not the special
+`Settings` scene. This keeps the archived-task browser in a normal macOS window
+with standard window behavior. Its `NavigationSplitView` uses a native
+`.sidebar`-styled `List`; **Archived Tasks** is its sole current destination and
+the default selection. Keep the system sidebar material, standard selection
+styling, and the desktop minimum size that accommodates the five-column archive
+table. Do not add custom window chrome or AppKit window manipulation.
 
 ## Scheduled destination invariant
 

@@ -481,11 +481,12 @@ not belong in the registry.
 
 RailgunX currently provides one restorable primary SwiftUI scene, identified as
 `primary`. It opens at 1024×700, enforces a 760×520 content minimum, and remains
-user-resizable above that minimum. The native `Settings` scene provides the
-standard macOS Settings command and an archived-task browser. The browser is a
-native `Table` that shows task title, model, message count, and localized
-archive time. Search matches title, model, or the full task ID without changing
-the backend's archive order; clearing the search restores that order.
+user-resizable above that minimum. **Settings…** (⌘,) opens a singleton regular
+SwiftUI window rather than the special `Settings` scene. Its native sidebar
+defaults to **Archived Tasks**, whose detail browser is a native `Table` that
+shows task title, model, message count, and localized archive time. Search
+matches title, model, or the full task ID without changing the backend's archive
+order; clearing the search restores that order.
 
 ### Archived task browser
 

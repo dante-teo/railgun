@@ -1833,34 +1833,6 @@ private struct RailgunBackendStatusView: View {
     }
 }
 
-private struct RailgunSettingsView: View {
-    @Bindable private var appStore: RailgunAppStore
-    private let sessionCoordinator: RailgunSessionCoordinator
-
-    init(appStore: RailgunAppStore, sessionCoordinator: RailgunSessionCoordinator) {
-        _appStore = Bindable(appStore)
-        self.sessionCoordinator = sessionCoordinator
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: RailgunSpacing.section.points) {
-            Text("Archived Tasks")
-                .font(RailgunFont.interface(.title2, weight: .semibold))
-
-            RailgunArchivedTaskBrowser(
-                session: appStore.state.session,
-                backendPhase: appStore.state.backend.phase,
-                restore: { sessionID in
-                    Task { await sessionCoordinator.restore(sessionID) }
-                }
-            )
-            .font(RailgunFont.interface())
-        }
-        .padding(RailgunSpacing.layout.points)
-        .frame(minWidth: 520, minHeight: 360)
-    }
-}
-
 @main
 struct RailgunXApp: App {
     static let lifecycleConfiguration = AppLifecycleConfiguration.primary
@@ -1942,6 +1914,7 @@ struct RailgunXApp: App {
         .windowResizability(Self.lifecycleConfiguration.primaryWindowResizability.swiftUIValue)
         .commands {
             RailgunTaskCommands()
+            RailgunSettingsCommands()
             SidebarCommands()
             InspectorCommands()
             if let updater {
@@ -1953,14 +1926,17 @@ struct RailgunXApp: App {
             }
         }
 
-        Settings {
+        Window("Settings", id: RailgunSettingsView.windowID) {
             RailgunSettingsView(
                 appStore: appStore,
                 sessionCoordinator: backendRuntime.sessionCoordinator
             )
-            .font(RailgunFont.interface())
-            .tint(RailgunColorRole.accent.color)
         }
+        .defaultSize(
+            width: RailgunSettingsView.defaultWindowWidth,
+            height: RailgunSettingsView.defaultWindowHeight
+        )
+        .windowResizability(.contentMinSize)
     }
 
     @ViewBuilder
