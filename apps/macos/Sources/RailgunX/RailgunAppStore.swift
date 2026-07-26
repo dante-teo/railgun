@@ -716,6 +716,22 @@ struct RailgunAdvisorConfiguration: Equatable, Sendable {
     static let disabled = Self(isEnabled: false, modelID: nil)
 }
 
+enum RailgunApprovalMode: String, CaseIterable, Equatable, Sendable {
+    /// Always ask the person using Railgun before a flagged command runs.
+    case manual
+    /// Let a selected model review flagged commands before they run.
+    case smart
+    /// Run flagged commands without an approval prompt.
+    case off
+}
+
+struct RailgunApprovalConfiguration: Equatable, Sendable {
+    let mode: RailgunApprovalMode
+    let reviewerModelID: String?
+
+    static let manual = Self(mode: .manual, reviewerModelID: nil)
+}
+
 struct RailgunControlsSnapshot: Equatable, Sendable {
     let models: [RailgunModel]
     let activeModelID: String
@@ -723,6 +739,7 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
     let moaPresets: [RailgunMoAPreset]
     let activeMoAPresetName: String?
     let advisor: RailgunAdvisorConfiguration
+    let approval: RailgunApprovalConfiguration
     let isBackendRunning: Bool
 
     init(
@@ -732,6 +749,7 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
         moaPresets: [RailgunMoAPreset],
         activeMoAPresetName: String?,
         advisor: RailgunAdvisorConfiguration,
+        approval: RailgunApprovalConfiguration = .manual,
         isBackendRunning: Bool = false
     ) {
         self.models = models
@@ -740,6 +758,7 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
         self.moaPresets = moaPresets
         self.activeMoAPresetName = activeMoAPresetName
         self.advisor = advisor
+        self.approval = approval
         self.isBackendRunning = isBackendRunning
     }
 
@@ -751,6 +770,7 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
             moaPresets: moaPresets,
             activeMoAPresetName: activeMoAPresetName,
             advisor: advisor,
+            approval: approval,
             isBackendRunning: isBackendRunning
         )
     }
@@ -763,6 +783,7 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
             moaPresets: moaPresets,
             activeMoAPresetName: name,
             advisor: advisor,
+            approval: approval,
             isBackendRunning: isBackendRunning
         )
     }
@@ -775,6 +796,20 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
             moaPresets: moaPresets,
             activeMoAPresetName: activeMoAPresetName,
             advisor: advisor,
+            approval: approval,
+            isBackendRunning: isBackendRunning
+        )
+    }
+
+    func withApproval(_ approval: RailgunApprovalConfiguration) -> Self {
+        .init(
+            models: models,
+            activeModelID: activeModelID,
+            defaultModelID: defaultModelID,
+            moaPresets: moaPresets,
+            activeMoAPresetName: activeMoAPresetName,
+            advisor: advisor,
+            approval: approval,
             isBackendRunning: isBackendRunning
         )
     }
@@ -787,6 +822,7 @@ struct RailgunControlsState: Equatable {
     var moaPresets: [RailgunMoAPreset]
     var activeMoAPresetName: String?
     var advisor: RailgunAdvisorConfiguration
+    var approval: RailgunApprovalConfiguration
     var contextUsage: RailgunContextUsage?
     var lastContextReset: RailgunContextResetReason?
     var isLoading: Bool
@@ -803,6 +839,7 @@ struct RailgunControlsState: Equatable {
         moaPresets: [],
         activeMoAPresetName: nil,
         advisor: .disabled,
+        approval: .manual,
         contextUsage: nil,
         lastContextReset: nil,
         isLoading: false,
@@ -916,6 +953,7 @@ enum RailgunControlsReducer {
         state.moaPresets = snapshot.moaPresets
         state.activeMoAPresetName = snapshot.activeMoAPresetName
         state.advisor = snapshot.advisor
+        state.approval = snapshot.approval
         state.isBackendRunning = snapshot.isBackendRunning
     }
 

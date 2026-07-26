@@ -5,6 +5,7 @@ enum RailgunControlsServiceError: Error, Equatable, Sendable {
     case invalidResponse
     case invalidSelection
     case advisorModelRequired
+    case approvalModelRequired
     case rejected(String)
 }
 
@@ -117,6 +118,29 @@ actor RailgunControlsService {
         )
     }
 
+    /// Persists how flagged commands are approved for subsequent runs. Smart
+    /// approval delegates the decision to the selected reviewer model.
+    func configureApproval(_ approval: RailgunApprovalConfiguration) async throws -> RailgunControlsMutationResult {
+        let loaded = try await loadDetailed()
+        guard approval.mode != .smart || approval.reviewerModelID != nil else {
+            throw RailgunControlsServiceError.approvalModelRequired
+        }
+        guard approval.reviewerModelID == nil || loaded.snapshot.models.contains(where: { $0.id == approval.reviewerModelID }) else {
+            throw RailgunControlsServiceError.invalidSelection
+        }
+
+        let patch: [String: RailgunJSONValue] = [
+            "approvalMode": .string(approval.mode.rawValue),
+            "reviewerModel": approval.reviewerModelID.map(RailgunJSONValue.string) ?? .null,
+        ]
+        try await updateConfig(patch)
+
+        return .init(
+            snapshot: loaded.snapshot.withApproval(approval),
+            warning: nil
+        )
+    }
+
     private func loadDetailed() async throws -> LoadedControls {
         async let catalogRequest = perform(.getAvailableModels)
         async let stateRequest = perform(.getState)
@@ -141,6 +165,7 @@ actor RailgunControlsService {
                 moaPresets: config.moaPresets,
                 activeMoAPresetName: config.activeMoAPresetName,
                 advisor: config.advisor,
+                approval: config.approval,
                 isBackendRunning: state.isRunning
             ),
             config: config.raw
@@ -226,7 +251,8 @@ actor RailgunControlsService {
         defaultModelID: String?,
         moaPresets: [RailgunMoAPreset],
         activeMoAPresetName: String?,
-        advisor: RailgunAdvisorConfiguration
+        advisor: RailgunAdvisorConfiguration,
+        approval: RailgunApprovalConfiguration
     ) {
         guard let raw = data?.objectValue?["config"]?.objectValue else {
             throw RailgunControlsServiceError.invalidResponse
@@ -251,7 +277,8 @@ actor RailgunControlsService {
         }
 
         let advisor = try parseAdvisor(raw["advisor"])
-        return (raw, defaultModelID, presets, activeMoAPresetName, advisor)
+        let approval = try parseApproval(raw["approvalMode"], reviewerModel: raw["reviewerModel"])
+        return (raw, defaultModelID, presets, activeMoAPresetName, advisor, approval)
     }
 
     private func parseMoAPresets(_ value: RailgunJSONValue?) throws -> [RailgunMoAPreset] {
@@ -308,6 +335,36 @@ actor RailgunControlsService {
         }
         guard !enabled || modelID != nil else { throw RailgunControlsServiceError.invalidResponse }
         return .init(isEnabled: enabled, modelID: modelID)
+    }
+
+    private func parseApproval(
+        _ modeValue: RailgunJSONValue?,
+        reviewerModel: RailgunJSONValue?
+    ) throws -> RailgunApprovalConfiguration {
+        let mode: RailgunApprovalMode
+        if let modeValue {
+            guard let rawMode = modeValue.stringValue,
+                  let parsedMode = RailgunApprovalMode(rawValue: rawMode)
+            else { throw RailgunControlsServiceError.invalidResponse }
+            mode = parsedMode
+        } else {
+            mode = .manual
+        }
+
+        let reviewerModelID: String?
+        if let reviewerModel {
+            guard let parsedID = validIdentifier(reviewerModel),
+                  !parsedID.contains(where: \.isWhitespace)
+            else { throw RailgunControlsServiceError.invalidResponse }
+            reviewerModelID = parsedID
+        } else {
+            reviewerModelID = nil
+        }
+
+        guard mode != .smart || reviewerModelID != nil else {
+            throw RailgunControlsServiceError.invalidResponse
+        }
+        return .init(mode: mode, reviewerModelID: reviewerModelID)
     }
 
     private func validIdentifier(_ value: RailgunJSONValue?) -> String? {
@@ -401,6 +458,12 @@ final class RailgunControlsCoordinator {
         }
     }
 
+    func configureApproval(_ approval: RailgunApprovalConfiguration) async {
+        await performMutation {
+            try await self.service.configureApproval(approval)
+        }
+    }
+
     private func performMutation(
         _ operation: () async throws -> RailgunControlsMutationResult,
         afterSuccess: @MainActor () async -> Void = {}
@@ -428,6 +491,8 @@ final class RailgunControlsCoordinator {
             "That selection is no longer available."
         case RailgunControlsServiceError.advisorModelRequired:
             "Choose an advisor model before enabling the advisor."
+        case RailgunControlsServiceError.approvalModelRequired:
+            "Choose an approval model before enabling auto approval."
         case let RailgunControlsServiceError.rejected(message):
             message
         default:

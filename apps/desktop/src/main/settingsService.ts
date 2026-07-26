@@ -144,7 +144,7 @@ export const createSettingsService = (
         requireModel(update.reviewerModelId, "Smart review model");
         patch = {
           approvalMode: update.approvalMode,
-          ...(update.reviewerModelId === null ? { reviewerModel: undefined } : { reviewerModel: update.reviewerModelId }),
+          reviewerModel: update.reviewerModelId,
         };
         break;
       case "archives":

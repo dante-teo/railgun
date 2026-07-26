@@ -55,6 +55,14 @@ describe("settings service", () => {
     expect(config()).toMatchObject({ future: { keep: true } });
   });
 
+  it("uses null to clear the smart-review model", async () => {
+    const { service, calls } = harness();
+
+    await service.update({ section: "trust", approvalMode: "manual", reviewerModelId: null });
+
+    expect(calls).toContainEqual({ type: "config_update", patch: { approvalMode: "manual", reviewerModel: null } });
+  });
+
   it("projects and persists the configured archive retention preset", async () => {
     const { service, calls } = harness();
     await expect(service.get()).resolves.toMatchObject({ archives: { archiveRetentionDays: 7 } });

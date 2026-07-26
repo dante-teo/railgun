@@ -82,15 +82,21 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
       case "config_update": {
         if ("mcpServers" in command.patch) throw new Error("mcpServers must be changed with MCP commands");
         const updated = await mutateConfig(current => {
-          const { activeMoaPreset, ...ordinaryPatch } = command.patch;
-          const next = { ...current, ...ordinaryPatch } as AppConfig;
+          const { activeMoaPreset, reviewerModel, ...ordinaryPatch } = command.patch;
+          let next = { ...current, ...ordinaryPatch } as AppConfig;
           if (activeMoaPreset === null) {
             const { activeMoaPreset: _removed, ...withoutActivePreset } = next;
-            return withoutActivePreset as AppConfig;
+            next = withoutActivePreset as AppConfig;
+          } else if (activeMoaPreset !== undefined) {
+            next = { ...next, activeMoaPreset } as AppConfig;
           }
-          return activeMoaPreset === undefined
+          if (reviewerModel === null) {
+            const { reviewerModel: _removed, ...withoutReviewerModel } = next;
+            return withoutReviewerModel as AppConfig;
+          }
+          return reviewerModel === undefined
             ? next
-            : { ...next, activeMoaPreset } as AppConfig;
+            : { ...next, reviewerModel } as AppConfig;
         });
         return { config: cleanConfig(updated) };
       }

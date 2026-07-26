@@ -3,9 +3,10 @@ import RailgunUI
 import SwiftUI
 
 enum RailgunSettingsDestination: Hashable {
+    case general
     case archivedTasks
 
-    static let defaultSelection = Self.archivedTasks
+    static let defaultSelection = Self.general
 }
 
 struct RailgunSettingsView: View {
@@ -20,18 +21,31 @@ struct RailgunSettingsView: View {
 
     @Bindable private var appStore: RailgunAppStore
     private let sessionCoordinator: RailgunSessionCoordinator
+    private let controlsCoordinator: RailgunControlsCoordinator
     @State private var selection: RailgunSettingsDestination? = RailgunSettingsDestination.defaultSelection
 
-    init(appStore: RailgunAppStore, sessionCoordinator: RailgunSessionCoordinator) {
+    init(
+        appStore: RailgunAppStore,
+        sessionCoordinator: RailgunSessionCoordinator,
+        controlsCoordinator: RailgunControlsCoordinator
+    ) {
         _appStore = Bindable(appStore)
         self.sessionCoordinator = sessionCoordinator
+        self.controlsCoordinator = controlsCoordinator
     }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Label("Archived Tasks", systemImage: "archivebox")
-                    .tag(RailgunSettingsDestination.archivedTasks)
+                Section {
+                    Label("General", systemImage: "gearshape")
+                        .tag(RailgunSettingsDestination.general)
+                }
+
+                Section("Archived") {
+                    Label("Archived Tasks", systemImage: "archivebox")
+                        .tag(RailgunSettingsDestination.archivedTasks)
+                }
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(
@@ -51,6 +65,8 @@ struct RailgunSettingsView: View {
     @ViewBuilder
     private var detail: some View {
         switch displayedDestination {
+        case .general:
+            generalDetail
         case .archivedTasks:
             archivedTasksDetail
         }
@@ -74,6 +90,85 @@ struct RailgunSettingsView: View {
             )
         }
         .padding(RailgunSpacing.layout.points)
+    }
+
+    private var generalDetail: some View {
+        Form {
+            Section {
+                Picker("Approval mode", selection: approvalMode) {
+                    Label("Ask for approval", systemImage: "hand.raised")
+                        .tag(RailgunApprovalMode.manual)
+                    Label("Approve for me", systemImage: "terminal")
+                        .tag(RailgunApprovalMode.smart)
+                    Label("Full access", systemImage: "exclamationmark.shield")
+                        .tag(RailgunApprovalMode.off)
+                }
+                .disabled(!canEditApproval)
+                .accessibilityIdentifier("settings-approval-mode")
+
+                Picker("Auto-approval model", selection: reviewerModelID) {
+                    Text("Choose a model").tag(nil as String?)
+                    ForEach(appStore.state.controls.models) { model in
+                        Text(model.name).tag(Optional(model.id))
+                    }
+                }
+                .disabled(!canEditApproval)
+                .accessibilityIdentifier("settings-approval-model")
+
+                if !hasSelectedReviewerModel {
+                    Text("Select a model to enable auto approval.")
+                        .font(RailgunFont.interface(.caption))
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("These permissions apply to the next run. Full access runs flagged commands without asking for confirmation.")
+            }
+
+            if let error = appStore.state.controls.error {
+                Text(error)
+                    .foregroundStyle(.red)
+            }
+        }
+        .navigationTitle("General")
+        .formStyle(.grouped)
+    }
+
+    private var approvalMode: Binding<RailgunApprovalMode> {
+        Binding(
+            get: { appStore.state.controls.approval.mode },
+            set: { mode in
+                Task {
+                    await controlsCoordinator.configureApproval(.init(
+                        mode: mode,
+                        reviewerModelID: appStore.state.controls.approval.reviewerModelID
+                    ))
+                }
+            }
+        )
+    }
+
+    private var reviewerModelID: Binding<String?> {
+        Binding(
+            get: { appStore.state.controls.approval.reviewerModelID },
+            set: { reviewerModelID in
+                Task {
+                    await controlsCoordinator.configureApproval(.init(
+                        mode: appStore.state.controls.approval.mode,
+                        reviewerModelID: reviewerModelID
+                    ))
+                }
+            }
+        )
+    }
+
+    private var hasSelectedReviewerModel: Bool {
+        appStore.state.controls.approval.reviewerModelID != nil
+    }
+
+    private var canEditApproval: Bool {
+        appStore.state.controls.isReadyForMutation && !appStore.state.transcript.isRunning
     }
 }
 

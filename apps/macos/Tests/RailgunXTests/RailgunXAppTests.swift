@@ -729,8 +729,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration, .primary)
     }
 
-    func testSettingsDefaultDestinationIsArchivedTasks() {
-        XCTAssertEqual(RailgunSettingsDestination.defaultSelection, .archivedTasks)
+    func testSettingsDefaultDestinationIsGeneral() {
+        XCTAssertEqual(RailgunSettingsDestination.defaultSelection, .general)
         XCTAssertEqual(RailgunSettingsView.windowID, "settings")
     }
 
@@ -788,7 +788,10 @@ final class RailgunXAppTests: XCTestCase {
         )
         XCTAssertTrue(settingsSource.contains("NavigationSplitView"))
         XCTAssertTrue(settingsSource.contains("List(selection: $selection)"))
+        XCTAssertTrue(settingsSource.contains("Label(\"General\", systemImage: \"gearshape\")"))
         XCTAssertTrue(settingsSource.contains("Label(\"Archived Tasks\", systemImage: \"archivebox\")"))
+        XCTAssertTrue(settingsSource.contains("settings-approval-mode"))
+        XCTAssertTrue(settingsSource.contains("settings-approval-model"))
         XCTAssertTrue(settingsSource.contains(".navigationSplitViewColumnWidth("))
         XCTAssertTrue(settingsSource.contains(".navigationSplitViewStyle(.prominentDetail)"))
         XCTAssertTrue(settingsSource.contains("CommandGroup(replacing: .appSettings)"))

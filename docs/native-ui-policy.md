@@ -38,12 +38,16 @@ preserving native button and context-menu semantics.
 ## Settings window invariant
 
 **Settings…** (⌘,) opens one regular SwiftUI `Window`, not the special
-`Settings` scene. This keeps the archived-task browser in a normal macOS window
-with standard window behavior. Its `NavigationSplitView` uses a native
-`.sidebar`-styled `List`; **Archived Tasks** is its sole current destination and
-the default selection. Keep the system sidebar material, standard selection
-styling, and the desktop minimum size that accommodates the five-column archive
-table. Do not add custom window chrome or AppKit window manipulation.
+`Settings` scene. This keeps General and the archived-task browser in a normal
+macOS window with standard window behavior. Its `NavigationSplitView` uses a
+native `.sidebar`-styled `List`; **General** is the default selection and
+**Archived Tasks** is a sibling destination. General uses a native grouped Form
+for command permissions: ask for approval, model-assisted approval, or full
+access (while retaining backend hardline protections). Clearing the model picker
+removes the persisted reviewer model. Keep the system sidebar material,
+standard selection styling, and the desktop
+minimum size that accommodates the five-column archive table. Do not add custom
+window chrome or AppKit window manipulation.
 
 ## Scheduled destination invariant
 

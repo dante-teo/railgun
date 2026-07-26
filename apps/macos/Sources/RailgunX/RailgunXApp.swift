@@ -1929,7 +1929,8 @@ struct RailgunXApp: App {
         Window("Settings", id: RailgunSettingsView.windowID) {
             RailgunSettingsView(
                 appStore: appStore,
-                sessionCoordinator: backendRuntime.sessionCoordinator
+                sessionCoordinator: backendRuntime.sessionCoordinator,
+                controlsCoordinator: backendRuntime.controlsCoordinator
             )
         }
         .defaultSize(

@@ -257,6 +257,77 @@ final class RailgunControlsServiceTests: XCTestCase {
         }
     }
 
+    func testApprovalConfigurationLoadsPersistsAndRequiresAReviewerForAutoApproval() async throws {
+        let recorder = ControlsCommandRecorder()
+        let service = RailgunControlsService { command in
+            await recorder.record(command)
+            switch command.type {
+            case .getAvailableModels:
+                return try controlsResponse(for: command.type, data: .object(["models": .array([
+                    controlsModel(id: "primary"), controlsModel(id: "reviewer"),
+                ])]))
+            case .getState:
+                return try controlsResponse(for: command.type, data: controlsState(model: "primary"))
+            case .configGet:
+                return try controlsResponse(for: command.type, data: controlsConfig(
+                    approvalMode: "smart",
+                    reviewerModel: "reviewer"
+                ))
+            case .configUpdate:
+                XCTAssertEqual(command.fields["patch"], .object([
+                    "approvalMode": .string("smart"),
+                    "reviewerModel": .string("reviewer"),
+                ]))
+                return try controlsResponse(for: command.type, data: controlsConfig())
+            default:
+                throw ControlsStubError.unexpectedCommand
+            }
+        }
+
+        let loaded = try await service.load()
+        XCTAssertEqual(loaded.approval, .init(mode: .smart, reviewerModelID: "reviewer"))
+
+        let saved = try await service.configureApproval(.init(mode: .smart, reviewerModelID: "reviewer"))
+        XCTAssertEqual(saved.snapshot.approval, .init(mode: .smart, reviewerModelID: "reviewer"))
+
+        do {
+            _ = try await service.configureApproval(.init(mode: .smart, reviewerModelID: nil))
+            XCTFail("Expected smart approval without a reviewer to be rejected")
+        } catch {
+            XCTAssertEqual(error as? RailgunControlsServiceError, .approvalModelRequired)
+        }
+    }
+
+    func testApprovalConfigurationClearsThePersistedReviewerModel() async throws {
+        let service = RailgunControlsService { command in
+            switch command.type {
+            case .getAvailableModels:
+                return try controlsResponse(for: command.type, data: .object(["models": .array([
+                    controlsModel(id: "primary"), controlsModel(id: "reviewer"),
+                ])]))
+            case .getState:
+                return try controlsResponse(for: command.type, data: controlsState(model: "primary"))
+            case .configGet:
+                return try controlsResponse(for: command.type, data: controlsConfig(
+                    approvalMode: "smart",
+                    reviewerModel: "reviewer"
+                ))
+            case .configUpdate:
+                XCTAssertEqual(command.fields["patch"], .object([
+                    "approvalMode": .string("manual"),
+                    "reviewerModel": .null,
+                ]))
+                return try controlsResponse(for: command.type, data: controlsConfig())
+            default:
+                throw ControlsStubError.unexpectedCommand
+            }
+        }
+
+        let saved = try await service.configureApproval(.init(mode: .manual, reviewerModelID: nil))
+
+        XCTAssertEqual(saved.snapshot.approval, .manual)
+    }
+
     func testCoordinatorLoadsStateAndBlocksMutationsDuringRunsOrBeforeLoading() async throws {
         let store = RailgunAppStore()
         let recorder = ControlsCommandRecorder()
@@ -427,7 +498,9 @@ private func controlsState(model: String, isRunning: Bool = false) -> RailgunJSO
 private func controlsConfig(
     model: String? = nil,
     activePreset: String? = nil,
-    advisor: RailgunJSONValue = .object(["enabled": .bool(false), "model": .string("advisor")])
+    advisor: RailgunJSONValue = .object(["enabled": .bool(false), "model": .string("advisor")]),
+    approvalMode: String? = nil,
+    reviewerModel: String? = nil
 ) -> RailgunJSONValue {
     var config: [String: RailgunJSONValue] = [
         "moaPresets": .object([
@@ -442,6 +515,8 @@ private func controlsConfig(
     ]
     if let model { config["model"] = .string(model) }
     if let activePreset { config["activeMoaPreset"] = .string(activePreset) }
+    if let approvalMode { config["approvalMode"] = .string(approvalMode) }
+    if let reviewerModel { config["reviewerModel"] = .string(reviewerModel) }
     return .object(["config": .object(config)])
 }
 

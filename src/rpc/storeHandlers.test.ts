@@ -81,6 +81,26 @@ describe("RPC store handlers", () => {
     });
   });
 
+  it("uses null to remove the smart approval reviewer while preserving other configuration", async () => {
+    const harness = configHarness({
+      model: null,
+      approvalMode: "smart",
+      reviewerModel: "reviewer-model",
+      future: { retained: true },
+    });
+
+    await harness.handler({
+      type: "config_update",
+      patch: { approvalMode: "manual", reviewerModel: null },
+    });
+
+    expect(harness.getConfig()).toEqual({
+      model: null,
+      approvalMode: "manual",
+      future: { retained: true },
+    });
+  });
+
   it("uses the injected embedder for semantic note searches", async () => {
     const searchSemantic = vi.fn(() => [{ id: 1, sourcePath: null, content: "note", distance: 0.1 }]);
     const embedText = vi.fn(async () => new Float32Array([1, 2]));
