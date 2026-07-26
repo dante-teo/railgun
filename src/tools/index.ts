@@ -12,7 +12,6 @@ import "./noteSearchSemantic.js";
 import "./noteWrite.js";
 import "./skillView.js";
 import "./advise.js";
-import "./delegate.js";
 import "./memoryConsolidate.js";
 import "./webSearch.js";
 import "./webFetch.js";

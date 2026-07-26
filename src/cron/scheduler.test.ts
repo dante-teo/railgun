@@ -251,20 +251,23 @@ describe("runCronJob", () => {
       ]);
 
       const completedSession = store.loadSession("cron-completed-id");
-      expect(completedSession?.messages).toEqual([
-        { role: "user", content: "Scheduled task result." },
-        { role: "assistant", content: [{ type: "text", text: "Summary complete." }] },
-      ]);
+      expect(completedSession?.messages[0]).toMatchObject({
+        role: "user",
+        content: expect.stringContaining("Daily   summary"),
+      });
+      expect(completedSession?.messages.at(-1)).toEqual({
+        role: "assistant", content: [{ type: "text", text: "Summary complete." }],
+      });
       expect(completedSession?.todos).toEqual([]);
       expect(completedSession?.delivery).toMatchObject({ jobId: "complete", title: "Daily summary", status: "completed" });
 
       expect(store.loadSession("cron-incomplete-id")?.messages).toEqual([
-        { role: "user", content: "Scheduled task result." },
+        { role: "user", content: "Empty response" },
         { role: "assistant", content: [{ type: "text", text: "Scheduled task incomplete: empty final response." }] },
       ]);
       expect(store.loadSession("cron-incomplete-id")?.todos).toEqual([]);
       expect(store.loadSession("cron-failed-id")?.messages).toEqual([
-        { role: "user", content: "Scheduled task result." },
+        { role: "user", content: "Hard failure" },
         { role: "assistant", content: [{ type: "text", text: "Scheduled task failed: provider unavailable." }] },
       ]);
       expect(store.loadSession("cron-failed-id")?.todos).toEqual([]);

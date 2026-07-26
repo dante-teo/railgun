@@ -28,8 +28,6 @@ export interface CronJobResult {
 const errMsg = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
-const SCHEDULED_RESULT_TRIGGER = "Scheduled task result.";
-
 const scheduledResultText = (
   finalText: string,
   status: ScheduledRunStatus,
@@ -41,14 +39,32 @@ const scheduledResultText = (
     : `Scheduled task failed: ${failureReason ?? "the run did not complete"}.`;
 };
 
-const createScheduledDeliveryTranscript = (
+const createScheduledFailureTranscript = (
+  prompt: string,
   finalText: string,
   status: ScheduledRunStatus,
   failureReason: string | null,
 ): readonly DevinMessage[] => [
-    { role: "user", content: SCHEDULED_RESULT_TRIGGER },
+    { role: "user", content: prompt },
     { role: "assistant", content: [{ type: "text", text: scheduledResultText(finalText, status, failureReason) }] },
   ];
+
+const withScheduledResultText = (
+  transcript: readonly DevinMessage[],
+  finalText: string,
+  status: ScheduledRunStatus,
+  failureReason: string | null,
+): readonly DevinMessage[] => {
+  const last = transcript.at(-1);
+  if (last?.role !== "assistant" || !Array.isArray(last.content) || last.content.length !== 0) {
+    return transcript;
+  }
+
+  return [
+    ...transcript.slice(0, -1),
+    { role: "assistant", content: [{ type: "text", text: scheduledResultText(finalText, status, failureReason) }] },
+  ];
+};
 
 // ─── log-path helpers ─────────────────────────────────────────────────────────
 // All date arithmetic uses UTC calendar days (ISO 8601 date strings) for
@@ -209,12 +225,14 @@ export const runCronJob = async (
   let finalText = "";
   let failureReason: string | null = null;
   let resultError: unknown;
+  let deliveryTranscript: readonly DevinMessage[] | undefined;
 
   try {
     const before = await snapshotOutputs(requiredOutputs);
     const outcome = await agentSession.run({ history: [], text: runPrompt });
     verification = await verifyOutputs(requiredOutputs, before);
     if (outcome.ok) {
+      deliveryTranscript = outcome.messages;
       finalText = outcome.assistantText.trim();
       const outputFailure = verification.find(item => !item.satisfied);
       failureReason = outcome.stopReason === "iteration_limit"
@@ -227,6 +245,7 @@ export const runCronJob = async (
       status = failureReason === null ? "completed" : "incomplete";
       if (failureReason !== null) resultError = new Error(failureReason);
     } else if ("aborted" in outcome) {
+      deliveryTranscript = outcome.messages;
       finalText = outcome.assistantText.trim();
       failureReason = "aborted";
       resultError = new Error("aborted");
@@ -266,14 +285,18 @@ export const runCronJob = async (
   }
 
   if (options.sessionStore !== undefined) {
-    const deliveryTranscript = createScheduledDeliveryTranscript(finalText, status, failureReason);
+    const persistedTranscript = deliveryTranscript === undefined
+      ? createScheduledFailureTranscript(job.prompt, finalText, status, failureReason)
+      : finalText === "" && status !== "completed"
+        ? withScheduledResultText(deliveryTranscript, finalText, status, failureReason)
+        : deliveryTranscript;
     const sessionId = `cron-${(options.randomId ?? randomUUID)()}`;
     try {
       options.sessionStore.createScheduledSession({
         id: sessionId,
         model: model.id,
         startedAt: timestamp.toISOString(),
-        messages: deliveryTranscript,
+        messages: persistedTranscript,
         todos: [],
         jobId: job.id,
         title: job.prompt,

@@ -270,10 +270,14 @@ final class RailgunBackendRuntime {
     private let launch: BackendProcessLaunch?
     private let scheduler: RailgunSchedulerService?
     private let store: RailgunAppStore
+    private let deliveryService: RailgunSessionService
+    private let deliveryTracker = RailgunScheduledDeliveryTracker()
     private var isConnectionAttemptInFlight = false
+    private var isObservingScheduledDeliveries = false
     private nonisolated let terminationObservationTask: Task<Void, Never>
     private nonisolated let eventObservation = RailgunEventObservation()
     private nonisolated let interactionObservation = RailgunEventObservation()
+    private nonisolated let deliveryObservation = RailgunEventObservation()
 
     init(
         configuration: BackendLaunchConfiguration,
@@ -302,9 +306,11 @@ final class RailgunBackendRuntime {
         self.personalizationStore = RailgunPersonalizationStore(
             service: RailgunPersonalizationService(rpcClient: client)
         )
+        let deliveryService = RailgunSessionService(rpcClient: client)
+        self.deliveryService = deliveryService
         let sessionCoordinator = RailgunSessionCoordinator(
             store: store,
-            service: RailgunSessionService(rpcClient: client),
+            service: deliveryService,
             controlsDidActivate: { [weak controlsCoordinator] in await controlsCoordinator?.refresh() }
         )
         self.sessionCoordinator = sessionCoordinator
@@ -336,6 +342,7 @@ final class RailgunBackendRuntime {
         terminationObservationTask.cancel()
         eventObservation.cancel()
         interactionObservation.cancel()
+        deliveryObservation.cancel()
     }
 
     func start() async {
@@ -369,10 +376,13 @@ final class RailgunBackendRuntime {
                 // after an RPC-only restart.
                 try? await scheduler.start()
             }
+            await establishDeliveryBaseline()
             async let controls: Void = controlsCoordinator.refresh()
             async let sessions: Void = sessionCoordinator.refresh()
             async let scheduled: Void = scheduledCoordinator.refresh()
             _ = await (controls, sessions, scheduled)
+            await refreshForNewScheduledDelivery()
+            observeScheduledDeliveries()
         } catch let error as RailgunRPCError {
             if case let .authenticationRequired(source) = error {
                 store.send(.backend(.authenticationRequired(source: source)))
@@ -385,6 +395,8 @@ final class RailgunBackendRuntime {
     }
 
     func shutdown() async {
+        deliveryObservation.cancel()
+        isObservingScheduledDeliveries = false
         await scheduler?.shutdown()
         await client.shutdown()
     }
@@ -414,6 +426,33 @@ final class RailgunBackendRuntime {
             }
         }
         interactionObservation.install(task)
+    }
+
+    private func establishDeliveryBaseline() async {
+        guard let cursor = try? await deliveryService.scheduledDeliveryCursor() else { return }
+        await deliveryTracker.establishBaseline(cursor)
+    }
+
+    private func refreshForNewScheduledDelivery() async {
+        guard let cursor = try? await deliveryService.scheduledDeliveryCursor(),
+              await deliveryTracker.didAdvance(to: cursor)
+        else { return }
+        async let sessions: Void = sessionCoordinator.refresh()
+        async let scheduled: Void = scheduledCoordinator.refresh()
+        _ = await (sessions, scheduled)
+    }
+
+    private func observeScheduledDeliveries() {
+        guard !isObservingScheduledDeliveries else { return }
+        isObservingScheduledDeliveries = true
+        let task = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, let self else { return }
+                await self.refreshForNewScheduledDelivery()
+            }
+        }
+        deliveryObservation.install(task)
     }
 }
 

@@ -3,8 +3,8 @@
 Railgun injects a concise runtime block into every general agent session. It
 identifies the active surface (`desktop` or `cron`), process and version facts,
 `~/.railgun`, and the fixed configuration,
-state, extension, skill, cron, report, and log paths. Delegated agents and rebuilt
-model runtimes retain the same surface.
+state, extension, skill, cron, report, and log paths. Rebuilt model runtimes
+retain the same surface.
 
 ## `railgun_inspect`
 

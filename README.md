@@ -38,7 +38,13 @@ Railgun starts its private scheduler after the desktop backend is ready and
 stops it when the app closes. Scheduled prompts therefore run while Railgun is
 open; Railgun does not install a login item, launchd agent, or background
 service. Each completed, incomplete, or failed attempt is saved as a Task in
-the shared Railgun data store.
+the shared Railgun data store. While the app is open, it checks for newly
+delivered runs every five seconds and refreshes the Task and Scheduled lists
+without replacing the Task the user is currently viewing. Each delivery keeps
+the scheduled prompt and available agent transcript; incomplete, failed, or
+empty-result attempts retain a visible assistant message explaining the
+outcome. Open any delivered Task to inspect it or continue it with new
+messages.
 
 ## Personalization
 
@@ -126,10 +132,9 @@ model selection in a native `Menu` whose models are individual `Button`
 actions; the menu locks after a selection until that request settles,
 preventing repeated model changes.
 
-RailgunX consumes configured Mixture of Agents and advisor behavior but does
-not expose controls to enable, disable, or select them on the Task surface.
-Presets and advisor configuration remain backend-owned, and unknown advisor
-fields remain preserved when task controls are loaded.
+Each task runs through one configured model. The former Mixture of Agents,
+advisor, and task-delegation paths are not started by the desktop backend;
+saved legacy configuration is tolerated and ignored.
 
 RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
 `0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
@@ -546,14 +551,12 @@ task lists, quotes, rules, code, tables, and image blocks. Only credential-free
 absolute HTTPS links and images are active; HTML is displayed as literal text.
 Code remains selectable and wraps, tables are selectable and scroll
 horizontally, and image loading or failure labels include both status and alt
-text for VoiceOver. Tool and MoA activity joins messages in chronological order.
+text for VoiceOver. Tool activity joins messages in chronological order.
 Concurrent live calls remain individual rows; only adjacent settled calls of the
 same tool are merged. Settled turn activity is available under a native
 **Worked** expander, separated from the surrounding transcript by a divider.
 Activity summaries show only safe concise targets, dim until hovered or
 expanded, and their entire summary row is keyboard- and pointer-activatable.
-Advisor notes and subagent work remain out of the transcript and appear in the
-Activity Dashboard instead.
 Loading, empty, selection-required, and stale-selection states retain the same
 root scroll view for layout stability but do not render or accessibility-expose
 messages or activity retained by the reducer. Their centered state
@@ -576,10 +579,9 @@ leading and 24-point trailing transcript content insets.
 The Activity button lives in the native toolbar and presents a 320×360 popover.
 Activity never occupies persistent transcript space and does not add its own
 glass or material background inside the system popover. The toolbar button is
-the sole visibility control. The dashboard orders Advisor, Todos, and Subagents,
-and scrolls as one native surface when those sections exceed the popover
-height. Its button is disabled when none of those dashboard data sources are
-available.
+the sole visibility control. The dashboard displays Todos and scrolls as one
+native surface when its content exceeds the popover height. Its button is
+disabled when no dashboard data is available.
 
 Validate deterministic generation, clean-cache package resolution, the
 checked-in lockfile, legal notices, build, and tests with:

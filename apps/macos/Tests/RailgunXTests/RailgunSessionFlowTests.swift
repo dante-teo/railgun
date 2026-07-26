@@ -5,6 +5,37 @@ import RailgunTransport
 
 @MainActor
 final class RailgunSessionFlowTests: XCTestCase {
+    func testScheduledDeliveryCursorAcceptsOnlyAConstrainedNonNegativeResponse() async throws {
+        let service = RailgunSessionService { command in
+            XCTAssertEqual(command.type, .sessionDeliveryCursor)
+            return try response(for: command.type, data: .object(["cursor": .number(12)]))
+        }
+
+        XCTAssertEqual(try await service.scheduledDeliveryCursor(), 12)
+
+        for malformedData: RailgunJSONValue in [
+            .object(["cursor": .number(-1)]),
+            .object(["cursor": .number(12), "unexpected": .bool(true)]),
+        ] {
+            let malformed = RailgunSessionService { command in
+                try response(for: command.type, data: malformedData)
+            }
+            await assertSessionThrows(try await malformed.scheduledDeliveryCursor()) { error in
+                XCTAssertEqual(error as? RailgunSessionServiceError, .invalidResponse)
+            }
+        }
+    }
+
+    func testScheduledDeliveryTrackerOnlyRefreshesForNewDeliveries() async {
+        let tracker = RailgunScheduledDeliveryTracker()
+        await tracker.establishBaseline(4)
+
+        XCTAssertFalse(await tracker.didAdvance(to: 4))
+        XCTAssertTrue(await tracker.didAdvance(to: 5))
+        XCTAssertFalse(await tracker.didAdvance(to: 3))
+        XCTAssertTrue(await tracker.didAdvance(to: 4))
+    }
+
     func testSessionServiceListsActiveAndArchivedSessionsInBackendOrder() async throws {
         let service = RailgunSessionService { command in
             switch command.type {
@@ -701,6 +732,19 @@ final class RailgunSessionFlowTests: XCTestCase {
 }
 
 private enum ResumeStubError: Error { case unexpectedCommand }
+
+@MainActor
+private func assertSessionThrows<T: Sendable>(
+    _ expression: @autoclosure () async throws -> T,
+    _ verify: (Error) -> Void
+) async {
+    do {
+        _ = try await expression()
+        XCTFail("Expected an error")
+    } catch {
+        verify(error)
+    }
+}
 
 private func summary(id: String, preview: String, archivedAt: String? = nil) -> RailgunJSONValue {
     var fields: [String: RailgunJSONValue] = [

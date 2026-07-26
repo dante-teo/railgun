@@ -257,9 +257,8 @@ operations:
 - Keep model selection as a SwiftUI `Menu` of `Button` actions. Put
   **Compact Context** after a divider in that same menu; disable it during a
   run, control mutation, compaction, or empty transcript.
-- Do not expose Advisor or MoA enable/disable controls on the Task surface.
-  Runtime and Activity presentation continue consuming backend-owned
-  configuration and events.
+- Do not add multi-agent controls to the Task surface. Each task uses its
+  selected model directly.
 - Treat context usage as optional. The ring tooltip, accessibility label, and
   hover popover must report `Not measured yet` until a provider measurement
   exists; do not substitute zero.
@@ -384,7 +383,7 @@ Activity is a toolbar-anchored popover and never a persistent companion pane:
 - Do not reserve transcript width or derive Activity presentation from detail
   viewport or scroll geometry.
 - Keep the dashboard inside a native `ScrollView` and hide only its default
-  scroll-content background so large Todo and Subagent sections remain reachable.
+  scroll-content background so large Todo sections remain reachable.
 - Do not add custom glass, tint, material, stroke, or shadow chrome inside the
   system popover.
 - The toolbar Activity button is the sole visibility control. The dashboard has

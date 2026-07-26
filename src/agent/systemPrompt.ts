@@ -27,7 +27,7 @@ export const buildRailgunRuntimePrompt = (runtime: import("../runtime.js").Runti
   `- Cron jobs: ${promptData(runtime.paths.cron)}`,
   `- Cron logs: ${promptData(runtime.paths.cronLogs)}`,
   `- Cron reports: ${promptData(runtime.paths.cronOutput)}`,
-  "- Model, approval, advisor, MoA, MCP/extension, SOUL.md, and project-instruction changes are captured when a session/backend starts. Raw configuration edits require valid JSON and a new session or backend restart before claiming they are active.",
+  "- Model, approval, MCP/extension, SOUL.md, and project-instruction changes are captured when a session/backend starts. Raw configuration edits require valid JSON and a new session or backend restart before claiming they are active.",
   "- When editing config.json with file tools, preserve unknown keys and every existing MCP entry, never display credential or MCP environment values, and write valid JSON.",
   "- For Railgun bugs, hangs, cron/configuration/extension/MCP failures, or desktop disconnections, inspect actual state with railgun_inspect before diagnosing; do not guess or claim a change is active without validation and the required restart.",
   "- Desktop/backend failures: inspect actual state and restart the backend. Cron failures: inspect daemon/job health, cron logs, and bounded run reports. Configuration, extension, and MCP failures: inspect the effective redacted configuration and relevant logs."

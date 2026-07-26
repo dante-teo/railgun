@@ -54,6 +54,19 @@ actor RailgunSessionService {
         try await archivedList()
     }
 
+    /// Returns the monotonic marker for scheduled runs delivered by the
+    /// background scheduler. The desktop uses it to refresh task metadata
+    /// without polling and reloading every task transcript.
+    func scheduledDeliveryCursor() async throws -> Int {
+        let response = try await perform(.sessionDeliveryCursor)
+        guard let data = response.data?.objectValue,
+              Set(data.keys) == Set(["cursor"]),
+              let rawCursor = data["cursor"],
+              let cursor = safeNonNegativeInteger(rawCursor)
+        else { throw RailgunSessionServiceError.invalidResponse }
+        return cursor
+    }
+
     func create(modelID: String?) async throws -> String {
         let fields: [String: RailgunJSONValue] = modelID.map { ["modelId": .string($0)] } ?? [:]
         return try await requestSessionID(from: RailgunRPCCommandType.sessionNew, fields: fields)
@@ -381,6 +394,23 @@ actor RailgunSessionService {
               integer <= Self.maximumSafeInteger
         else { return nil }
         return integer
+    }
+}
+
+/// Tracks the latest scheduler delivery observed by this desktop process.
+/// A new cursor means the scheduler committed a new task session while the
+/// app was already open.
+actor RailgunScheduledDeliveryTracker {
+    private var cursor: Int?
+
+    func establishBaseline(_ value: Int) {
+        cursor = value
+    }
+
+    func didAdvance(to value: Int) -> Bool {
+        defer { cursor = value }
+        guard let cursor else { return false }
+        return value > cursor
     }
 }
 

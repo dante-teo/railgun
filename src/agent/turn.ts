@@ -13,8 +13,6 @@ import { runCompaction, shouldCompact } from "./compaction.js";
 import type { UsageTotals } from "./compaction.js";
 import type { AgentEvent, ToolResult } from "./events.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
-import type { MoAPreset, ReferenceCallbacks } from "./moa.js";
-import { runReferences, buildAggregatorGuidance } from "./moa.js";
 import { PRIMARY_TOOLSETS } from "../tools/toolsets.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
 import { initialProgressState, planToolCalls, recordToolResults } from "./progress.js";
@@ -50,7 +48,6 @@ export interface RunTurnOptions {
   extensionRunner?: ExtensionRunner;
   memoryStore?: MemoryStore;
   noteStore?: NoteStore;
-  moaPreset?: MoAPreset;
   onTurnEnd?: (messages: readonly DevinMessage[], pushMessage: (msg: DevinMessage) => void) => Promise<void> | void;
   model?: string;
   contextWindow?: number;
@@ -359,7 +356,7 @@ export const runTurn = async (
   options?: RunTurnOptions
 ): Promise<TurnOutcome> => {
   const doEmit = emit ?? (async () => {});
-  const effectiveModel = options?.moaPreset?.aggregator.model ?? model;
+  const effectiveModel = model;
   const effectiveToolsets = options?.enabledToolsets ?? ENABLED_TOOLSETS;
   const initialUserMessage: DevinMessage = { role: "user", content: userText };
   const messages: DevinMessage[] = [...history, initialUserMessage];
@@ -413,26 +410,8 @@ export const runTurn = async (
   await doEmit({ type: "message_end", message: initialUserMessage });
 
   const privateGuidanceMessages = new Set<DevinMessage>();
-  if (options?.moaPreset) {
-    const preset = options.moaPreset;
-    const callbacks: ReferenceCallbacks = {
-      onStart: async (index, count, model) => doEmit({ type: "moa_reference_start", index, count, model }),
-      onEnd: async (index, model, text) => doEmit({ type: "moa_reference_end", index, model, text }),
-    };
-    const refs = await runBoundedOperation(signal, context.operationTimeoutMs, "Delegated reference model work", scopedSignal =>
-      runReferences(devin, preset, messages, scopedSignal, callbacks));
-    const guidance = buildAggregatorGuidance(refs);
-    await doEmit({ type: "moa_aggregating", aggregator: preset.aggregator.model, refCount: refs.length });
-    // Guidance is private context for the aggregator — not a real user message.
-    // Skip pushMessage (which emits message_start/end) to keep the event stream clean.
-    const guidanceMessage: DevinMessage = { role: "user", content: guidance };
-    privateGuidanceMessages.add(guidanceMessage);
-    messages.push(guidanceMessage);
-  }
 
-  // Strip the private guidance message before returning so it is never persisted in the checkpoint.
-  // Compaction rebuilds the messages array entirely, so after compaction the guidance is already gone —
-  // the filter is a no-op in that case and safe to call unconditionally.
+  // Internal progress prompts are never persisted in the task transcript.
   const stripGuidance = (msgs: DevinMessage[]): DevinMessage[] =>
     privateGuidanceMessages.size > 0 ? msgs.filter(message => !privateGuidanceMessages.has(message)) : msgs;
 
