@@ -51,6 +51,21 @@ esac
 [[ "$version" != "$current" ]] || fail "version is already $version."
 tag="v$version"
 
+candidate_project="$(mktemp "${TMPDIR:-/tmp}/railgun-release-version.XXXXXX")"
+cleanup() {
+  rm -f "$candidate_project"
+}
+trap cleanup EXIT
+
+RAILGUN_RELEASE_CURRENT_VERSION="$current" \
+RAILGUN_RELEASE_NEXT_VERSION="$version" \
+  perl -0pe \
+    's/^([ \t]*MARKETING_VERSION:[ \t]*)\Q$ENV{RAILGUN_RELEASE_CURRENT_VERSION}\E([ \t]*)$/${1}$ENV{RAILGUN_RELEASE_NEXT_VERSION}${2}/m' \
+    "$project_file" > "$candidate_project"
+candidate_version="$(awk '/^[[:space:]]*MARKETING_VERSION:/ { print $2 }' "$candidate_project")"
+[[ "$candidate_version" == "$version" ]] \
+  || fail "could not safely update MARKETING_VERSION in apps/macos/project.yml."
+
 if [[ "$dry_run" -eq 1 ]]; then
   printf 'Would update apps/macos/project.yml: %s -> %s\n' "$current" "$version"
   printf 'Would create commit "%s" and tag %s.\n' "$version" "$tag"
@@ -63,7 +78,7 @@ if git -C "$repository_root" rev-parse --verify --quiet "refs/tags/$tag" >/dev/n
   fail "tag $tag already exists."
 fi
 
-perl -0pi -e "s/(MARKETING_VERSION:\\s*)\\Q$current\\E/\\${1}$version/" "$project_file"
+cp "$candidate_project" "$project_file"
 git -C "$repository_root" add apps/macos/project.yml
 git -C "$repository_root" commit -m "$version"
 git -C "$repository_root" tag -a "$tag" -m "$tag"
