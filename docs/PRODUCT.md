@@ -12,6 +12,14 @@ while the app is open; background execution is explicitly enabled from
 **Settings → General** and includes both recurring prompts and midnight Dream
 maintenance. Scheduled remains responsible for job definitions.
 
+**Settings → Personalization** owns the one global custom instruction and agent
+memory management. The custom-instruction editor has no file picker because
+Railgun exposes only the one instruction stored under `~/.railgun`; drafts are
+retained while moving within Settings. Memory CRUD and search live in a native
+management sheet rather than the main settings page. That sheet also exposes a
+manual Dream action after at least five memories are available, alongside the
+separate midnight Dream maintenance configured in General.
+
 Every attempted scheduled run also arrives in Task as a separate resumable
 session. A run that finishes while the app is closed is persisted and appears
 in the Task sidebar when the app next opens. Delivery never changes the active

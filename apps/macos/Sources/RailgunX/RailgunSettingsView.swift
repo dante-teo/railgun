@@ -5,6 +5,7 @@ import SwiftUI
 enum RailgunSettingsDestination: Hashable {
     case general
     case appearance
+    case personalization
     case archivedTasks
 
     static let defaultSelection = Self.general
@@ -47,6 +48,7 @@ struct RailgunSettingsView: View {
     private static let minimumWindowHeight: CGFloat = 600
 
     @Bindable private var appStore: RailgunAppStore
+    @Bindable private var personalizationStore: RailgunPersonalizationStore
     private let sessionCoordinator: RailgunSessionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
     @State private var selection: RailgunSettingsDestination? = RailgunSettingsDestination.defaultSelection
@@ -55,9 +57,11 @@ struct RailgunSettingsView: View {
     init(
         appStore: RailgunAppStore,
         sessionCoordinator: RailgunSessionCoordinator,
-        controlsCoordinator: RailgunControlsCoordinator
+        controlsCoordinator: RailgunControlsCoordinator,
+        personalizationStore: RailgunPersonalizationStore
     ) {
         _appStore = Bindable(appStore)
+        _personalizationStore = Bindable(personalizationStore)
         self.sessionCoordinator = sessionCoordinator
         self.controlsCoordinator = controlsCoordinator
     }
@@ -77,6 +81,12 @@ struct RailgunSettingsView: View {
                         systemImage: "sun.max",
                         isSelected: displayedDestination == .appearance,
                         action: { selection = .appearance }
+                    )
+                    RailgunSidebarSelectionRow(
+                        "Personalization",
+                        systemImage: "gauge.with.dots.needle.33percent",
+                        isSelected: displayedDestination == .personalization,
+                        action: { selection = .personalization }
                     )
                 }
 
@@ -114,6 +124,8 @@ struct RailgunSettingsView: View {
             generalDetail
         case .appearance:
             appearanceDetail
+        case .personalization:
+            RailgunPersonalizationView(store: personalizationStore)
         case .archivedTasks:
             archivedTasksDetail
         }

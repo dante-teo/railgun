@@ -43,6 +43,20 @@ both services without removing your scheduled jobs or other Railgun data.
 If credentials are unavailable, background services exit normally; sign in from
 Settings and launchd will run them on their next start.
 
+## Personalization
+
+Use **Settings → Personalization** to edit Railgun's one global custom
+instruction stored under `~/.railgun`. There is no instruction-file picker:
+the app exposes only this single instruction. The editor keeps an unsaved draft
+while you move between Settings destinations; choose **Revert** to discard it
+or **Save** to apply it.
+
+Choose **Manage Memories** to open a sheet for searching, adding, editing, and
+deleting agent memories. The sheet also provides **Run Dream**, a manual memory
+maintenance action. Dream becomes available once at least five memories exist;
+it can take longer than ordinary interactive requests, so leave the sheet open
+until it reports its completed or skipped result.
+
 ## Recovery
 
 If the app asks you to sign in, sign in from Settings and then retry. Background
