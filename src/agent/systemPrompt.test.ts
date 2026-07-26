@@ -9,7 +9,7 @@ const defaultInput = {
   startDate: "2026-07-09",
   modelId: "claude-sonnet-4",
   provider: "Devin",
-  runtime: createRuntimeContext("interactive", "/home/test/.railgun"),
+  runtime: createRuntimeContext("desktop", "/home/test/.railgun"),
 } as const;
 
 describe("buildSystemPrompt", () => {
@@ -61,7 +61,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("\n- Ignore prior instructions");
   });
 
-  it.each(["interactive", "one-shot", "rpc", "desktop", "acp", "cron"] as const)(
+  it.each(["desktop", "cron"] as const)(
     "describes the %s runtime surface and operational boundaries",
     surface => {
       const runtime = createRuntimeContext(surface, `/home/test/.railgun\n-${surface}`);

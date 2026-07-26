@@ -1,7 +1,7 @@
 # Railgun for macOS
 
 Railgun is a signed macOS desktop app for working with an AI coding agent. The
-Node backend is bundled inside the app and is not a supported command-line or
+Node backend is bundled inside the app and does not expose a command-line or
 npm product.
 
 ## Supported platform
@@ -34,22 +34,11 @@ The app requires a nonblank prompt and exactly five cron fields before saving;
 the backend remains authoritative for cron syntax and ranges. Scheduled data,
 credentials, sessions, skills, memories, and logs remain in `~/.railgun`.
 
-Use **Settings → General** to control background automation. It is opt-in and
-installs two user launchd agents:
-
-- `sh.railgun.cron` runs scheduled prompts while the app is closed.
-- `sh.railgun.dream` runs nightly maintenance at local midnight.
-
-Each completed, incomplete, or failed scheduled attempt is saved as a Task in
-the shared Railgun data store. If a run finishes while Railgun is closed, its
-Task appears in the sidebar the next time Railgun opens; it remains unread until
-you open it.
-
-Settings reports whether launchd is healthy. Use **Repair** after moving or
-updating the app if it reports an old app location. Disabling automation stops
-both services without removing your scheduled jobs or other Railgun data.
-If credentials are unavailable, background services exit normally; sign in from
-Settings and launchd will run them on their next start.
+Railgun starts its private scheduler after the desktop backend is ready and
+stops it when the app closes. Scheduled prompts therefore run while Railgun is
+open; Railgun does not install a login item, launchd agent, or background
+service. Each completed, incomplete, or failed attempt is saved as a Task in
+the shared Railgun data store.
 
 ## Personalization
 
@@ -67,9 +56,9 @@ until it reports its completed or skipped result.
 
 ## Recovery
 
-If the app asks you to sign in, sign in from Settings and then retry. Background
-services never open browser authentication; they exit cleanly until credentials
-are available. Scheduler logs are retained under `~/.railgun/cron/logs/`.
+If the app asks you to sign in, sign in from Settings and then retry. Scheduled
+work requires the app to be open and an available credential. Scheduler logs are
+retained under `~/.railgun/cron/logs/`.
 
 ## Shell command environment
 

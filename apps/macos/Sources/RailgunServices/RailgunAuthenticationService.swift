@@ -28,9 +28,9 @@ public enum RailgunAuthenticationError: Error, Sendable, Equatable {
 
 /// Builds launches for the production backend staged in an app bundle.
 ///
-/// Both backend modes run from the user's home directory so the backend never
+/// Each backend mode runs from the user's home directory so the backend never
 /// treats the app bundle as a user workspace. The RPC process is explicitly
-/// isolated with `RAILGUN_DESKTOP_RPC`; helpers intentionally remove it.
+/// isolated with `RAILGUN_DESKTOP_RPC`; helpers and the scheduler remove it.
 public struct RailgunBundledBackendLaunchFactory: Sendable {
     public let resourcesDirectory: URL
     public let homeDirectory: URL
@@ -52,6 +52,18 @@ public struct RailgunBundledBackendLaunchFactory: Sendable {
         return BackendProcessLaunch(
             executableURL: nodeURL,
             arguments: [backendURL.path, "desktop"],
+            currentDirectoryURL: homeDirectory,
+            environment: environment
+        )
+    }
+
+    /// Long-running scheduled-job processor owned by the desktop app.
+    public func schedulerLaunch() -> BackendProcessLaunch {
+        var environment = inheritedEnvironment
+        environment.removeValue(forKey: "RAILGUN_DESKTOP_RPC")
+        return BackendProcessLaunch(
+            executableURL: nodeURL,
+            arguments: [backendURL.path, "scheduler"],
             currentDirectoryURL: homeDirectory,
             environment: environment
         )

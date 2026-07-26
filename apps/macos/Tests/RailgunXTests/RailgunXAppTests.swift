@@ -1024,6 +1024,28 @@ final class RailgunXAppTests: XCTestCase {
         )
         XCTAssertEqual(launch.currentDirectoryURL, repositoryRoot.standardizedFileURL)
         XCTAssertEqual(launch.environment?["RAILGUN_DESKTOP_RPC"], "1")
+        XCTAssertNil(configuration.schedulerLaunch(resourcesDirectory: repositoryRoot))
+    }
+
+    func testSourceSchedulerLaunchRunsThePrivateSchedulerMode() throws {
+        let configuration = BackendLaunchConfiguration(
+            environment: [:],
+            arguments: [
+                "RailgunX",
+                "--railgunx-backend-mode=source",
+                "--railgunx-source-root=\(repositoryRoot.path)",
+            ]
+        )
+
+        let launch = try XCTUnwrap(configuration.schedulerLaunch(resourcesDirectory: repositoryRoot))
+
+        XCTAssertEqual(launch.executableURL.path, "/usr/bin/env")
+        XCTAssertEqual(
+            launch.arguments,
+            ["node", repositoryRoot.appendingPathComponent("dist/backend.js").path, "scheduler"]
+        )
+        XCTAssertEqual(launch.currentDirectoryURL, repositoryRoot.standardizedFileURL)
+        XCTAssertNil(launch.environment?["RAILGUN_DESKTOP_RPC"])
     }
 
     func testMockBackendLaunchPrefersTheBundledNodeRuntime() throws {

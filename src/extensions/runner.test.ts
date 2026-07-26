@@ -24,7 +24,7 @@ const toolResultEvent = (overrides?: Partial<ToolResultEvent>): ToolResultEvent 
 const inputEvent = (text = "hello"): InputEvent => ({
   type: "input",
   text,
-  source: "cli",
+  source: "rpc",
 });
 
 describe("ExtensionRunner", () => {

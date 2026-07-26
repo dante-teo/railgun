@@ -9,7 +9,7 @@ import { inspectRailgun, redactConfig } from "./railgunInspect.js";
 
 const fixture = async () => {
   const home = await mkdtemp(join(tmpdir(), "railgun-inspect-"));
-  return { home, runtime: createRuntimeContext("interactive", home) };
+  return { home, runtime: createRuntimeContext("desktop", home) };
 };
 
 describe("railgun_inspect", () => {
@@ -58,9 +58,9 @@ describe("railgun_inspect", () => {
 
   it("bounds selected log tails by lines and bytes", async () => {
     const { runtime } = await fixture();
-    await mkdir(runtime.paths.interactiveLogs, { recursive: true });
-    await writeFile(join(runtime.paths.interactiveLogs, "interactive-latest.jsonl"), `${Array.from({ length: 300 }, (_, i) => `line-${i}`).join("\n")}\n`);
-    const result = await inspectRailgun({ area: "logs", source: "interactive", limit: 3 }, { runtime });
+    await mkdir(runtime.paths.cronLogs, { recursive: true });
+    await writeFile(join(runtime.paths.cronLogs, "cron-latest.log"), `${Array.from({ length: 300 }, (_, i) => `line-${i}`).join("\n")}\n`);
+    const result = await inspectRailgun({ area: "logs", source: "cron", limit: 3 }, { runtime });
     const parsed = JSON.parse(result.content) as { lines: string[]; truncated: boolean };
     expect(parsed.lines).toEqual(["line-297", "line-298", "line-299"]);
     expect(parsed.truncated).toBe(true);

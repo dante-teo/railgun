@@ -1,8 +1,8 @@
 # Operational diagnostics
 
 Railgun injects a concise runtime block into every general agent session. It
-identifies the active surface (`interactive`, `one-shot`, `rpc`, `desktop`, `acp`,
-or `cron`), process and version facts, `~/.railgun`, and the fixed configuration,
+identifies the active surface (`desktop` or `cron`), process and version facts,
+`~/.railgun`, and the fixed configuration,
 state, extension, skill, cron, report, and log paths. Delegated agents and rebuilt
 model runtimes retain the same surface.
 
@@ -15,10 +15,9 @@ The default read-only `railgun_inspect` tool supports five bounded areas:
   MCP `env` values are replaced with `[REDACTED]`. MCP argument redaction covers
   separate credential flag/value pairs, `--key=value`, combined flag/value,
   Bearer, and Authorization forms while retaining ordinary arguments.
-- `cron`: daemon status plus normalized job `lastRun`, `lastSuccess`, `lastStatus`,
-  and `lastError` fields.
-- `logs`: a bounded tail of `interactive-latest.jsonl` or `cron-latest.log`
-  selected with `source`.
+- `cron`: normalized job `lastRun`, `lastSuccess`, `lastStatus`, and `lastError`
+  fields for the scheduler owned by the open desktop app.
+- `logs`: a bounded tail of `cron-latest.log`.
 - `cron_runs`: bounded summaries for a job's hashed report directory, or one
   selected bounded full report.
 
@@ -31,15 +30,14 @@ by their existing design, so the inspector returns them only when that area is
 explicitly requested.
 
 Argument redaction cannot reliably identify an unlabelled positional secret. MCP
-credentials should be configured in `env`, not as bare positional arguments. The
-`railgun config` CLI command remains an operator-facing validation command and
-prints effective configuration without redaction; do not share or paste its output.
+credentials should be configured in `env`, not as bare positional arguments.
+Use the app's Settings controls for ordinary configuration changes. Do not share
+or paste raw configuration output that contains credentials.
 
 ## Configuration activation
 
 Raw configuration edits must preserve unknown keys and existing MCP entries, avoid
-displaying secret values, produce valid JSON, and be checked with `railgun config`.
-Configuration and injected instruction state are captured at session/backend
-startup. Start a new CLI session or restart a long-lived backend before claiming a
-change is active. Diagnose configuration, MCP, extension, cron, interactive, and
+displaying secret values, and produce valid JSON. Configuration and injected
+instruction state are captured at backend startup. Restart the backend before
+claiming a change is active. Diagnose configuration, MCP, extension, cron, and
 desktop failures from inspected state and logs rather than assumptions.

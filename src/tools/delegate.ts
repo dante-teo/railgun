@@ -204,7 +204,7 @@ registry.register({
         }));
 
     const results = await runBatched(
-      jobs, devin, model, contextWindow, parentDepth, parentSignal, context.emit, context.operationTimeoutMs, context.runtime ?? createRuntimeContext("interactive"),
+      jobs, devin, model, contextWindow, parentDepth, parentSignal, context.emit, context.operationTimeoutMs, context.runtime ?? createRuntimeContext("desktop"),
     );
 
     const payload = jobs.map((job, i) => ({ task: job.goal, result: results[i] }));

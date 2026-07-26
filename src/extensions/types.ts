@@ -46,7 +46,7 @@ export type InputEvent = {
   readonly type: "input";
   readonly text: string;
   readonly images?: readonly string[];
-  readonly source: "cli" | "rpc";
+  readonly source: "rpc";
 };
 export type InputHandlerResult = {
   readonly action: "continue" | "transform" | "handled";

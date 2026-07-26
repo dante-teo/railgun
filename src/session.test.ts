@@ -138,8 +138,8 @@ describe("initFreshDevinSession", () => {
   it("retains the requested runtime surface", async () => {
     mockBootstrap([model("configured")]);
     const { initFreshDevinSession } = await import("./session.js");
-    const session = await initFreshDevinSession({ config: { model: "configured" }, surface: "one-shot" });
-    expect(session?.runtime?.surface).toBe("one-shot");
+    const session = await initFreshDevinSession({ config: { model: "configured" }, surface: "cron" });
+    expect(session?.runtime?.surface).toBe("cron");
   });
 
   it("uses Devin's first returned model when config.model is null", async () => {
@@ -148,64 +148,18 @@ describe("initFreshDevinSession", () => {
     await expect(initFreshDevinSession({ config: { model: null } })).resolves.toMatchObject({ model: { id: "provider-first" } });
   });
 
-  it("uses an available exact configured model without opening the chooser", async () => {
+  it("uses an available exact configured model", async () => {
     mockBootstrap([model("first"), model("configured")]);
-    const selectModel = vi.fn();
     const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({ config: { model: "configured" }, selectModel }))
+    await expect(initFreshDevinSession({ config: { model: "configured" } }))
       .resolves.toMatchObject({ model: { id: "configured" } });
-    expect(selectModel).not.toHaveBeenCalled();
   });
 
-  it("chooses and persists an unavailable model replacement before building the session", async () => {
-    const events: string[] = [];
-    mockBootstrap([model("first"), model("replacement")], {
-      loadProjectContext: async () => { events.push("build"); return null; },
-      loadSoulIdentity: async () => null,
-    });
-    const persistModel = vi.fn(async () => { events.push("persist"); });
-    const { initFreshDevinSession } = await import("./session.js");
-    const session = await initFreshDevinSession({
-      config: { model: "missing" },
-      interactive: true,
-      selectModel: vi.fn(async () => "replacement"),
-      persistModel,
-    });
-    expect(session?.model.id).toBe("replacement");
-    expect(persistModel).toHaveBeenCalledWith("replacement");
-    expect(events).toEqual(["persist", "build"]);
-  });
-
-  it("cancels without persisting or building a session", async () => {
-    const build = vi.fn(async () => null);
-    mockBootstrap([model("available")], { loadProjectContext: build, loadSoulIdentity: build });
-    const persistModel = vi.fn();
-    const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({
-      config: { model: "missing" }, interactive: true,
-      selectModel: vi.fn(async () => undefined), persistModel,
-    })).resolves.toBeUndefined();
-    expect(persistModel).not.toHaveBeenCalled();
-    expect(build).not.toHaveBeenCalled();
-  });
-
-  it("aborts startup when persisting the selected replacement fails", async () => {
-    const build = vi.fn(async () => null);
-    mockBootstrap([model("available")], { loadProjectContext: build, loadSoulIdentity: build });
-    const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({
-      config: { model: "missing" }, interactive: true,
-      selectModel: vi.fn(async () => "available"),
-      persistModel: vi.fn(async () => { throw new Error("disk full"); }),
-    })).rejects.toThrow("disk full");
-    expect(build).not.toHaveBeenCalled();
-  });
-
-  it("fails actionably without an interactive TTY", async () => {
+  it("fails when the configured model is unavailable", async () => {
     mockBootstrap([model("one"), model("two")]);
     const { initFreshDevinSession } = await import("./session.js");
-    await expect(initFreshDevinSession({ config: { model: "missing" }, interactive: false })).rejects.toThrow(
-      /Configured model "missing" is unavailable.*one, two.*interactively/i,
+    await expect(initFreshDevinSession({ config: { model: "missing" } })).rejects.toThrow(
+      /Saved model "missing" is unavailable.*one, two/,
     );
   });
 });

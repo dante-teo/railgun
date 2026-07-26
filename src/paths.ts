@@ -12,7 +12,6 @@ export const pathsForHome = (home: string) => ({
   cron: join(home, "cron", "jobs.json"),
   cronLogs: join(home, "cron", "logs"),
   cronOutput: join(home, "cron", "output"),
-  interactiveLogs: join(home, "logs"),
   skills: join(home, "skills"),
 } as const);
 
@@ -27,4 +26,3 @@ export const CRON_PATH = paths.cron;
 export const SKILLS_PATH = paths.skills;
 export const CRON_LOGS_PATH = paths.cronLogs;
 export const CRON_OUTPUT_PATH = paths.cronOutput;
-export const INTERACTIVE_LOGS_PATH = paths.interactiveLogs;

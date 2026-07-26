@@ -122,12 +122,12 @@ describe("RPC session transcript", () => {
 
   it("normalizes tool names before deriving their safe file targets", () => {
     const page = createRpcTranscriptPage("saved", [
-      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "  read_file  ", arguments: { path: "src/cli.ts" } }] },
+      { role: "assistant", content: [{ type: "toolCall", id: "call", name: "  read_file  ", arguments: { path: "src/backend.ts" } }] },
       { role: "tool", toolCallId: "call", content: "private" },
     ]);
 
     expect(page.messages).toEqual([
-      { role: "tool", id: "restored-tool-0-0", name: "read_file", failed: false, target: "cli.ts" },
+      { role: "tool", id: "restored-tool-0-0", name: "read_file", failed: false, target: "backend.ts" },
     ]);
   });
 });

@@ -3,7 +3,7 @@
 //
 // @huggingface/transformers is imported dynamically inside getEmbedder() so that
 // onnxruntime-node (a heavy native module) is only loaded when embedText is first
-// called, not on CLI startup for modes that never touch the embedder (chat, cron, …).
+// called, not on backend startup for modes that never touch the embedder (desktop, cron, …).
 import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 
 const MODEL = "Xenova/multilingual-e5-small";

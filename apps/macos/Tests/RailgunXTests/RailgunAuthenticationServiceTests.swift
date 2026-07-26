@@ -30,6 +30,13 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
         XCTAssertEqual(helper.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
         XCTAssertNil(helper.environment?["RAILGUN_DESKTOP_RPC"])
         XCTAssertEqual(helper.environment?["DEVIN_TOKEN"], "environment-managed-token")
+
+        let scheduler = factory.schedulerLaunch()
+        XCTAssertEqual(scheduler.executableURL, desktop.executableURL)
+        XCTAssertEqual(scheduler.arguments, [resources.appendingPathComponent("backend/railgun/dist/backend.js").path, "scheduler"])
+        XCTAssertEqual(scheduler.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
+        XCTAssertNil(scheduler.environment?["RAILGUN_DESKTOP_RPC"])
+        XCTAssertEqual(scheduler.environment?["DEVIN_TOKEN"], "environment-managed-token")
     }
 
     func testSuccessfulHelperRestartsTheRPCBackendAndDiscardsHelperOutput() async throws {

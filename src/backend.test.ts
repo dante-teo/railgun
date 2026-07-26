@@ -4,26 +4,36 @@ import { backendAuthenticationRequiredFrame, parseBackendArgs, runBackend } from
 import { DevinApiError } from "widevin";
 
 describe("private desktop backend entry", () => {
-  it("accepts internal desktop, scheduler aliases, Dream, and authentication modes", () => {
+  it("accepts only private desktop, scheduler, Dream, and authentication modes", () => {
     expect(parseBackendArgs(["desktop"])).toEqual({ kind: "desktop" });
     expect(parseBackendArgs(["scheduler"])).toEqual({ kind: "scheduler" });
-    expect(parseBackendArgs(["cron"])).toEqual({ kind: "scheduler" });
     expect(parseBackendArgs(["dream"])).toEqual({ kind: "dream" });
-    expect(() => parseBackendArgs(["--mode", "rpc"])).toThrow("private Railgun desktop backend");
-    expect(() => parseBackendArgs(["cron", "install"])).toThrow("private Railgun desktop backend");
+    expect(() => parseBackendArgs(["cron"])).toThrow("private Railgun backend");
+    expect(() => parseBackendArgs(["--mode", "rpc"])).toThrow("private Railgun backend");
   });
 
-  it("maps background modes to the existing scheduler and Dream implementations", async () => {
-    const dispatch = vi.fn(async () => {});
-    await runBackend({ kind: "scheduler" }, { dispatch, establishHome: vi.fn() });
-    await runBackend({ kind: "dream" }, { dispatch, establishHome: vi.fn() });
-    expect(dispatch).toHaveBeenNthCalledWith(1, { kind: "cron" });
-    expect(dispatch).toHaveBeenNthCalledWith(2, { kind: "dream" });
+  it("dispatches each private mode without a general CLI adapter", async () => {
+    const runDesktop = vi.fn(async () => {});
+    const runScheduler = vi.fn(async () => {});
+    const runDream = vi.fn(async () => {});
+    const runLogin = vi.fn(async () => {});
+    const runLogout = vi.fn(async () => {});
+    const dependencies = { runDesktop, runScheduler, runDream, runLogin, runLogout, establishHome: vi.fn() };
+    for (const kind of ["desktop", "scheduler", "dream", "login", "logout"] as const) await runBackend({ kind }, dependencies);
+    expect(runDesktop).toHaveBeenCalledOnce();
+    expect(runScheduler).toHaveBeenCalledOnce();
+    expect(runDream).toHaveBeenCalledOnce();
+    expect(runLogin).toHaveBeenCalledOnce();
+    expect(runLogout).toHaveBeenCalledOnce();
   });
 
-  it("exits the scheduler normally when credentials are unavailable", async () => {
-    const dispatch = vi.fn(async () => { throw new AuthenticationRequiredError(); });
-    await expect(runBackend({ kind: "scheduler" }, { dispatch, establishHome: vi.fn() })).resolves.toBeUndefined();
+  it.each(["scheduler", "dream"] as const)("exits %s normally when credentials are unavailable", async kind => {
+    const operation = vi.fn(async () => { throw new AuthenticationRequiredError(); });
+    const dependencies = kind === "scheduler"
+      ? { runScheduler: operation, establishHome: vi.fn() }
+      : { runDream: operation, establishHome: vi.fn() };
+    await expect(runBackend({ kind }, dependencies)).resolves.toBeUndefined();
+    expect(operation).toHaveBeenCalledOnce();
   });
 
   it("emits authentication startup status only for desktop RPC launches", () => {

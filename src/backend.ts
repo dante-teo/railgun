@@ -1,8 +1,24 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { AuthenticationRequiredError, CredentialRejectedError, DESKTOP_RPC_ENV } from "./auth.js";
-import { desktopAuthenticationRequiredFrame, dispatchCli, establishHomeWorkingDirectory } from "./cli.js";
-import type { CliMode } from "./cli.js";
-import { isCliEntryPoint } from "./cliEntryPoint.js";
+import { homedir } from "node:os";
+import { AuthenticationRequiredError, CredentialRejectedError, DESKTOP_RPC_ENV, runLoginCommand, runLogoutCommand } from "./auth.js";
+import { loadConfig, updateConfig } from "./config.js";
+import { createExtensionAPI, loadExtensions, registerExtensionTools } from "./extensions/loader.js";
+import { createMcpExtension, parseMcpServers } from "./extensions/mcp/index.js";
+import { createExtensionRunner } from "./extensions/runner.js";
+import type { ExtensionRunner } from "./extensions/runner.js";
+import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memoryStore.js";
+import { createNoteStore } from "./persistence/noteStore.js";
+import { createSessionStore } from "./persistence/sessionStore.js";
+import { runRpcMode } from "./rpc/rpcMode.js";
+import { initDevinSession, initFreshDevinSession, RequestedModelUnavailableError } from "./session.js";
+import { startScheduler } from "./cron/scheduler.js";
+import { runDreamSession } from "./dream/dreamJob.js";
+import { loadJobs, saveJobs } from "./cron/jobs.js";
+import { loadSkills } from "./skills.js";
+import { embedText } from "./persistence/embedder.js";
+import { registry } from "./tools/index.js";
+import { isEntryPoint } from "./entryPoint.js";
 
 export type BackendMode =
   | { readonly kind: "desktop" }
@@ -11,14 +27,13 @@ export type BackendMode =
   | { readonly kind: "login" }
   | { readonly kind: "logout" };
 
-export const BACKEND_USAGE = "Usage: private Railgun desktop backend <desktop|scheduler|cron|dream|login|logout>";
+export const BACKEND_USAGE = "Usage: private Railgun backend <desktop|scheduler|dream|login|logout>";
 
 export const parseBackendArgs = (args: readonly string[]): BackendMode => {
   if (args.length !== 1) throw new Error(BACKEND_USAGE);
   switch (args[0]) {
     case "desktop": return { kind: "desktop" };
     case "scheduler": return { kind: "scheduler" };
-    case "cron": return { kind: "scheduler" };
     case "dream": return { kind: "dream" };
     case "login": return { kind: "login" };
     case "logout": return { kind: "logout" };
@@ -27,46 +42,155 @@ export const parseBackendArgs = (args: readonly string[]): BackendMode => {
 };
 
 type BackendDependencies = {
-  readonly dispatch?: (mode: CliMode) => Promise<void>;
+  readonly runDesktop?: () => Promise<void>;
+  readonly runScheduler?: () => Promise<void>;
+  readonly runDream?: () => Promise<void>;
+  readonly runLogin?: () => Promise<void>;
+  readonly runLogout?: () => Promise<void>;
   readonly establishHome?: () => void;
 };
 
-const cliMode = (mode: BackendMode): CliMode => {
-  switch (mode.kind) {
-    case "desktop": return { kind: "rpc" };
-    case "scheduler": return { kind: "cron" };
-    case "dream": return { kind: "dream" };
-    case "login": return { kind: "login" };
-    case "logout": return { kind: "logout" };
+const withStore = async <T>(run: (store: ReturnType<typeof createSessionStore>) => Promise<T>): Promise<T> => {
+  const store = createSessionStore();
+  try {
+    return await run(store);
+  } finally {
+    store.close();
   }
+};
+
+const withStores = async <T>(
+  run: (
+    store: ReturnType<typeof createSessionStore>,
+    memoryStore: ReturnType<typeof createMemoryStore>,
+    noteStore: ReturnType<typeof createNoteStore>,
+  ) => Promise<T>,
+): Promise<T> =>
+  withStore(store => run(store, createMemoryStore(store.db), createNoteStore(store.db)));
+
+const bootstrapExtensions = async (sessionId: string, config: Awaited<ReturnType<typeof loadConfig>>): Promise<{
+  runner: ExtensionRunner;
+  cleanup: () => void;
+}> => {
+  const runner = createExtensionRunner();
+  runner.onExtensionError(error => {
+    console.error("[extension error]", error.extension, error.event, error.error);
+  });
+  await loadExtensions(runner, { homeDir: homedir() });
+
+  let cleanup = (): void => {};
+  const mcpServers = parseMcpServers(config.mcpServers);
+  if (Object.keys(mcpServers).length > 0) {
+    const handle = await createMcpExtension(mcpServers)(createExtensionAPI(runner, "mcp"));
+    cleanup = handle.close;
+  }
+  registerExtensionTools(runner, registry, sessionId);
+  return { runner, cleanup };
+};
+
+const runDesktopBackend = async (): Promise<void> => {
+  const config = await loadConfig();
+  const session = await initDevinSession(config.model ?? undefined, undefined, "desktop")
+    .catch(error => error instanceof RequestedModelUnavailableError
+      ? initDevinSession(undefined, undefined, "desktop")
+      : Promise.reject(error));
+  const { runner, cleanup } = await bootstrapExtensions("desktop", config);
+  try {
+    await withStores(async (sessionStore, memoryStore, noteStore) => {
+      await runner.emitSessionStart({ type: "session_start", reason: "new" });
+      await runRpcMode({
+        session,
+        config,
+        stdin: process.stdin,
+        stdout: process.stdout,
+        extensionRunner: runner,
+        sessionStore,
+        memoryStore,
+        noteStore,
+        updateConfig: transform => updateConfig(transform),
+        loadJobs: () => loadJobs(),
+        saveJobs: jobs => saveJobs(jobs),
+        loadSkills,
+        embedText,
+        randomId: randomUUID,
+        now: () => new Date(),
+      });
+      await runner.emitSessionShutdown({ type: "session_shutdown", reason: "exit" });
+    });
+  } finally {
+    cleanup();
+  }
+};
+
+const runSchedulerBackend = async (): Promise<void> => {
+  const session = await initFreshDevinSession({ surface: "cron" });
+  if (session === undefined) return;
+  const config = await loadConfig();
+  const controller = new AbortController();
+  const onSignal = (): void => { controller.abort(); };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  try {
+    await withStore(store =>
+      startScheduler(session.devin, session.model, session.systemPrompt, config, { signal: controller.signal, sessionStore: store }));
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  }
+};
+
+const runDreamBackend = async (): Promise<void> => {
+  const session = await initDevinSession(undefined, undefined, "cron");
+  const config = await loadConfig();
+  await withStores(async (store, memoryStore, noteStore) => {
+    try {
+      await runDreamSession(memoryStore, noteStore, session.devin, session.model);
+    } finally {
+      store.pruneArchivedSessions(config.archiveRetentionDays ?? 7);
+    }
+  });
 };
 
 const isBackgroundAuthenticationFailure = (error: unknown): boolean =>
   error instanceof AuthenticationRequiredError || error instanceof CredentialRejectedError;
 
-/// The private backend entry point, rather than the general CLI entry point,
-/// owns desktop RPC startup. Preserve its machine-readable authentication
-/// signal so native clients can distinguish it from an ordinary backend exit.
+/// The private backend entry point owns desktop RPC startup. Preserve its
+/// machine-readable authentication signal so the native app can distinguish it
+/// from an ordinary backend exit.
 export const backendAuthenticationRequiredFrame = (
   mode: BackendMode,
   error: unknown,
-): string | undefined =>
-  mode.kind === "desktop" ? desktopAuthenticationRequiredFrame(error, true) : undefined;
+): string | undefined => {
+  if (mode.kind !== "desktop") return undefined;
+  const credentialSource = error instanceof CredentialRejectedError
+    ? error.source
+    : error instanceof AuthenticationRequiredError ? "file" : undefined;
+  return credentialSource === undefined ? undefined : JSON.stringify({
+    type: "startup_status",
+    status: "authentication_required",
+    credential_source: credentialSource,
+  });
+};
 
 export const runBackend = async (mode: BackendMode, dependencies: BackendDependencies = {}): Promise<void> => {
-  const dispatch = dependencies.dispatch ?? dispatchCli;
-  (dependencies.establishHome ?? establishHomeWorkingDirectory)();
+  (dependencies.establishHome ?? (() => process.chdir(homedir())))();
   process.env[DESKTOP_RPC_ENV] = "1";
+  const operations = {
+    desktop: dependencies.runDesktop ?? runDesktopBackend,
+    scheduler: dependencies.runScheduler ?? runSchedulerBackend,
+    dream: dependencies.runDream ?? runDreamBackend,
+    login: dependencies.runLogin ?? runLoginCommand,
+    logout: dependencies.runLogout ?? runLogoutCommand,
+  };
   try {
-    await dispatch(cliMode(mode));
+    await operations[mode.kind]();
   } catch (error) {
     if ((mode.kind === "scheduler" || mode.kind === "dream") && isBackgroundAuthenticationFailure(error)) return;
     throw error;
   }
 };
 
-const isEntryPoint = isCliEntryPoint(process.argv[1], fileURLToPath(import.meta.url));
-if (isEntryPoint) {
+if (isEntryPoint(process.argv[1], fileURLToPath(import.meta.url))) {
   const mode = parseBackendArgs(process.argv.slice(2));
   runBackend(mode).catch((error: unknown) => {
     const startupFrame = backendAuthenticationRequiredFrame(mode, error);

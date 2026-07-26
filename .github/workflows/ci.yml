@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cli:
-    name: CLI
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
 
     steps:

@@ -110,7 +110,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
           const available = models.map(candidate => candidate.id).join(", ") || "none";
           throw new Error(`Model "${requiredModelId}" is unavailable. Available models: ${available}.`);
         }
-        return buildSessionCore(session.devin, model, undefined, session.runtime?.surface ?? "rpc");
+        return buildSessionCore(session.devin, model, undefined, session.runtime?.surface ?? "desktop");
       }))(modelId);
       pendingModelRuntimes.set(modelId, pending);
     }

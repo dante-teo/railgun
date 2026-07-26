@@ -11,7 +11,7 @@ import { registry } from "./registry.js";
 import type { ToolRunResult } from "./registry.js";
 
 export type InspectionArea = "runtime" | "config" | "cron" | "logs" | "cron_runs";
-export type LogSource = "interactive" | "cron" | "desktop";
+export type LogSource = "cron";
 
 export interface RailgunInspectArgs {
   readonly area: InspectionArea;
@@ -156,12 +156,9 @@ const readBoundedText = async (path: string): Promise<Record<string, unknown>> =
   }
 };
 
-const defaultLogSource = (runtime: RuntimeContext): LogSource =>
-  runtime.surface === "cron" ? "cron" : runtime.surface === "desktop" ? "desktop" : "interactive";
+const defaultLogSource = (): LogSource => "cron";
 
-const logPath = (runtime: RuntimeContext, source: LogSource): string => source === "cron"
-  ? join(runtime.paths.cronLogs, "cron-latest.log")
-  : join(runtime.paths.interactiveLogs, `${source}-latest.jsonl`);
+const logPath = (runtime: RuntimeContext): string => join(runtime.paths.cronLogs, "cron-latest.log");
 
 const safeReportName = (name: string): boolean => basename(name) === name && name.endsWith(".md") && !name.includes("..") && name.length <= 200;
 
@@ -216,8 +213,8 @@ export const inspectRailgun = async (args: RailgunInspectArgs, options: Inspecto
       };
     }
     if (args.area === "logs") {
-      const source = args.source ?? defaultLogSource(runtime);
-      return { content: boundedJson({ source, ...(await readTail(logPath(runtime, source), limit)) }), isError: false };
+      const source = args.source ?? defaultLogSource();
+      return { content: boundedJson({ source, ...(await readTail(logPath(runtime), limit)) }), isError: false };
     }
     if (args.area === "cron_runs") {
       if (typeof args.job_id !== "string" || args.job_id.trim() === "") {
@@ -253,7 +250,7 @@ registry.register({
       additionalProperties: false,
       properties: {
         area: { type: "string", enum: ["runtime", "config", "cron", "logs", "cron_runs"] },
-        source: { type: "string", enum: ["interactive", "cron", "desktop"] },
+        source: { type: "string", enum: ["cron"] },
         job_id: { type: "string" },
         limit: { type: "integer", minimum: 1, maximum: MAX_LIMIT },
         detail: { type: "string", enum: ["summary", "full"] },
@@ -262,5 +259,5 @@ registry.register({
       required: ["area"],
     },
   },
-  handler: (args, context) => inspectRailgun(args as RailgunInspectArgs, { runtime: context.runtime ?? createRuntimeContext("interactive") }),
+  handler: (args, context) => inspectRailgun(args as RailgunInspectArgs, { runtime: context.runtime ?? createRuntimeContext("desktop") }),
 });

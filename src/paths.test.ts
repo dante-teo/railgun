@@ -9,7 +9,6 @@ import {
   SOUL_PATH,
   STATE_PATH,
   TOKEN_PATH,
-  INTERACTIVE_LOGS_PATH,
   getHomeDir,
   pathsForHome,
 } from "./paths.js";
@@ -25,10 +24,9 @@ describe("application paths", () => {
       cron: "/home/test/.railgun/cron/jobs.json",
       cronLogs: "/home/test/.railgun/cron/logs",
       cronOutput: "/home/test/.railgun/cron/output",
-      interactiveLogs: "/home/test/.railgun/logs",
       skills: "/home/test/.railgun/skills",
     });
-    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, extensions: EXTENSIONS_PATH, cron: CRON_PATH, cronLogs: CRON_LOGS_PATH, cronOutput: CRON_OUTPUT_PATH, interactiveLogs: INTERACTIVE_LOGS_PATH, skills: SKILLS_PATH })
+    expect({ config: CONFIG_PATH, token: TOKEN_PATH, state: STATE_PATH, soul: SOUL_PATH, extensions: EXTENSIONS_PATH, cron: CRON_PATH, cronLogs: CRON_LOGS_PATH, cronOutput: CRON_OUTPUT_PATH, skills: SKILLS_PATH })
       .toEqual(pathsForHome(getHomeDir()));
   });
 });

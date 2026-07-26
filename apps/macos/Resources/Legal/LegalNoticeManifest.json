@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "backendLockfileSHA256": "2ca433a57e206e4a8f095f480cf3bc248bd46620302e0658cace31210ae1d5f7",
+  "backendLockfileSHA256": "b1164fc989ca231c7d3b36362e53783c44112b88cfd7a7cdfeb9fde03ac521fe",
   "inputHashes": {
-    "backendLockfileSHA256": "2ca433a57e206e4a8f095f480cf3bc248bd46620302e0658cace31210ae1d5f7",
+    "backendLockfileSHA256": "b1164fc989ca231c7d3b36362e53783c44112b88cfd7a7cdfeb9fde03ac521fe",
     "packageResolvedSHA256": "f44102c79145d149f2d56aec9b4dd30fe0548fe0bc3345ef7cb0f0b2a2842b56",
     "nodeRuntimeManifestSHA256": "6c11b0205fc3e7cb16085f3570545ef47f74b603978c2ba37e0692ef1705a1a2",
     "railgunLicenseSHA256": "7951ebcac33ae6a213b04a66f97af7a24c1f65b807841fc641f0c97dba1b1b8b",
@@ -29,7 +29,7 @@
       "apps/macos/Resources/RailgunIcon/RailgunIcon-1024.png": "f01601d42e52f9e9270dc1b8298bdc3cf5e15cb58af0b9a335cd0bd2c20739d0"
     }
   },
-  "noticesSHA256": "ef1bf5d65ef8b0409e5be7466bd5819ceb10a357f8fe5eeeb5d00b3814d6a7b3",
+  "noticesSHA256": "ed937f6de9c5acf8a9bb527084f4d49d19082b16028ace54b4bbf51dd9a631ca",
   "components": [
     {
       "identifier": "swift-markdown",
@@ -134,32 +134,6 @@
       "sourceLocation": "LICENSE",
       "licenseSource": "LICENSE",
       "noticeContentSHA256": "7951ebcac33ae6a213b04a66f97af7a24c1f65b807841fc641f0c97dba1b1b8b"
-    },
-    {
-      "identifier": "npm:@agentclientprotocol/sdk@1.2.1",
-      "kind": "backend-production-package",
-      "name": "@agentclientprotocol/sdk",
-      "version": "1.2.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "Apache-2.0",
-      "sourceLocation": "pnpm-lock.yaml#@agentclientprotocol/sdk@1.2.1",
-      "licenseSource": "node_modules/@agentclientprotocol/sdk/LICENSE",
-      "noticeContentSHA256": "d65cd5cdb849614da3eb50e923e2e5821032b93a57d7be3eab84d65059d5d077"
-    },
-    {
-      "identifier": "npm:@alcalzone/ansi-tokenize@0.2.5",
-      "kind": "backend-production-package",
-      "name": "@alcalzone/ansi-tokenize",
-      "version": "0.2.5",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#@alcalzone/ansi-tokenize@0.2.5",
-      "licenseSource": "node_modules/@alcalzone/ansi-tokenize/LICENSE",
-      "noticeContentSHA256": "91a5c4c22de799d6181d98872e82a65ad7c6d4aadd3fedba25088766b1d645a7"
     },
     {
       "identifier": "npm:@asamuzakjp/css-color@5.1.11",
@@ -422,19 +396,6 @@
       "noticeContentSHA256": "fca6a474bae27607cc87d8e9d9a198ef9308cc8cd1b0cf7bc84cd5875af424a0"
     },
     {
-      "identifier": "npm:@os-theme/darwin-arm64@0.0.9",
-      "kind": "backend-production-package",
-      "name": "@os-theme/darwin-arm64",
-      "version": "0.0.9",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#@os-theme/darwin-arm64@0.0.9",
-      "licenseSource": "node_modules/@os-theme/darwin-arm64/package.json",
-      "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
-    },
-    {
       "identifier": "npm:@protobufjs/aspromise@1.1.2",
       "kind": "backend-production-package",
       "name": "@protobufjs/aspromise",
@@ -565,19 +526,6 @@
       "noticeContentSHA256": "2e33b8824fb693f316772d6c7b8dc6da72b67c33df98044d0e70c2d8acd7b7d9"
     },
     {
-      "identifier": "npm:@types/react@19.2.17",
-      "kind": "backend-production-package",
-      "name": "@types/react",
-      "version": "19.2.17",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#@types/react@19.2.17",
-      "licenseSource": "node_modules/@types/react/LICENSE",
-      "noticeContentSHA256": "63edcda1febd09cb0e480a97756ea8d827b5cec23d2f07078da3a8da2f5127e9"
-    },
-    {
       "identifier": "npm:adm-zip@0.5.18",
       "kind": "backend-production-package",
       "name": "adm-zip",
@@ -589,58 +537,6 @@
       "sourceLocation": "pnpm-lock.yaml#adm-zip@0.5.18",
       "licenseSource": "node_modules/adm-zip/LICENSE",
       "noticeContentSHA256": "43b23518704a08d01dc53234096c7c07e8525e8fa5a17204b27ebb761ef0c67e"
-    },
-    {
-      "identifier": "npm:ansi-escapes@7.3.0",
-      "kind": "backend-production-package",
-      "name": "ansi-escapes",
-      "version": "7.3.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ansi-escapes@7.3.0",
-      "licenseSource": "node_modules/ansi-escapes/license",
-      "noticeContentSHA256": "bf918d50a810251176f9db4706900c0e4ff094c953c0c72c70882441e93aaad8"
-    },
-    {
-      "identifier": "npm:ansi-regex@6.2.2",
-      "kind": "backend-production-package",
-      "name": "ansi-regex",
-      "version": "6.2.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ansi-regex@6.2.2",
-      "licenseSource": "node_modules/ansi-regex/license",
-      "noticeContentSHA256": "88a7e65a78437b046c778db44d1455afc8d15061214e0475f710854903576470"
-    },
-    {
-      "identifier": "npm:ansi-styles@6.2.3",
-      "kind": "backend-production-package",
-      "name": "ansi-styles",
-      "version": "6.2.3",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ansi-styles@6.2.3",
-      "licenseSource": "node_modules/ansi-styles/license",
-      "noticeContentSHA256": "1afdcfaa603f6ac3e849b8098563a5eb14aa28e49907eed8c5372fba585583e5"
-    },
-    {
-      "identifier": "npm:auto-bind@5.0.1",
-      "kind": "backend-production-package",
-      "name": "auto-bind",
-      "version": "5.0.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#auto-bind@5.0.1",
-      "licenseSource": "node_modules/auto-bind/license",
-      "noticeContentSHA256": "be372818c4a52ef002b7e3c04b423344926253c2a4f5899ff069b5bf15cdf59d"
     },
     {
       "identifier": "npm:base64-js@1.5.1",
@@ -734,32 +630,6 @@
       "noticeContentSHA256": "c848b1c569866aa1db4274ebb4f08fa445698983545ce65c7d75067d4ab3d915"
     },
     {
-      "identifier": "npm:chalk@5.6.2",
-      "kind": "backend-production-package",
-      "name": "chalk",
-      "version": "5.6.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#chalk@5.6.2",
-      "licenseSource": "node_modules/chalk/license",
-      "noticeContentSHA256": "879c1ffb716d75c290963982f430c789644c9acbec66fbbb7404d11968db170d"
-    },
-    {
-      "identifier": "npm:character-entities@2.0.2",
-      "kind": "backend-production-package",
-      "name": "character-entities",
-      "version": "2.0.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#character-entities@2.0.2",
-      "licenseSource": "node_modules/character-entities/license",
-      "noticeContentSHA256": "8da44f58f8f52ec3e13bf80e4adb2a48a9d7804d28162169efcb4a1aebfcc9bd"
-    },
-    {
       "identifier": "npm:chownr@1.1.4",
       "kind": "backend-production-package",
       "name": "chownr",
@@ -771,84 +641,6 @@
       "sourceLocation": "pnpm-lock.yaml#chownr@1.1.4",
       "licenseSource": "node_modules/chownr/LICENSE",
       "noticeContentSHA256": "036c513e08e6106e24dc5c46191c6e58b235b2ce7c1988b6eada3325a328ce56"
-    },
-    {
-      "identifier": "npm:cli-boxes@3.0.0",
-      "kind": "backend-production-package",
-      "name": "cli-boxes",
-      "version": "3.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#cli-boxes@3.0.0",
-      "licenseSource": "node_modules/cli-boxes/license",
-      "noticeContentSHA256": "322db6404d2fbddc5246c949423a1d77037e493153a434cc336c4a7fa2bd8d55"
-    },
-    {
-      "identifier": "npm:cli-cursor@4.0.0",
-      "kind": "backend-production-package",
-      "name": "cli-cursor",
-      "version": "4.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#cli-cursor@4.0.0",
-      "licenseSource": "node_modules/cli-cursor/license",
-      "noticeContentSHA256": "f0b9973f9f5ebfc2ed7a19c3d0f7f5c1d54dc1619200ba7e2ff404d6fdfb5152"
-    },
-    {
-      "identifier": "npm:cli-spinners@2.9.2",
-      "kind": "backend-production-package",
-      "name": "cli-spinners",
-      "version": "2.9.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#cli-spinners@2.9.2",
-      "licenseSource": "node_modules/cli-spinners/license",
-      "noticeContentSHA256": "22db12055e2689a354eb0a7cd8068d5d31867eb8aa6b7030c064b6d158cded3e"
-    },
-    {
-      "identifier": "npm:cli-truncate@5.2.0",
-      "kind": "backend-production-package",
-      "name": "cli-truncate",
-      "version": "5.2.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#cli-truncate@5.2.0",
-      "licenseSource": "node_modules/cli-truncate/license",
-      "noticeContentSHA256": "2f94145d0ec4731b6cda0653989845e4bf788da2ec24b6e03db5c752a77adf97"
-    },
-    {
-      "identifier": "npm:code-excerpt@4.0.0",
-      "kind": "backend-production-package",
-      "name": "code-excerpt",
-      "version": "4.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#code-excerpt@4.0.0",
-      "licenseSource": "node_modules/code-excerpt/license",
-      "noticeContentSHA256": "6924b6f8cd90bbd6b7ea8b48110e1f1ed2df86471384bd7890bd02dae8e1bf72"
-    },
-    {
-      "identifier": "npm:convert-to-spaces@2.0.1",
-      "kind": "backend-production-package",
-      "name": "convert-to-spaces",
-      "version": "2.0.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#convert-to-spaces@2.0.1",
-      "licenseSource": "node_modules/convert-to-spaces/license",
-      "noticeContentSHA256": "5e431ebe490712bf1ac36fdfd44dbd0000a7ae547f50ee5c83ff8a485ecf2b70"
     },
     {
       "identifier": "npm:cron-parser@5.6.1",
@@ -877,19 +669,6 @@
       "noticeContentSHA256": "69acb4a04d05a2c2ac9d5d103af405d91ce6f335b7ad09c220ce687b08844268"
     },
     {
-      "identifier": "npm:csstype@3.2.3",
-      "kind": "backend-production-package",
-      "name": "csstype",
-      "version": "3.2.3",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#csstype@3.2.3",
-      "licenseSource": "node_modules/csstype/LICENSE",
-      "noticeContentSHA256": "d61168d59b2b4c2b33440ab1e56b7fa3ecab543b5c03597ae9a10845f199737c"
-    },
-    {
       "identifier": "npm:data-urls@7.0.0",
       "kind": "backend-production-package",
       "name": "data-urls",
@@ -914,19 +693,6 @@
       "sourceLocation": "pnpm-lock.yaml#decimal.js@10.6.0",
       "licenseSource": "node_modules/decimal.js/package.json",
       "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
-    },
-    {
-      "identifier": "npm:decode-named-character-reference@1.3.0",
-      "kind": "backend-production-package",
-      "name": "decode-named-character-reference",
-      "version": "1.3.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#decode-named-character-reference@1.3.0",
-      "licenseSource": "node_modules/decode-named-character-reference/license",
-      "noticeContentSHA256": "408cd361f24975d115e740804d3a08eae1930c4ef75c6cedd4a7fe6b195977cf"
     },
     {
       "identifier": "npm:decompress-response@6.0.0",
@@ -1020,19 +786,6 @@
       "noticeContentSHA256": "2d1c1c636811ae95395aff8238ca838192b0a751bd6b7081a866003a9415cfb0"
     },
     {
-      "identifier": "npm:emoji-regex@10.6.0",
-      "kind": "backend-production-package",
-      "name": "emoji-regex",
-      "version": "10.6.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#emoji-regex@10.6.0",
-      "licenseSource": "node_modules/emoji-regex/package.json",
-      "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
-    },
-    {
       "identifier": "npm:end-of-stream@1.4.5",
       "kind": "backend-production-package",
       "name": "end-of-stream",
@@ -1057,19 +810,6 @@
       "sourceLocation": "pnpm-lock.yaml#entities@8.0.0",
       "licenseSource": "node_modules/entities/LICENSE",
       "noticeContentSHA256": "467c8db074afa5d0726b7f2245c33543b43a2c8b60bcc79ad7aacf0a01a9cbe5"
-    },
-    {
-      "identifier": "npm:environment@1.1.0",
-      "kind": "backend-production-package",
-      "name": "environment",
-      "version": "1.1.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#environment@1.1.0",
-      "licenseSource": "node_modules/environment/license",
-      "noticeContentSHA256": "3bf94d27c4a8fb7df42251d8b77b496b885bc801685ec956479183ab2a617897"
     },
     {
       "identifier": "npm:es-define-property@1.0.1",
@@ -1098,19 +838,6 @@
       "noticeContentSHA256": "c3f177dae74a129361ef38a2e94b9115c6eb9c3c0978a25adc6e4f59bccab817"
     },
     {
-      "identifier": "npm:es-toolkit@1.49.0",
-      "kind": "backend-production-package",
-      "name": "es-toolkit",
-      "version": "1.49.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#es-toolkit@1.49.0",
-      "licenseSource": "node_modules/es-toolkit/LICENSE",
-      "noticeContentSHA256": "dedaaa15e3dc6368d9ef6e79a6739b39608b437e209487d0aa4c4aa4ea31cf5c"
-    },
-    {
       "identifier": "npm:es6-error@4.1.1",
       "kind": "backend-production-package",
       "name": "es6-error",
@@ -1122,19 +849,6 @@
       "sourceLocation": "pnpm-lock.yaml#es6-error@4.1.1",
       "licenseSource": "node_modules/es6-error/LICENSE.md",
       "noticeContentSHA256": "29339ce346c4dc9c1b8becf269cc36b01e1bb761b2abfd646d04d6f52c971035"
-    },
-    {
-      "identifier": "npm:escape-string-regexp@2.0.0",
-      "kind": "backend-production-package",
-      "name": "escape-string-regexp",
-      "version": "2.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#escape-string-regexp@2.0.0",
-      "licenseSource": "node_modules/stack-utils/node_modules/escape-string-regexp/license",
-      "noticeContentSHA256": "cca89ebcc2d78213dc67c130d9e546038a1815aa5b6bb8c9645e1d4ad5bc0905"
     },
     {
       "identifier": "npm:escape-string-regexp@4.0.0",
@@ -1202,19 +916,6 @@
       "noticeContentSHA256": "a0928c4d4ee1288b9c4603a1c7d13bbfa5a1df8320da37d7ef540854d8f7491b"
     },
     {
-      "identifier": "npm:get-east-asian-width@1.6.0",
-      "kind": "backend-production-package",
-      "name": "get-east-asian-width",
-      "version": "1.6.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#get-east-asian-width@1.6.0",
-      "licenseSource": "node_modules/get-east-asian-width/license",
-      "noticeContentSHA256": "1106bd3770e164542f7e2f98c45dc5afc2c1b865aae508713301b0c75587a02a"
-    },
-    {
       "identifier": "npm:github-from-package@0.0.0",
       "kind": "backend-production-package",
       "name": "github-from-package",
@@ -1278,19 +979,6 @@
       "sourceLocation": "pnpm-lock.yaml#guid-typescript@1.0.9",
       "licenseSource": "node_modules/guid-typescript/package.json",
       "noticeContentSHA256": "9365187fca6389db1d65853ef004c6fce3e757f574e2a6f4cd2c9ecffa8a812c"
-    },
-    {
-      "identifier": "npm:has-flag@5.0.1",
-      "kind": "backend-production-package",
-      "name": "has-flag",
-      "version": "5.0.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#has-flag@5.0.1",
-      "licenseSource": "node_modules/has-flag/license",
-      "noticeContentSHA256": "1aefe994d901be427d0770598b78b0e7380045aa7618c399f27c15514f976096"
     },
     {
       "identifier": "npm:has-property-descriptors@1.0.2",
@@ -1371,19 +1059,6 @@
       "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
     },
     {
-      "identifier": "npm:indent-string@5.0.0",
-      "kind": "backend-production-package",
-      "name": "indent-string",
-      "version": "5.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#indent-string@5.0.0",
-      "licenseSource": "node_modules/indent-string/license",
-      "noticeContentSHA256": "aca1bdeb75a62f219cde7bc89b85b4e6a366cc793d36ae3ea7244a61cd0c4761"
-    },
-    {
       "identifier": "npm:inherits@2.0.4",
       "kind": "backend-production-package",
       "name": "inherits",
@@ -1410,45 +1085,6 @@
       "noticeContentSHA256": "ffdfb75da04b2ded362ef85fa1b33fb438cf6b24bfbcf7e78583a253a84b6fff"
     },
     {
-      "identifier": "npm:ink@6.8.0",
-      "kind": "backend-production-package",
-      "name": "ink",
-      "version": "6.8.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ink@6.8.0",
-      "licenseSource": "node_modules/ink/license",
-      "noticeContentSHA256": "281e7b51586e2f2bee5d788ec1c35a3707e6eecb49e13df3e03bece2e75def55"
-    },
-    {
-      "identifier": "npm:ink-multiline-input@0.1.0",
-      "kind": "backend-production-package",
-      "name": "ink-multiline-input",
-      "version": "0.1.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ink-multiline-input@0.1.0",
-      "licenseSource": "node_modules/ink-multiline-input/package.json",
-      "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
-    },
-    {
-      "identifier": "npm:ink-spinner@5.0.0",
-      "kind": "backend-production-package",
-      "name": "ink-spinner",
-      "version": "5.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ink-spinner@5.0.0",
-      "licenseSource": "node_modules/ink-spinner/license",
-      "noticeContentSHA256": "2aab5162b7aa8956454631ac575cd792c4966ce0787f9ec0d66b080894627d4a"
-    },
-    {
       "identifier": "npm:ipaddr.js@2.4.0",
       "kind": "backend-production-package",
       "name": "ipaddr.js",
@@ -1460,32 +1096,6 @@
       "sourceLocation": "pnpm-lock.yaml#ipaddr.js@2.4.0",
       "licenseSource": "node_modules/ipaddr.js/LICENSE",
       "noticeContentSHA256": "a067f64b8cea2c7f717f937fccce65e363f6ca55d3dee685eec177007d89c462"
-    },
-    {
-      "identifier": "npm:is-fullwidth-code-point@5.1.0",
-      "kind": "backend-production-package",
-      "name": "is-fullwidth-code-point",
-      "version": "5.1.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#is-fullwidth-code-point@5.1.0",
-      "licenseSource": "node_modules/is-fullwidth-code-point/license",
-      "noticeContentSHA256": "b78c0ae323378ed9888c5a3cb7282fd14dd3d72132c7798217cc184e288b3188"
-    },
-    {
-      "identifier": "npm:is-in-ci@2.0.0",
-      "kind": "backend-production-package",
-      "name": "is-in-ci",
-      "version": "2.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#is-in-ci@2.0.0",
-      "licenseSource": "node_modules/is-in-ci/license",
-      "noticeContentSHA256": "5bd828937f94720d9d240464b3e36d9e7659618c9d70b4053ade053bd087f05c"
     },
     {
       "identifier": "npm:is-potential-custom-element-name@1.0.1",
@@ -1566,32 +1176,6 @@
       "noticeContentSHA256": "a93509327923e5eba79618a96ba83ddc12bca2f61b8f987c93637eb1d6fa2140"
     },
     {
-      "identifier": "npm:markdansi@0.3.2",
-      "kind": "backend-production-package",
-      "name": "markdansi",
-      "version": "0.3.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#markdansi@0.3.2",
-      "licenseSource": "node_modules/markdansi/LICENSE",
-      "noticeContentSHA256": "77e5b9ea1dd178a4ccb1a55dec378665827f05ac81eff38f4fac8eeea3cd1b1c"
-    },
-    {
-      "identifier": "npm:marked@18.0.5",
-      "kind": "backend-production-package",
-      "name": "marked",
-      "version": "18.0.5",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#marked@18.0.5",
-      "licenseSource": "node_modules/marked/LICENSE",
-      "noticeContentSHA256": "5dd685791e3a850d68916ea1b800e8c9441bc5399f1ebd90c2c9b1126286fe10"
-    },
-    {
       "identifier": "npm:matcher@3.0.0",
       "kind": "backend-production-package",
       "name": "matcher",
@@ -1616,19 +1200,6 @@
       "sourceLocation": "pnpm-lock.yaml#mdn-data@2.27.1",
       "licenseSource": "node_modules/mdn-data/LICENSE",
       "noticeContentSHA256": "d1bd458cb8cc9722f6b56285293baa3fab41902d22d11f73a0163184ce685db7"
-    },
-    {
-      "identifier": "npm:mimic-fn@2.1.0",
-      "kind": "backend-production-package",
-      "name": "mimic-fn",
-      "version": "2.1.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#mimic-fn@2.1.0",
-      "licenseSource": "node_modules/mimic-fn/license",
-      "noticeContentSHA256": "3377427ee69e9040a02df03b108206559aa0087424c6b85c7d3805c6d9b1fe50"
     },
     {
       "identifier": "npm:mimic-response@3.1.0",
@@ -1735,19 +1306,6 @@
       "noticeContentSHA256": "660f555a118676e4aaa096c69e29bd1f9d5fa3ead0d4644d30856864c7296c41"
     },
     {
-      "identifier": "npm:onetime@5.1.2",
-      "kind": "backend-production-package",
-      "name": "onetime",
-      "version": "5.1.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#onetime@5.1.2",
-      "licenseSource": "node_modules/onetime/license",
-      "noticeContentSHA256": "3a257eb178367e444b346aae463b83539260095b20cb31a9869432622aeb4965"
-    },
-    {
       "identifier": "npm:onnxruntime-common@1.24.0-dev.20251116-b39e144322",
       "kind": "backend-production-package",
       "name": "onnxruntime-common",
@@ -1800,19 +1358,6 @@
       "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
     },
     {
-      "identifier": "npm:os-theme@0.0.9",
-      "kind": "backend-production-package",
-      "name": "os-theme",
-      "version": "0.0.9",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#os-theme@0.0.9",
-      "licenseSource": "node_modules/os-theme/LICENSE",
-      "noticeContentSHA256": "5b3db91a9419abcccdc0cc3397e2d8dd7502d47c114fd5c02e8af6c8f60d44ba"
-    },
-    {
       "identifier": "npm:parse5@8.0.1",
       "kind": "backend-production-package",
       "name": "parse5",
@@ -1824,19 +1369,6 @@
       "sourceLocation": "pnpm-lock.yaml#parse5@8.0.1",
       "licenseSource": "node_modules/parse5/LICENSE",
       "noticeContentSHA256": "272e2cc0c942ef8eeb64d027fb51b385bfc77e2131b63e75d082e9888ae3b620"
-    },
-    {
-      "identifier": "npm:patch-console@2.0.0",
-      "kind": "backend-production-package",
-      "name": "patch-console",
-      "version": "2.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#patch-console@2.0.0",
-      "licenseSource": "node_modules/patch-console/license",
-      "noticeContentSHA256": "12e539dfe08e072ca98f9fbe3b1430f6164777f664e72026d860c3f97d9f6f9a"
     },
     {
       "identifier": "npm:platform@1.3.6",
@@ -1917,32 +1449,6 @@
       "noticeContentSHA256": "a86a1047b0eb74187069b7d7f9d454f5cf138f0da00446dc89a6aa157620c13b"
     },
     {
-      "identifier": "npm:react@19.2.7",
-      "kind": "backend-production-package",
-      "name": "react",
-      "version": "19.2.7",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#react@19.2.7",
-      "licenseSource": "node_modules/react/LICENSE",
-      "noticeContentSHA256": "32a2ef73e77d7e3e523cad6b971ef07530eb89f2a77f262fba664a852b228f92"
-    },
-    {
-      "identifier": "npm:react-reconciler@0.33.0",
-      "kind": "backend-production-package",
-      "name": "react-reconciler",
-      "version": "0.33.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#react-reconciler@0.33.0",
-      "licenseSource": "node_modules/react-reconciler/LICENSE",
-      "noticeContentSHA256": "9875edfaac570599fa8b4607d2c69e11c6a60228d05d25edfdfc3b4dbe5268e7"
-    },
-    {
       "identifier": "npm:readable-stream@3.6.2",
       "kind": "backend-production-package",
       "name": "readable-stream",
@@ -1967,19 +1473,6 @@
       "sourceLocation": "pnpm-lock.yaml#require-from-string@2.0.2",
       "licenseSource": "node_modules/require-from-string/license",
       "noticeContentSHA256": "d725a2b153e23b80773d7d91a1cd3d0fb5e3bf849d0993ef5f74998ca79a7853"
-    },
-    {
-      "identifier": "npm:restore-cursor@4.0.0",
-      "kind": "backend-production-package",
-      "name": "restore-cursor",
-      "version": "4.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#restore-cursor@4.0.0",
-      "licenseSource": "node_modules/restore-cursor/license",
-      "noticeContentSHA256": "2e40558b25569b3c0e2eb9ef73db18417a2fce9b33017b5a231e46534a68686f"
     },
     {
       "identifier": "npm:roarr@2.15.4",
@@ -2047,19 +1540,6 @@
       "noticeContentSHA256": "9365187fca6389db1d65853ef004c6fce3e757f574e2a6f4cd2c9ecffa8a812c"
     },
     {
-      "identifier": "npm:scheduler@0.27.0",
-      "kind": "backend-production-package",
-      "name": "scheduler",
-      "version": "0.27.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#scheduler@0.27.0",
-      "licenseSource": "node_modules/scheduler/LICENSE",
-      "noticeContentSHA256": "7005ac328ddf3d30ba336f139d5b33945ceb088b04a859a99ef2cc1df25f87da"
-    },
-    {
       "identifier": "npm:semver@7.8.5",
       "kind": "backend-production-package",
       "name": "semver",
@@ -2112,19 +1592,6 @@
       "noticeContentSHA256": "7241f505b85789d8dacd068ab0c18ceacf055337d8803885c6dd134869a43152"
     },
     {
-      "identifier": "npm:signal-exit@3.0.7",
-      "kind": "backend-production-package",
-      "name": "signal-exit",
-      "version": "3.0.7",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "ISC",
-      "sourceLocation": "pnpm-lock.yaml#signal-exit@3.0.7",
-      "licenseSource": "node_modules/signal-exit/LICENSE.txt",
-      "noticeContentSHA256": "1b2cf88032943b4657d52521554dc7a0c79c2b53e7b4414023eef2cd2db95306"
-    },
-    {
       "identifier": "npm:signal-exit@4.1.0",
       "kind": "backend-production-package",
       "name": "signal-exit",
@@ -2162,32 +1629,6 @@
       "sourceLocation": "pnpm-lock.yaml#simple-get@4.0.1",
       "licenseSource": "node_modules/simple-get/LICENSE",
       "noticeContentSHA256": "1f16c74647dbc0022b9bc9c146d6678e1ee5239b93b259bf665c2f5d8e12b651"
-    },
-    {
-      "identifier": "npm:slice-ansi@8.0.0",
-      "kind": "backend-production-package",
-      "name": "slice-ansi",
-      "version": "8.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#slice-ansi@8.0.0",
-      "licenseSource": "node_modules/slice-ansi/license",
-      "noticeContentSHA256": "f0d84ca17d1ae3348ee2af74b609a83b5a0fa8122eb1fc139cfbd25102b0b3fa"
-    },
-    {
-      "identifier": "npm:slice-ansi@9.0.0",
-      "kind": "backend-production-package",
-      "name": "slice-ansi",
-      "version": "9.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#slice-ansi@9.0.0",
-      "licenseSource": "node_modules/markdansi/node_modules/slice-ansi/license",
-      "noticeContentSHA256": "3bfd14fc3bca3d393acdd46d3b741452b2996a5485f8b1ff1eaed94f40abf92f"
     },
     {
       "identifier": "npm:source-map-js@1.2.1",
@@ -2242,19 +1683,6 @@
       "noticeContentSHA256": "641f03d468872b7e054a80f5b48ef004269f01ccf83b1048d36e702043b284bd"
     },
     {
-      "identifier": "npm:stack-utils@2.0.6",
-      "kind": "backend-production-package",
-      "name": "stack-utils",
-      "version": "2.0.6",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#stack-utils@2.0.6",
-      "licenseSource": "node_modules/stack-utils/LICENSE.md",
-      "noticeContentSHA256": "cce3c72254115f9d5be2086520fe2764d6c1131a6c05742a08ec1e48e23edef8"
-    },
-    {
       "identifier": "npm:string_decoder@1.3.0",
       "kind": "backend-production-package",
       "name": "string_decoder",
@@ -2266,45 +1694,6 @@
       "sourceLocation": "pnpm-lock.yaml#string_decoder@1.3.0",
       "licenseSource": "node_modules/string_decoder/LICENSE",
       "noticeContentSHA256": "6fcc84e80d4c8e7f653aef2663f8578a31033761b27db645f4e49d9db64dfcf9"
-    },
-    {
-      "identifier": "npm:string-width@7.2.0",
-      "kind": "backend-production-package",
-      "name": "string-width",
-      "version": "7.2.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#string-width@7.2.0",
-      "licenseSource": "node_modules/wrap-ansi/node_modules/string-width/license",
-      "noticeContentSHA256": "cc5391fda74a2713c04a388cd9c7cbc467fe9d2ce7fef49b8b92608bff1a7772"
-    },
-    {
-      "identifier": "npm:string-width@8.2.1",
-      "kind": "backend-production-package",
-      "name": "string-width",
-      "version": "8.2.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#string-width@8.2.1",
-      "licenseSource": "node_modules/string-width/license",
-      "noticeContentSHA256": "0a7956fccbce15da73c2841df1484be44b0d8d5cf43ee8d51494414cb5fb7bba"
-    },
-    {
-      "identifier": "npm:strip-ansi@7.2.0",
-      "kind": "backend-production-package",
-      "name": "strip-ansi",
-      "version": "7.2.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#strip-ansi@7.2.0",
-      "licenseSource": "node_modules/strip-ansi/license",
-      "noticeContentSHA256": "309f7bfbecd8c3bcd9c5a0f3e078f50d28bba98c83eb6c471dbd165847cc3692"
     },
     {
       "identifier": "npm:strip-json-comments@2.0.1",
@@ -2320,32 +1709,6 @@
       "noticeContentSHA256": "cf8bc6bf82e4d0488ac2e941588c7fcd7091765cf489cb5956ad27789646d0fe"
     },
     {
-      "identifier": "npm:supports-color@10.2.2",
-      "kind": "backend-production-package",
-      "name": "supports-color",
-      "version": "10.2.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#supports-color@10.2.2",
-      "licenseSource": "node_modules/supports-color/license",
-      "noticeContentSHA256": "f4bac875e5a9f63e8ff6faeffe8d2dc236fc73291777266dd5755d6a450fc05c"
-    },
-    {
-      "identifier": "npm:supports-hyperlinks@4.5.0",
-      "kind": "backend-production-package",
-      "name": "supports-hyperlinks",
-      "version": "4.5.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#supports-hyperlinks@4.5.0",
-      "licenseSource": "node_modules/supports-hyperlinks/license",
-      "noticeContentSHA256": "0dff10474f5eb09e6c21fa4ce7b1ddfef1b55b4136559535231f17ac51c9dd40"
-    },
-    {
       "identifier": "npm:symbol-tree@3.2.4",
       "kind": "backend-production-package",
       "name": "symbol-tree",
@@ -2357,19 +1720,6 @@
       "sourceLocation": "pnpm-lock.yaml#symbol-tree@3.2.4",
       "licenseSource": "node_modules/symbol-tree/LICENSE",
       "noticeContentSHA256": "7c8c9d45285ccc4a4161fa1710f0665be09b749dcd58c3bb1cf76be4e69737dd"
-    },
-    {
-      "identifier": "npm:tagged-tag@1.0.0",
-      "kind": "backend-production-package",
-      "name": "tagged-tag",
-      "version": "1.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#tagged-tag@1.0.0",
-      "licenseSource": "node_modules/tagged-tag/license",
-      "noticeContentSHA256": "6aad96846e5b52091354d5ea844b03aed737b1cb1b4ddb5237c1baed582ca09b"
     },
     {
       "identifier": "npm:tar-fs@2.1.5",
@@ -2396,19 +1746,6 @@
       "sourceLocation": "pnpm-lock.yaml#tar-stream@2.2.0",
       "licenseSource": "node_modules/tar-stream/LICENSE",
       "noticeContentSHA256": "559a793650ad6fec98342730fd8942154ad62e9bddb9ac75325c4aa5161a1fe8"
-    },
-    {
-      "identifier": "npm:terminal-size@4.0.1",
-      "kind": "backend-production-package",
-      "name": "terminal-size",
-      "version": "4.0.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#terminal-size@4.0.1",
-      "licenseSource": "node_modules/terminal-size/license",
-      "noticeContentSHA256": "931dedc11b7bb2f64169dcd97b5fd3b9be9fc31b43b5b804e8a66cdb06ffd45c"
     },
     {
       "identifier": "npm:tldts@7.4.8",
@@ -2487,19 +1824,6 @@
       "sourceLocation": "pnpm-lock.yaml#type-fest@0.13.1",
       "licenseSource": "node_modules/type-fest/license",
       "noticeContentSHA256": "fe838c418ec5664c2719c23cd3c862d47dcc866c0bb8f51752006c106c015468"
-    },
-    {
-      "identifier": "npm:type-fest@5.8.0",
-      "kind": "backend-production-package",
-      "name": "type-fest",
-      "version": "5.8.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "(MIT OR CC0-1.0)",
-      "sourceLocation": "pnpm-lock.yaml#type-fest@5.8.0",
-      "licenseSource": "node_modules/ink/node_modules/type-fest/package.json",
-      "noticeContentSHA256": "888e9ebf379e7c73b8d5ff7aa330f0d218b82c2e40de0f07fb5e5c6dfbe8bde2"
     },
     {
       "identifier": "npm:undici@7.28.0",
@@ -2606,19 +1930,6 @@
       "noticeContentSHA256": "b9ec49bd85b9e84391d25a1fa215a4f39f4057eb37b4e57ef12a9e7ba7729875"
     },
     {
-      "identifier": "npm:widest-line@6.0.0",
-      "kind": "backend-production-package",
-      "name": "widest-line",
-      "version": "6.0.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#widest-line@6.0.0",
-      "licenseSource": "node_modules/widest-line/license",
-      "noticeContentSHA256": "64b8b8f98345521777d35d584c412f9d5ae8fd39957014b792607013116ff6cf"
-    },
-    {
       "identifier": "npm:widevin@0.1.3",
       "kind": "backend-production-package",
       "name": "widevin",
@@ -2630,19 +1941,6 @@
       "sourceLocation": "pnpm-lock.yaml#widevin@0.1.3",
       "licenseSource": "node_modules/widevin/NOTICE",
       "noticeContentSHA256": "897db0b763a980957a40ac608096a785ec3134c8d5a4ee5cd3b320b35d2d01e6"
-    },
-    {
-      "identifier": "npm:wrap-ansi@9.0.2",
-      "kind": "backend-production-package",
-      "name": "wrap-ansi",
-      "version": "9.0.2",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#wrap-ansi@9.0.2",
-      "licenseSource": "node_modules/wrap-ansi/license",
-      "noticeContentSHA256": "f464105647694f02a6f7537869c89391fcab044599e9bac1ccb832e8935d410d"
     },
     {
       "identifier": "npm:wrappy@1.0.2",
@@ -2669,19 +1967,6 @@
       "sourceLocation": "pnpm-lock.yaml#write-file-atomic@6.0.0",
       "licenseSource": "node_modules/write-file-atomic/LICENSE.md",
       "noticeContentSHA256": "b8da05df1ca533a2c60fd79a602795e023c44531e14f052b6bfa226af00b036a"
-    },
-    {
-      "identifier": "npm:ws@8.21.0",
-      "kind": "backend-production-package",
-      "name": "ws",
-      "version": "8.21.0",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#ws@8.21.0",
-      "licenseSource": "node_modules/ws/LICENSE",
-      "noticeContentSHA256": "fa5fe6ec8fcf5c1a10908988f69e9072d5329e3973a1b92ab6ea6ceadc13d6af"
     },
     {
       "identifier": "npm:xml-name-validator@5.0.0",
@@ -2721,32 +2006,6 @@
       "sourceLocation": "pnpm-lock.yaml#yaml@2.9.0",
       "licenseSource": "node_modules/yaml/LICENSE",
       "noticeContentSHA256": "d70ca9c90fc83ac63f4947aac48d3973ea01773bb2eed1ad1047c2dd5fad42ad"
-    },
-    {
-      "identifier": "npm:yoga-layout@3.2.1",
-      "kind": "backend-production-package",
-      "name": "yoga-layout",
-      "version": "3.2.1",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#yoga-layout@3.2.1",
-      "licenseSource": "node_modules/yoga-layout/package.json",
-      "noticeContentSHA256": "827bfb71a548cafd731ff8dfd1257efcc63e6b85366c840c15d22a6cc54661d2"
-    },
-    {
-      "identifier": "npm:zod@4.4.3",
-      "kind": "backend-production-package",
-      "name": "zod",
-      "version": "4.4.3",
-      "revision": null,
-      "archive": null,
-      "copyright": null,
-      "license": "MIT",
-      "sourceLocation": "pnpm-lock.yaml#zod@4.4.3",
-      "licenseSource": "node_modules/zod/LICENSE",
-      "noticeContentSHA256": "c336c30250757b9960579c0283316cf5a5759c3fa027bb5877249ea9619f216f"
     }
   ]
 }

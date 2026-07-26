@@ -156,6 +156,7 @@ struct BackendLaunchConfiguration: Equatable {
                 root: sourceRoot,
                 script: sourceRoot.appendingPathComponent("dist/backend.js"),
                 arguments: ["desktop"],
+                desktopRPC: true,
                 resourcesDirectory: resourcesDirectory
             )
         case .mock:
@@ -165,8 +166,26 @@ struct BackendLaunchConfiguration: Equatable {
                 script: sourceRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts"),
                 arguments: [mockScenario],
                 nodeRuntimeArguments: ["--import", "tsx"],
+                desktopRPC: true,
                 resourcesDirectory: resourcesDirectory
             )
+        }
+    }
+
+    func schedulerLaunch(resourcesDirectory: URL) -> BackendProcessLaunch? {
+        switch mode {
+        case .bundled:
+            return RailgunBundledBackendLaunchFactory(resourcesDirectory: resourcesDirectory).schedulerLaunch()
+        case .source:
+            guard let sourceRoot else { return nil }
+            return sourceLaunch(
+                root: sourceRoot,
+                script: sourceRoot.appendingPathComponent("dist/backend.js"),
+                arguments: ["scheduler"],
+                resourcesDirectory: resourcesDirectory
+            )
+        case .mock:
+            return nil
         }
     }
 
@@ -175,6 +194,7 @@ struct BackendLaunchConfiguration: Equatable {
         script: URL,
         arguments: [String],
         nodeRuntimeArguments: [String] = [],
+        desktopRPC: Bool = false,
         resourcesDirectory: URL
     ) -> BackendProcessLaunch? {
         guard FileManager.default.fileExists(atPath: script.path) else { return nil }
@@ -195,7 +215,11 @@ struct BackendLaunchConfiguration: Equatable {
         }
 
         var environment = ProcessInfo.processInfo.environment
-        environment["RAILGUN_DESKTOP_RPC"] = "1"
+        if desktopRPC {
+            environment["RAILGUN_DESKTOP_RPC"] = "1"
+        } else {
+            environment.removeValue(forKey: "RAILGUN_DESKTOP_RPC")
+        }
         return BackendProcessLaunch(
             executableURL: executableURL,
             arguments: launchArguments,
@@ -244,6 +268,7 @@ final class RailgunBackendRuntime {
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
+    private let scheduler: RailgunSchedulerService?
     private let store: RailgunAppStore
     private var isConnectionAttemptInFlight = false
     private nonisolated let terminationObservationTask: Task<Void, Never>
@@ -259,6 +284,8 @@ final class RailgunBackendRuntime {
         self.client = client
         self.store = store
         self.launch = configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory)
+        self.scheduler = configuration.schedulerLaunch(resourcesDirectory: resourcesDirectory)
+            .map(RailgunSchedulerService.init)
         let controlsCoordinator = RailgunControlsCoordinator(
             store: store,
             service: RailgunControlsService(rpcClient: client)
@@ -336,6 +363,12 @@ final class RailgunBackendRuntime {
         do {
             let handshake = try await (restarting ? client.restart(launch) : client.start(launch))
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
+            if let scheduler {
+                // Scheduled jobs are independent of the desktop RPC backend.
+                // Keep the processor alive while the app is open, including
+                // after an RPC-only restart.
+                try? await scheduler.start()
+            }
             async let controls: Void = controlsCoordinator.refresh()
             async let sessions: Void = sessionCoordinator.refresh()
             async let scheduled: Void = scheduledCoordinator.refresh()
@@ -352,6 +385,7 @@ final class RailgunBackendRuntime {
     }
 
     func shutdown() async {
+        await scheduler?.shutdown()
         await client.shutdown()
     }
 

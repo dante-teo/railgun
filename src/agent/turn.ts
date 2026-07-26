@@ -383,7 +383,7 @@ export const runTurn = async (
     delegationDepth: options?.delegationDepth ?? 0,
     emit: doEmit,
     operationTimeoutMs: options?.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
-    runtime: options?.runtime ?? createRuntimeContext("interactive"),
+    runtime: options?.runtime ?? createRuntimeContext("desktop"),
   };
   let compactedThisRound = false;
   let turnEndedThisAttempt = false;

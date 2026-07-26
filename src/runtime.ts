@@ -2,7 +2,7 @@ import { execPath, pid, ppid, version as nodeVersion } from "node:process";
 import { readFileSync } from "node:fs";
 import { getHomeDir, pathsForHome } from "./paths.js";
 
-export const RUNTIME_SURFACES = ["interactive", "one-shot", "rpc", "desktop", "acp", "cron"] as const;
+export const RUNTIME_SURFACES = ["desktop", "cron"] as const;
 export type RuntimeSurface = typeof RUNTIME_SURFACES[number];
 
 export interface RuntimeContext {
