@@ -186,6 +186,10 @@ pnpm install
 node apps/macos/scripts/generate-legal-notices.mjs --write
 ```
 
+Do not hand-edit either generated file. Production dependency removals can
+remove entire notice blocks, so regenerate after every production dependency
+change as well as additions and upgrades.
+
 `--write` reads package-provided legal files and refuses a metadata-only license
 unless the repository bundles the full matching license text. `--check` is run
 by `validate-project.sh`: it compares the complete generated catalog when

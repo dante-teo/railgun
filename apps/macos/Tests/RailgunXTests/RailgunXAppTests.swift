@@ -1498,6 +1498,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(backendNames.contains("typescript"))
         XCTAssertFalse(backendNames.contains("vitest"))
         XCTAssertFalse(backendNames.contains("@types/better-sqlite3"))
+        XCTAssertFalse(backendNames.contains("@huggingface/transformers"))
+        XCTAssertFalse(backendNames.contains("onnxruntime-node"))
         XCTAssertTrue(backendNames.contains("sqlite-vec-darwin-arm64"))
         XCTAssertFalse(backendNames.contains("sqlite-vec-darwin-x64"))
         XCTAssertTrue(backendRecords.allSatisfy { !$0.noticeContentSHA256.isEmpty })
