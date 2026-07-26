@@ -17,6 +17,39 @@ final class RailgunDesignSystemTests: XCTestCase {
         XCTAssertEqual(RailgunColorRole.surface.tokenName, "controlBackgroundColor")
     }
 
+    func testSharedSidebarSelectionRowUsesTheRailgunSelectionTreatment() throws {
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunUI/RailgunSidebarSelectionRow.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("isSelected ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color"))
+        XCTAssertTrue(source.contains("isSelected ? Color.primary.opacity(0.08) : .clear"))
+        XCTAssertTrue(source.contains("RoundedRectangle(cornerRadius: 12, style: .continuous)"))
+    }
+
+    func testMatchaAccentUsesTheAssetCatalogLightAndDarkVariants() throws {
+        let colorSet = repositoryRoot.appendingPathComponent(
+            "apps/macos/Resources/Assets.xcassets/matchaAccent.colorset/Contents.json"
+        )
+        let contents = try String(contentsOf: colorSet, encoding: .utf8)
+        let moduleSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunUI/RailgunUIModule.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(contents.contains("\"appearance\" : \"luminosity\""))
+        XCTAssertTrue(contents.contains("\"value\" : \"dark\""))
+        XCTAssertTrue(contents.contains("\"red\" : \"0x5E\""))
+        XCTAssertTrue(contents.contains("\"red\" : \"0xB9\""))
+        XCTAssertTrue(moduleSource.contains("Color(RailgunMatchaAccent.tokenName, bundle: .main)"))
+        XCTAssertFalse(moduleSource.contains("NSColor(name: nil)"))
+    }
+
     func testMatchaTokenColorsLinksAndNonSemanticActivityStates() throws {
         let uiSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent(

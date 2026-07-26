@@ -734,6 +734,13 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunSettingsView.windowID, "settings")
     }
 
+    func testAppearancePreferenceMapsEachChoiceToItsExpectedColorScheme() {
+        XCTAssertNil(RailgunAppearance.automatic.colorScheme)
+        XCTAssertEqual(RailgunAppearance.light.colorScheme, .light)
+        XCTAssertEqual(RailgunAppearance.dark.colorScheme, .dark)
+        XCTAssertEqual(RailgunAppearance.allCases.map(\.title), ["Auto", "Light", "Dark"])
+    }
+
     func testNativeUITaskSidebarPolicyDocumentsTheNativeListContract() throws {
         let nativeUIPolicy = try String(
             contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
@@ -787,9 +794,15 @@ final class RailgunXAppTests: XCTestCase {
             "The Settings window must inherit the shared matcha tint."
         )
         XCTAssertTrue(settingsSource.contains("NavigationSplitView"))
-        XCTAssertTrue(settingsSource.contains("List(selection: $selection)"))
-        XCTAssertTrue(settingsSource.contains("Label(\"General\", systemImage: \"gearshape\")"))
-        XCTAssertTrue(settingsSource.contains("Label(\"Archived Tasks\", systemImage: \"archivebox\")"))
+        XCTAssertTrue(settingsSource.contains("RailgunSidebarSelectionRow"))
+        XCTAssertTrue(appSource.contains("RailgunSidebarSelectionRow"))
+        XCTAssertTrue(settingsSource.contains("isSelected: displayedDestination == .appearance"))
+        XCTAssertFalse(settingsSource.contains("List(selection: $selection)"))
+        XCTAssertTrue(settingsSource.contains("@AppStorage(RailgunAppearance.storageKey)"))
+        XCTAssertTrue(settingsSource.contains("ThemePickerCard"))
+        XCTAssertTrue(settingsSource.contains("ThemePreview(theme: theme, isSelected: isSelected)"))
+        XCTAssertTrue(settingsSource.contains("return RailgunColorRole.accent.color"))
+        XCTAssertTrue(settingsSource.contains("\"Archived Tasks\",\n                        systemImage: \"archivebox\""))
         XCTAssertTrue(settingsSource.contains("settings-approval-mode"))
         XCTAssertTrue(settingsSource.contains("settings-approval-model"))
         XCTAssertTrue(settingsSource.contains(".navigationSplitViewColumnWidth("))
@@ -797,6 +810,8 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("CommandGroup(replacing: .appSettings)"))
         XCTAssertTrue(settingsSource.contains("openWindow(id: RailgunSettingsView.windowID)"))
         XCTAssertTrue(appSource.contains("Window(\"Settings\", id: RailgunSettingsView.windowID)"))
+        XCTAssertTrue(appSource.contains("@AppStorage(RailgunAppearance.storageKey)"))
+        XCTAssertTrue(appSource.contains(".preferredColorScheme(appearance.colorScheme)"))
         XCTAssertFalse(appSource.contains("Settings {"))
         XCTAssertTrue(appSource.contains("width: RailgunSettingsView.defaultWindowWidth"))
         XCTAssertTrue(appSource.contains(".windowResizability(.contentMinSize)"))

@@ -29,6 +29,11 @@ SwiftUI text styles for Dynamic Type scaling.
 section spacing, and sidebar appearance system owned; do not substitute a
 custom `ScrollView` stack. The destination and task rows are native buttons
 with matcha icon/text tint plus a subtle neutral rounded selection frame.
+`RailgunSidebarSelectionRow` owns this selection treatment for destinations
+shared with Settings: selected rows use matcha text/icon tint and
+`Color.primary.opacity(0.08)` in the same 12-point continuous rounded frame.
+It is a shared native SwiftUI composition of `Button` and `Label`, not a custom
+drawn control, so it does not enter the custom-component registry.
 Selecting Scheduled clears task-row selection visually without discarding the
 last active task, so returning to Tasks restores that task. Loading uses
 `ProgressView`, and the empty state uses `ContentUnavailableView` with the
@@ -41,13 +46,17 @@ preserving native button and context-menu semantics.
 `Settings` scene. This keeps General and the archived-task browser in a normal
 macOS window with standard window behavior. Its `NavigationSplitView` uses a
 native `.sidebar`-styled `List`; **General** is the default selection and
-**Archived Tasks** is a sibling destination. General uses a native grouped Form
-for command permissions: ask for approval, model-assisted approval, or full
-access (while retaining backend hardline protections). Clearing the model picker
-removes the persisted reviewer model. Keep the system sidebar material,
-standard selection styling, and the desktop
-minimum size that accommodates the five-column archive table. Do not add custom
-window chrome or AppKit window manipulation.
+**Appearance** and **Archived Tasks** are sibling destinations. Its destination
+rows use `RailgunSidebarSelectionRow`, matching the main window's matcha
+foreground and subtle rounded selection background while preserving native
+button, focus, keyboard, and VoiceOver behavior. Appearance persists an
+**Auto**, **Light**, or **Dark** preference: Auto follows macOS, while Light and
+Dark override both Railgun windows. General uses a native grouped Form for
+command permissions: ask for approval, model-assisted approval, or full access
+(while retaining backend hardline protections). Clearing the model picker
+removes the persisted reviewer model. Keep the system sidebar material and the
+desktop minimum size that accommodates the five-column archive table. Do not add
+custom window chrome or AppKit window manipulation.
 
 ## Scheduled destination invariant
 

@@ -1631,25 +1631,12 @@ private struct RailgunTaskSidebar: View {
     var body: some View {
         List {
             Section {
-                Button(action: selectScheduled) {
-                    HStack(spacing: RailgunSpacing.standard.points) {
-                        Label("Scheduled", systemImage: "clock")
-                        Spacer(minLength: 0)
-                    }
-                        .padding(.horizontal, RailgunSpacing.standard.points)
-                        .padding(.vertical, RailgunSpacing.relaxed.points)
-                        .foregroundStyle(
-                            destination == .scheduled ? RailgunColorRole.accent.color : RailgunColorRole.primaryText.color
-                        )
-                        .contentShape(Rectangle())
-                        .background(
-                            destination == .scheduled ? Color.primary.opacity(0.08) : .clear,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityValue(destination == .scheduled ? "Selected" : "")
+                RailgunSidebarSelectionRow(
+                    "Scheduled",
+                    systemImage: "clock",
+                    isSelected: destination == .scheduled,
+                    action: selectScheduled
+                )
             }
 
             Section("Tasks") {
@@ -1842,6 +1829,7 @@ struct RailgunXApp: App {
     // not recreate feature state.
     @State private var appStore = RailgunAppStore()
     @State private var backendRuntime: RailgunBackendRuntime
+    @AppStorage(RailgunAppearance.storageKey) private var appearance: RailgunAppearance = .automatic
     private let fileService: RailgunFileService
     private let updater: RailgunUpdater?
 
@@ -1893,6 +1881,7 @@ struct RailgunXApp: App {
             )
             .font(RailgunFont.interface())
             .tint(RailgunColorRole.accent.color)
+            .preferredColorScheme(appearance.colorScheme)
             .task {
                 await desktopClientStartup.acquire()
                 if desktopClientStartup.status == .ready {
@@ -1932,6 +1921,7 @@ struct RailgunXApp: App {
                 sessionCoordinator: backendRuntime.sessionCoordinator,
                 controlsCoordinator: backendRuntime.controlsCoordinator
             )
+            .preferredColorScheme(appearance.colorScheme)
         }
         .defaultSize(
             width: RailgunSettingsView.defaultWindowWidth,

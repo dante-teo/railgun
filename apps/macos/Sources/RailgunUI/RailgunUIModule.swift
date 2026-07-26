@@ -79,11 +79,7 @@ public enum RailgunMatchaAccent {
     public static let darkHex = "#B9CC75"
 
     public static var color: Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(srgbRed: 185.0 / 255.0, green: 204.0 / 255.0, blue: 117.0 / 255.0, alpha: 1)
-                : NSColor(srgbRed: 94.0 / 255.0, green: 114.0 / 255.0, blue: 45.0 / 255.0, alpha: 1)
-        })
+        Color(RailgunMatchaAccent.tokenName, bundle: .main)
     }
 }
 

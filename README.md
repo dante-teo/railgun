@@ -452,11 +452,11 @@ shared component; feature-local compositions using native SwiftUI controls do
 not belong in the registry.
 
 - `RailgunColorRole` provides accent, text, destructive, separator, canvas,
-  and surface colors. Its dynamic matcha accent is `#5E722D` in light
-  appearance and `#B9CC75` in dark appearance; foreground, material, warning,
-  and error roles remain semantic system colors. Use its `color` value—for
-  example, `RailgunColorRole.secondaryText.color`—rather than fixed color
-  values.
+  and surface colors. Its matcha accent comes from the native
+  `Resources/Assets.xcassets/matchaAccent.colorset` catalog, with `#5E722D`
+  for Light and `#B9CC75` for Dark; foreground, material, warning, and error
+  roles remain semantic system colors. Use its `color` value—for example,
+  `RailgunColorRole.secondaryText.color`—rather than fixed color values.
 - `RailgunFont` registers the bundled Barlow faces at launch and provides
   dynamic-type-aware interface fonts. `RailgunTypographyRole` maps body,
   emphasized body, secondary text, titles, section titles, and captions to
@@ -492,6 +492,12 @@ in the sidebar; its detail browser is a native
 `Table` that shows task title, model, message count, and localized archive
 time. Search matches title, model, or the full task ID without changing the
 backend's archive order; clearing the search restores that order.
+
+**Settings → Appearance** persists an **Auto**, **Light**, or **Dark** theme
+preference. Auto follows macOS; Light and Dark apply their override to both the
+main Railgun window and Settings. Settings uses the same shared native-button
+sidebar row as the main window, so selected rows have matcha icon/text tint and
+the same subtle rounded selection background.
 
 ### Archived task browser
 
