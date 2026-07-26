@@ -164,7 +164,7 @@ private func scheduledRejectedResponse(_ command: RailgunRPCCommandType, error: 
 }
 
 @MainActor
-private func assertScheduledThrows<T>(
+private func assertScheduledThrows<T: Sendable>(
     _ expression: @autoclosure () async throws -> T,
     _ verify: (Error) -> Void
 ) async {
