@@ -9,7 +9,6 @@ import type { AgentEvent, AgentEventListener } from "./events.js";
 import { createMessageQueues } from "./queue.js";
 import type { ExtensionRunner } from "../extensions/runner.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
-import type { NoteStore } from "../persistence/noteStore.js";
 import { createAdvisorRuntime } from "../advisor/advisor.js";
 import { normalizeAdvisoryHistory } from "../advisor/advisoryMessage.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS, runBoundedOperation } from "../asyncOperation.js";
@@ -29,7 +28,6 @@ export interface AgentDependencies {
   readonly reviewerModel?: string;
   readonly extensionRunner?: ExtensionRunner;
   readonly memoryStore?: MemoryStore;
-  readonly noteStore?: NoteStore;
   readonly enabledToolsets?: readonly string[];
   readonly advisor?: { readonly model: string };
   readonly operationTimeoutMs?: number;
@@ -66,7 +64,7 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
   const listeners = new Set<AgentEventListener>();
   let controller: AbortController | undefined;
   const advisor = dependencies.advisor
-    ? createAdvisorRuntime(dependencies.devin, dependencies.advisor, dependencies.memoryStore, dependencies.noteStore)
+    ? createAdvisorRuntime(dependencies.devin, dependencies.advisor, dependencies.memoryStore)
     : undefined;
 
   const processEvents = async (event: AgentEvent): Promise<void> => {
@@ -109,7 +107,6 @@ export const createAgent = (dependencies: AgentDependencies): Agent => {
           ...(dependencies.reviewerModel !== undefined ? { reviewerModel: dependencies.reviewerModel } : {}),
           ...(dependencies.extensionRunner ? { extensionRunner: dependencies.extensionRunner } : {}),
           ...(dependencies.memoryStore !== undefined ? { memoryStore: dependencies.memoryStore } : {}),
-          ...(dependencies.noteStore !== undefined ? { noteStore: dependencies.noteStore } : {}),
           ...(dependencies.enabledToolsets !== undefined ? { enabledToolsets: dependencies.enabledToolsets } : {}),
           ...(advisor ? {
             onTurnEnd: async (msgs: readonly DevinMessage[], push: (msg: DevinMessage) => void) => {

@@ -126,20 +126,6 @@ PATH="$staged_node_root/bin:$PATH" \
 # must not become part of the shipped production closure.
 rm -rf "$deployed_railgun/node_modules/@types"
 
-onnx_runtime_root="$deployed_railgun/node_modules/onnxruntime-node/bin/napi-v6"
-onnx_runtime_arm64="$onnx_runtime_root/darwin/arm64"
-[[ -d "$onnx_runtime_arm64" ]] \
-  || fail "deployed ONNX runtime is missing its darwin/arm64 payload."
-while IFS= read -r -d '' candidate; do
-  [[ "$candidate" == "$onnx_runtime_root/darwin" ]] || rm -rf "$candidate"
-done < <(find "$onnx_runtime_root" -mindepth 1 -maxdepth 1 -print0)
-while IFS= read -r -d '' candidate; do
-  [[ "$candidate" == "$onnx_runtime_arm64" ]] || rm -rf "$candidate"
-done < <(find "$onnx_runtime_root/darwin" -mindepth 1 -maxdepth 1 -print0)
-[[ -z "$(find "$onnx_runtime_root" -mindepth 1 -maxdepth 2 -type d \
-  ! -path "$onnx_runtime_root/darwin" ! -path "$onnx_runtime_arm64" -print -quit)" ]] \
-  || fail "deployed ONNX runtime contains a non-darwin/arm64 payload."
-
 better_sqlite3="$deployed_railgun/node_modules/better-sqlite3"
 addon="$better_sqlite3/build/Release/better_sqlite3.node"
 [[ -d "$better_sqlite3" && -f "$better_sqlite3/binding.gyp" ]] \

@@ -16,12 +16,12 @@
   "scripts": {
     "dev": "./scripts/run-source.sh",
     "dev:mock": "./scripts/run-mock.sh",
+    "release:version": "node ./scripts/release-version.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp -R db/migrations dist/migrations",
     "test": "vitest run src"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
     "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^12.11.1",
     "cron-parser": "^5.6.1",

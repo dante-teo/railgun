@@ -145,14 +145,6 @@ export const parseRpcCommand = (value: unknown): RpcCommand => {
     case "memory_create": return { ...base, type, content: nonEmpty(value.content, "content"), category: nonEmpty(value.category, "category") };
     case "memory_update": return { ...base, type, memoryId: nonEmpty(value.memoryId, "memoryId"), patch: patch(value.patch) as { content?: string; category?: string } };
     case "memory_delete": return { ...base, type, memoryId: nonEmpty(value.memoryId, "memoryId") };
-    case "notes_import": {
-      if (value.semantic !== undefined && typeof value.semantic !== "boolean") throw new Error("invalid command: semantic must be a boolean");
-      return { ...base, type, folderPath: nonEmpty(value.folderPath, "folderPath"), ...(value.semantic === undefined ? {} : { semantic: value.semantic }) };
-    }
-    case "notes_search": {
-      if (value.mode !== undefined && value.mode !== "keyword" && value.mode !== "semantic") throw new Error("invalid command: mode must be keyword or semantic");
-      return { ...base, type, query: nonEmpty(value.query, "query"), ...(value.mode === undefined ? {} : { mode: value.mode }), ...(positiveLimit(value.limit) === undefined ? {} : { limit: positiveLimit(value.limit)! }) };
-    }
     case "instruction_file_get": return { ...base, type, fileId: nonEmpty(value.fileId, "fileId") };
     case "instruction_file_update": {
       if (typeof value.content !== "string") throw new Error("invalid command: content must be a string");

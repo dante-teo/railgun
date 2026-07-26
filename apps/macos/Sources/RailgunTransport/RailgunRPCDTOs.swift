@@ -80,7 +80,7 @@ public enum RailgunRPCCommandType: String, Sendable, CaseIterable, Codable {
     case mcpList = "mcp_list", mcpUpsert = "mcp_upsert", mcpRemove = "mcp_remove", cronList = "cron_list"
     case cronAdd = "cron_add", cronUpdate = "cron_update", cronRemove = "cron_remove", memoryList = "memory_list"
     case memorySearch = "memory_search", memoryCreate = "memory_create", memoryUpdate = "memory_update"
-    case memoryDelete = "memory_delete", notesImport = "notes_import", notesSearch = "notes_search"
+    case memoryDelete = "memory_delete"
     case dreamRun = "dream_run", instructionFilesList = "instruction_files_list"
     case instructionFileGet = "instruction_file_get", instructionFileUpdate = "instruction_file_update"
     case skillsList = "skills_list", skillGet = "skill_get"
@@ -259,17 +259,6 @@ public struct RailgunRPCCommand: Sendable, Equatable {
             try requiredObject("patch")
         case .memoryDelete:
             try requiredString("memoryId")
-        case .notesImport:
-            try requiredString("folderPath")
-            try optionalBool("semantic")
-        case .notesSearch:
-            try requiredString("query")
-            if let mode = fields["mode"]?.stringValue, mode != "keyword", mode != "semantic" {
-                throw RailgunRPCDTOError.invalidField("mode", "must be keyword or semantic")
-            } else if fields["mode"] != nil, fields["mode"]?.stringValue == nil {
-                throw RailgunRPCDTOError.invalidField("mode", "must be keyword or semantic")
-            }
-            try positiveLimit("limit")
         case .instructionFileGet:
             try requiredString("fileId")
         case .instructionFileUpdate:

@@ -93,6 +93,7 @@ describe("branching", () => {
     db.exec(`
       DROP TABLE IF EXISTS messages;
       DROP TABLE IF EXISTS sessions;
+      DROP TABLE IF EXISTS schema_migrations;
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
         model TEXT NOT NULL,
@@ -161,6 +162,7 @@ describe("branching", () => {
       DROP TABLE IF EXISTS messages;
       DROP TABLE IF EXISTS memories;
       DROP TABLE IF EXISTS sessions;
+      DROP TABLE IF EXISTS schema_migrations;
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
         model TEXT NOT NULL,
@@ -232,6 +234,7 @@ describe("branching", () => {
       DROP TABLE IF EXISTS messages;
       DROP TABLE IF EXISTS memories;
       DROP TABLE IF EXISTS sessions;
+      DROP TABLE IF EXISTS schema_migrations;
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
         model TEXT NOT NULL,

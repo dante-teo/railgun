@@ -66,9 +66,7 @@ export const buildSystemPrompt = ({
     "- Respect the existing shell approval flow; shell commands may be declined by the user.",
     "- Use the clarify tool to ask the user a question when you need information you cannot safely guess, especially before irreversible actions. Offer choices when the options are clear and few.",
     "- When the user shares a personal fact, preference, or project detail they want remembered, call memory_write to save it for future sessions.",
-    "- Before answering questions about the user's projects, preferences, or history, proactively search memories (memory_search) and notes (note_search or note_search_semantic). Do not rely solely on what is in the system prompt — the user may have added new information since the session started.",
-    "- For recalling the user's notes and history, try `note_search` (exact keywords) first — it is faster. If it finds nothing, or the question is about a general topic or feeling, use `note_search_semantic` instead.",
-    "- When the user asks you to save, record, or remember something as a note (distinct from a memory), use `note_write` to store it in their note library so it can be searched later.",
+    "- Before answering questions about the user's projects, preferences, or history, proactively search memories with memory_search. Do not rely solely on what is in the system prompt — the user may have added new information since the session started.",
     "- Keep tool use focused on the user's current task.",
     ...(modelId.toLowerCase().includes("gemini") ? [
       "- Gemini: use absolute paths for file operations, execute concisely, and finish the requested action before explaining it.",

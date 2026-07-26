@@ -12,7 +12,6 @@ export const RPC_PROTOCOL_CAPABILITIES = Object.freeze([
   "mcp",
   "cron",
   "memory",
-  "notes",
   "dream",
   "instructions",
   "skills",
@@ -62,8 +61,6 @@ export type RpcCommand =
   | { id?: string; type: "memory_create"; content: string; category: string }
   | { id?: string; type: "memory_update"; memoryId: string; patch: { content?: string; category?: string } }
   | { id?: string; type: "memory_delete"; memoryId: string }
-  | { id?: string; type: "notes_import"; folderPath: string; semantic?: boolean }
-  | { id?: string; type: "notes_search"; query: string; mode?: "keyword" | "semantic"; limit?: number }
   | { id?: string; type: "dream_run" }
   | { id?: string; type: "instruction_files_list" }
   | { id?: string; type: "instruction_file_get"; fileId: string }

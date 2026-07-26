@@ -101,43 +101,4 @@ describe("RPC store handlers", () => {
     });
   });
 
-  it("uses the injected embedder for semantic note searches", async () => {
-    const searchSemantic = vi.fn(() => [{ id: 1, sourcePath: null, content: "note", distance: 0.1 }]);
-    const embedText = vi.fn(async () => new Float32Array([1, 2]));
-    const handler = createRpcStoreHandler({
-      getConfig: () => ({ model: null }),
-      setConfig: () => {},
-      updateConfig: vi.fn(),
-      noteStore: {
-        search: vi.fn(), searchSemantic, storeVector: vi.fn(), write: vi.fn(),
-        importFolder: vi.fn(), importFolderWithEmbeddings: vi.fn(), backfillEmbeddings: vi.fn(),
-      },
-      embedText,
-    });
-    await expect(handler({ type: "notes_search", query: "meaning", mode: "semantic", limit: 3 })).resolves.toMatchObject({ notes: [{ id: 1 }] });
-    expect(embedText).toHaveBeenCalledWith("meaning", "query");
-    expect(searchSemantic).toHaveBeenCalledWith(expect.any(Float32Array), 3);
-  });
-
-  it("preserves keyword-only imports unless semantic embedding is explicitly requested", async () => {
-    const importFolder = vi.fn(() => 2);
-    const importFolderWithEmbeddings = vi.fn(async () => 2);
-    const embedText = vi.fn(async () => new Float32Array([1, 2]));
-    const handler = createRpcStoreHandler({
-      getConfig: () => ({ model: null }),
-      setConfig: () => {},
-      noteStore: {
-        search: vi.fn(), searchSemantic: vi.fn(), storeVector: vi.fn(), write: vi.fn(), importFolder,
-        importFolderWithEmbeddings, backfillEmbeddings: vi.fn(),
-      },
-      embedText,
-    });
-
-    await handler({ type: "notes_import", folderPath: "/notes" });
-    expect(importFolder).toHaveBeenCalledWith("/notes");
-    expect(importFolderWithEmbeddings).not.toHaveBeenCalled();
-
-    await handler({ type: "notes_import", folderPath: "/notes", semantic: true });
-    expect(importFolderWithEmbeddings).toHaveBeenCalledWith("/notes", embedText);
-  });
 });

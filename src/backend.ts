@@ -8,7 +8,6 @@ import { createMcpExtension, parseMcpServers } from "./extensions/mcp/index.js";
 import { createExtensionRunner } from "./extensions/runner.js";
 import type { ExtensionRunner } from "./extensions/runner.js";
 import { createMemoryStore, formatMemoriesForPrompt } from "./persistence/memoryStore.js";
-import { createNoteStore } from "./persistence/noteStore.js";
 import { createSessionStore } from "./persistence/sessionStore.js";
 import { runRpcMode } from "./rpc/rpcMode.js";
 import { initDevinSession, initFreshDevinSession, RequestedModelUnavailableError } from "./session.js";
@@ -16,7 +15,6 @@ import { startScheduler } from "./cron/scheduler.js";
 import { runDreamSession } from "./dream/dreamJob.js";
 import { loadJobs, saveJobs } from "./cron/jobs.js";
 import { loadSkills } from "./skills.js";
-import { embedText } from "./persistence/embedder.js";
 import { registry } from "./tools/index.js";
 import { isEntryPoint } from "./entryPoint.js";
 
@@ -63,10 +61,9 @@ const withStores = async <T>(
   run: (
     store: ReturnType<typeof createSessionStore>,
     memoryStore: ReturnType<typeof createMemoryStore>,
-    noteStore: ReturnType<typeof createNoteStore>,
   ) => Promise<T>,
 ): Promise<T> =>
-  withStore(store => run(store, createMemoryStore(store.db), createNoteStore(store.db)));
+  withStore(store => run(store, createMemoryStore(store.db)));
 
 const bootstrapExtensions = async (sessionId: string, config: Awaited<ReturnType<typeof loadConfig>>): Promise<{
   runner: ExtensionRunner;
@@ -96,7 +93,7 @@ const runDesktopBackend = async (): Promise<void> => {
       : Promise.reject(error));
   const { runner, cleanup } = await bootstrapExtensions("desktop", config);
   try {
-    await withStores(async (sessionStore, memoryStore, noteStore) => {
+    await withStores(async (sessionStore, memoryStore) => {
       await runner.emitSessionStart({ type: "session_start", reason: "new" });
       await runRpcMode({
         session,
@@ -106,12 +103,10 @@ const runDesktopBackend = async (): Promise<void> => {
         extensionRunner: runner,
         sessionStore,
         memoryStore,
-        noteStore,
         updateConfig: transform => updateConfig(transform),
         loadJobs: () => loadJobs(),
         saveJobs: jobs => saveJobs(jobs),
         loadSkills,
-        embedText,
         randomId: randomUUID,
         now: () => new Date(),
       });
@@ -142,9 +137,9 @@ const runSchedulerBackend = async (): Promise<void> => {
 const runDreamBackend = async (): Promise<void> => {
   const session = await initDevinSession(undefined, undefined, "cron");
   const config = await loadConfig();
-  await withStores(async (store, memoryStore, noteStore) => {
+  await withStores(async (store, memoryStore) => {
     try {
-      await runDreamSession(memoryStore, noteStore, session.devin, session.model);
+      await runDreamSession(memoryStore, session.devin, session.model);
     } finally {
       store.pruneArchivedSessions(config.archiveRetentionDays ?? 7);
     }

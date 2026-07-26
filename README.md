@@ -46,6 +46,10 @@ empty-result attempts retain a visible assistant message explaining the
 outcome. Open any delivered Task to inspect it or continue it with new
 messages.
 
+SQLite schema changes are managed as checked-in dbmate-format migrations; see
+[Database migrations](docs/DATABASE_MIGRATIONS.md) for the no-global-install
+workflow and legacy-data compatibility guarantee.
+
 ## Personalization
 
 Use **Settings → Personalization** to edit Railgun's one global custom

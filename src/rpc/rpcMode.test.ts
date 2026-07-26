@@ -263,7 +263,9 @@ describe("runRpcMode", () => {
     sendAndClose(stdin, { id: "init", type: "initialize", version: 1 }, { id: "state", type: "get_state" });
     await runPromise;
 
-    expect(getLines().find(line => line["id"] === "init")).toMatchObject({ success: true, data: { version: 1, capabilities: expect.arrayContaining(["sessions", "memory", "notes", "session.delivery"]) } });
+    const initialized = getLines().find(line => line["id"] === "init");
+    expect(initialized).toMatchObject({ success: true, data: { version: 1, capabilities: expect.arrayContaining(["sessions", "memory", "session.delivery"]) } });
+    expect((initialized?.["data"] as { capabilities: readonly string[] }).capabilities).not.toContain("notes");
     expect(getLines().find(line => line["id"] === "state")).toMatchObject({ data: { sessionId: "session-1", startedAt: "2026-01-02T03:04:05.000Z", persistence: "unsaved" } });
   });
 

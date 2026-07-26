@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { DevinProvider, DevinModel } from "widevin";
 import { DREAM_SYSTEM_PROMPT, buildDreamSystemPrompt, formatDreamMessage, runDreamSession } from "./dreamJob.js";
 import type { Memory, MemoryStore } from "../persistence/memoryStore.js";
-import type { NoteStore } from "../persistence/noteStore.js";
 
 vi.mock("../agent/projectContext.js", () => ({
   loadSoulIdentity: vi.fn(async () => null),
@@ -42,16 +41,6 @@ const makeMemoryStore = (memories: readonly Memory[]): MemoryStore => {
     runInTransaction,
   } satisfies MemoryStore;
 };
-
-const makeNoteStore = (): NoteStore => ({
-  search: vi.fn(() => []),
-  searchSemantic: vi.fn(() => []),
-  storeVector: vi.fn(),
-  write: vi.fn(() => ({ id: 1, sourcePath: null, snippet: "" })),
-  importFolder: vi.fn(() => 0),
-  importFolderWithEmbeddings: vi.fn(async () => 0),
-  backfillEmbeddings: vi.fn(async () => 0),
-} satisfies NoteStore);
 
 const makeDevinProvider = (streamChat: DevinProvider["streamChat"]): DevinProvider =>
   ({
@@ -104,12 +93,8 @@ describe("DREAM_SYSTEM_PROMPT", () => {
     expect(joined).not.toContain("Phase");
   });
 
-  it("includes note_search instruction when noteStore is available", () => {
-    expect(buildDreamSystemPrompt(true).join("\n")).toContain("note_search");
-  });
-
-  it("excludes note_search instruction when noteStore is unavailable", () => {
-    expect(buildDreamSystemPrompt(false).join("\n")).not.toContain("note_search");
+  it("does not advertise retired note tools", () => {
+    expect(buildDreamSystemPrompt().join("\n")).not.toContain("note_search");
   });
 });
 
@@ -158,7 +143,7 @@ describe("runDreamSession", () => {
     const log = vi.fn();
     const mockDevin = makeDevinProvider(() => (async function* () {})());
 
-    await runDreamSession(store, undefined, mockDevin, makeModel(), log);
+    await runDreamSession(store, mockDevin, makeModel(), log);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("not enough"));
     expect(store.all).toHaveBeenCalled();
   });
@@ -170,7 +155,7 @@ describe("runDreamSession", () => {
     const log = vi.fn();
     const streamChat = vi.fn<DevinProvider["streamChat"]>(() => (async function* () {})());
 
-    await runDreamSession(store, undefined, makeDevinProvider(streamChat), makeModel(), log);
+    await runDreamSession(store, makeDevinProvider(streamChat), makeModel(), log);
 
     expect(loadSoulIdentity).toHaveBeenCalled();
     const firstCall = streamChat.mock.calls[0]?.[0];
@@ -188,33 +173,18 @@ describe("runDreamSession", () => {
     const log = vi.fn();
     const streamChat = vi.fn<DevinProvider["streamChat"]>(() => (async function* () {})());
 
-    await runDreamSession(store, undefined, makeDevinProvider(streamChat), makeModel(), log);
+    await runDreamSession(store, makeDevinProvider(streamChat), makeModel(), log);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("reviewing 5 memories"));
     expect(streamChat).toHaveBeenCalled();
   });
 
-  it("enables memory toolset and passes noteStore when noteStore is provided", async () => {
-    vi.mocked(loadSoulIdentity).mockResolvedValueOnce(null);
-    const memories = Array.from({ length: 5 }, (_, i) => makeMemory(i + 1));
-    const store = makeMemoryStore(memories);
-    const noteStore = makeNoteStore();
-    const streamChat = vi.fn<DevinProvider["streamChat"]>(() => (async function* () {})());
-
-    await runDreamSession(store, noteStore, makeDevinProvider(streamChat), makeModel());
-
-    const call = streamChat.mock.calls[0]?.[0];
-    expect(call?.tools?.some((t: { name: string }) =>
-      t.name === "note_search" || t.name === "note_search_semantic"
-    )).toBe(true);
-  });
-
-  it("does not advertise note tools when noteStore is undefined", async () => {
+  it("does not advertise note tools", async () => {
     vi.mocked(loadSoulIdentity).mockResolvedValueOnce(null);
     const memories = Array.from({ length: 5 }, (_, i) => makeMemory(i + 1));
     const store = makeMemoryStore(memories);
     const streamChat = vi.fn<DevinProvider["streamChat"]>(() => (async function* () {})());
 
-    await runDreamSession(store, undefined, makeDevinProvider(streamChat), makeModel());
+    await runDreamSession(store, makeDevinProvider(streamChat), makeModel());
 
     const call = streamChat.mock.calls[0]?.[0];
     expect(call?.tools?.some((t: { name: string }) =>

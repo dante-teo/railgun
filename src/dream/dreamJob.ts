@@ -1,6 +1,5 @@
 import type { DevinProvider, DevinModel } from "widevin";
 import type { Memory, MemoryStore } from "../persistence/memoryStore.js";
-import type { NoteStore } from "../persistence/noteStore.js";
 import { createAgent } from "../agent/agent.js";
 import { IterationBudget } from "../agent/iterationBudget.js";
 import { loadSoulIdentity, SOUL_PATH } from "../agent/projectContext.js";
@@ -13,7 +12,7 @@ const DREAM_CONSOLIDATION_RULES = [
   "- Every action must have a reason",
 ];
 
-export const buildDreamSystemPrompt = (hasNoteStore: boolean): readonly string[] => [
+export const buildDreamSystemPrompt = (): readonly string[] => [
   "You are Railgun's memory curator. Your job is to consolidate stored memories and promote stable preferences into the agent's persistent identity file (SOUL.md).",
   [
     "## Consolidate memories",
@@ -26,7 +25,6 @@ export const buildDreamSystemPrompt = (hasNoteStore: boolean): readonly string[]
     "",
     "Rules:",
     ...DREAM_CONSOLIDATION_RULES,
-    ...(hasNoteStore ? ["- Use note_search to check the user's notes for context when a memory references a topic the user may have documented. This helps you make smarter merge, keep, or delete decisions."] : []),
     "",
     "Use the memory_consolidate tool to execute your consolidation plan.",
   ].join("\n"),
@@ -47,8 +45,7 @@ export const buildDreamSystemPrompt = (hasNoteStore: boolean): readonly string[]
   ].join("\n"),
 ];
 
-/** Base prompt without note tools — used by tests and as a stable export. */
-export const DREAM_SYSTEM_PROMPT: readonly string[] = buildDreamSystemPrompt(false);
+export const DREAM_SYSTEM_PROMPT: readonly string[] = buildDreamSystemPrompt();
 
 export const formatDreamMessage = (memories: readonly Memory[], soulContent: string | null): string => {
   const memLines = memories.map((m, i) => `${i + 1}. [id:${m.id}] [${m.category}] ${m.content}`);
@@ -71,7 +68,6 @@ export interface DreamSummary {
 
 export const runDreamSession = async (
   memoryStore: MemoryStore,
-  noteStore: NoteStore | undefined,
   devin: DevinProvider,
   model: DevinModel,
   log: (msg: string) => void = console.error,
@@ -93,12 +89,11 @@ export const runDreamSession = async (
     devin,
     model: model.id,
     contextWindow: 100_000,
-    systemPrompt: buildDreamSystemPrompt(noteStore !== undefined),
+    systemPrompt: DREAM_SYSTEM_PROMPT,
     confirmShellCommand: async () => false,
     iterationBudget: () => IterationBudget.create(30),
     memoryStore,
-    ...(noteStore !== undefined ? { noteStore } : {}),
-    enabledToolsets: noteStore !== undefined ? ["dream", "file", "memory"] : ["dream", "file"],
+    enabledToolsets: ["dream", "file"],
   });
 
   agent.subscribe(event => {

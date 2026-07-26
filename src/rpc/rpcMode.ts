@@ -8,7 +8,6 @@ import type { ExtensionRunner } from "../extensions/runner.js";
 import type { AgentSession } from "../agent/agentSession.js";
 import { createAgentSession } from "../agent/agentSession.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
-import type { EmbedFn, NoteStore } from "../persistence/noteStore.js";
 import type { SessionStore } from "../persistence/sessionStore.js";
 import { createTodoStore } from "../tools/todo.js";
 import { runCompaction } from "../agent/compaction.js";
@@ -32,12 +31,10 @@ export interface RpcModeOptions {
   readonly extensionRunner?: ExtensionRunner;
   readonly sessionStore?: SessionStore;
   readonly memoryStore?: MemoryStore;
-  readonly noteStore?: NoteStore;
   readonly updateConfig?: RpcStoreDependencies["updateConfig"];
   readonly loadJobs?: RpcStoreDependencies["loadJobs"];
   readonly saveJobs?: RpcStoreDependencies["saveJobs"];
   readonly loadSkills?: RpcStoreDependencies["loadSkills"];
-  readonly embedText?: EmbedFn;
   readonly randomId?: () => string;
   readonly now?: () => Date;
   readonly interactionTimeoutMs?: number;
@@ -50,7 +47,7 @@ const MANAGEMENT_COMMANDS = new Set<string>([
   "config_get", "config_update", "mcp_list", "mcp_upsert", "mcp_remove",
   "cron_list", "cron_add", "cron_update", "cron_remove",
   "memory_list", "memory_search", "memory_create", "memory_update", "memory_delete",
-  "notes_import", "notes_search", "skills_list", "skill_get",
+  "skills_list", "skill_get",
   "instruction_files_list", "instruction_file_get", "instruction_file_update",
 ]);
 
@@ -59,7 +56,7 @@ const SESSION_COMMANDS = new Set<string>([
 ]);
 const MUTATING_MANAGEMENT_COMMANDS = new Set<string>([
   "config_update", "mcp_upsert", "mcp_remove", "cron_add", "cron_update", "cron_remove",
-  "memory_create", "memory_update", "memory_delete", "notes_import", "instruction_file_update",
+  "memory_create", "memory_update", "memory_delete", "instruction_file_update",
 ]);
 
 const V1_ONLY_COMMANDS = new Set<string>([
@@ -152,12 +149,10 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
     getConfig: () => config,
     setConfig: value => { config = value; },
     ...(options.memoryStore === undefined ? {} : { memoryStore: options.memoryStore }),
-    ...(options.noteStore === undefined ? {} : { noteStore: options.noteStore }),
     ...(options.updateConfig === undefined ? {} : { updateConfig: options.updateConfig }),
     ...(options.loadJobs === undefined ? {} : { loadJobs: options.loadJobs }),
     ...(options.saveJobs === undefined ? {} : { saveJobs: options.saveJobs }),
     ...(options.loadSkills === undefined ? {} : { loadSkills: options.loadSkills }),
-    ...(options.embedText === undefined ? {} : { embedText: options.embedText }),
     ...(options.instructionFiles === undefined ? {} : { instructionFiles: options.instructionFiles }),
     onInstructionsUpdated: () => { for (const modelId of modelRuntimes.keys()) contextDirtyModels.add(modelId); },
     randomId: newId,
@@ -195,7 +190,6 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
       ...(config.reviewerModel === undefined ? {} : { reviewerModel: config.reviewerModel }),
       ...(extensionRunner === undefined ? {} : { extensionRunner }),
       ...(options.memoryStore === undefined ? {} : { memoryStore: options.memoryStore }),
-      ...(options.noteStore === undefined ? {} : { noteStore: options.noteStore }),
       ...(modelRuntime.runtime !== undefined ? { runtime: modelRuntime.runtime } : {}),
     });
     agentSession.subscribe(writeObject);
@@ -333,7 +327,7 @@ export const runRpcMode = async (options: RpcModeOptions): Promise<void> => {
         const runtime = requireModelRuntime(selected.model);
         try {
           return await (options.runDream ?? runDreamSession)(
-            options.memoryStore!, options.noteStore, session.devin, runtime.model, () => undefined,
+            options.memoryStore!, session.devin, runtime.model, () => undefined,
             progress => writeObject({ type: "dream_progress", ...progress }),
           );
         } finally {

@@ -223,10 +223,10 @@ describe("buildSystemPrompt memories field", () => {
 });
 
 describe("buildSystemPrompt proactive recall", () => {
-  it("instructs proactive memory and note recall before answering", () => {
+  it("instructs proactive memory recall before answering", () => {
     const prompt = buildSystemPrompt(defaultInput).join("\n");
     expect(prompt).toContain("proactively search memories");
-    expect(prompt).toContain("note_search");
+    expect(prompt).not.toContain("note_search");
   });
 });
 
@@ -244,9 +244,10 @@ describe("buildSystemPrompt skill management", () => {
   });
 });
 
-describe("buildSystemPrompt note_write", () => {
-  it("instructs the agent to use note_write to save notes on request", () => {
+describe("buildSystemPrompt removed notes", () => {
+  it("does not advertise note tools", () => {
     const prompt = buildSystemPrompt(defaultInput).join("\n");
-    expect(prompt).toContain("note_write");
+    expect(prompt).not.toContain("note_write");
+    expect(prompt).not.toContain("note_search_semantic");
   });
 });

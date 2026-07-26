@@ -39,8 +39,6 @@ enum RailgunActivityPresentation {
         "web_fetch": .init(running: "Fetching", completed: "Fetched", verb: "fetch", pluralTarget: "resources", targetKeys: ["url"], symbol: .globe),
         "delegate_task": .init(running: "Delegating", completed: "Delegated", verb: "delegate", pluralTarget: "tasks", targetKeys: ["goal"], symbol: .tool),
         "skill_view": .init(running: "Loading", completed: "Loaded", verb: "load", pluralTarget: "skills", targetKeys: ["name"], symbol: .tool),
-        "note_search": .init(running: "Searching", completed: "Searched", verb: "search", pluralTarget: "notes", targetKeys: ["query"], symbol: .search),
-        "note_write": .init(running: "Writing", completed: "Wrote", verb: "write", pluralTarget: "notes", targetKeys: ["title"], symbol: .fileEdit),
     ]
 
     static func tool(name: String, input: String?, status: RailgunActivityStatus) -> RailgunToolActivityPresentation {

@@ -63,9 +63,11 @@ describe("createSessionStore", () => {
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const db = new Database(path, { readonly: true });
     expect(db.pragma("user_version", { simple: true })).toBe(7);
+    expect(db.prepare("SELECT version FROM schema_migrations").pluck().all()).toEqual(["20260726150413"]);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
-    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '%_fts%' AND name NOT LIKE 'notes\\_vec\\_%' ESCAPE '\\' AND name != 'sqlite_sequence' ORDER BY name").pluck().all())
-      .toEqual(["memories", "messages", "notes", "notes_vec", "session_deliveries", "sessions"]);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'sqlite_sequence' ORDER BY name").pluck().all())
+      .toEqual(["memories", "messages", "schema_migrations", "session_deliveries", "sessions"]);
+    expect(db.prepare("SELECT version FROM schema_migrations").pluck().all()).toEqual(["20260726150413"]);
     db.close();
 
     const reopened = createSessionStore(path);
@@ -463,17 +465,12 @@ describe("schema migration", () => {
     expect(sessCols.some(c => c.name === "archived_at")).toBe(true);
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'sessions_archived_at'").pluck().all()).toEqual(["sessions_archived_at"]);
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_deliveries'").pluck().all()).toEqual(["session_deliveries"]);
-    const tableNames = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('notes', 'notes_fts', 'notes_vec')")
-      .pluck().all() as string[];
-    expect(tableNames).toContain("notes");
-    expect(tableNames).toContain("notes_fts");
-    expect(tableNames).toContain("notes_vec");
+    expect(db.prepare("SELECT version FROM schema_migrations").pluck().all()).toEqual(["20260726150413"]);
     db.close();
   });
 });
 
-describe("notes schema migration", () => {
+describe("retired Notes schema compatibility", () => {
   let dir: string;
 
   beforeEach(async () => {
@@ -484,7 +481,7 @@ describe("notes schema migration", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("migrates a fresh database to v7 with notes, delivery, and archive metadata", () => {
+  it("does not create retired Notes tables for a fresh database", () => {
     const path = join(dir, "state.db");
     const store = createSessionStore(path);
     store.close();
@@ -498,12 +495,33 @@ describe("notes schema migration", () => {
         .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'shadow') AND name IN ('notes', 'notes_fts', 'notes_vec')")
         .pluck()
         .all() as string[];
-      expect(tables).toContain("notes");
-      expect(tables).toContain("notes_fts");
-      expect(tables).toContain("notes_vec");
+      expect(tables).toEqual([]);
       expect((db.pragma("table_info(sessions)") as { name: string }[]).some(column => column.name === "archived_at")).toBe(true);
     } finally {
       db.close();
     }
+  });
+
+  it("preserves retired Notes data while importing an existing user database into dbmate", () => {
+    const path = join(dir, "state.db");
+    const store = createSessionStore(path);
+    store.close();
+
+    const legacy = new Database(path);
+    legacy.exec(`
+      DROP TABLE schema_migrations;
+      CREATE TABLE notes (id INTEGER PRIMARY KEY, content TEXT NOT NULL);
+      INSERT INTO notes (content) VALUES ('keep this existing user data');
+      PRAGMA user_version = 7;
+    `);
+    legacy.close();
+
+    const imported = createSessionStore(path);
+    imported.close();
+
+    const db = new Database(path, { readonly: true });
+    expect(db.prepare("SELECT content FROM notes").pluck().all()).toEqual(["keep this existing user data"]);
+    expect(db.prepare("SELECT version FROM schema_migrations").pluck().all()).toEqual(["20260726150413"]);
+    db.close();
   });
 });

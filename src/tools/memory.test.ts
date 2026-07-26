@@ -36,11 +36,12 @@ describe("memory tool registry integration", () => {
     ...(store !== undefined ? { memoryStore: store } : {}),
   });
 
-  it("exposes both memory_write and memory_search schemas when memory toolset is enabled", () => {
+  it("exposes memory tools but not retired note tools", () => {
     const schemas = registry.getSchemas(["memory"]);
 
     expect(schemas.some(s => s.name === "memory_write")).toBe(true);
     expect(schemas.some(s => s.name === "memory_search")).toBe(true);
+    expect(schemas.some(s => s.name.startsWith("note_"))).toBe(false);
   });
 
   it("memory_write with valid args saves and returns Saved.", async () => {

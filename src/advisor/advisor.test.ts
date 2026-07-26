@@ -367,8 +367,8 @@ describe("ADVISOR_ALLOWED_TOOLS", () => {
     expect(ADVISOR_ALLOWED_TOOLS).toContain("memory_search");
   });
 
-  it("includes note_search", () => {
-    expect(ADVISOR_ALLOWED_TOOLS).toContain("note_search");
+  it("does not include retired note tools", () => {
+    expect(ADVISOR_ALLOWED_TOOLS).not.toContain("note_search");
   });
 
   it("does not include memory_write", () => {

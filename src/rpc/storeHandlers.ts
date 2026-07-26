@@ -5,7 +5,6 @@ import type { CronJob } from "../cron/jobs.js";
 import { loadJobs, saveJobs, validateJob } from "../cron/jobs.js";
 import { parseMcpServers } from "../extensions/mcp/config.js";
 import type { MemoryStore } from "../persistence/memoryStore.js";
-import type { EmbedFn, NoteStore } from "../persistence/noteStore.js";
 import { loadSkills } from "../skills.js";
 import type { RpcCommand } from "./types.js";
 import { createInstructionFileService, parseInstructionFileId } from "../instructions/instructionFiles.js";
@@ -15,19 +14,17 @@ type ManagementCommand = Extract<RpcCommand,
   { type: "config_get" | "config_update" | "mcp_list" | "mcp_upsert" | "mcp_remove" |
     "cron_list" | "cron_add" | "cron_update" | "cron_remove" |
     "memory_list" | "memory_search" | "memory_create" | "memory_update" | "memory_delete" |
-    "notes_import" | "notes_search" | "skills_list" | "skill_get" |
+    "skills_list" | "skill_get" |
     "instruction_files_list" | "instruction_file_get" | "instruction_file_update" }>;
 
 export interface RpcStoreDependencies {
   readonly memoryStore?: MemoryStore;
-  readonly noteStore?: NoteStore;
   readonly getConfig: () => AppConfig;
   readonly setConfig: (config: AppConfig) => void;
   readonly updateConfig?: (transform: (current: Readonly<AppConfig>) => AppConfig) => Promise<AppConfig>;
   readonly loadJobs?: () => Promise<readonly CronJob[]>;
   readonly saveJobs?: (jobs: readonly CronJob[]) => Promise<void>;
   readonly loadSkills?: typeof loadSkills;
-  readonly embedText?: EmbedFn;
   readonly randomId?: () => string;
   readonly instructionFiles?: InstructionFileService;
   readonly onInstructionsUpdated?: () => void;
@@ -48,11 +45,6 @@ const safeMcpServers = (config: AppConfig): readonly Record<string, unknown>[] =
 
 const requireMemory = (store: MemoryStore | undefined): MemoryStore => {
   if (store === undefined) throw new Error("memory store is unavailable");
-  return store;
-};
-
-const requireNotes = (store: NoteStore | undefined): NoteStore => {
-  if (store === undefined) throw new Error("note store is unavailable");
   return store;
 };
 
@@ -189,22 +181,6 @@ export const createRpcStoreHandler = (dependencies: RpcStoreDependencies) => {
       case "memory_delete": {
         if (!requireMemory(dependencies.memoryStore).delete(command.memoryId)) throw new Error(`memory not found: ${command.memoryId}`);
         return undefined;
-      }
-      case "notes_import": {
-        const store = requireNotes(dependencies.noteStore);
-        if (command.semantic === true) {
-          if (dependencies.embedText === undefined) throw new Error("semantic note embedding is unavailable");
-          return { imported: await store.importFolderWithEmbeddings(command.folderPath, dependencies.embedText) };
-        }
-        return { imported: store.importFolder(command.folderPath) };
-      }
-      case "notes_search": {
-        const store = requireNotes(dependencies.noteStore);
-        if (command.mode === "semantic") {
-          if (dependencies.embedText === undefined) throw new Error("semantic note search is unavailable");
-          return { notes: store.searchSemantic(await dependencies.embedText(command.query, "query"), command.limit) };
-        }
-        return { notes: store.search(command.query, command.limit) };
       }
       case "instruction_files_list": return { files: await instructionFiles.list() };
       case "instruction_file_get": return { file: await instructionFiles.get(parseInstructionFileId(command.fileId)) };

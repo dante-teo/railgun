@@ -14,8 +14,6 @@ const IDEMPOTENT_TOOLS: Readonly<Record<string, true>> = Object.freeze({
   web_fetch: true,
   read_file: true,
   list_directory: true,
-  note_search: true,
-  note_search_semantic: true,
 });
 
 const isIdempotent = (toolName: string): boolean => IDEMPOTENT_TOOLS[toolName] === true;

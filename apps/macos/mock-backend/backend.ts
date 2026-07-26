@@ -309,7 +309,7 @@ if (scenario.behavior === "authentication-required") {
       const sendHandshake = (): void => respond(type, command.id, {
         data: {
           version: 1,
-          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "notes", "dream", "instructions", "skills", "session.delivery"],
+          capabilities: ["sessions", "interaction.approval", "interaction.clarification", "config", "mcp", "cron", "memory", "dream", "instructions", "skills", "session.delivery"],
         },
       });
       setTimeout(sendHandshake, scenario.behavior === "delayed-startup" ? 600 : 5);
@@ -640,15 +640,6 @@ if (scenario.behavior === "authentication-required") {
     if (type === "memory_delete") {
       memories = memories.filter(memory => memory.id !== command.memoryId); respond(type, command.id); return;
     }
-    if (type === "notes_import") { respond(type, command.id, { data: { imported: 4 } }); return; }
-    if (type === "notes_search") {
-      const notes = scenario.behavior === "empty-stores" ? [] : [
-        command.mode === "semantic"
-          ? { id: 1, sourcePath: "/redacted/mock/knowledge.md", content: "A semantic result about the imported knowledge base.", distance: 0.12 }
-          : { id: 1, sourcePath: "/redacted/mock/knowledge.md", snippet: "A keyword result from the imported knowledge base." },
-      ];
-      respond(type, command.id, { data: { notes } }); return;
-    }
     if (type === "dream_run") {
       if (activePrompt !== undefined) { respond(type, command.id, { error: "cannot run Dream while agent is running" }); return; }
       const beforeCount = memories.length;
@@ -676,7 +667,7 @@ if (scenario.behavior === "authentication-required") {
     }
     const emptyStoreData: Record<string, unknown> = {
       memory_list: { memories: [] }, memory_search: { memories: [] },
-      notes_search: { notes: [] }, cron_list: { jobs: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
+      cron_list: { jobs: [] }, mcp_list: { servers: [] }, skills_list: { skills: [] },
     };
     if (type in emptyStoreData) {
       if (scenario.behavior === "store-error") respond(type, command.id, { error: `mock store error: ${type}` });

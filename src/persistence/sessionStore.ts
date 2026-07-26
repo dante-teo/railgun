@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import type { DevinAssistantContentPart, DevinContentPart, DevinMessage, DevinProvider } from "widevin";
@@ -414,8 +415,8 @@ const wireParentChains = (db: Database.Database): void => {
   wire();
 };
 
-/** Each entry migrates from index N to N+1. user_version is bumped automatically. */
-const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
+/** One-time importer for databases created before dbmate adoption. */
+const LEGACY_USER_VERSION_MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
   // 0 → 1: historical initial schema (no parent_id, no INTEGER PK on messages, no current_leaf_id)
   (db) => db.exec(`
     CREATE TABLE sessions (
@@ -517,35 +518,10 @@ const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
     wireParentChains(db);
   },
 
-  // 3 → 4: add notes table + FTS5 virtual table for full-text search
-  (db) => db.exec(`
-    CREATE TABLE IF NOT EXISTS notes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_path TEXT,
-      content TEXT NOT NULL,
-      created_at REAL NOT NULL
-    );
-
-    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(content);
-
-    CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
-      INSERT INTO notes_fts(rowid, content) VALUES (new.id, new.content);
-    END;
-    CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
-      DELETE FROM notes_fts WHERE rowid = old.id;
-    END;
-    CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE ON notes BEGIN
-      DELETE FROM notes_fts WHERE rowid = old.id;
-      INSERT INTO notes_fts(rowid, content) VALUES (new.id, new.content);
-    END;
-  `),
-
-  // 4 → 5: add vector embedding table for semantic note search (sqlite-vec)
-  (db) => db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
-      embedding FLOAT[384]
-    );
-  `),
+  // 3 → 4 and 4 → 5: retired Notes schema migrations. Keep these slots so
+  // existing databases retain their historical user_version without data loss.
+  () => undefined,
+  () => undefined,
 
   // 5 → 6: reversible task-session archiving.
   (db) => db.exec(`
@@ -569,19 +545,89 @@ const MIGRATIONS: ReadonlyArray<(db: Database.Database) => void> = [
   `),
 ];
 
+const DBMATE_BASELINE_VERSION = "20260726150413";
+
+interface DbmateMigration {
+  readonly version: string;
+  readonly up: string;
+}
+
+const dbmateMigrationDirectory = (): string => {
+  const sourceDirectory = fileURLToPath(new URL("../../db/migrations/", import.meta.url));
+  return existsSync(sourceDirectory)
+    ? sourceDirectory
+    : fileURLToPath(new URL("../migrations/", import.meta.url));
+};
+
+const dbmateMigrations = (): readonly DbmateMigration[] => {
+  const directory = dbmateMigrationDirectory();
+  return readdirSync(directory, { withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => entry.name)
+    .sort()
+    .flatMap(filename => {
+      const match = /^(\d+)_.*\.sql$/u.exec(filename);
+      if (match === null) return [];
+      const source = readFileSync(`${directory}/${filename}`, "utf8");
+      const up = source.match(/^-- migrate:up\s*\n([\s\S]*?)^-- migrate:down\s*$/mu)?.[1]?.trim();
+      if (up === undefined) throw new Error(`Invalid dbmate migration file: ${filename}`);
+      return { version: match[1]!, up };
+    });
+};
+
+const hasTable = (db: Database.Database, name: string): boolean =>
+  db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+
+const initializeDbmateTable = (db: Database.Database): void => {
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`);
+};
+
+const appliedDbmateVersions = (db: Database.Database): Set<string> =>
+  new Set(db.prepare("SELECT version FROM schema_migrations").pluck().all() as string[]);
+
+const applyDbmateMigrations = (db: Database.Database): void => {
+  initializeDbmateTable(db);
+  const applied = appliedDbmateVersions(db);
+  for (const migration of dbmateMigrations()) {
+    if (applied.has(migration.version)) continue;
+    db.transaction(() => {
+      db.exec(migration.up);
+      db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
+    })();
+  }
+};
+
+const importLegacySchema = (db: Database.Database): void => {
+  const version = db.pragma("user_version", { simple: true }) as number;
+  if (version > LEGACY_USER_VERSION_MIGRATIONS.length) throw new Error(`Session database schema ${version} is newer than supported legacy schema ${LEGACY_USER_VERSION_MIGRATIONS.length}`);
+  for (let v = version; v < LEGACY_USER_VERSION_MIGRATIONS.length; v++) {
+    db.transaction(() => {
+      LEGACY_USER_VERSION_MIGRATIONS[v]!(db);
+      db.pragma(`user_version = ${v + 1}`);
+    })();
+  }
+  initializeDbmateTable(db);
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)").run(DBMATE_BASELINE_VERSION);
+  applyDbmateMigrations(db);
+};
+
 const initializeSchema = (db: Database.Database): void => {
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   sqliteVec.load(db);
-  const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > MIGRATIONS.length)
-    throw new Error(`Session database schema ${version} is newer than supported version ${MIGRATIONS.length}`);
-  for (let v = version; v < MIGRATIONS.length; v++) {
-    db.transaction(() => {
-      MIGRATIONS[v]!(db);
-      db.pragma(`user_version = ${v + 1}`);
-    })();
+  const hasExistingSessions = hasTable(db, "sessions");
+  if (!hasTable(db, "schema_migrations")) {
+    if (hasExistingSessions) importLegacySchema(db); else applyDbmateMigrations(db);
+    return;
+  }
+  if (hasExistingSessions && !appliedDbmateVersions(db).has(DBMATE_BASELINE_VERSION)) {
+    importLegacySchema(db);
+  } else {
+    applyDbmateMigrations(db);
   }
 };
 

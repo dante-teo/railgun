@@ -92,7 +92,7 @@ export const MOCK_SCENARIOS = defineMockScenarios([
   {
     id: "empty-stores",
     label: "Empty stores",
-    description: "Reports empty session, memory, note, cron, MCP, and skill stores.",
+    description: "Reports empty session, memory, cron, MCP, and skill stores.",
     behavior: "empty-stores",
   },
   {
