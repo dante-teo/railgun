@@ -11,7 +11,8 @@ final class RailgunSessionFlowTests: XCTestCase {
             return try response(for: command.type, data: .object(["cursor": .number(12)]))
         }
 
-        XCTAssertEqual(try await service.scheduledDeliveryCursor(), 12)
+        let cursor = try await service.scheduledDeliveryCursor()
+        XCTAssertEqual(cursor, 12)
 
         for malformedData: RailgunJSONValue in [
             .object(["cursor": .number(-1)]),
@@ -20,7 +21,10 @@ final class RailgunSessionFlowTests: XCTestCase {
             let malformed = RailgunSessionService { command in
                 try response(for: command.type, data: malformedData)
             }
-            await assertSessionThrows(try await malformed.scheduledDeliveryCursor()) { error in
+            do {
+                _ = try await malformed.scheduledDeliveryCursor()
+                XCTFail("Expected invalid cursor response to be rejected")
+            } catch {
                 XCTAssertEqual(error as? RailgunSessionServiceError, .invalidResponse)
             }
         }
@@ -30,10 +34,15 @@ final class RailgunSessionFlowTests: XCTestCase {
         let tracker = RailgunScheduledDeliveryTracker()
         await tracker.establishBaseline(4)
 
-        XCTAssertFalse(await tracker.didAdvance(to: 4))
-        XCTAssertTrue(await tracker.didAdvance(to: 5))
-        XCTAssertFalse(await tracker.didAdvance(to: 3))
-        XCTAssertTrue(await tracker.didAdvance(to: 4))
+        let didAdvanceToFour = await tracker.didAdvance(to: 4)
+        let didAdvanceToFive = await tracker.didAdvance(to: 5)
+        let didAdvanceBackToThree = await tracker.didAdvance(to: 3)
+        let didAdvanceBackToFour = await tracker.didAdvance(to: 4)
+
+        XCTAssertFalse(didAdvanceToFour)
+        XCTAssertTrue(didAdvanceToFive)
+        XCTAssertFalse(didAdvanceBackToThree)
+        XCTAssertTrue(didAdvanceBackToFour)
     }
 
     func testSessionServiceListsActiveAndArchivedSessionsInBackendOrder() async throws {
@@ -732,19 +741,6 @@ final class RailgunSessionFlowTests: XCTestCase {
 }
 
 private enum ResumeStubError: Error { case unexpectedCommand }
-
-@MainActor
-private func assertSessionThrows<T: Sendable>(
-    _ expression: @autoclosure () async throws -> T,
-    _ verify: (Error) -> Void
-) async {
-    do {
-        _ = try await expression()
-        XCTFail("Expected an error")
-    } catch {
-        verify(error)
-    }
-}
 
 private func summary(id: String, preview: String, archivedAt: String? = nil) -> RailgunJSONValue {
     var fields: [String: RailgunJSONValue] = [

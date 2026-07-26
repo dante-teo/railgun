@@ -323,7 +323,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(readme.contains("4, 8, 12, 16, 24, and 32 point scale"))
         XCTAssertTrue(readme.contains("32-point inter-message gap"))
         XCTAssertTrue(readme.contains("presents a 320×360 popover"))
-        XCTAssertTrue(readme.contains("scrolls as one native surface"))
+        XCTAssertTrue(readme.replacingOccurrences(of: "\n", with: " ").contains("scrolls as one native surface"))
         XCTAssertTrue(nativeUIPolicy.contains("## Activity popover layout invariant"))
         XCTAssertTrue(nativeUIPolicy.contains("Do not reserve transcript width"))
         XCTAssertTrue(nativeUIPolicy.contains("Do not add custom glass"))
@@ -358,7 +358,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("## Task toolbar and composer controls invariant"))
         XCTAssertTrue(nativeUIPolicy.contains("`#if compiler(>=6.2)`"))
         XCTAssertTrue(nativeUIPolicy.contains("Keep model selection as a SwiftUI `Menu` of `Button` actions"))
-        XCTAssertTrue(nativeUIPolicy.contains("Do not expose Advisor or MoA enable/disable controls"))
+        XCTAssertTrue(nativeUIPolicy.contains("Do not add multi-agent controls to the Task surface"))
         XCTAssertTrue(nativeUIPolicy.contains("must report `Not measured yet`"))
         XCTAssertTrue(nativeUIPolicy.contains("visible inline error"))
         XCTAssertTrue(nativeUIPolicy.contains("row with Retry"))
@@ -1503,13 +1503,11 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(backendRecords.allSatisfy { !$0.noticeContentSHA256.isEmpty })
     }
 
-    func testLegalNoticeManifestTracksTheCheckedInBackendLockfileAndIncludesFullLGPLTerms() throws {
+    func testLegalNoticeManifestTracksTheCheckedInBackendLockfile() throws {
         let manifest = try LegalNotices.loadManifest()
         let lockfile = try Data(contentsOf: repositoryRoot.appendingPathComponent("pnpm-lock.yaml"))
-        let notices = try String(contentsOf: try XCTUnwrap(LegalNotices.noticesURL), encoding: .utf8)
 
         XCTAssertEqual(manifest.backendLockfileSHA256, SHA256.hash(data: lockfile).hexString)
-        XCTAssertTrue(notices.contains("GNU LESSER GENERAL PUBLIC LICENSE"))
     }
 
     func testLegalNoticeValidatorAcceptsTheCheckedInCatalogWithoutInstalledPackages() throws {
