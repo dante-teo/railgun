@@ -178,6 +178,10 @@ if [[ ! -d "$sparkle_framework" ]]; then
   exit 1
 fi
 
+cargo build \
+  --locked \
+  --package railgun-mock-backend \
+  --manifest-path "$repository_root/Cargo.toml"
 build_scheme test
 
 archive_release_configuration

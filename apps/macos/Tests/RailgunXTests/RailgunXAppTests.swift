@@ -1419,9 +1419,14 @@ final class RailgunXAppTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
             encoding: .utf8
         )
+        let projectValidation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-project.sh"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(mockBackend.contains("transcript::page"))
         XCTAssertTrue(appSource.contains("target/debug/railgun-mock-backend"))
+        XCTAssertTrue(projectValidation.contains("--package railgun-mock-backend"))
         XCTAssertFalse(appSource.contains("--import"))
     }
 
