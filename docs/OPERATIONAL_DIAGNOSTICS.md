@@ -17,8 +17,8 @@ The default read-only `railgun_inspect` tool supports five bounded areas:
   Bearer, and Authorization forms while retaining ordinary arguments.
 - `cron`: daemon status plus normalized job `lastRun`, `lastSuccess`, `lastStatus`,
   and `lastError` fields.
-- `logs`: a bounded tail of `interactive-latest.jsonl`, `cron-latest.log`, or
-  `desktop-latest.jsonl` selected with `source`.
+- `logs`: a bounded tail of `interactive-latest.jsonl` or `cron-latest.log`
+  selected with `source`.
 - `cron_runs`: bounded summaries for a job's hashed report directory, or one
   selected bounded full report.
 
@@ -34,28 +34,6 @@ Argument redaction cannot reliably identify an unlabelled positional secret. MCP
 credentials should be configured in `env`, not as bare positional arguments. The
 `railgun config` CLI command remains an operator-facing validation command and
 prints effective configuration without redaction; do not share or paste its output.
-
-## Desktop JSONL
-
-Electron main creates one `desktop-<timestamp>-<pid>.jsonl` file per launch and
-atomically replaces `desktop-latest.jsonl`. Each line has:
-
-```json
-{"timestamp":"2026-07-15T00:00:00.000Z","category":"transport","direction":"stdout","text":"type=response command=get_state id=desktop-ready-1 success=true"}
-```
-
-`category` is `transport` or `lifecycle` for records currently persisted;
-`direction` is optional. The supervisor sanitizes and bounds structured summaries
-once, then uses that exact value for both the desktop snapshot and persistence.
-Backend stderr is bounded for the in-memory UI only and is never written to disk,
-because MCP processes can emit arbitrary prompts, results, or bare credentials.
-Records never contain raw RPC frames or payloads, prompts, tool arguments/results,
-commands, environment variables, or credentials. The directory is mode `0700`,
-files are `0600`, and prior launch files are pruned after seven days or oldest-first
-above a 100 MiB aggregate cap. Initialization and writes are best-effort: an
-unwritable diagnostics location does not prevent the desktop from starting. In
-that state no launch file or `desktop-latest.jsonl` is created, and a desktop log
-inspection reports the fixed latest path as missing.
 
 ## Configuration activation
 

@@ -152,7 +152,7 @@ final class RailgunTransportTests: XCTestCase {
 
     private func assertStdoutFailure(
         script: String,
-        configuration: RailgunTransportConfiguration = .electronCompatible,
+        configuration: RailgunTransportConfiguration = .standard,
         expected: RailgunTransportError
     ) async throws {
         let transport = try await startTransport(script: script, configuration: configuration)
@@ -168,7 +168,7 @@ final class RailgunTransportTests: XCTestCase {
 
     private func startTransport(
         script: String,
-        configuration: RailgunTransportConfiguration = .electronCompatible
+        configuration: RailgunTransportConfiguration = .standard
     ) async throws -> (backend: BackendProcess, transport: RailgunTransport) {
         let backend = BackendProcess()
         let pipes = try await backend.start(

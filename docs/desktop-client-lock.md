@@ -1,8 +1,7 @@
 # Shared desktop-client lock
 
-Railgun and Railgun Classic use the same `~/.railgun` data in place. Only one
-interactive desktop client may use it at a time. This document defines the
-on-disk protocol that both clients must preserve.
+Railgun uses one interactive backend for its shared `~/.railgun` data at a
+time. This document defines the on-disk exclusion protocol.
 
 ## Lock record
 
@@ -20,8 +19,7 @@ creation and owner-only permissions. Its JSON object requires these fields:
 
 `pid` is a positive process ID. `bundleId`, `clientName`, and `startTime` must
 be non-empty strings; clients emit `startTime` as an ISO-8601 timestamp.
-Railgun identifies itself as `io.anvia.railgun` / `Railgun`; Classic uses
-`sh.railgun.desktop` / `Railgun Classic`.
+Railgun identifies itself as `io.anvia.railgun` / `Railgun`.
 
 Acquire this lock before starting an interactive backend. Keep it until backend
 shutdown and remove it only when the file still contains the exact record that

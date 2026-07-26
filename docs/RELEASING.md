@@ -1,75 +1,28 @@
-# Releasing Railgun and Railgun Classic
+# Releasing Railgun
 
-`apps/desktop/package.json` is the only release-version authority. Create a
-matching `vX.Y.Z` tag after desktop tests pass.
-
-## Platform support
-
-Direct releases support Apple silicon (`arm64`) Macs only. Intel (`x86_64`)
-builds and release artifacts are no longer produced.
-
-## Stable release procedure
-
-From a clean `main` checkout, run the root release command. It bumps only the
-desktop workspace, creates the version commit, and creates the matching
-`vX.Y.Z` tag. Do not run `pnpm version` directly at the repository
-root: the bundled backend is intentionally private and has no release version.
+Railgun releases support Apple silicon (`arm64`) Macs only. The native macOS
+app is the sole release artifact; the former Electron release pipeline is
+retired. Create a signed `vX.Y.Z` tag from a clean `main` checkout after native
+verification passes.
 
 ```sh
 pnpm run typecheck
 pnpm run build
-pnpm --filter @dantea/railgun-desktop typecheck
 pnpm run test
-pnpm --filter @dantea/railgun-desktop test
-pnpm --filter @dantea/railgun-desktop package
-pnpm release:version patch
+./apps/macos/scripts/validate-project.sh
+git tag vX.Y.Z
 git push origin main --tags
 ```
 
-Use `minor`, `major`, or an explicit version in place of `patch` as needed.
-The command uses pnpm's normal commit-and-tag behavior and its standard `v`
-prefix, which is recognized by the GitHub-backed updater.
+The release workflow archives, signs, notarizes, staples, and validates the
+native `Railgun` application. It uploads the arm64 ZIP and its signed Sparkle
+appcast to the GitHub Release. Pre-release tags create GitHub pre-releases.
 
-The release workflow signs, notarizes, staples, and validates arm64 direct
-artifacts:
+The workflow requires Developer ID and Apple notarization credentials plus
+`RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY` and
+`RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY`. The private Sparkle key is passed to the
+appcast generator on standard input only; store the exported key-file text, not
+a base64 wrapper, in the repository secret.
 
-It also ships a native `Railgun` artifact for `arm64`, with a signed Sparkle
-appcast.
-The Electron app is named Railgun Classic, while its direct-release feed and
-artifact names remain unchanged for updater compatibility.
-The native job needs `RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY` and
-`RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY` repository secrets. The private key is
-provided to Sparkle via standard input only; store the exported key-file text,
-not a base64 wrapper, in that secret.
-
-Native CI generates the disposable Xcode project and exercises the complete
-Release configuration before a tag is published. It creates an ad-hoc signed
-arm64 archive, verifies nested runtime entitlements and packaged backend
-startup, and generates a signed Sparkle appcast with a disposable matching
-keypair. The tagged release repeats those steps with the Developer ID and
-production Sparkle keys before notarization, stapling, and upload.
-Both desktop packagers discard foreign ONNX runtime payloads and retain only
-the macOS arm64 native binaries.
-
-Before packaging, the workflow prefetches the arm64 Electron binary with up to
-three attempts. This avoids Electron's lazy download during the backend build;
-if all attempts fail, retry the release job after the artifact host is
-available again.
-
-- Direct artifacts are uploaded to the GitHub release and use the in-app
-  updater, including automatic and **Railgun → Check for Updates…** checks.
-  Their names retain the updater-required macOS target, for example
-  `Railgun-direct-X.Y.Z-darwin-arm64.zip`.
-
-Homebrew distribution is no longer built or updated by this workflow. The
-`homebrew` update channel remains only for compatibility with previously
-installed builds and must not be used for new release artifacts.
-
-Do not rename the direct ZIP files after Forge builds them: the `darwin-arm64`
-target identifier is required by the GitHub update service. Before tagging, run
-desktop type-check and tests, build a packaged arm64 app, and verify
-signing/notarization when release credentials are present. The direct updater
-requires a signed public GitHub Release containing the arm64 ZIP.
-
-The retired npm package is deprecated with a desktop-only migration message;
-historical versions remain published and must not be unpublished.
+Homebrew distribution is not produced by this workflow. Historical npm
+packages remain deprecated and must not be unpublished.

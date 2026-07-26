@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "backendLockfileSHA256": "09ff4b0b90b07ecf6a79cfa8afb76780a7e989a42035b1b81a0df36fe0acb9c5",
+  "backendLockfileSHA256": "2ca433a57e206e4a8f095f480cf3bc248bd46620302e0658cace31210ae1d5f7",
   "inputHashes": {
-    "backendLockfileSHA256": "09ff4b0b90b07ecf6a79cfa8afb76780a7e989a42035b1b81a0df36fe0acb9c5",
+    "backendLockfileSHA256": "2ca433a57e206e4a8f095f480cf3bc248bd46620302e0658cace31210ae1d5f7",
     "packageResolvedSHA256": "f44102c79145d149f2d56aec9b4dd30fe0548fe0bc3345ef7cb0f0b2a2842b56",
     "nodeRuntimeManifestSHA256": "6c11b0205fc3e7cb16085f3570545ef47f74b603978c2ba37e0692ef1705a1a2",
     "railgunLicenseSHA256": "7951ebcac33ae6a213b04a66f97af7a24c1f65b807841fc641f0c97dba1b1b8b",
@@ -29,7 +29,7 @@
       "apps/macos/Resources/RailgunIcon/RailgunIcon-1024.png": "f01601d42e52f9e9270dc1b8298bdc3cf5e15cb58af0b9a335cd0bd2c20739d0"
     }
   },
-  "noticesSHA256": "5ff8567896eff3bc4ef451f497b235075cbffa9e74d280eda8f3d3e4682239b3",
+  "noticesSHA256": "ef1bf5d65ef8b0409e5be7466bd5819ceb10a357f8fe5eeeb5d00b3814d6a7b3",
   "components": [
     {
       "identifier": "swift-markdown",
@@ -600,8 +600,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#ansi-escapes@7.3.0",
-      "licenseSource": "node_modules/ink/node_modules/ansi-escapes/license",
-      "noticeContentSHA256": "1d0f6a2d6a24306f9a31e6cf0b86f5ac0b0f0a5bfc9660751dd8020b6a94a52d"
+      "licenseSource": "node_modules/ansi-escapes/license",
+      "noticeContentSHA256": "bf918d50a810251176f9db4706900c0e4ff094c953c0c72c70882441e93aaad8"
     },
     {
       "identifier": "npm:ansi-regex@6.2.2",
@@ -613,8 +613,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#ansi-regex@6.2.2",
-      "licenseSource": "node_modules/strip-ansi/node_modules/ansi-regex/license",
-      "noticeContentSHA256": "181751b484b19f37764059cbf89014f54daf46c3860e73502b99d4af30ade076"
+      "licenseSource": "node_modules/ansi-regex/license",
+      "noticeContentSHA256": "88a7e65a78437b046c778db44d1455afc8d15061214e0475f710854903576470"
     },
     {
       "identifier": "npm:ansi-styles@6.2.3",
@@ -743,8 +743,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#chalk@5.6.2",
-      "licenseSource": "node_modules/markdansi/node_modules/chalk/license",
-      "noticeContentSHA256": "2e73e1c4411f9b14ab7842e84d0479404c10aa4e204d19eaa6e0eebfd46abaf2"
+      "licenseSource": "node_modules/chalk/license",
+      "noticeContentSHA256": "879c1ffb716d75c290963982f430c789644c9acbec66fbbb7404d11968db170d"
     },
     {
       "identifier": "npm:character-entities@2.0.2",
@@ -1146,8 +1146,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#escape-string-regexp@4.0.0",
-      "licenseSource": "node_modules/matcher/node_modules/escape-string-regexp/license",
-      "noticeContentSHA256": "43008a9b9258b589cba59cb1d1d4500ede2aafebb6d8a38e5114f1b80217e884"
+      "licenseSource": "node_modules/escape-string-regexp/license",
+      "noticeContentSHA256": "238c59b6c89671a9c96bdd108336192c680a403f8b3fa0f8e849c4d79dbe07b8"
     },
     {
       "identifier": "npm:expand-template@2.0.3",
@@ -1289,8 +1289,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#has-flag@5.0.1",
-      "licenseSource": "node_modules/supports-hyperlinks/node_modules/has-flag/license",
-      "noticeContentSHA256": "de0b11de0431ed8f97b62eabcf6759d2523af4bc18ebd0bf2d83654e371cd797"
+      "licenseSource": "node_modules/has-flag/license",
+      "noticeContentSHA256": "1aefe994d901be427d0770598b78b0e7380045aa7618c399f27c15514f976096"
     },
     {
       "identifier": "npm:has-property-descriptors@1.0.2",
@@ -2277,8 +2277,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#string-width@7.2.0",
-      "licenseSource": "node_modules/ink/node_modules/wrap-ansi/node_modules/string-width/license",
-      "noticeContentSHA256": "77bc86fb749bc1c2142e59ecd07ee59c6eb607502b9b27254bfabdc4d304a562"
+      "licenseSource": "node_modules/wrap-ansi/node_modules/string-width/license",
+      "noticeContentSHA256": "cc5391fda74a2713c04a388cd9c7cbc467fe9d2ce7fef49b8b92608bff1a7772"
     },
     {
       "identifier": "npm:string-width@8.2.1",
@@ -2641,8 +2641,8 @@
       "copyright": null,
       "license": "MIT",
       "sourceLocation": "pnpm-lock.yaml#wrap-ansi@9.0.2",
-      "licenseSource": "node_modules/ink/node_modules/wrap-ansi/license",
-      "noticeContentSHA256": "5be0ab88f7bc9464388ecc99230409f8bd467ded84259951897dffe5f3808735"
+      "licenseSource": "node_modules/wrap-ansi/license",
+      "noticeContentSHA256": "f464105647694f02a6f7537869c89391fcab044599e9bac1ccb832e8935d410d"
     },
     {
       "identifier": "npm:wrappy@1.0.2",

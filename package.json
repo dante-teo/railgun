@@ -14,9 +14,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @dantea/railgun-desktop start",
-    "dev:mock": "pnpm --filter @dantea/railgun-desktop start:mock",
-    "release:version": "pnpm --dir apps/desktop version",
+    "dev": "./scripts/run-source.sh",
+    "dev:mock": "./scripts/run-mock.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run src"

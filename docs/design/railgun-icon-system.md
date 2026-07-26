@@ -19,9 +19,6 @@ literal weapon, projectile, or explosion.
   vector fallback; the AppIcon catalog is generated from the PNG above.
 - `apps/macos/Resources/Assets.xcassets/AppIcon.appiconset` — checked-in
   1×/2× macOS AppIcon representations generated from the raster export.
-- `apps/desktop/assets/railgun-icon.png` and
-  `apps/desktop/assets/railgun-icon.icns` — the Electron package artwork used
-  by the desktop About window and macOS application bundle.
 
 The artwork source remains outside the generated Xcode project so it remains
 reusable without duplicating the artwork. Run
@@ -50,9 +47,7 @@ shadow, or detail that is required for recognition at small sizes.
 `RailgunIcon-1024.png` is the canonical shipped artwork. The SVG masters are
 kept as an editable fallback and are not used to generate the AppIcon catalog.
 The `testMonochromeMasterPreservesProductionSilhouette` XCTest continues to
-guard their shared fallback silhouette. The desktop PNG is kept byte-for-byte
-in sync with this source; its ICNS companion contains the same artwork at the
-macOS icon sizes.
+guard their shared fallback silhouette.
 
 AppIcon representations are generated from the production source and reviewed
 at 16, 32, 64, 128, 256, 512, and 1024 pixels. The compiled bundle must expose

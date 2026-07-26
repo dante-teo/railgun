@@ -13,122 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-desktop:
-    name: Desktop (arm64)
-    runs-on: macos-15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Electron binary
-        uses: ./.github/actions/install-electron
-
-      - name: Prepare release metadata
-        id: metadata
-        shell: bash
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          package_version="$(node -p "require('./apps/desktop/package.json').version")"
-          if [ "$version" != "$package_version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Import Developer ID certificate
-        id: keychain
-        shell: bash
-        env:
-          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          keychain="$RUNNER_TEMP/railgun-release.keychain-db"
-          keychain_password="$(openssl rand -hex 32)"
-          certificate="$RUNNER_TEMP/railgun-release.p12"
-          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
-          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
-          security find-identity -v -p codesigning "$keychain" | grep 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)'
-          echo "path=$keychain" >> "$GITHUB_OUTPUT"
-
-      - name: Build, sign, and notarize
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          MACOS_KEYCHAIN: ${{ steps.keychain.outputs.path }}
-          RAILGUN_DESKTOP_BUILD_VERSION: ${{ github.run_number }}
-          RAILGUN_DESKTOP_VERSION: ${{ steps.metadata.outputs.version }}
-          RAILGUN_UPDATE_CHANNEL: direct
-        run: |
-          pnpm --filter @dantea/railgun-desktop build:backend-assets
-          max_attempts=3
-          for attempt in $(seq 1 "$max_attempts"); do
-            log="$RUNNER_TEMP/electron-forge-make-arm64-$attempt.log"
-            set +e
-            pnpm --filter @dantea/railgun-desktop exec electron-forge make --arch arm64 2>&1 | tee "$log"
-            status=${PIPESTATUS[0]}
-            set -e
-
-            if [ "$status" -eq 0 ]; then exit 0; fi
-            if ! grep -Eq 'NSURLErrorDomain Code=-1001|The request timed out|HTTPError\(statusCode: nil' "$log"; then
-              exit "$status"
-            fi
-            if [ "$attempt" -eq "$max_attempts" ]; then exit "$status"; fi
-
-            delay_seconds=$((attempt * 60))
-            echo "::warning::Apple notarization timed out; retrying in ${delay_seconds}s (attempt $((attempt + 1)) of $max_attempts)."
-            sleep "$delay_seconds"
-          done
-
-      - name: Verify signed application
-        shell: bash
-        run: |
-          set -euo pipefail
-          app="apps/desktop/out/Railgun Classic-darwin-arm64/Railgun Classic.app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          spctl --assess --type execute --verbose=2 "$app"
-          xcrun stapler validate "$app"
-
-      - name: Prepare release artifact
-        id: artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ steps.metadata.outputs.version }}"
-          source="$(find "apps/desktop/out/make/zip/darwin/arm64" -maxdepth 1 -name '*.zip' -print -quit)"
-          destination="$RUNNER_TEMP/Railgun-direct-${version}-darwin-arm64.zip"
-          test -n "$source"
-          mv "$source" "$destination"
-          echo "path=$destination" >> "$GITHUB_OUTPUT"
-
-      - name: Upload desktop artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: railgun-desktop-direct-arm64
-          path: ${{ steps.artifact.outputs.path }}
-          if-no-files-found: error
-          retention-days: 7
-
-  build-railgunx:
+  build-railgun:
     name: Railgun (arm64)
     runs-on: macos-15
 
@@ -156,11 +41,6 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          package_version="$(node -p "require('./apps/desktop/package.json').version")"
-          if [ "$version" != "$package_version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package version $package_version." >&2
-            exit 1
-          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Import Developer ID certificate
@@ -171,9 +51,9 @@ jobs:
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          keychain="$RUNNER_TEMP/railgunx-release.keychain-db"
+          keychain="$RUNNER_TEMP/railgun-release.keychain-db"
           keychain_password="$(openssl rand -hex 32)"
-          certificate="$RUNNER_TEMP/railgunx-release.p12"
+          certificate="$RUNNER_TEMP/railgun-release.p12"
           printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
@@ -197,42 +77,40 @@ jobs:
             --build "$GITHUB_RUN_NUMBER" \
             --identity 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)' \
             --keychain "${{ steps.keychain.outputs.path }}" \
-            --output "$RUNNER_TEMP/railgunx" \
-            --source-packages-output "$RUNNER_TEMP/railgunx-source-packages"
+            --output "$RUNNER_TEMP/railgun" \
+            --source-packages-output "$RUNNER_TEMP/railgun-source-packages"
 
       - name: Generate signed Sparkle appcast
         env:
           RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY }}
         run: |
           apps/macos/scripts/generate-appcast.sh \
-            --archive "$RUNNER_TEMP/railgunx/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
-            --output "$RUNNER_TEMP/railgunx/Railgun-appcast-arm64.xml" \
+            --archive "$RUNNER_TEMP/railgun/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+            --output "$RUNNER_TEMP/railgun/Railgun-appcast-arm64.xml" \
             --download-url-prefix "https://github.com/dante-teo/railgun/releases/download/${GITHUB_REF_NAME}/" \
-            --source-packages "$RUNNER_TEMP/railgunx-source-packages"
+            --source-packages "$RUNNER_TEMP/railgun-source-packages"
 
       - name: Smoke-check packaged Railgun
         run: |
           apps/macos/scripts/validate-release-artifact.sh \
-            --app "$RUNNER_TEMP/railgunx/Railgun.app" \
-            --archive "$RUNNER_TEMP/railgunx/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+            --app "$RUNNER_TEMP/railgun/Railgun.app" \
+            --archive "$RUNNER_TEMP/railgun/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
             --architecture arm64 \
-            --appcast "$RUNNER_TEMP/railgunx/Railgun-appcast-arm64.xml"
+            --appcast "$RUNNER_TEMP/railgun/Railgun-appcast-arm64.xml"
 
       - name: Upload Railgun artifacts
         uses: actions/upload-artifact@v7
         with:
           name: railgun-native-arm64
           path: |
-            ${{ runner.temp }}/railgunx/Railgun-*.zip
-            ${{ runner.temp }}/railgunx/Railgun-appcast-*.xml
+            ${{ runner.temp }}/railgun/Railgun-*.zip
+            ${{ runner.temp }}/railgun/Railgun-appcast-*.xml
           if-no-files-found: error
           retention-days: 7
 
   release:
-    name: Publish desktop
-    needs:
-      - build-desktop
-      - build-railgunx
+    name: Publish Railgun
+    needs: build-railgun
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -241,33 +119,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Download desktop artifacts
+      - name: Download Railgun artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: railgun-*
+          name: railgun-native-arm64
           path: dist
-          merge-multiple: true
-
-      - name: Prepare release metadata
-        id: metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          arm64_zip="dist/Railgun-direct-${version}-darwin-arm64.zip"
-          railgun_arm64_zip="dist/Railgun-${version}-darwin-arm64.zip"
-          railgun_arm64_appcast="dist/Railgun-appcast-arm64.xml"
-          test -f "$arm64_zip"
-          test -f "$railgun_arm64_zip"
-          test -f "$railgun_arm64_appcast"
-          arm64_sha256="$(sha256sum "$arm64_zip" | awk '{print $1}')"
-          prerelease=false
-          if [[ "$version" == *-* ]]; then prerelease=true; fi
-          {
-            echo "version=$version"
-            echo "arm64_sha256=$arm64_sha256"
-            echo "prerelease=$prerelease"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         env:
@@ -279,6 +135,6 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
             args=("$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes)
-            if [ "${{ steps.metadata.outputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then args+=(--prerelease); fi
             gh release create "${args[@]}"
           fi

@@ -43,47 +43,6 @@ jobs:
       - name: Build
         run: pnpm run build
 
-  desktop:
-    name: Desktop
-    runs-on: macos-15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Validate staged Node runtimes
-        run: apps/macos/scripts/validate-node-runtime.sh
-
-      - name: Validate native backend staging
-        run: apps/macos/scripts/validate-backend.sh
-
-      - name: Install Electron binary
-        uses: ./.github/actions/install-electron
-
-      - name: Type-check
-        run: pnpm --filter @dantea/railgun-desktop typecheck
-
-      - name: Test
-        run: pnpm --filter @dantea/railgun-desktop test
-
-      - name: Stage backend assets
-        run: pnpm --filter @dantea/railgun-desktop build:backend-assets
-
-      - name: Package
-        run: pnpm --filter @dantea/railgun-desktop exec electron-forge package --arch arm64
-
   native:
     name: Railgun (arm64)
     runs-on: macos-15

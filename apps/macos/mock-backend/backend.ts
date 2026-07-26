@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
-import { createRpcTranscriptPage } from "../../../../src/rpc/sessionTranscript.js";
+import { createRpcTranscriptPage } from "../../../src/rpc/sessionTranscript.js";
 import { getMockScenario } from "./scenarios";
-import { parseCronSchedule } from "../shared/cron";
+import { parseCronSchedule } from "./cron";
 
 const scenario = getMockScenario(process.argv[2] ?? "ready-idle");
 let messageCount = 0;
@@ -31,48 +31,28 @@ const mockToolUse = (
 
 const complexTaskMessages: unknown[] = [
   { role: "user", at: 1_784_496_000_000, content: "The background sync panel retries forever after a transient API failure. Trace the retry behavior, fix it, and leave the repository in a verified state." },
-  ...mockToolUse("complex-tool-001", "list_directory", { path: "apps/desktop/src" }, "renderer/\nmain/\nshared/\nmock/\n"),
-  ...mockToolUse("complex-tool-002", "read_file", { path: "apps/desktop/src/renderer/sync/useSyncStatus.ts" }, "export const useSyncStatus = () => { /* existing polling hook */ };"),
-  ...mockToolUse("complex-tool-003", "read_file", { path: "apps/desktop/src/main/syncService.ts" }, "Transient errors are retried without a maximum attempt count."),
-  ...mockToolUse("complex-tool-004", "write_file", { path: "apps/desktop/src/shared/schemas.ts", patch: "add exhausted sync state" }, "Updated apps/desktop/src/shared/schemas.ts"),
-  ...mockToolUse("complex-tool-005", "write_file", { path: "apps/desktop/src/main/syncService.ts", patch: "cap retries at three with exponential backoff" }, "Updated apps/desktop/src/main/syncService.ts"),
-  ...mockToolUse("complex-tool-006", "write_file", { path: "apps/desktop/src/renderer/sync/SyncPanel.tsx", patch: "render failed status and Retry button" }, "Updated apps/desktop/src/renderer/sync/SyncPanel.tsx"),
-  ...mockToolUse("complex-tool-007", "write_file", { path: "apps/desktop/src/renderer/sync/SyncPanel.test.tsx", patch: "cover a paused sync state" }, "Updated apps/desktop/src/renderer/sync/SyncPanel.test.tsx"),
-  ...mockToolUse("complex-tool-008", "read_file", { path: "apps/desktop/src/main/syncService.test.ts" }, "Tests use fake timers and a deterministic transport harness."),
-  ...mockToolUse("complex-tool-009", "read_file", { path: "apps/desktop/src/renderer/sync/obsoleteRetry.ts" }, "ENOENT: no such file\nraw provider tool result: mock-tool-secret", true),
-  ...mockToolUse("complex-tool-010", "write_file", { path: "apps/desktop/src/main/syncService.test.ts", patch: "add exhausted retry and disposal cases" }, "Updated apps/desktop/src/main/syncService.test.ts"),
-  ...mockToolUse("complex-tool-011", "write_file", { path: "apps/desktop/src/renderer/sync/SyncPanel.tsx", patch: "reuse interrupted-work error treatment" }, "Updated apps/desktop/src/renderer/sync/SyncPanel.tsx"),
+  ...mockToolUse("complex-tool-001", "list_directory", { path: "apps/macos/Sources" }, "RailgunCore/\nRailgunServices/\nRailgunUI/\nRailgunX/\n"),
+  ...mockToolUse("complex-tool-002", "read_file", { path: "apps/macos/Sources/RailgunServices/BackgroundAutomation.swift" }, "The retry loop has no maximum attempt count."),
+  ...mockToolUse("complex-tool-003", "write_file", { path: "apps/macos/Sources/RailgunServices/BackgroundAutomation.swift", patch: "cap retries at three with exponential backoff" }, "Updated the background automation service."),
+  ...mockToolUse("complex-tool-004", "write_file", { path: "apps/macos/Tests/RailgunXTests/BackgroundAutomationTests.swift", patch: "cover exhausted retries" }, "Added native regression coverage."),
   { role: "assistant", at: 1_784_496_021_000, content: [{ type: "text", text: "The retry loop has no terminal state, so I added bounded, retry-aware polling and an explicit paused state. The second read confirmed the obsolete module is gone; the replacement path is now covered." }] },
   { role: "user", content: "Keep the retry responsive, but don’t let one broken connection spin forever or hide the error." },
-  ...mockToolUse("complex-tool-012", "read_file", { path: "apps/desktop/src/renderer/sync/SyncPanel.tsx" }, "The panel accepts an onRetry action but has no exhausted state label."),
-  ...mockToolUse("complex-tool-013", "read_file", { path: "apps/desktop/src/renderer/styles.css", startLine: 590, endLine: 640 }, "Existing danger and muted-status tokens are available."),
-  ...mockToolUse("complex-tool-014", "read_file", { path: "apps/desktop/src/renderer/sync/SyncPanel.test.tsx" }, "The panel test suite covers loading, success, and manual retry."),
-  ...mockToolUse("complex-tool-015", "write_file", { path: "apps/desktop/src/shared/schemas.ts", patch: "add exhausted sync state" }, "Updated apps/desktop/src/shared/schemas.ts"),
-  ...mockToolUse("complex-tool-016", "write_file", { path: "apps/desktop/src/main/syncService.ts", patch: "cap retries at three with exponential backoff" }, "Updated apps/desktop/src/main/syncService.ts"),
-  ...mockToolUse("complex-tool-017", "write_file", { path: "apps/desktop/src/renderer/sync/SyncPanel.tsx", patch: "render failed status and Retry button" }, "Updated apps/desktop/src/renderer/sync/SyncPanel.tsx"),
+  ...mockToolUse("complex-tool-012", "read_file", { path: "apps/macos/Sources/RailgunUI/TaskShell.swift" }, "The native task shell shows the retry state and recovery action."),
   { role: "assistant", content: [{ type: "text", text: "Retries now stop after the configured limit, preserve the error detail, and offer a single manual recovery action instead of silently scheduling another attempt." }] },
   { role: "user", content: "Before you run everything, check whether the timeout cleanup can leak when the user closes the window mid-retry." },
-  ...mockToolUse("complex-tool-018", "search_files", { query: "dispose|AbortController|clearTimeout", path: "apps/desktop/src/main" }, "syncService.ts:122\nbackendSupervisor.ts:181\nfileService.ts:96"),
-  ...mockToolUse("complex-tool-019", "read_file", { path: "apps/desktop/src/main/syncService.ts", startLine:100, endLine:150 }, "The scheduled timeout is not registered with the service disposal callback."),
-  ...mockToolUse("complex-tool-020", "write_file", { path: "apps/desktop/src/main/syncService.ts", patch: "clear scheduled retry on abort and dispose" }, "Updated apps/desktop/src/main/syncService.ts"),
-  ...mockToolUse("complex-tool-021", "write_file", { path: "apps/desktop/src/main/syncService.test.ts", patch: "add exhausted retry and disposal cases" }, "Updated apps/desktop/src/main/syncService.test.ts"),
-  ...mockToolUse("complex-tool-022", "run_shell_command", { command: "pnpm --filter @dantea/railgun-desktop test -- syncService.test.ts SyncPanel.test.tsx" }, "PASS 18 tests"),
+  ...mockToolUse("complex-tool-018", "read_file", { path: "apps/macos/Sources/RailgunServices/BackgroundAutomation.swift" }, "The scheduled retry needs cancellation-safe cleanup."),
+  ...mockToolUse("complex-tool-019", "write_file", { path: "apps/macos/Sources/RailgunServices/BackgroundAutomation.swift", patch: "clear scheduled retry on cancellation" }, "Updated the native service."),
+  ...mockToolUse("complex-tool-020", "run_shell_command", { command: "./apps/macos/scripts/validate-project.sh" }, "PASS native validation"),
   { role: "assistant", content: [{ type: "text", text: "Good catch. The retry timer outlived the panel’s unsubscribe path, so I tightened the cancellation guard and added a regression test for disposal during the backoff window." }] },
   { role: "user", content: "Check the surrounding contracts too. I don’t want the new status to break preload validation or session restoration." },
-  ...mockToolUse("complex-tool-023", "read_file", { path: "apps/desktop/src/preload/preload.ts", startLine:60, endLine:110 }, "Preload parses backend snapshots through shared schemas."),
-  ...mockToolUse("complex-tool-024", "read_file", { path: "apps/desktop/src/main/agentBoundary.ts" }, "The sync status is validated before it reaches renderer listeners."),
-  ...mockToolUse("complex-tool-025", "run_shell_command", { command: "pnpm --filter @dantea/railgun-desktop typecheck" }, "PASS tsc --noEmit"),
-  ...mockToolUse("complex-tool-026", "run_shell_command", { command: "pnpm --filter @dantea/railgun-desktop test -- preload.test.ts sessionService.test.ts" }, "PASS 31 tests"),
-  ...mockToolUse("complex-tool-027", "run_shell_command", { command: "git diff --check" }, "No whitespace errors."),
-  ...mockToolUse("complex-tool-028", "read_file", { path: "apps/desktop/src/main/syncService.test.ts", startLine:1, endLine:220 }, "The test covers attempt counts, backoff progression, disposal, and manual recovery."),
+  ...mockToolUse("complex-tool-023", "run_shell_command", { command: "pnpm run typecheck && pnpm run test" }, "PASS TypeScript verification"),
+  ...mockToolUse("complex-tool-024", "run_shell_command", { command: "git diff --check" }, "No whitespace errors."),
   { role: "assistant", content: [{ type: "text", text: "The new state crosses the shared schema, main-process service, and renderer only. The IPC boundary and saved-session projection both validate it without a persistence migration." }] },
   { role: "user", content: "Did you test the visual copy as well as the state transition?" },
-  ...mockToolUse("complex-tool-029", "run_shell_command", { command: "pnpm --filter @dantea/railgun-desktop test -- SyncPanel.test.tsx" }, "PASS 9 tests"),
-  ...mockToolUse("complex-tool-030", "run_shell_command", { command: "pnpm --filter @dantea/railgun-desktop test" }, "PASS 297 tests"),
-  ...mockToolUse("complex-tool-031", "run_shell_command", { command: "git diff -- apps/desktop/src/shared/schemas.ts apps/desktop/src/main/syncService.ts apps/desktop/src/renderer/sync/SyncPanel.tsx" }, "Reviewed the focused diff: bounded retries, cancellation, and user-visible recovery."),
+  ...mockToolUse("complex-tool-029", "run_shell_command", { command: "./apps/macos/scripts/validate-project.sh" }, "PASS native test suite"),
   { role: "assistant", content: [{ type: "text", text: "Yes. The panel now says “Sync paused after 3 attempts” and offers a single manual Retry action. It preserves the last error in the detail text without exposing transport internals." }] },
   { role: "user", content: "Summarize the task and call out any remaining risk." },
-  { role: "assistant", content: [{ type: "text", text: "Implemented bounded, retry-aware polling for background sync: transient failures now retry up to three times with cancellation-safe backoff, then surface a clear paused state with manual recovery. Updated the shared status contract, main-process service, renderer panel, and focused tests.\n\nVerification: desktop typecheck and the full desktop test suite pass.\n\nRemaining risk: the retry limit is currently fixed; if production telemetry shows a different failure profile, make it configurable rather than changing the transport contract again." }] },
+  { role: "assistant", content: [{ type: "text", text: "Implemented bounded, retry-aware polling for background automation with cancellation-safe backoff and focused native coverage." }] },
 ];
 
 const paginatedBranchHistoryMessages: unknown[] = Array.from({ length: 101 }, (_, index) => [
@@ -213,7 +193,7 @@ const safeMockMcpServers = (): readonly Record<string, unknown>[] => Object.entr
 }));
 let memories = [
   { id: "memory-1", content: "Prefer concise implementation summaries", category: "preference", createdAt: 1_720_000_005 },
-  { id: "memory-2", content: "The desktop app uses Electron and React", category: "fact", createdAt: 1_720_000_004 },
+  { id: "memory-2", content: "Railgun is a native macOS app", category: "fact", createdAt: 1_720_000_004 },
   { id: "memory-3", content: "Use pnpm for JavaScript projects", category: "preference", createdAt: 1_720_000_003 },
   { id: "memory-4", content: "Knowledge imports Markdown and text notes", category: "fact", createdAt: 1_720_000_002 },
   { id: "memory-5", content: "Keep renderer filesystem access restricted", category: "fact", createdAt: 1_720_000_001 },

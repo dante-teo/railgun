@@ -131,7 +131,6 @@ require_command pnpm
 }
 create_sparkle_test_keys
 "$validate_app_icon"
-pnpm --dir "$repository_root/apps/desktop" run build:mock-backend
 "$validate_node_runtime"
 "$validate_backend"
 RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES=1 node "$validate_legal_notices" --check

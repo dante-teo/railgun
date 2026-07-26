@@ -6313,13 +6313,13 @@ SOFTWARE.
 - Identifier: npm:ansi-escapes@7.3.0
 - License: MIT
 - Source: pnpm-lock.yaml#ansi-escapes@7.3.0
-- License source: node_modules/ink/node_modules/ansi-escapes/license
-- Notice SHA-256: 1d0f6a2d6a24306f9a31e6cf0b86f5ac0b0f0a5bfc9660751dd8020b6a94a52d
+- License source: node_modules/ansi-escapes/license
+- Notice SHA-256: bf918d50a810251176f9db4706900c0e4ff094c953c0c72c70882441e93aaad8
 
 ### Notice
 
 ```text
-Source: node_modules/ink/node_modules/ansi-escapes/license
+Source: node_modules/ansi-escapes/license
 
 MIT License
 
@@ -6337,13 +6337,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - Identifier: npm:ansi-regex@6.2.2
 - License: MIT
 - Source: pnpm-lock.yaml#ansi-regex@6.2.2
-- License source: node_modules/strip-ansi/node_modules/ansi-regex/license
-- Notice SHA-256: 181751b484b19f37764059cbf89014f54daf46c3860e73502b99d4af30ade076
+- License source: node_modules/ansi-regex/license
+- Notice SHA-256: 88a7e65a78437b046c778db44d1455afc8d15061214e0475f710854903576470
 
 ### Notice
 
 ```text
-Source: node_modules/strip-ansi/node_modules/ansi-regex/license
+Source: node_modules/ansi-regex/license
 
 MIT License
 
@@ -6642,13 +6642,13 @@ THE SOFTWARE.
 - Identifier: npm:chalk@5.6.2
 - License: MIT
 - Source: pnpm-lock.yaml#chalk@5.6.2
-- License source: node_modules/markdansi/node_modules/chalk/license
-- Notice SHA-256: 2e73e1c4411f9b14ab7842e84d0479404c10aa4e204d19eaa6e0eebfd46abaf2
+- License source: node_modules/chalk/license
+- Notice SHA-256: 879c1ffb716d75c290963982f430c789644c9acbec66fbbb7404d11968db170d
 
 ### Notice
 
 ```text
-Source: node_modules/markdansi/node_modules/chalk/license
+Source: node_modules/chalk/license
 
 MIT License
 
@@ -7810,13 +7810,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - Identifier: npm:escape-string-regexp@4.0.0
 - License: MIT
 - Source: pnpm-lock.yaml#escape-string-regexp@4.0.0
-- License source: node_modules/matcher/node_modules/escape-string-regexp/license
-- Notice SHA-256: 43008a9b9258b589cba59cb1d1d4500ede2aafebb6d8a38e5114f1b80217e884
+- License source: node_modules/escape-string-regexp/license
+- Notice SHA-256: 238c59b6c89671a9c96bdd108336192c680a403f8b3fa0f8e849c4d79dbe07b8
 
 ### Notice
 
 ```text
-Source: node_modules/matcher/node_modules/escape-string-regexp/license
+Source: node_modules/escape-string-regexp/license
 
 MIT License
 
@@ -8349,13 +8349,13 @@ THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO
 - Identifier: npm:has-flag@5.0.1
 - License: MIT
 - Source: pnpm-lock.yaml#has-flag@5.0.1
-- License source: node_modules/supports-hyperlinks/node_modules/has-flag/license
-- Notice SHA-256: de0b11de0431ed8f97b62eabcf6759d2523af4bc18ebd0bf2d83654e371cd797
+- License source: node_modules/has-flag/license
+- Notice SHA-256: 1aefe994d901be427d0770598b78b0e7380045aa7618c399f27c15514f976096
 
 ### Notice
 
 ```text
-Source: node_modules/supports-hyperlinks/node_modules/has-flag/license
+Source: node_modules/has-flag/license
 
 MIT License
 
@@ -11895,13 +11895,13 @@ IN THE SOFTWARE.
 - Identifier: npm:string-width@7.2.0
 - License: MIT
 - Source: pnpm-lock.yaml#string-width@7.2.0
-- License source: node_modules/ink/node_modules/wrap-ansi/node_modules/string-width/license
-- Notice SHA-256: 77bc86fb749bc1c2142e59ecd07ee59c6eb607502b9b27254bfabdc4d304a562
+- License source: node_modules/wrap-ansi/node_modules/string-width/license
+- Notice SHA-256: cc5391fda74a2713c04a388cd9c7cbc467fe9d2ce7fef49b8b92608bff1a7772
 
 ### Notice
 
 ```text
-Source: node_modules/ink/node_modules/wrap-ansi/node_modules/string-width/license
+Source: node_modules/wrap-ansi/node_modules/string-width/license
 
 MIT License
 
@@ -12905,13 +12905,13 @@ The vendored protocol files are included for interoperability and maintenance re
 - Identifier: npm:wrap-ansi@9.0.2
 - License: MIT
 - Source: pnpm-lock.yaml#wrap-ansi@9.0.2
-- License source: node_modules/ink/node_modules/wrap-ansi/license
-- Notice SHA-256: 5be0ab88f7bc9464388ecc99230409f8bd467ded84259951897dffe5f3808735
+- License source: node_modules/wrap-ansi/license
+- Notice SHA-256: f464105647694f02a6f7537869c89391fcab044599e9bac1ccb832e8935d410d
 
 ### Notice
 
 ```text
-Source: node_modules/ink/node_modules/wrap-ansi/license
+Source: node_modules/wrap-ansi/license
 
 MIT License
 

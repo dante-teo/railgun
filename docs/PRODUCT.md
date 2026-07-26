@@ -1,7 +1,9 @@
 # Railgun product
 
-Railgun is a desktop-only macOS coding-agent application. The supported user
-surfaces are the app’s task, Scheduled, Settings, and knowledge interfaces.
+Railgun is a native, Apple-silicon macOS coding-agent application. The
+supported user surfaces are the app’s task, Scheduled, Settings, and knowledge
+interfaces. The former Electron application has been retired; it is not a
+supported installation, development, or release surface.
 
 The task history identifies live agent work without requiring the user to open
 the task: the active task has a trailing spinner, and a just-completed task has
@@ -32,7 +34,8 @@ reaches its bounded capacity through recurring deliveries, the oldest scheduled
 deliveries move to Archive rather than being deleted.
 
 The bundled backend retains internal interactive, one-shot, RPC, ACP, and cron
-modes for desktop startup, automation, diagnostics, and integration boundaries.
+modes for native-app startup, automation, diagnostics, and integration
+boundaries.
 These modes are implementation surfaces, not separately distributed user
 products or installation channels.
 

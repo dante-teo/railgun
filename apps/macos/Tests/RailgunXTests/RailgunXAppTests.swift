@@ -331,19 +331,13 @@ final class RailgunXAppTests: XCTestCase {
     }
 
     func testNativeComposerPolicyDocumentsItsAppKitAndSubmissionBoundaries() throws {
-        let design = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("docs/DESIGN.md"),
-            encoding: .utf8
-        )
         let nativeUIPolicy = try String(
             contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(design.contains("Native macOS composer"))
-        XCTAssertTrue(design.contains("one through ten visual lines"))
-        XCTAssertTrue(design.contains("Liquid Glass shell on macOS 26"))
         XCTAssertTrue(nativeUIPolicy.contains("### `RailgunComposer`"))
+        XCTAssertTrue(nativeUIPolicy.contains("Grow from one through ten visual lines"))
         XCTAssertTrue(nativeUIPolicy.contains("accessible name `Message`"))
         XCTAssertTrue(nativeUIPolicy.contains("macOS 26 and newer"))
         XCTAssertTrue(nativeUIPolicy.contains("macOS 15–25"))
@@ -849,8 +843,8 @@ final class RailgunXAppTests: XCTestCase {
         )
         let staleRecord = DesktopClientLockRecord(
             pid: 99_999,
-            bundleID: "sh.railgun.desktop",
-            clientName: "Railgun Classic",
+            bundleID: "io.anvia.other-railgun",
+            clientName: "Other Railgun client",
             startTime: "2026-07-18T11:00:00Z"
         )
         try staleRecord.encodedData().write(to: lock.fileURL)
@@ -876,15 +870,15 @@ final class RailgunXAppTests: XCTestCase {
         )
         let liveRecord = DesktopClientLockRecord(
             pid: 4242,
-            bundleID: "sh.railgun.desktop",
-            clientName: "Railgun Classic",
+            bundleID: "io.anvia.other-railgun",
+            clientName: "Other Railgun client",
             startTime: "2026-07-18T11:00:00Z"
         )
         try liveRecord.encodedData().write(to: lock.fileURL)
 
         do {
             _ = try await lock.acquire()
-            XCTFail("Expected the live Classic lock to block Railgun")
+            XCTFail("Expected the live lock to block Railgun")
         } catch let error as DesktopClientLockError {
             XCTAssertEqual(error, .conflict(liveRecord))
         }
@@ -910,8 +904,8 @@ final class RailgunXAppTests: XCTestCase {
         )
         let replacement = DesktopClientLockRecord(
             pid: 4242,
-            bundleID: "sh.railgun.desktop",
-            clientName: "Railgun Classic",
+            bundleID: "io.anvia.other-railgun",
+            clientName: "Other Railgun client",
             startTime: "2026-07-18T12:01:00Z"
         )
         _ = try await lock.acquire()
@@ -1004,7 +998,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(launchConfiguration.mockScenario, "ready-idle")
     }
 
-    func testMockBackendLaunchUsesTheBuiltSourceMockWithTheRequestedScenario() throws {
+    func testMockBackendLaunchUsesTheSourceFixtureWithTheRequestedScenario() throws {
         let configuration = BackendLaunchConfiguration(
             environment: [:],
             arguments: [
@@ -1020,7 +1014,13 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(launch.executableURL.path, "/usr/bin/env")
         XCTAssertEqual(
             launch.arguments,
-            ["node", repositoryRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs").path, "ready-idle"]
+            [
+                "node",
+                "--import",
+                "tsx",
+                repositoryRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts").path,
+                "ready-idle",
+            ]
         )
         XCTAssertEqual(launch.currentDirectoryURL, repositoryRoot.standardizedFileURL)
         XCTAssertEqual(launch.environment?["RAILGUN_DESKTOP_RPC"], "1")
@@ -1058,7 +1058,9 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(
             launch.arguments,
             [
-                repositoryRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs").path,
+                "--import",
+                "tsx",
+                repositoryRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts").path,
                 "ready-idle",
             ]
         )
@@ -1312,14 +1314,12 @@ final class RailgunXAppTests: XCTestCase {
     func testNativeBackendStagingContractUsesArm64AndAnAtomicPayload() throws {
         let stagingScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/stage-backend.sh")
         let validationScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-backend.sh")
-        let desktopStagingScriptURL = repositoryRoot.appendingPathComponent("apps/desktop/scripts/build-backend.mjs")
         let lifecycleValidationScriptURL = repositoryRoot.appendingPathComponent(
             "apps/macos/scripts/validate-packaged-backend-lifecycle.mjs"
         )
         let projectURL = repositoryRoot.appendingPathComponent("apps/macos/project.yml")
         let stagingScript = try String(contentsOf: stagingScriptURL, encoding: .utf8)
         let validationScript = try String(contentsOf: validationScriptURL, encoding: .utf8)
-        let desktopStagingScript = try String(contentsOf: desktopStagingScriptURL, encoding: .utf8)
         let lifecycleValidationScript = try String(contentsOf: lifecycleValidationScriptURL, encoding: .utf8)
         let project = try String(contentsOf: projectURL, encoding: .utf8)
 
@@ -1337,9 +1337,6 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(stagingScript.contains("[[ \"$architecture\" == 'arm64' ]]"))
         XCTAssertTrue(stagingScript.contains("onnx_runtime_arm64=\"$onnx_runtime_root/darwin/arm64\""))
         XCTAssertTrue(stagingScript.contains("non-darwin/arm64 payload"))
-        XCTAssertTrue(desktopStagingScript.contains("process.platform !== \"darwin\" || process.arch !== \"arm64\""))
-        XCTAssertTrue(desktopStagingScript.contains("retainOnlyDirectory(onnxRuntimeRoot, \"darwin\")"))
-        XCTAssertTrue(desktopStagingScript.contains("retainOnlyDirectory(resolve(onnxRuntimeRoot, \"darwin\"), \"arm64\")"))
         XCTAssertTrue(stagingScript.contains("mv \"$staging_backend\" \"$output/backend\""))
         XCTAssertTrue(validationScript.contains("validation_architecture=\"$(uname -m)\""))
         XCTAssertTrue(validationScript.contains("better-sqlite3"))
@@ -1413,18 +1410,19 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(appcastGenerator.contains("/usr/bin/cp"))
     }
 
-    func testNativeValidationBuildsTheIgnoredMockBackendForCleanCheckouts() throws {
-        let package = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("apps/desktop/package.json"),
+    func testNativeMockBackendRunsDirectlyFromItsSourceFixture() throws {
+        let mockBackend = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts"),
             encoding: .utf8
         )
-        let validation = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-project.sh"),
+        let appSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(package.contains("\"build:mock-backend\": \"vite build --config vite.mock.config.ts\""))
-        XCTAssertTrue(validation.contains("run build:mock-backend"))
+        XCTAssertTrue(mockBackend.contains("createRpcTranscriptPage"))
+        XCTAssertTrue(appSource.contains("apps/macos/mock-backend/backend.ts"))
+        XCTAssertTrue(appSource.contains("nodeRuntimeArguments: [\"--import\", \"tsx\"]"))
     }
 
     func testReleaseValidationRequiresSparkleEdDSASignaturesOnly() throws {

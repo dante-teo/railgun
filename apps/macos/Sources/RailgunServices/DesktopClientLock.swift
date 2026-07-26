@@ -14,12 +14,10 @@ public struct DesktopClientLockIdentity: Sendable, Equatable {
     }
 
     public static let railgunX = Self(bundleID: "io.anvia.railgun", clientName: "Railgun")
-    public static let railgunClassic = Self(bundleID: "sh.railgun.desktop", clientName: "Railgun Classic")
 }
 
 /// The cross-client lock record stored as JSON at `~/.railgun/desktop-client.lock`.
 ///
-/// Field names intentionally match Railgun Classic's Node implementation.
 public struct DesktopClientLockRecord: Sendable, Equatable, Codable {
     public let pid: Int32
     public let bundleID: String
@@ -75,7 +73,7 @@ public enum DesktopClientLockError: Error, Sendable, Equatable {
 /// Owns native Railgun's participation in the shared desktop-client exclusion lock.
 ///
 /// The actor uses `O_EXCL` creation rather than a check-then-write sequence, so
-/// Native Railgun and Classic cannot both claim the same lock. Only a syntactically
+/// Separate Railgun processes cannot both claim the same lock. Only a syntactically
 /// valid record whose PID is demonstrably gone is removed as stale.
 public actor DesktopClientLock {
     public static let filename = "desktop-client.lock"

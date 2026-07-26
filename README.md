@@ -4,6 +4,14 @@ Railgun is a signed macOS desktop app for working with an AI coding agent. The
 Node backend is bundled inside the app and is not a supported command-line or
 npm product.
 
+## Supported platform
+
+Railgun ships one native, Apple-silicon macOS application. The former Electron
+application and its build, test, and release pipeline have been retired; there
+is no supported web, Windows, Linux, or standalone Node application surface.
+`apps/macos/project.yml` is the source of truth for the disposable Xcode
+project used to build the app.
+
 ## Install and update
 
 Download the signed app from the Railgun GitHub Release. The app checks the
@@ -74,12 +82,10 @@ you want Railgun to invoke.
 
 ## Development and release
 
-`pnpm dev` runs the desktop app from source. `pnpm dev:mock` uses the desktop
-mock backend. The release version is defined only in
-`apps/desktop/package.json`; releases use `vX.Y.Z` tags and build direct
-artifacts for arm64. Create the version commit and tag with
-`pnpm release:version patch`; see
-[release instructions](docs/RELEASING.md) for the artifact and signing checks.
+`pnpm dev` launches the native app with the source backend. `pnpm dev:mock`
+uses the native mock backend. Releases use `vX.Y.Z` tags and produce signed
+arm64 artifacts; see [release instructions](docs/RELEASING.md) for the
+artifact and signing checks.
 
 The RailgunX native scaffold requires Xcode and XcodeGen `2.45.4`. The pinned
 version is recorded in `apps/macos/.xcodegen-version`; generation fails before
@@ -111,12 +117,12 @@ project by editing its `.xcodeproj`.
 
 ### Task controls
 
-Both clients load task controls when the backend and active task are ready, and
+Railgun loads task controls when the backend and active task are ready, and
 disable changes while a run or another control request is in progress. Choosing
 a model changes the active task and saves that model as the default in one
 selection; there is no separate task-only/default choice. If saving the default
 fails after the task change succeeds, the selected task model remains in use
-and the client presents a recoverable warning.
+and the app presents a recoverable warning.
 
 Desktop startup uses that saved default. If the provider no longer offers it,
 the RPC backend starts with its first currently available model instead, without
@@ -208,9 +214,9 @@ it runs from `validate-project.sh` and native CI.
 
 ### Shared desktop-client lock
 
-Railgun and Railgun Classic coordinate access to `~/.railgun` through the
-shared desktop-client lock. Preserve its record and stale-recovery rules when
-changing either client; see the [lock protocol](docs/desktop-client-lock.md).
+Railgun coordinates access to `~/.railgun` through the shared desktop-client
+lock. Preserve its record and stale-recovery rules; see the
+[lock protocol](docs/desktop-client-lock.md).
 
 ### Native backend staging
 
@@ -283,7 +289,7 @@ termination with waiting for the recorded result.
 
 `RailgunTransport` concurrently consumes those raw output pipes. It exposes
 validated stdout JSON-object frames as raw `Data` and opaque, bounded stderr
-chunks through independent async streams. Its Electron-compatible defaults cap
+chunks through independent async streams. Its standard defaults cap
 each stdout frame at 4 MiB, an unfinished stdout buffer at 8 MiB, one queued
 stdout frame, and 64 queued stderr chunks. A slow stdout consumer therefore
 fails the stdout stream instead of retaining unbounded output; stderr remains
@@ -606,13 +612,9 @@ Bundled mode uses the pinned Node runtime staged inside the app. Source and mock
 modes also prefer that staged runtime when launching their repository scripts,
 so LaunchServices and XCTest do not depend on inheriting a developer shell's
 `PATH`. The launch configuration retains `/usr/bin/env node` only as a fallback
-when used without a staged app resource. The mock script is produced by the
-desktop backend-assets or packaging checks. Generate it directly when needed
-with:
-
-```sh
-pnpm --filter @dantea/railgun-desktop build:backend-assets
-```
+when used without a staged app resource. The mock backend is a TypeScript
+fixture in `apps/macos/mock-backend/`, launched with the repository's `tsx`
+development dependency; it needs no generated asset.
 
 The `ready-idle` mock includes the saved `mock-session-paginated-history`
 fixture with 101 completed turns. Resume it to manually verify paginated
@@ -651,9 +653,6 @@ Run the complete check suite from the repository root with:
 pnpm run typecheck
 pnpm run build
 pnpm run test
-pnpm --filter @dantea/railgun-desktop typecheck
-pnpm --filter @dantea/railgun-desktop test
-pnpm --filter @dantea/railgun-desktop package
 ./apps/macos/scripts/validate-project.sh
 ```
 
@@ -667,10 +666,7 @@ project may be stale.
 ## Documentation
 
 - [Product overview](docs/PRODUCT.md)
-- [Desktop architecture](docs/ARCHITECTURE.md)
 - [Shared desktop-client lock protocol](docs/desktop-client-lock.md)
-- [Design system and interaction contracts](docs/DESIGN.md)
 - [Swift implementation plan](docs/swift-plan.md)
-- [Current architecture ADR](docs/adr/0001-railgun-current-architecture.md)
 - [Release procedure](docs/RELEASING.md)
 - [Diagnostics](docs/INTERACTIVE_DIAGNOSTICS.md) and [operational diagnostics](docs/OPERATIONAL_DIAGNOSTICS.md)

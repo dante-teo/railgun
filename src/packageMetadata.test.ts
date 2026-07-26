@@ -15,8 +15,9 @@ describe("package metadata", () => {
     expect(packageMetadata().engines?.node).toBe(">=22.19.0");
   });
 
-  it("provides one desktop version command that creates the release tag", () => {
-    expect(packageMetadata().scripts?.["release:version"])
-      .toBe("pnpm --dir apps/desktop version");
+  it("launches the native app from source and mock modes", () => {
+    expect(packageMetadata().scripts?.dev).toBe("./scripts/run-source.sh");
+    expect(packageMetadata().scripts?.["dev:mock"]).toBe("./scripts/run-mock.sh");
+    expect(packageMetadata().scripts?.["release:version"]).toBeUndefined();
   });
 });

@@ -1,6 +1,3 @@
-import { MockScenarioIdSchema, MockScenarioSchema } from "../shared/schemas";
-import type { MockScenario, MockScenarioId } from "../shared/types";
-
 export type MockScenarioBehavior =
   | "ready"
   | "authentication-required"
@@ -21,17 +18,20 @@ export type MockScenarioBehavior =
   | "empty-model-catalog"
   | "slow-compaction";
 
-export interface MockScenarioDefinition extends Omit<MockScenario, "id"> {
+export interface MockScenarioDefinition {
   readonly id: string;
+  readonly label: string;
+  readonly description: string;
   readonly behavior: MockScenarioBehavior;
 }
 
-export const defineMockScenarios = (
+const defineMockScenarios = (
   definitions: readonly MockScenarioDefinition[],
-): ReadonlyMap<MockScenarioId, MockScenarioDefinition> => {
-  const registry = new Map<MockScenarioId, MockScenarioDefinition>();
+): ReadonlyMap<string, MockScenarioDefinition> => {
+  const registry = new Map<string, MockScenarioDefinition>();
   for (const definition of definitions) {
-    const id = MockScenarioIdSchema.parse(definition.id);
+    const id = definition.id.trim();
+    if (id.length === 0) throw new Error("Mock scenario IDs must not be empty.");
     if (registry.has(id)) {
       throw new Error(`Duplicate mock scenario id: ${definition.id}`);
     }
@@ -151,15 +151,8 @@ export const MOCK_SCENARIOS = defineMockScenarios([
   },
 ] as const);
 
-export const listMockScenarios = (): readonly MockScenario[] =>
-  [...MOCK_SCENARIOS.values()].map(({ id, label, description }) =>
-    MockScenarioSchema.parse({ id, label, description }));
-
 export const getMockScenario = (value: string): MockScenarioDefinition => {
-  const parsedId = MockScenarioIdSchema.safeParse(value);
-  if (!parsedId.success) throw new Error(`Unknown mock scenario: ${value}`);
-  const id = parsedId.data;
-  const scenario = MOCK_SCENARIOS.get(id);
-  if (scenario === undefined) throw new Error(`Unknown mock scenario: ${id}`);
+  const scenario = MOCK_SCENARIOS.get(value);
+  if (scenario === undefined) throw new Error(`Unknown mock scenario: ${value}`);
   return scenario;
 };

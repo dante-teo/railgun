@@ -105,7 +105,7 @@ final class RailgunDesignSystemTests: XCTestCase {
         XCTAssertEqual(RailgunTypographyRole.caption.textStyleName, "caption")
     }
 
-    func testNativeTypographyBundlesTheElectronAppFontFamilies() throws {
+    func testNativeTypographyBundlesRequiredFontFamilies() throws {
         XCTAssertEqual(RailgunFont.interfaceFamilyName, "Barlow")
         XCTAssertEqual(RailgunFont.codeFamilyName, "Departure Mono Nerd Font")
 

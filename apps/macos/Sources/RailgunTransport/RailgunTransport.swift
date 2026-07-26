@@ -3,13 +3,13 @@ import Foundation
 
 /// Limits and read sizes used by ``RailgunTransport``.
 ///
-/// The default stdout limits match the existing Electron supervisor: a JSONL
+/// The standard stdout limits accept JSONL
 /// frame may be at most 4 MiB and an unfinished stdout buffer may be at most
 /// 8 MiB. Read sizes bound the amount of data retained for each pipe read;
 /// they do not affect the accepted JSONL frame size. Stream capacities bound
 /// data awaiting a consumer.
 public struct RailgunTransportConfiguration: Sendable, Equatable {
-    public static let electronCompatible = Self()
+    public static let standard = Self()
 
     /// Keeps every validated stdout frame until the RPC coordinator consumes
     /// it. RPC output may legitimately contain a burst of events before its
@@ -86,7 +86,7 @@ public actor RailgunTransport {
 
     public init(
         pipes: BackendProcessPipes,
-        configuration: RailgunTransportConfiguration = .electronCompatible
+        configuration: RailgunTransportConfiguration = .standard
     ) {
         self.configuration = configuration
         standardOutput = pipes.standardOutput

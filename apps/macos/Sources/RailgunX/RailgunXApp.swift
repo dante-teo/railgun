@@ -162,8 +162,9 @@ struct BackendLaunchConfiguration: Equatable {
             guard let sourceRoot, let mockScenario else { return nil }
             return sourceLaunch(
                 root: sourceRoot,
-                script: sourceRoot.appendingPathComponent("apps/desktop/backend/mock-backend.cjs"),
+                script: sourceRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts"),
                 arguments: [mockScenario],
+                nodeRuntimeArguments: ["--import", "tsx"],
                 resourcesDirectory: resourcesDirectory
             )
         }
@@ -173,6 +174,7 @@ struct BackendLaunchConfiguration: Equatable {
         root: URL,
         script: URL,
         arguments: [String],
+        nodeRuntimeArguments: [String] = [],
         resourcesDirectory: URL
     ) -> BackendProcessLaunch? {
         guard FileManager.default.fileExists(atPath: script.path) else { return nil }
@@ -182,14 +184,14 @@ struct BackendLaunchConfiguration: Equatable {
         let launchArguments: [String]
         if FileManager.default.isExecutableFile(atPath: bundledNode.path) {
             executableURL = bundledNode
-            launchArguments = [script.path] + arguments
+            launchArguments = nodeRuntimeArguments + [script.path] + arguments
         } else {
             let environmentExecutable = URL(fileURLWithPath: "/usr/bin/env")
             guard FileManager.default.isExecutableFile(atPath: environmentExecutable.path) else {
                 return nil
             }
             executableURL = environmentExecutable
-            launchArguments = ["node", script.path] + arguments
+            launchArguments = ["node"] + nodeRuntimeArguments + [script.path] + arguments
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -620,7 +622,7 @@ struct RailgunTaskShell: View {
     static let filesInspectorPreferredWidth: CGFloat = 320
     static let filesInspectorMaximumWidth: CGFloat = 420
     static let filesInspectorMinimumWindowWidth: CGFloat = 1_024
-    /// Matches the Electron chat's 46-rem content column at the 16-point base size.
+    /// Keeps the composition column readable at the 16-point base size.
     static let composerMaximumWidth: CGFloat = 736
 
     static func isArchiveActionDisabled(for session: RailgunSessionState) -> Bool {
