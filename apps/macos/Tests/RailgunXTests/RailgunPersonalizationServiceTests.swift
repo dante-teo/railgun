@@ -210,7 +210,7 @@ private func personalizationRejectedResponse(_ command: RailgunRPCCommandType, e
 }
 
 @MainActor
-private func assertPersonalizationThrows<T>(
+private func assertPersonalizationThrows<T: Sendable>(
     _ expression: @autoclosure () async throws -> T,
     _ verify: (Error) -> Void
 ) async {
