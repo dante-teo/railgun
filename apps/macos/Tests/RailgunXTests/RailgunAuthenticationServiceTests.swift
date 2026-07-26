@@ -5,7 +5,7 @@ import RailgunTransport
 
 @MainActor
 final class RailgunAuthenticationServiceTests: XCTestCase {
-    func testBundledLaunchFactoryUsesStagedNodeAndIsolatesDesktopRPCMode() {
+    func testBundledLaunchFactoryUsesStagedRustBackendAndIsolatesDesktopRPCMode() {
         let resources = URL(fileURLWithPath: "/private/tmp/RailgunX.app/Contents/Resources")
         let home = URL(fileURLWithPath: "/private/tmp/railgun-home")
         let factory = RailgunBundledBackendLaunchFactory(
@@ -18,22 +18,22 @@ final class RailgunAuthenticationServiceTests: XCTestCase {
         )
 
         let desktop = factory.desktopRPCLaunch()
-        XCTAssertEqual(desktop.executableURL.path, resources.appendingPathComponent("backend/node/bin/node").path)
-        XCTAssertEqual(desktop.arguments, [resources.appendingPathComponent("backend/railgun/dist/backend.js").path, "desktop"])
+        XCTAssertEqual(desktop.executableURL.path, resources.appendingPathComponent("backend/railgun-backend").path)
+        XCTAssertEqual(desktop.arguments, ["desktop"])
         XCTAssertEqual(desktop.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
         XCTAssertEqual(desktop.environment?["RAILGUN_DESKTOP_RPC"], "1")
         XCTAssertEqual(desktop.environment?["DEVIN_TOKEN"], "environment-managed-token")
 
         let helper = factory.authenticationHelperLaunch(for: .logout)
         XCTAssertEqual(helper.executableURL, desktop.executableURL)
-        XCTAssertEqual(helper.arguments, [resources.appendingPathComponent("backend/railgun/dist/backend.js").path, "logout"])
+        XCTAssertEqual(helper.arguments, ["logout"])
         XCTAssertEqual(helper.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
         XCTAssertNil(helper.environment?["RAILGUN_DESKTOP_RPC"])
         XCTAssertEqual(helper.environment?["DEVIN_TOKEN"], "environment-managed-token")
 
         let scheduler = factory.schedulerLaunch()
         XCTAssertEqual(scheduler.executableURL, desktop.executableURL)
-        XCTAssertEqual(scheduler.arguments, [resources.appendingPathComponent("backend/railgun/dist/backend.js").path, "scheduler"])
+        XCTAssertEqual(scheduler.arguments, ["scheduler"])
         XCTAssertEqual(scheduler.currentDirectoryURL?.standardizedFileURL, home.standardizedFileURL)
         XCTAssertNil(scheduler.environment?["RAILGUN_DESKTOP_RPC"])
         XCTAssertEqual(scheduler.environment?["DEVIN_TOKEN"], "environment-managed-token")

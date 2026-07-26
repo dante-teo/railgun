@@ -39,5 +39,5 @@ modes for native-app startup. The desktop app owns the scheduler mode while it
 is running; these modes are implementation surfaces, not separately distributed
 user products or installation channels.
 
-Install the direct signed app, which updates in-app. There is no npm package or
+Install the direct signed app, which updates in-app. There is no separate package or
 terminal interface; the bundled backend is an implementation detail.

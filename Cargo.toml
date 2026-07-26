@@ -1,0 +1,43 @@
+[workspace]
+members = [
+  "crates/railgun-backend",
+  "crates/railgun-mock-backend",
+  "crates/railgun-xtask",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.9.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+chrono = { version = "0.4.42", features = ["serde"] }
+croner = "3.0.1"
+futures-util = "0.3.31"
+libc = "0.2.180"
+regex = "1.12.2"
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json", "stream"] }
+rmcp = { version = "2.2.0", default-features = false, features = ["client", "transport-child-process"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+serde_yaml = "0.9.34"
+sha2 = "0.10.9"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+tempfile = "3.24.0"
+tokio = { version = "1.49.0", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt", "json"] }
+url = "2.5.8"
+uuid = { version = "1.19.0", features = ["v4", "serde"] }
+widevin = "=0.2.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

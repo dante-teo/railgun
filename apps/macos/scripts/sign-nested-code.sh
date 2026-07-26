@@ -4,7 +4,6 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
-node_entitlements="$project_root/NodeRuntime.entitlements"
 app_entitlements="$project_root/RailgunXRelease.entitlements"
 
 usage() {
@@ -25,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -d "$app" && -n "$identity" ]] || usage
-[[ -f "$node_entitlements" && -f "$app_entitlements" ]] || {
+[[ -f "$app_entitlements" ]] || {
   printf 'error: required signing entitlements are missing.\n' >&2
   exit 1
 }
@@ -40,11 +39,7 @@ fi
 
 sign_file() {
   local path="$1"
-  if [[ "$path" == */Contents/Resources/backend/node/bin/node ]]; then
-    /usr/bin/codesign "${sign_arguments[@]}" --entitlements "$node_entitlements" "$path"
-  else
-    /usr/bin/codesign "${sign_arguments[@]}" "$path"
-  fi
+  /usr/bin/codesign "${sign_arguments[@]}" "$path"
 }
 
 main_executable="$app/Contents/MacOS/Railgun"
@@ -54,8 +49,8 @@ main_executable="$app/Contents/MacOS/Railgun"
 }
 
 # Sign leaf Mach-O code before its enclosing framework, helper, or bundle. The
-# Node runtime and native addons live in Resources, outside Xcode's normal
-# framework embedding rules, so they are deliberately included here.
+# Rust backend lives in Resources, outside Xcode's normal framework
+# embedding rules, so it is deliberately included here.
 while IFS= read -r -d '' candidate; do
   [[ "$candidate" == "$main_executable" ]] && continue
   if /usr/bin/file -b "$candidate" | grep -q 'Mach-O'; then

@@ -124,6 +124,7 @@ targets:
 
           "$stage_script" \
             --architecture "$architecture" \
+            --configuration "$CONFIGURATION" \
             --output "$resources_directory"
     postBuildScripts:
       - name: Embed Sparkle Framework

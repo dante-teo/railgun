@@ -50,8 +50,8 @@ public struct RailgunBundledBackendLaunchFactory: Sendable {
         var environment = inheritedEnvironment
         environment["RAILGUN_DESKTOP_RPC"] = "1"
         return BackendProcessLaunch(
-            executableURL: nodeURL,
-            arguments: [backendURL.path, "desktop"],
+            executableURL: backendURL,
+            arguments: ["desktop"],
             currentDirectoryURL: homeDirectory,
             environment: environment
         )
@@ -62,8 +62,8 @@ public struct RailgunBundledBackendLaunchFactory: Sendable {
         var environment = inheritedEnvironment
         environment.removeValue(forKey: "RAILGUN_DESKTOP_RPC")
         return BackendProcessLaunch(
-            executableURL: nodeURL,
-            arguments: [backendURL.path, "scheduler"],
+            executableURL: backendURL,
+            arguments: ["scheduler"],
             currentDirectoryURL: homeDirectory,
             environment: environment
         )
@@ -75,19 +75,15 @@ public struct RailgunBundledBackendLaunchFactory: Sendable {
         var environment = inheritedEnvironment
         environment.removeValue(forKey: "RAILGUN_DESKTOP_RPC")
         return BackendProcessLaunch(
-            executableURL: nodeURL,
-            arguments: [backendURL.path, action.rawValue],
+            executableURL: backendURL,
+            arguments: [action.rawValue],
             currentDirectoryURL: homeDirectory,
             environment: environment
         )
     }
 
-    private var nodeURL: URL {
-        resourcesDirectory.appendingPathComponent("backend/node/bin/node")
-    }
-
     private var backendURL: URL {
-        resourcesDirectory.appendingPathComponent("backend/railgun/dist/backend.js")
+        resourcesDirectory.appendingPathComponent("backend/railgun-backend")
     }
 }
 

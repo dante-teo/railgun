@@ -2,11 +2,10 @@ import Foundation
 
 enum LegalNoticeKind: String, Codable {
     case swiftPackage = "swift-package"
+    case rustCrate = "rust-crate"
     case font
-    case nodeRuntime = "node-runtime"
     case firstPartyArtwork = "first-party-artwork"
     case firstPartySoftware = "first-party-software"
-    case backendProductionPackage = "backend-production-package"
 }
 
 struct LegalNoticeRecord: Codable, Equatable {

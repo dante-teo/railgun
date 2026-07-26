@@ -10,7 +10,7 @@ retain the same surface.
 
 The default read-only `railgun_inspect` tool supports five bounded areas:
 
-- `runtime`: surface, Railgun/Node/process facts, cwd, and path inventory.
+- `runtime`: surface, Railgun/backend/process facts, cwd, and path inventory.
 - `config`: the effective validated configuration. Credential-like keys and all
   MCP `env` values are replaced with `[REDACTED]`. MCP argument redaction covers
   separate credential flag/value pairs, `--key=value`, combined flag/value,
@@ -41,3 +41,10 @@ displaying secret values, and produce valid JSON. Configuration and injected
 instruction state are captured at backend startup. Restart the backend before
 claiming a change is active. Diagnose configuration, MCP, extension, cron, and
 desktop failures from inspected state and logs rather than assumptions.
+
+The renderer-facing configuration RPC is a security boundary: `config_get` and
+`config_update` never return the stored `mcpServers` object. MCP commands expose
+only the dedicated projection, where environment variable names may be shown
+but values are never returned. MCP changes must use those commands so an
+unrelated configuration update cannot echo persisted credentials onto RPC
+stdout.

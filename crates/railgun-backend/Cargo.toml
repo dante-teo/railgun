@@ -1,0 +1,40 @@
+[package]
+name = "railgun-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[lib]
+name = "railgun_backend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "railgun-backend"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+croner.workspace = true
+futures-util.workspace = true
+libc.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+rmcp.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+uuid.workspace = true
+widevin.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

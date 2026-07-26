@@ -6,8 +6,6 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd "$script_dir/../../.." && pwd)"
 generate_project="$script_dir/generate-project.sh"
 validate_app_icon="$script_dir/validate-app-icon-assets.sh"
-validate_legal_notices="$script_dir/generate-legal-notices.mjs"
-validate_node_runtime="$script_dir/validate-node-runtime.sh"
 validate_backend="$script_dir/validate-backend.sh"
 generate_appcast="$script_dir/generate-appcast.sh"
 sign_nested_code="$script_dir/sign-nested-code.sh"
@@ -43,17 +41,15 @@ sparkle_private_key=""
 sparkle_public_key=""
 
 create_sparkle_test_keys() {
-  node - "$sparkle_private_key_file" "$sparkle_public_key_file" <<'NODE'
-const { generateKeyPairSync } = require('node:crypto');
-const { writeFileSync } = require('node:fs');
-
-const [privateKeyPath, publicKeyPath] = process.argv.slice(2);
-const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-const privateSeed = privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32);
-const publicBytes = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
-writeFileSync(privateKeyPath, privateSeed.toString('base64'), { mode: 0o600 });
-writeFileSync(publicKeyPath, publicBytes.toString('base64'), { mode: 0o600 });
-NODE
+  local private_pem="$temporary_root/sparkle-private.pem"
+  local public_der="$temporary_root/sparkle-public.der"
+  local private_der="$temporary_root/sparkle-private.der"
+  openssl genpkey -algorithm ED25519 -out "$private_pem"
+  openssl pkey -in "$private_pem" -outform DER -out "$private_der"
+  openssl pkey -in "$private_pem" -pubout -outform DER -out "$public_der"
+  tail -c 32 "$private_der" | base64 > "$sparkle_private_key_file"
+  tail -c 32 "$public_der" | base64 > "$sparkle_public_key_file"
+  chmod 0600 "$sparkle_private_key_file"
   sparkle_private_key="$(<"$sparkle_private_key_file")"
   sparkle_public_key="$(<"$sparkle_public_key_file")"
   [[ -n "$sparkle_private_key" && -n "$sparkle_public_key" ]] || {
@@ -123,17 +119,16 @@ validate_debug_launch_scheme() {
 }
 
 require_command xcodebuild
-require_command node
-require_command pnpm
+require_command cargo
+require_command openssl
 [[ "$(uname -m)" == arm64 ]] || {
   printf 'error: Railgun native validation requires Apple silicon.\n' >&2
   exit 1
 }
 create_sparkle_test_keys
 "$validate_app_icon"
-"$validate_node_runtime"
-"$validate_backend"
-RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES=1 node "$validate_legal_notices" --check
+"$validate_backend" --configuration Release
+cargo xtask legal --check
 "$generate_project" "$first_output"
 "$generate_project" "$second_output"
 
@@ -176,7 +171,7 @@ fi
 build_scheme build
 
 "$validate_app_icon" "$derived_data/Build/Products/Debug/Railgun.app"
-"$validate_backend" --app-bundle "$derived_data/Build/Products/Debug/Railgun.app"
+"$validate_backend" --configuration Debug --app-bundle "$derived_data/Build/Products/Debug/Railgun.app"
 
 if [[ ! -d "$sparkle_framework" ]]; then
   printf 'error: Sparkle.framework was not embedded in the generated app bundle.\n' >&2
@@ -192,7 +187,7 @@ release_app="$release_archive/Products/Applications/Railgun.app"
   exit 1
 }
 "$validate_app_icon" "$release_app"
-"$validate_backend" --app-bundle "$release_app"
+"$validate_backend" --configuration Release --app-bundle "$release_app"
 [[ -d "$release_app/Contents/Frameworks/Sparkle.framework" ]] || {
   printf 'error: Sparkle.framework was not embedded in the Release archive.\n' >&2
   exit 1
@@ -201,9 +196,8 @@ release_app="$release_archive/Products/Applications/Railgun.app"
 "$sign_nested_code" --app "$release_app" --identity -
 codesign_details="$(/usr/bin/codesign -dvvv "$release_app" 2>&1)"
 grep -q 'Runtime Version' <<< "$codesign_details"
-node_entitlements="$(/usr/bin/codesign -d --entitlements :- \
-  "$release_app/Contents/Resources/backend/node/bin/node" 2>/dev/null)"
-grep -q 'com.apple.security.cs.allow-jit' <<< "$node_entitlements"
+/usr/bin/codesign --verify --strict --verbose=2 \
+  "$release_app/Contents/Resources/backend/railgun-backend"
 
 /usr/bin/ditto -c -k --keepParent "$release_app" "$release_artifact"
 RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY="$sparkle_private_key" \

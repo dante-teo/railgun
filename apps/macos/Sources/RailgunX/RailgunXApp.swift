@@ -154,20 +154,17 @@ struct BackendLaunchConfiguration: Equatable {
             guard let sourceRoot else { return nil }
             return sourceLaunch(
                 root: sourceRoot,
-                script: sourceRoot.appendingPathComponent("dist/backend.js"),
+                executable: sourceRoot.appendingPathComponent("target/debug/railgun-backend"),
                 arguments: ["desktop"],
-                desktopRPC: true,
-                resourcesDirectory: resourcesDirectory
+                desktopRPC: true
             )
         case .mock:
             guard let sourceRoot, let mockScenario else { return nil }
             return sourceLaunch(
                 root: sourceRoot,
-                script: sourceRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts"),
+                executable: sourceRoot.appendingPathComponent("target/debug/railgun-mock-backend"),
                 arguments: [mockScenario],
-                nodeRuntimeArguments: ["--import", "tsx"],
-                desktopRPC: true,
-                resourcesDirectory: resourcesDirectory
+                desktopRPC: true
             )
         }
     }
@@ -180,9 +177,8 @@ struct BackendLaunchConfiguration: Equatable {
             guard let sourceRoot else { return nil }
             return sourceLaunch(
                 root: sourceRoot,
-                script: sourceRoot.appendingPathComponent("dist/backend.js"),
-                arguments: ["scheduler"],
-                resourcesDirectory: resourcesDirectory
+                executable: sourceRoot.appendingPathComponent("target/debug/railgun-backend"),
+                arguments: ["scheduler"]
             )
         case .mock:
             return nil
@@ -191,28 +187,11 @@ struct BackendLaunchConfiguration: Equatable {
 
     private func sourceLaunch(
         root: URL,
-        script: URL,
+        executable: URL,
         arguments: [String],
-        nodeRuntimeArguments: [String] = [],
-        desktopRPC: Bool = false,
-        resourcesDirectory: URL
+        desktopRPC: Bool = false
     ) -> BackendProcessLaunch? {
-        guard FileManager.default.fileExists(atPath: script.path) else { return nil }
-
-        let bundledNode = resourcesDirectory.appendingPathComponent("backend/node/bin/node")
-        let executableURL: URL
-        let launchArguments: [String]
-        if FileManager.default.isExecutableFile(atPath: bundledNode.path) {
-            executableURL = bundledNode
-            launchArguments = nodeRuntimeArguments + [script.path] + arguments
-        } else {
-            let environmentExecutable = URL(fileURLWithPath: "/usr/bin/env")
-            guard FileManager.default.isExecutableFile(atPath: environmentExecutable.path) else {
-                return nil
-            }
-            executableURL = environmentExecutable
-            launchArguments = ["node"] + nodeRuntimeArguments + [script.path] + arguments
-        }
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else { return nil }
 
         var environment = ProcessInfo.processInfo.environment
         if desktopRPC {
@@ -221,8 +200,8 @@ struct BackendLaunchConfiguration: Equatable {
             environment.removeValue(forKey: "RAILGUN_DESKTOP_RPC")
         }
         return BackendProcessLaunch(
-            executableURL: executableURL,
-            arguments: launchArguments,
+            executableURL: executable,
+            arguments: arguments,
             currentDirectoryURL: root,
             environment: environment
         )

@@ -43,9 +43,9 @@ public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$info_plist")"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
 codesign_details="$(/usr/bin/codesign -dvvv "$app" 2>&1)"
 grep -q 'Runtime Version' <<< "$codesign_details"
-node_entitlements="$(/usr/bin/codesign -d --entitlements :- \
-  "$app/Contents/Resources/backend/node/bin/node" 2>/dev/null)"
-grep -q 'com.apple.security.cs.allow-jit' <<< "$node_entitlements"
+backend="$app/Contents/Resources/backend/railgun-backend"
+[[ -x "$backend" ]] || { printf 'error: Rust backend is missing.\n' >&2; exit 1; }
+/usr/bin/codesign --verify --strict --verbose=2 "$backend"
 spctl --assess --type execute --verbose=2 "$app"
 xcrun stapler validate "$app"
 "$validate_backend" --app-bundle "$app"

@@ -60,14 +60,11 @@ seed_package_lockfile() {
 
 seed_backend_staging_inputs() {
   local scripts_directory="$output_directory/scripts"
-  local runtime_directory="$output_directory/Runtime"
 
-  mkdir -p "$scripts_directory" "$runtime_directory"
+  mkdir -p "$scripts_directory"
   cp "$project_root/scripts/stage-backend.sh" "$scripts_directory/stage-backend.sh"
-  cp "$project_root/scripts/stage-node-runtime.sh" "$scripts_directory/stage-node-runtime.sh"
-  cp "$project_root/Runtime/node-runtime.json" "$runtime_directory/node-runtime.json"
   printf '%s\n' "$repository_root" > "$scripts_directory/.railgun-source-root"
-  chmod +x "$scripts_directory/stage-backend.sh" "$scripts_directory/stage-node-runtime.sh"
+  chmod +x "$scripts_directory/stage-backend.sh"
 }
 
 seed_info_plist() {

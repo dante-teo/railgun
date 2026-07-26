@@ -998,7 +998,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(launchConfiguration.mockScenario, "ready-idle")
     }
 
-    func testMockBackendLaunchUsesTheSourceFixtureWithTheRequestedScenario() throws {
+    func testMockBackendLaunchUsesTheRustFixtureWithTheRequestedScenario() throws {
         let configuration = BackendLaunchConfiguration(
             environment: [:],
             arguments: [
@@ -1011,17 +1011,11 @@ final class RailgunXAppTests: XCTestCase {
 
         let launch = try XCTUnwrap(configuration.desktopRPCLaunch(resourcesDirectory: repositoryRoot))
 
-        XCTAssertEqual(launch.executableURL.path, "/usr/bin/env")
         XCTAssertEqual(
-            launch.arguments,
-            [
-                "node",
-                "--import",
-                "tsx",
-                repositoryRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts").path,
-                "ready-idle",
-            ]
+            launch.executableURL,
+            repositoryRoot.appendingPathComponent("target/debug/railgun-mock-backend")
         )
+        XCTAssertEqual(launch.arguments, ["ready-idle"])
         XCTAssertEqual(launch.currentDirectoryURL, repositoryRoot.standardizedFileURL)
         XCTAssertEqual(launch.environment?["RAILGUN_DESKTOP_RPC"], "1")
         XCTAssertNil(configuration.schedulerLaunch(resourcesDirectory: repositoryRoot))
@@ -1039,29 +1033,29 @@ final class RailgunXAppTests: XCTestCase {
 
         let launch = try XCTUnwrap(configuration.schedulerLaunch(resourcesDirectory: repositoryRoot))
 
-        XCTAssertEqual(launch.executableURL.path, "/usr/bin/env")
         XCTAssertEqual(
-            launch.arguments,
-            ["node", repositoryRoot.appendingPathComponent("dist/backend.js").path, "scheduler"]
+            launch.executableURL,
+            repositoryRoot.appendingPathComponent("target/debug/railgun-backend")
         )
+        XCTAssertEqual(launch.arguments, ["scheduler"])
         XCTAssertEqual(launch.currentDirectoryURL, repositoryRoot.standardizedFileURL)
         XCTAssertNil(launch.environment?["RAILGUN_DESKTOP_RPC"])
     }
 
-    func testMockBackendLaunchPrefersTheBundledNodeRuntime() throws {
+    func testMockBackendLaunchAlwaysUsesTheSourceRustBinary() throws {
         let resourcesDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("railgunx-bundled-node-\(UUID().uuidString)", isDirectory: true)
-        let bundledNode = resourcesDirectory.appendingPathComponent("backend/node/bin/node")
+            .appendingPathComponent("railgunx-staged-backend-\(UUID().uuidString)", isDirectory: true)
+        let stagedBackend = resourcesDirectory.appendingPathComponent("backend/railgun-backend")
         defer { try? FileManager.default.removeItem(at: resourcesDirectory) }
 
         try FileManager.default.createDirectory(
-            at: bundledNode.deletingLastPathComponent(),
+            at: stagedBackend.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        XCTAssertTrue(FileManager.default.createFile(atPath: bundledNode.path, contents: Data()))
+        XCTAssertTrue(FileManager.default.createFile(atPath: stagedBackend.path, contents: Data()))
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
-            ofItemAtPath: bundledNode.path
+            ofItemAtPath: stagedBackend.path
         )
 
         let configuration = BackendLaunchConfiguration(
@@ -1076,16 +1070,11 @@ final class RailgunXAppTests: XCTestCase {
 
         let launch = try XCTUnwrap(configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory))
 
-        XCTAssertEqual(launch.executableURL, bundledNode)
         XCTAssertEqual(
-            launch.arguments,
-            [
-                "--import",
-                "tsx",
-                repositoryRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts").path,
-                "ready-idle",
-            ]
+            launch.executableURL,
+            repositoryRoot.appendingPathComponent("target/debug/railgun-mock-backend")
         )
+        XCTAssertEqual(launch.arguments, ["ready-idle"])
     }
 
     func testMockRuntimeStartsAndLoadsSavedSessions() async {
@@ -1337,7 +1326,7 @@ final class RailgunXAppTests: XCTestCase {
         let stagingScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/stage-backend.sh")
         let validationScriptURL = repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-backend.sh")
         let lifecycleValidationScriptURL = repositoryRoot.appendingPathComponent(
-            "apps/macos/scripts/validate-packaged-backend-lifecycle.mjs"
+            "apps/macos/scripts/validate-packaged-backend-lifecycle.sh"
         )
         let projectURL = repositoryRoot.appendingPathComponent("apps/macos/project.yml")
         let stagingScript = try String(contentsOf: stagingScriptURL, encoding: .utf8)
@@ -1347,30 +1336,20 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: stagingScriptURL.path))
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: validationScriptURL.path))
-        XCTAssertTrue(stagingScript.contains("PATH=\"$staged_node_root/bin:$PATH\""))
-        XCTAssertTrue(stagingScript.contains("corepack \"pnpm@$pinned_pnpm_version\""))
-        XCTAssertTrue(stagingScript.contains("\"${pinned_pnpm[@]}\" --dir \"$repository_root\""))
-        XCTAssertTrue(stagingScript.contains("node_gyp_script=\"$repository_root/node_modules/node-gyp/bin/node-gyp.js\""))
-        XCTAssertTrue(stagingScript.contains("npm_config_build_from_source=true"))
-        XCTAssertTrue(stagingScript.contains("--nodedir=\"$staged_node_root\""))
-        XCTAssertTrue(stagingScript.contains("rm -rf \"$deployed_railgun/node_modules/@types\""))
-        XCTAssertTrue(stagingScript.contains("sqlite-vec-darwin-arm64/vec0.dylib"))
-        XCTAssertTrue(stagingScript.contains("npm_config_arch=arm64"))
-        XCTAssertTrue(stagingScript.contains("[[ \"$architecture\" == 'arm64' ]]"))
-        XCTAssertFalse(stagingScript.contains("onnxruntime-node"))
-        XCTAssertTrue(stagingScript.contains("mv \"$staging_backend\" \"$output/backend\""))
-        XCTAssertTrue(validationScript.contains("validation_architecture=\"$(uname -m)\""))
-        XCTAssertTrue(validationScript.contains("better-sqlite3"))
-        XCTAssertTrue(validationScript.contains("sqliteVec.load(database)"))
-        XCTAssertTrue(validationScript.contains("validate-packaged-backend-lifecycle.mjs"))
+        XCTAssertTrue(stagingScript.contains("cargo build --locked --release --package railgun-backend"))
+        XCTAssertTrue(stagingScript.contains("cargo build --locked --package railgun-backend"))
+        XCTAssertTrue(stagingScript.contains("[[ \"$architecture\" == arm64 ]]"))
+        XCTAssertTrue(stagingScript.contains("mv \"$staging\" \"$output/backend\""))
+        XCTAssertTrue(validationScript.contains("architecture=\"$(uname -m)\""))
+        XCTAssertTrue(validationScript.contains("railgun-backend"))
+        XCTAssertTrue(validationScript.contains("validate-packaged-backend-lifecycle.sh"))
         XCTAssertTrue(lifecycleValidationScript.contains("authentication_required"))
-        XCTAssertTrue(lifecycleValidationScript.contains("SIGKILL"))
-        XCTAssertTrue(lifecycleValidationScript.contains("stdin.end()"))
-        XCTAssertTrue(lifecycleValidationScript.contains("initialize"))
-        XCTAssertTrue(lifecycleValidationScript.contains("get_state"))
+        XCTAssertTrue(lifecycleValidationScript.contains("env -u DEVIN_TOKEN"))
+        XCTAssertTrue(lifecycleValidationScript.contains("kill -KILL"))
         XCTAssertTrue(project.contains("preBuildScripts:"))
         XCTAssertTrue(project.contains("architecture=\"${CURRENT_ARCH:-}\""))
         XCTAssertTrue(project.contains("--architecture \"$architecture\""))
+        XCTAssertTrue(project.contains("--configuration \"$CONFIGURATION\""))
         XCTAssertTrue(project.contains("UNLOCALIZED_RESOURCES_FOLDER_PATH"))
     }
 
@@ -1431,9 +1410,9 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(appcastGenerator.contains("/usr/bin/cp"))
     }
 
-    func testNativeMockBackendRunsDirectlyFromItsSourceFixture() throws {
+    func testNativeMockBackendRunsDirectlyFromItsRustFixture() throws {
         let mockBackend = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/mock-backend/backend.ts"),
+            contentsOf: repositoryRoot.appendingPathComponent("crates/railgun-mock-backend/src/main.rs"),
             encoding: .utf8
         )
         let appSource = try String(
@@ -1441,9 +1420,9 @@ final class RailgunXAppTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(mockBackend.contains("createRpcTranscriptPage"))
-        XCTAssertTrue(appSource.contains("apps/macos/mock-backend/backend.ts"))
-        XCTAssertTrue(appSource.contains("nodeRuntimeArguments: [\"--import\", \"tsx\"]"))
+        XCTAssertTrue(mockBackend.contains("transcript::page"))
+        XCTAssertTrue(appSource.contains("target/debug/railgun-mock-backend"))
+        XCTAssertFalse(appSource.contains("--import"))
     }
 
     func testReleaseValidationRequiresSparkleEdDSASignaturesOnly() throws {
@@ -1457,8 +1436,14 @@ final class RailgunXAppTests: XCTestCase {
     }
 
     func testLegalNoticesAreBundledWithTheApplication() throws {
-        XCTAssertNotNil(LegalNotices.noticesURL)
+        let noticesURL = try XCTUnwrap(LegalNotices.noticesURL)
         XCTAssertNotNil(LegalNotices.manifestURL)
+
+        let notices = try String(contentsOf: noticesURL, encoding: .utf8)
+        XCTAssertTrue(notices.contains("### Notice"))
+        XCTAssertTrue(notices.contains("Permission is hereby granted"))
+        XCTAssertTrue(notices.contains("Apache License"))
+        XCTAssertFalse(notices.contains("See crate metadata"))
 
         let manifest = try LegalNotices.loadManifest()
         XCTAssertFalse(manifest.components.isEmpty)
@@ -1479,62 +1464,52 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(records["departure-mono-nerd-font"]?.version, "1.422 / Nerd Fonts 3.4.0")
         XCTAssertEqual(records["departure-mono-nerd-font"]?.license, "OFL-1.1")
 
-        XCTAssertEqual(records["nodejs-24-lts"]?.version, "24.18.0")
-        XCTAssertEqual(
-            records["nodejs-24-lts"]?.archive,
-            "node-v24.18.0-darwin-arm64.tar.xz"
-        )
+        XCTAssertEqual(records["crate:widevin@0.2.0"]?.version, "0.2.0")
+        XCTAssertEqual(records["crate:widevin@0.2.0"]?.kind, .rustCrate)
         XCTAssertEqual(records["railgun-icon-artwork"]?.copyright, "© 2026 Dante Teo")
         XCTAssertEqual(records["railgun"]?.license, "MIT")
     }
 
-    func testLegalNoticeManifestContainsOnlyTheArm64ProductionBackendClosure() throws {
+    func testLegalNoticeManifestContainsTheLockedRustBackendClosure() throws {
         let manifest = try LegalNotices.loadManifest()
-        let backendRecords = manifest.components.filter { $0.kind == .backendProductionPackage }
+        let backendRecords = manifest.components.filter { $0.kind == .rustCrate }
         let backendNames = Set(backendRecords.map(\.name))
 
         XCTAssertFalse(backendRecords.isEmpty)
-        XCTAssertFalse(backendNames.contains("tsx"))
-        XCTAssertFalse(backendNames.contains("typescript"))
-        XCTAssertFalse(backendNames.contains("vitest"))
-        XCTAssertFalse(backendNames.contains("@types/better-sqlite3"))
-        XCTAssertFalse(backendNames.contains("@huggingface/transformers"))
-        XCTAssertFalse(backendNames.contains("onnxruntime-node"))
-        XCTAssertTrue(backendNames.contains("sqlite-vec-darwin-arm64"))
-        XCTAssertFalse(backendNames.contains("sqlite-vec-darwin-x64"))
+        XCTAssertTrue(backendNames.contains("widevin"))
+        XCTAssertTrue(backendNames.contains("sqlx"))
+        XCTAssertTrue(backendNames.contains("tokio"))
         XCTAssertTrue(backendRecords.allSatisfy { !$0.noticeContentSHA256.isEmpty })
     }
 
     func testLegalNoticeManifestTracksTheCheckedInBackendLockfile() throws {
         let manifest = try LegalNotices.loadManifest()
-        let lockfile = try Data(contentsOf: repositoryRoot.appendingPathComponent("pnpm-lock.yaml"))
+        let lockfile = try Data(contentsOf: repositoryRoot.appendingPathComponent("Cargo.lock"))
 
         XCTAssertEqual(manifest.backendLockfileSHA256, SHA256.hash(data: lockfile).hexString)
     }
 
-    func testLegalNoticeValidatorAcceptsTheCheckedInCatalogWithoutInstalledPackages() throws {
+    func testLegalNoticeValidatorAcceptsTheCheckedInCatalog() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [
-            "node",
-            "apps/macos/scripts/generate-legal-notices.mjs",
-            "--check"
+            "cargo",
+            "xtask",
+            "legal",
+            "--check",
         ]
         process.currentDirectoryURL = repositoryRoot
         let inheritedEnvironment = ProcessInfo.processInfo.environment
-        let nodeSearchPath = [
+        let executableSearchPath = [
             inheritedEnvironment["PATH"],
-            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/bin").path,
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".cargo/bin").path,
             "/opt/homebrew/bin",
             "/usr/local/bin"
         ]
         .compactMap { $0 }
         .joined(separator: ":")
         process.environment = inheritedEnvironment.merging(
-            [
-                "PATH": nodeSearchPath,
-                "RAILGUN_LEGAL_SKIP_INSTALLED_PACKAGES": "1"
-            ],
+            ["PATH": executableSearchPath],
             uniquingKeysWith: { _, replacement in replacement }
         )
 

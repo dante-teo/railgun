@@ -22,26 +22,32 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+      - name: Install pinned Rust toolchain
+        run: rustup show
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Format
+        run: cargo fmt --check
 
-      - name: Type-check
-        run: pnpm run typecheck
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
-        run: pnpm run test
+        run: cargo test --workspace --locked
 
-      - name: Build
-        run: pnpm run build
+      - name: Build locked release backend
+        run: cargo build --locked --release --package railgun-backend
+
+      - name: Check migrations, fixtures, and legal policy
+        run: |
+          cargo xtask migration check
+          cargo xtask fixtures
+          cargo xtask legal --check
+
+      - name: Check dependency licenses and advisories
+        uses: EmbarkStudios/cargo-deny-action@v2
 
   native:
     name: Railgun (arm64)
@@ -51,17 +57,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+      - name: Install pinned Rust toolchain
+        run: rustup show
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
 
       - name: Install pinned XcodeGen
         uses: ./.github/actions/install-xcodegen

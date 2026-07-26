@@ -1,671 +1,200 @@
-# Railgun for macOS
+# Railgun
 
-Railgun is a signed macOS desktop app for working with an AI coding agent. The
-Node backend is bundled inside the app and does not expose a command-line or
-npm product.
+Railgun is a native arm64 macOS agent application with a private Rust backend.
+The app and backend communicate over versioned JSONL RPC on standard input and
+standard output; diagnostics are structured, redacted, and written only to
+standard error.
 
-## Supported platform
+## Requirements
 
-Railgun ships one native, Apple-silicon macOS application. The former Electron
-application and its build, test, and release pipeline have been retired; there
-is no supported web, Windows, Linux, or standalone Node application surface.
-`apps/macos/project.yml` is the source of truth for the disposable Xcode
-project used to build the app.
+- macOS 15 or newer on Apple silicon
+- Xcode and the macOS SDK
+- XcodeGen at the version in `apps/macos/.xcodegen-version`
+- The Rust toolchain pinned by `rust-toolchain.toml`
+- `cargo-deny` when reproducing the dependency-policy CI gate locally
 
-## Install and update
+## Workspace
 
-Download the signed app from the Railgun GitHub Release. The app checks the
-direct-release update feed, downloads updates in the background, and offers to
-restart when one is ready. Choose **Railgun → Check for Updates…** to check
-manually. A progress dialog remains visible while the manual check is running.
+The root Cargo workspace contains:
 
-Homebrew distribution is no longer published or updated by the release
-pipeline. Existing Homebrew installations retain their legacy update-channel
-behavior; use the direct release for current installations.
+- `railgun-backend`: shared domain/application/adapters library and production
+  `railgun-backend` executable.
+- `railgun-mock-backend`: deterministic JSONL backend used by native tests and
+  development scenarios.
+- `railgun-xtask`: migration, fixture, legal-notice, and performance tooling.
 
-## Scheduled work and maintenance
+The Xcode project is generated from `apps/macos/project.yml`. Generated
+`.xcodeproj` directories are disposable and must never be edited.
 
-Use the **Scheduled** sidebar destination to create, edit, or remove prompts.
-It shows the current local-time context and each job's normalized five-field
-cron expression, most recent run time, completion status, and safe failure
-message when applicable. **New Schedule** and Edit open a native sheet with a
-prompt plus schedule field; the schedule field shows a five-field example.
-The app requires a nonblank prompt and exactly five cron fields before saving;
-the backend remains authoritative for cron syntax and ranges. Scheduled data,
-credentials, sessions, skills, memories, and logs remain in `~/.railgun`.
+## Development
 
-Railgun starts its private scheduler after the desktop backend is ready and
-stops it when the app closes. Scheduled prompts therefore run while Railgun is
-open; Railgun does not install a login item, launchd agent, or background
-service. Each completed, incomplete, or failed attempt is saved as a Task in
-the shared Railgun data store. While the app is open, it checks for newly
-delivered runs every five seconds and refreshes the Task and Scheduled lists
-without replacing the Task the user is currently viewing. Each delivery keeps
-the scheduled prompt and available agent transcript; incomplete, failed, or
-empty-result attempts retain a visible assistant message explaining the
-outcome. Open any delivered Task to inspect it or continue it with new
-messages.
-
-SQLite schema changes are managed as checked-in dbmate-format migrations; see
-[Database migrations](docs/DATABASE_MIGRATIONS.md) for the no-global-install
-workflow and legacy-data compatibility guarantee.
-
-## Personalization
-
-Use **Settings → Personalization** to edit Railgun's one global custom
-instruction stored under `~/.railgun`. There is no instruction-file picker:
-the app exposes only this single instruction. The editor keeps an unsaved draft
-while you move between Settings destinations; choose **Revert** to discard it
-or **Save** to apply it.
-
-Choose **Manage Memories** to open a sheet for searching, adding, editing, and
-deleting agent memories. The sheet also provides **Run Dream**, a manual memory
-maintenance action. Dream becomes available once at least five memories exist;
-it can take longer than ordinary interactive requests, so leave the sheet open
-until it reports its completed or skipped result.
-
-## Recovery
-
-If the app asks you to sign in, sign in from Settings and then retry. Scheduled
-work requires the app to be open and an available credential. Scheduler logs are
-retained under `~/.railgun/cron/logs/`.
-
-## Shell command environment
-
-Railgun runs agent shell commands through your login shell in non-interactive
-mode. This loads login environment setup—such as Homebrew's `PATH`—without
-loading interactive aliases or functions. That boundary ensures the command
-shown for approval is the command that runs; use an executable or login-shell
-environment configuration rather than an interactive shell alias for commands
-you want Railgun to invoke.
-
-## Development and release
-
-`pnpm dev` launches the native app with the source backend. `pnpm dev:mock`
-uses the native mock backend. Releases use `vX.Y.Z` tags and produce signed
-arm64 artifacts; see [release instructions](docs/RELEASING.md) for the
-artifact and signing checks.
-
-The RailgunX native scaffold requires Xcode and XcodeGen `2.45.4`. The pinned
-version is recorded in `apps/macos/.xcodegen-version`; generation fails before
-writing project files when the installed version does not match. Install the
-pinned XcodeGen version, make it available on `PATH`, and confirm it before
-generating a project:
+Run the native app with its bundled debug backend:
 
 ```sh
-xcodegen --version
-# Version: 2.45.4
+scripts/run.sh
 ```
 
-Generated Xcode projects are disposable. Create one explicitly with:
+Run with the source or deterministic mock executable:
 
 ```sh
-./apps/macos/scripts/generate-project.sh /tmp/railgunx-project
+scripts/run-source.sh
+scripts/run-mock.sh
 ```
 
-Do not treat an existing `apps/macos/RailgunX.xcodeproj` as source-controlled
-or authoritative. Local `apps/macos/*.xcodeproj` directories are ignored and
-can become stale as Swift files are added. Generate a fresh project before
-using Xcode directly; the validation script below does this automatically.
-
-`apps/macos/project.yml` deliberately lists Swift Markdown's C header roots
-for both generated layouts: a sibling `SourcePackages` directory for isolated
-XcodeGen validation and DerivedData's `SourcePackages` directory for launcher
-builds. Keep both paths in the project definition; do not repair a generated
-project by editing its `.xcodeproj`.
-
-### Task controls
-
-Railgun loads task controls when the backend and active task are ready, and
-disable changes while a run or another control request is in progress. Choosing
-a model changes the active task and saves that model as the default in one
-selection; there is no separate task-only/default choice. If saving the default
-fails after the task change succeeds, the selected task model remains in use
-and the app presents a recoverable warning.
-
-Desktop startup uses that saved default. If the provider no longer offers it,
-the RPC backend starts with its first currently available model instead, without
-overwriting the saved preference, so the client can load the model controls and
-the user can choose a replacement. RPC startup never renders a terminal model
-chooser: stdout remains JSONL-only for the desktop client and other RPC callers.
-
-Changing a model can fork a persisted task. RailgunX rehydrates the backend's
-newly active task and refreshes its task list after a successful change, so its
-transcript, sidebar, and later task actions target the fork. Its composer keeps
-model selection in a native `Menu` whose models are individual `Button`
-actions; the menu locks after a selection until that request settles,
-preventing repeated model changes.
-
-Each task runs through one configured model. The former Mixture of Agents,
-advisor, and task-delegation paths are not started by the desktop backend;
-saved legacy configuration is tolerated and ignored.
-
-RailgunX pins [Swift Markdown](https://github.com/swiftlang/swift-markdown)
-`0.8.0` and [Sparkle](https://github.com/sparkle-project/Sparkle) `2.9.4`.
-`apps/macos/Package.resolved` is the reviewed source-controlled lockfile;
-generation seeds it into each disposable Xcode project. The generated app
-links Markdown and packages Sparkle.framework in its bundle. Sparkle is a
-binary framework, so `project.yml` includes a guarded `Embed Sparkle Framework`
-post-build phase; keep it when changing package declarations because XcodeGen's
-generic package embed phase cannot represent its `.framework` filename. To
-intentionally refresh the lockfile after changing an exact version, run:
-
-```sh
-./apps/macos/scripts/resolve-packages.sh
-```
-
-Native Railgun release archives are built through
-`apps/macos/scripts/archive-release.sh`, not from a generated `.xcodeproj`.
-The release workflow injects the desktop release version, signs the app and
-bundled Node runtime, submits it for notarization, staples the result, creates
-an arm64 ZIP, and publishes its signed Sparkle appcast. It
-requires these repository secrets in addition to the existing Developer ID and
-Apple notarization secrets:
-
-- `RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY` — the base64 public key embedded in the app.
-- `RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY` — the private key file contents; it is
-  passed to Sparkle on standard input and is never written to the checkout.
-
-The native updater uses only an HTTPS feed, separate from Classic's GitHub
-updater artifacts.
-
-### Native legal notices
-
-RailgunX bundles `ThirdPartyNotices.md` and `LegalNoticeManifest.json` as app
-resources; no legal-notices UI is provided yet. The catalog records the locked
-Swift packages, Node 24 LTS licensing, first-party icon provenance, Railgun's
-MIT license, and the complete macOS production backend closure. The concrete
-Node archive metadata and checksums are pinned in
-`apps/macos/Runtime/node-runtime.json` and are tracked legal inputs.
-
-After a root `pnpm-lock.yaml`, package-license, Swift pin, first-party license,
-or icon-source change, regenerate the catalog from an installed dependency tree:
-
-```sh
-pnpm install
-node apps/macos/scripts/generate-legal-notices.mjs --write
-```
-
-Do not hand-edit either generated file. Production dependency removals can
-remove entire notice blocks, so regenerate after every production dependency
-change as well as additions and upgrades.
-
-`--write` reads package-provided legal files and refuses a metadata-only license
-unless the repository bundles the full matching license text. `--check` is run
-by `validate-project.sh`: it compares the complete generated catalog when
-packages are installed, or validates the checked-in catalog's tracked-input and
-notice hashes in a clean checkout. Neither mode requires the ignored backend
-deployment directory.
-
-### Pinned Node runtime
-
-RailgunX stages Node.js `24.18.0` only from the official, checksum-pinned
-Darwin archives named in `apps/macos/Runtime/node-runtime.json`; runtime
-binaries are never committed. To stage one architecture into a caller-owned
-build directory, run:
-
-```sh
-apps/macos/scripts/stage-node-runtime.sh --architecture arm64 --output build/runtime-arm64
-```
-
-The complete distribution is staged at `build/runtime-arm64/node`. The command
-refuses to replace an existing `node` output and verifies the archive checksum,
-LICENSE, Node version, archive layout, and Mach-O architecture before staging.
-`validate-node-runtime.sh` validates the configured native runtime archives;
-it runs from `validate-project.sh` and native CI.
-
-### Shared desktop-client lock
-
-Railgun coordinates access to `~/.railgun` through the shared desktop-client
-lock. Preserve its record and stale-recovery rules; see the
-[lock protocol](docs/desktop-client-lock.md).
-
-### Native backend staging
-
-The production native backend is staged with the matching runtime and a fresh
-`better-sqlite3` build:
-
-```sh
-apps/macos/scripts/stage-backend.sh \
-  --architecture arm64 \
-  --output build/native-resources
-```
-
-The output layout is:
-
-```text
-build/native-resources/backend/node
-build/native-resources/backend/railgun/dist/backend.js
-build/native-resources/backend/railgun/node_modules/...
-```
-
-Each artifact is single-architecture. The stager deploys only the backend's
-production dependency closure, removes type-only automatic peers, stages the
-pinned Node 24 runtime, and invokes the direct exact root `node-gyp` dependency
-with that runtime's headers. It deletes any downloaded `better-sqlite3`
-prebuild before compiling, then loads both `better-sqlite3` and the
-architecture-specific `sqlite-vec` extension under the staged Node ABI. The
-production deploy runs under the staged runtime so pnpm selects arm64 optional
-native dependencies. It requires `pnpm`, Python 3, `make`, and `clang++`.
-
-Validate the host architecture's isolated payload with:
-
-```sh
-apps/macos/scripts/validate-backend.sh
-```
-
-Native CI runs this validation on arm64. In addition to checking architecture,
-production dependencies, and direct
-`better-sqlite3` / `sqlite-vec` loading, this starts each packaged backend in
-an isolated temporary home. It verifies the machine-readable
-authentication-required startup path without credentials, then uses a
-validation-only provider loader to exercise RPC `initialize` and `get_state`,
-creation of the SQLite state database, forced-crash recovery, restart, and
-graceful stdin-close shutdown. The validation never reads a developer's
-credentials or modifies `~/.railgun`.
-
-The generated Xcode project runs the same stager in a pre-signing build phase,
-passing `CURRENT_ARCH` and the app's Resources directory. A Debug app therefore
-contains `Contents/Resources/backend/node` and
-`Contents/Resources/backend/railgun`; `validate-project.sh` validates that final
-bundle in addition to isolated staging.
-
-### Native backend process lifecycle
-
-`RailgunTransport.BackendProcess` is the sole owner of one native backend child
-process and its standard-input, standard-output, and standard-error pipes.
-Start it with `BackendProcessLaunch`, which supplies the executable URL,
-arguments, optional working directory, and optional environment. A successful
-launch returns `BackendProcessPipes`; callers assign one input writer and one
-reader to each output pipe.
-
-The actor rejects concurrent launches, reports `idle`, `running`, or the most
-recent `exited` state, and can be reused after either a failed launch or a
-recorded exit. `waitForTermination()` returns the exit reason and status for the
-active or latest process.
-
-`terminate()` closes stdin, sends `SIGTERM`, and sends `SIGKILL` only if that
-same process remains alive after its grace period (two seconds by default).
-`forceTerminate()` sends `SIGKILL` immediately; `shutdown()` combines graceful
-termination with waiting for the recorded result.
-
-`RailgunTransport` concurrently consumes those raw output pipes. It exposes
-validated stdout JSON-object frames as raw `Data` and opaque, bounded stderr
-chunks through independent async streams. Its standard defaults cap
-each stdout frame at 4 MiB, an unfinished stdout buffer at 8 MiB, one queued
-stdout frame, and 64 queued stderr chunks. A slow stdout consumer therefore
-fails the stdout stream instead of retaining unbounded output; stderr remains
-best-effort. Malformed, non-object, oversized, unreadable, or partial-at-EOF
-stdout also fails that stream. Closing the transport finishes public streams
-but continues draining pipes so it cannot signal the active backend. Clean
-stdout EOF and all stderr EOF are normal.
-
-`RailgunRPCClient` owns one transport/process generation above those raw
-streams. `start()` sends `initialize-<generation>` for RPC v1 with
-`clientName: "railgunx"`, requires `sessions`, `interaction.approval`, and
-`interaction.clarification`, retains all negotiated capabilities, then requires
-a successful `get_state` readiness probe within a 15-second startup budget.
-Ordinary callers provide a JSON-object payload with `type` and no `id`; the
-client assigns `request-<generation>-<sequence>`, correlates only the matched
-response, and returns its raw response object. Each call supplies its own
-timeout. Cancellation, timeout, malformed/mismatched responses, EOF, process
-exit, restart, and shutdown settle or discard only the affected generation's
-work; late and stale-generation frames are ignored. An unexpected EOF, transport
-failure, or process exit after readiness also emits one
-`unexpectedTerminations` event. The native app uses that event to leave the
-Task shell, mark the backend disconnected, and offer a retry instead of
-presenting unavailable task controls.
-
-The client uses `RailgunTransportConfiguration.rpcCompatible`, which retains
-validated stdout bursts until the RPC reader consumes them. This is intentional:
-backends may emit several event frames before a correlated response. Frame and
-unfinished-buffer byte limits remain in force.
-
-After an automatic session checkpoint succeeds, the backend emits a
-`session_saved` event before the corresponding prompt or compaction response.
-RailgunX normalizes that signal, leaves transcript reducer state unchanged, and
-reloads active and archived task summaries so a newly completed task appears in
-the sidebar only after it is durable. The presentation layer does not retain
-the event's session identifier.
-
-`RailgunRPCCommand` provides the validated RPC v1 command envelope for new
-callers; it reserves correlation IDs for the client and validates command
-fields, pagination limits, MCP environment patches, and interaction bounds
-before encoding JSON. `RailgunRPCResponse`, `RailgunRPCInitializeResult`,
-`RailgunRPCSessionState`, and `RailgunRPCInteractionRequest` validate the
-received protocol data needed by the transport layer. Integer DTO fields use a
-non-trapping exact conversion, so malformed out-of-range backend numbers are
-rejected as malformed data rather than crashing the client. The raw request API
-remains available for fixture replay and forward-compatible protocol probes.
-
-Approval and clarification requests are emitted through the client's separate
-`interactions` stream with opaque client correlation IDs; backend request IDs
-never reach presentation state. The stream preserves arrival order for its
-oldest 128 requests. If it cannot admit a newer request, the client safely
-denies that request and removes its correlation state, preventing the backend
-from waiting on an unreachable prompt. Duplicate requests are ignored; blank
-or otherwise malformed request IDs use the safe denial or abort path. A failed
-interaction response remains pending for retry, while run end, restart,
-shutdown, and disconnection settle every pending interaction.
-
-`RailgunRPCRedactor` recursively removes credential-like fields, environment
-values, token forms, and filesystem paths before values are presented. Its
-diagnostic summaries include only bounded protocol metadata (`type`, response
-command, whether an ID is present, status, and success); they never include RPC
-payloads, tool details, environment values, or error bodies. Event
-normalization, diagnostics retention, and logging remain the responsibility of
-later protocol layers.
-
-Stdout framing is byte-based: `\n` terminates a frame, blank lines are ignored,
-and the `\r` in a CRLF terminator is removed. Each `stdoutFrames` element is
-the original JSON-object bytes; malformed JSON and syntactically valid
-non-object JSON are distinct terminal errors. `stderrChunks` is deliberately
-opaque and best-effort, so diagnostics policy can be added without changing
-the transport boundary.
-
-### Native authentication and restart coordination
-
-`RailgunBundledBackendLaunchFactory` launches the staged
-`Contents/Resources/backend/node/bin/node` runtime with the staged
-`backend/railgun/dist/backend.js` entry point. Desktop RPC launches run the
-`desktop` command with `RAILGUN_DESKTOP_RPC=1`; login and logout helpers run
-the corresponding command from the user's home directory with that variable
-removed. All launches preserve inherited environment values, including an
-environment-managed `DEVIN_TOKEN`.
-
-`RailgunAuthenticationService` serializes login and logout. It leaves an
-active RPC generation running while the browser-backed helper runs, drains both
-helper output streams without retaining or exposing OAuth and credential
-details, and restarts RPC only after a zero exit status. Helper launch and exit
-failures are intentionally redacted; they leave the current RPC backend in
-place. Service shutdown terminates an active helper and prevents a restart.
-
-When the private bundled backend's `desktop` entry point cannot authenticate,
-it emits exactly one JSONL startup frame before exiting:
-
-```json
-{"type":"startup_status","status":"authentication_required","credential_source":"file"}
-```
-
-`credential_source` is either `file` or `environment`. `RailgunRPCClient`
-recognizes only the documented type, status, and source values and surfaces a
-typed authentication failure; malformed, unknown, and unrelated startup frames
-retain ordinary safe transport handling. RailgunX preserves that source in its
-backend state and presents native loading and `ContentUnavailableView` recovery
-surfaces. File-backed failures direct the user to sign in with the provider
-outside Railgun; environment-backed failures direct them to update
-`DEVIN_TOKEN` in RailgunX's launch environment and relaunch. Provider
-sign-in/out controls remain deferred to `SWFT-057`.
-
-Backend startup, authentication failures, launch failures, and post-ready
-disconnects are retryable through visible native buttons and the focused
-`⌘R` Retry command. Restart is single-flight, creates a fresh RPC generation,
-keeps event and interaction observation alive across generations, and refreshes
-task summaries and task controls after a successful connection. Recovery never
-replays a failed prompt or queued message; those remain explicit Task-level
-retry actions.
-
-### Native module boundaries
-
-`apps/macos/project.yml` defines static-library modules and their one-way
-dependencies. `RailgunX` is the application composition root:
-
-- `RailgunCore` is the Foundation-only domain layer with no project dependencies.
-- `RailgunTransport` depends on `RailgunCore`.
-- `RailgunServices` depends on `RailgunCore` and `RailgunTransport`.
-- `RailgunUI` depends on `RailgunCore` and contains reusable SwiftUI components.
-- `RailgunTestSupport` depends on Core, Transport, and Services; only
-  `RailgunXTests` links it.
-- `RailgunX` depends on Core, Transport, Services, and UI.
-
-`RailgunUI` exposes the shared native design definitions below, the
-custom-component registry and its contract foundation, and the completed
-assistant-message renderer. It owns the Swift Markdown source dependency;
-because `RailgunUI` is a static archive, `RailgunX` links the package objects
-into the final application. Sparkle remains an application packaging
-dependency.
-
-### Native deterministic test infrastructure
-
-Native tests must use `TemporaryRailgunHome` from `RailgunTestSupport` rather
-than the developer's real home directory. It creates an empty, unique
-`$HOME/.railgun`, exposes `environment` for process boundaries, and can be
-registered with XCTest teardown through `temporaryRailgunHome()`. Tests must
-never acquire the real client lock or read or write the real `~/.railgun`.
-
-The shared RPC v1 corpus is in `fixtures/rpc/v1/`. Its `manifest.json` is the
-source of truth for both Swift and desktop mock-backend contract tests. A
-scenario contains ordered steps; each step references an exact JSONL request,
-one or more raw stdout-chunk files, delay metadata, and an `open` or `eof`
-terminal state. Preserve those files and their byte boundaries—do not recreate
-the frames through JSON serialization in tests.
-
-The foundational scenarios cover successful initialization, a correlated
-command rejection, malformed stdout, delayed success, and EOF after readiness.
-The EOF scenario deliberately remains open after `initialize`; it returns a
-successful `get_state` response before EOF, matching the desktop
-`disconnect-after-ready` mock lifecycle.
-
-`RPCFixtureLoader` loads this corpus from the test bundle, so Swift tests must
-not derive repository-relative paths. `ScriptedMockBackend` validates the exact
-ordered JSONL input, records received data, and returns the declared raw chunks,
-timing metadata, and terminal state without launching a process or sleeping.
-When adding a foundational protocol case, update the manifest and raw files,
-then add or extend both the Swift and desktop contract tests.
-
-### Native design foundations
-
-Use `RailgunUI` semantic roles when a SwiftUI feature needs an application
-appearance decision. They map to macOS system colors, dynamic text styles, and
-SwiftUI materials; they do not replace native control styling. Continue to use
-native `Button`, `List`, `TextField`, `Toggle`, menus, sheets, and focus
-behavior without custom control chrome.
-
-The [native-first UI policy](docs/native-ui-policy.md) defines the required
-customization decision record, approved AppKit bridge inventory, shared
-component governance, and validation and retirement requirements.
-
-Reusable custom controls are an exception, not a replacement for native
-SwiftUI composition. Before adding one, complete the policy decision record,
-define and register a `RailgunCustomComponentSpecification` in `RailgunUI`,
-use `RailgunCustomComponentPreviewMatrixView` for its `#Preview` matrix, and
-add focused contract tests. The completed Markdown message is the registered
-shared component; feature-local compositions using native SwiftUI controls do
-not belong in the registry.
-
-- `RailgunColorRole` provides accent, text, destructive, separator, canvas,
-  and surface colors. Its matcha accent comes from the native
-  `Resources/Assets.xcassets/matchaAccent.colorset` catalog, with `#5E722D`
-  for Light and `#B9CC75` for Dark; foreground, material, warning, and error
-  roles remain semantic system colors. Use its `color` value—for example,
-  `RailgunColorRole.secondaryText.color`—rather than fixed color values.
-- `RailgunFont` registers the bundled Barlow faces at launch and provides
-  dynamic-type-aware interface fonts. `RailgunTypographyRole` maps body,
-  emphasized body, secondary text, titles, section titles, and captions to
-  those faces. Use `RailgunFont.code()` only for code content; it selects the
-  bundled Departure Mono Nerd Font. The font assets and OFL notices live in
-  `apps/macos/Resources/Fonts/` and `apps/macos/Resources/Legal/`.
-- `RailgunSpacing` defines the shared 4, 8, 12, 16, 24, and 32 point scale
-  through its `points` value.
-- `RailgunMaterialRole` selects native regular, bar, thin, and ultra-thick
-  materials for content, sidebars, overlays, and HUD-style surfaces.
-- `RailgunFocusPolicy` deliberately preserves SwiftUI's standard focus effect;
-  do not draw a replacement focus ring.
-- `RailgunMotion.animation(reduceMotion:)` returns no animation when reduced
-  motion is enabled. Pass SwiftUI's `accessibilityReduceMotion` environment
-  value to it instead of branching on a global setting.
-- `RailgunCustomComponentValidator` provides deterministic contract failures
-  for XCTest, including required preview coverage, unique preview axes, and
-  interactive-accessibility requirements. Keep component contracts and the
-  registry in `RailgunUI`.
-
-### Native lifecycle shell
-
-RailgunX currently provides one restorable primary SwiftUI scene, identified as
-`primary`. It opens at 1024×700, enforces a 760×520 content minimum, and remains
-user-resizable above that minimum. **Settings…** (⌘,) opens a singleton regular
-SwiftUI window rather than the special `Settings` scene. Its native sidebar
-defaults to **General**. General controls command approval for the next run:
-**Ask for approval** prompts before flagged commands, **Approve for me** uses
-the selected reviewer model, and **Full access** runs flagged commands without
-confirmation, subject to the backend's hardline protections. Choosing no
-reviewer model clears the saved reviewer. **Archived Tasks** remains available
-in the sidebar; its detail browser is a native
-`Table` that shows task title, model, message count, and localized archive
-time. Search matches title, model, or the full task ID without changing the
-backend's archive order; clearing the search restores that order.
-
-**Settings → Appearance** persists an **Auto**, **Light**, or **Dark** theme
-preference. Auto follows macOS; Light and Dark apply their override to both the
-main Railgun window and Settings. Settings uses the same shared native-button
-sidebar row as the main window, so selected rows have matcha icon/text tint and
-the same subtle rounded selection background.
+The wrappers preserve the existing CLI and build the required Rust executable
+before launching the app. They are launch commands, not verification commands.
+
+The desktop interface uses the shared `RailgunSpacing` 4, 8, 12, 16, 24, and 32 point scale.
+Transcript rows keep a comfortable 32-point inter-message gap.
+The Activity toolbar button presents a 320×360 popover; it does not reserve
+transcript width, and its dashboard scrolls as one native surface when the
+content exceeds the popover height.
+
+Model selection remains a native `Menu` whose models are individual `Button`
+actions. The menu locks after a selection until the request settles, preventing
+repeated model changes.
 
 ### Archived task browser
 
-Archive a persisted selected task from the Task toolbar, then open **Settings →
-Archived Tasks** to browse it. Restore is available inline and from the native
-row context menu; a successful restore returns the task to the active task list
-without opening or resuming it. The context menu can also copy a task's exact
-ID, but task-specific context actions require exactly one selected row so a
-multi-row selection can never restore or copy an arbitrary task. Restore is
-disabled while the backend is unavailable or any archive restore is in flight;
-copying remains available. This browser intentionally does not expose archive
-deletion or transcript previews because the archive-list contract provides only
-task summaries.
+Settings → Archived Tasks displays archived sessions without changing their
+backend order. Search matches title, model, or the full task ID. Restoring a
+task returns it to the active task list without opening or resuming it. Context
+actions that restore a task or copy its exact ID require exactly one selected row,
+so multi-row selection cannot target an arbitrary task.
 
-### Branching and forking tasks
-
-For a persisted idle task, **Branch from this message** is available on a
-completed assistant boundary only when later visible transcript content exists.
-The native branch sheet can optionally **Summarize later messages** before
-rewinding. It stays open during submission, can be cancelled before submission,
-and presents retryable failures inline; the app dismisses it only after the
-backend's authoritative task state and transcript have been restored.
-
-Use **Fork Task** from a persisted task's sidebar context menu to create and
-activate a separate copy without changing the source task. RailgunX verifies
-that the backend returned a distinct task ID, then restores the fork and
-refreshes active and archived task lists. While a branch or fork is in flight,
-task selection, creation, controls, and composer submission are unavailable to
-prevent competing task mutations; fork progress and recoverable failures appear
-in the native task-operation presentation.
-
-A selected, hydrated task renders its restored and live messages in a native
-`ScrollView` and `LazyVStack`. User messages and incomplete, failed, or stopped
-assistant fragments remain selectable plain text; completed assistant messages
-use `RailgunMarkdownMessage`. It supports CommonMark/GFM headings, emphasis,
-task lists, quotes, rules, code, tables, and image blocks. Only credential-free
-absolute HTTPS links and images are active; HTML is displayed as literal text.
-Code remains selectable and wraps, tables are selectable and scroll
-horizontally, and image loading or failure labels include both status and alt
-text for VoiceOver. Tool activity joins messages in chronological order.
-Concurrent live calls remain individual rows; only adjacent settled calls of the
-same tool are merged. Settled turn activity is available under a native
-**Worked** expander, separated from the surrounding transcript by a divider.
-Activity summaries show only safe concise targets, dim until hovered or
-expanded, and their entire summary row is keyboard- and pointer-activatable.
-Loading, empty, selection-required, and stale-selection states retain the same
-root scroll view for layout stability but do not render or accessibility-expose
-messages or activity retained by the reducer. Their centered state
-presentations and any session-operation error banner remain non-scrolling
-overlays.
-
-The transcript uses one `ScrollViewReader` and a stable bottom sentinel. It
-opens at the latest message, follows content and viewport-size changes through
-the reader proxy while within four points of the bottom, and preserves the
-reader's position after they scroll away. New output then exposes a native
-**Jump to Latest** button. On macOS 26 and later, it retains the native vertical
-scroller and applies the system soft top-edge effect. Do not hide or replace
-that scroller or layer a `ScrollPosition` binding onto the reader: either
-breaks the native scrolling contract. The complete implementation and
-cold-launch verification contract is documented in
-[`docs/native-ui-policy.md`](docs/native-ui-policy.md#transcript-soft-top-edge-invariant).
-Message rows use a comfortable 32-point inter-message gap, with 32-point
-leading and 24-point trailing transcript content insets.
-
-The Activity button lives in the native toolbar and presents a 320×360 popover.
-Activity never occupies persistent transcript space and does not add its own
-glass or material background inside the system popover. The toolbar button is
-the sole visibility control. The dashboard displays Todos and scrolls as one
-native surface when its content exceeds the popover height. Its button is
-disabled when no dashboard data is available.
-
-Validate deterministic generation, clean-cache package resolution, the
-checked-in lockfile, legal notices, build, and tests with:
+Backend-only checks:
 
 ```sh
-./apps/macos/scripts/validate-project.sh
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
+cargo build --locked --release --package railgun-backend
+cargo deny check
 ```
 
-Launch the native scaffold with `./scripts/run.sh`,
-`./scripts/run-source.sh`, or `./scripts/run-mock.sh`. The default uses the
-bundled backend selection. The source and mock launchers pass their mode and
-repository root explicitly; the mock launcher also passes the `ready-idle`
-scenario. Set `RAILGUNX_BUILD_ROOT` to retain the generated project and derived
-data in a specific location. All launchers open the built `.app` bundle through
-macOS LaunchServices so bundle metadata, including the AppIcon used by About, is
-resolved correctly.
-
-Bundled mode uses the pinned Node runtime staged inside the app. Source and mock
-modes also prefer that staged runtime when launching their repository scripts,
-so LaunchServices and XCTest do not depend on inheriting a developer shell's
-`PATH`. The launch configuration retains `/usr/bin/env node` only as a fallback
-when used without a staged app resource. The mock backend is a TypeScript
-fixture in `apps/macos/mock-backend/`, launched with the repository's `tsx`
-development dependency; it needs no generated asset.
-
-The `ready-idle` mock includes the saved `mock-session-paginated-history`
-fixture with 101 completed turns. Resume it to manually verify paginated
-transcript restoration, then use **Branch from this message** on an assistant
-response after the initial 100 projected entries. Mock branch validation checks
-eligible completed-turn boundaries across the entire restored history.
-
-For a custom source root or mock scenario, invoke the common launcher directly:
+Full native verification:
 
 ```sh
-./scripts/run.sh --backend-mode source --source-root "$PWD"
-./scripts/run.sh --backend-mode mock --mock-scenario ready-idle --source-root "$PWD"
+apps/macos/scripts/validate-project.sh
 ```
 
-The app gives explicit `--railgunx-*` launch arguments priority over the
-equivalent `RAILGUNX_*` environment values, which keeps LaunchServices launches
-deterministic. A source-root value may be the repository directory itself or a
-generated `.railgun-source-root` marker. Xcode generates shared `RailgunX
-Source Backend` and `RailgunX Mock Backend` Debug schemes that use that marker
-instead of embedding a developer-specific path. Both selections launch a live
-RPC backend: after a successful readiness probe, RailgunX loads active and
-archived tasks and enables new, resume, archive, restore, branch, and fork
-operations.
-**Archive Task** is enabled only for a selected persisted task; unsaved new
-tasks cannot invoke a backend operation that will be rejected. Restore actions
-live in Settings rather than the Task toolbar. The Settings archive browser
-supports title, model, and full-ID search, inline restore, and single-row
-context-menu restore or task-ID copy. A backend launch,
-authentication, or later connection failure replaces the task shell with an
-actionable status and retry control; rejected task operations are shown next to
-the task detail area.
+### Dependency policy
 
-Run the complete check suite from the repository root with:
+Run `cargo deny check` after changing any Cargo manifest or `Cargo.lock`.
+Registry licenses must be reviewed before adding their SPDX identifier to
+`deny.toml`; the allowlist is an explicit policy decision, not a substitute for
+the distributable notice catalog.
+
+Workspace path dependencies must declare both `path` and a compatible
+`version`. This keeps local workspace resolution while avoiding unbounded
+dependency declarations:
+
+```toml
+railgun-backend = { version = "0.9.0", path = "../railgun-backend" }
+```
+
+Dependency changes must also refresh and validate the bundled license and
+attribution texts:
 
 ```sh
-pnpm run typecheck
-pnpm run build
-pnpm run test
-./apps/macos/scripts/validate-project.sh
+cargo xtask legal --write
+cargo xtask legal --check
 ```
 
-`validate-project.sh` validates both backend architectures, generates the
-project twice to check determinism, resolves the locked Swift packages in a
-clean cache, builds the app, validates the bundle, and runs the generated
-project's XCTest suite. A separate test against a local
-`apps/macos/RailgunX.xcodeproj` is intentionally omitted because that ignored
-project may be stale.
+## Backend modes
 
-## Documentation
+```text
+railgun-backend desktop
+railgun-backend scheduler
+railgun-backend dream
+railgun-backend login
+railgun-backend logout
+```
 
-- [Product overview](docs/PRODUCT.md)
-- [Shared desktop-client lock protocol](docs/desktop-client-lock.md)
-- [Swift implementation plan](docs/swift-plan.md)
-- [Release procedure](docs/RELEASING.md)
-- [Diagnostics](docs/INTERACTIVE_DIAGNOSTICS.md) and [operational diagnostics](docs/OPERATIONAL_DIAGNOSTICS.md)
+`desktop` owns RPC v1. `scheduler` is the long-running local-time cron
+processor. `dream` runs memory maintenance. `login` and `logout` manage the
+credential at `~/.railgun/devin-token`. `DEVIN_TOKEN`, when present, remains
+the highest-priority credential.
+
+The bundled executable is staged at:
+
+```text
+Railgun.app/Contents/Resources/backend/railgun-backend
+```
+
+Source mode uses `target/debug/railgun-backend`; mock mode uses
+`target/debug/railgun-mock-backend <scenario>`.
+
+## Data compatibility
+
+Railgun preserves the existing `~/.railgun` layout:
+
+```text
+~/.railgun/config.json
+~/.railgun/devin-token
+~/.railgun/state.db
+~/.railgun/SOUL.md
+~/.railgun/cron/jobs.json
+~/.railgun/skills/
+```
+
+Configuration updates preserve unknown keys. SQLite uses foreign keys, WAL,
+a five-second busy timeout, embedded up-only SQLx migrations, and the existing
+`user_version` 0–7 importer. Existing `schema_migrations`, retired tables, and
+unknown tables are not removed.
+
+Create and check migrations without a global migration tool:
+
+```sh
+cargo xtask migration new descriptive_name
+cargo xtask migration check
+```
+
+## RPC v1
+
+Clients initialize with:
+
+```json
+{"id":"initialize-1","type":"initialize","version":1,"clientName":"Railgun"}
+```
+
+Every response carries the command and preserves the request identifier.
+Session, interaction, configuration, MCP, cron, memory, dream, instruction,
+skill, and delivery capabilities retain their existing field casing and
+ordering rules. The backend emits protocol frames only on stdout.
+
+Session transcript and recent-message projections follow the parent chain from
+the session's active `current_leaf_id`. After branching, descendants from the
+abandoned branch remain preserved in SQLite but are never projected as active
+history or previews.
+
+The mock backend supports readiness, authentication, delayed and malformed
+startup, rejection, crash/disconnect, store errors, approval, clarification,
+cancellation, agent activity, empty model catalog, and slow compaction
+scenarios.
+
+## Packaging and release
+
+`apps/macos/scripts/stage-backend.sh` builds a locked Debug or Release backend,
+requires an arm64-only Mach-O, and atomically stages one executable.
+`sign-nested-code.sh` signs every nested Mach-O before the enclosing app.
+Release archives retain hardened runtime, notarization, stapling, Sparkle ZIP,
+and appcast validation.
+
+Legal notices are generated from `Cargo.lock` plus pinned Swift, font, and
+artwork inputs:
+
+```sh
+cargo xtask legal --write
+cargo xtask legal --check
+```
+
+Version releases use:
+
+```sh
+scripts/release-version.sh patch --dry-run
+scripts/release-version.sh patch
+```
+
+The release workflow continues to publish
+`Railgun-<version>-darwin-arm64.zip` and `Railgun-appcast-arm64.xml`.

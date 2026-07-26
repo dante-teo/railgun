@@ -280,7 +280,11 @@ command routing. Treat the following as implementation invariants:
 - Preserve the typed authentication credential source. File-backed failures
   direct the user to sign in outside Railgun; environment-backed failures
   direct them to update `DEVIN_TOKEN` in the launch environment and relaunch.
-  Provider sign-in/out remains deferred to SWFT-057.
+  Both a missing credential and a provider HTTP 401 must emit
+  `startup_status: authentication_required` with that source. A rejected
+  file-backed credential is cleared before recovery; an environment credential
+  is never mutated by the backend. Provider sign-in/out remains deferred to
+  SWFT-057.
 - Keep restart single-flight and establish a fresh RPC generation. After it is
   ready, refresh both task summaries and task controls from the backend.
 - Install exactly one event consumer and one interaction consumer for the

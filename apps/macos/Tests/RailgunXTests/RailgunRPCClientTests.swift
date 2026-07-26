@@ -39,7 +39,7 @@ final class RailgunRPCClientTests: XCTestCase {
                 type: .mcpUpsert,
                 fields: [
                     "name": .string("demo"),
-                    "command": .string("node"),
+                    "command": .string("server"),
                     "args": .array([.number(1)]),
                 ]
             )

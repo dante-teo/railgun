@@ -21,17 +21,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+      - name: Install pinned Rust toolchain
+        run: rustup show
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Build locked arm64 Rust backend
+        run: cargo build --locked --release --package railgun-backend
 
       - name: Install pinned XcodeGen
         uses: ./.github/actions/install-xcodegen
