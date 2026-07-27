@@ -18,9 +18,9 @@ materials, focus rings, keyboard navigation, or accessibility behavior with
 custom drawing or custom chrome. Preserve system text scaling, control sizing,
 focus behavior, menu integration, accessibility semantics, animations,
 materials, and platform spacing unless an approved decision record establishes
-an unmet requirement. Railgun's approved application typography is Barlow for
-interface text and Departure Mono Nerd Font for code; it continues to use
-SwiftUI text styles for Dynamic Type scaling.
+an unmet requirement. Railgun uses macOS semantic system text styles, with the
+system monospaced design for code. Do not bundle custom fonts or assign fixed
+point sizes for application text.
 
 ## Task sidebar invariant
 

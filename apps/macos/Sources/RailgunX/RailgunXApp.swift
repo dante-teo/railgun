@@ -1891,7 +1891,6 @@ struct RailgunXApp: App {
     private let updater: RailgunUpdater?
 
     init() {
-        RailgunFont.registerBundledFonts()
         let backendLaunchConfiguration = BackendLaunchConfiguration()
         let appStore = RailgunAppStore()
         _appStore = State(initialValue: appStore)

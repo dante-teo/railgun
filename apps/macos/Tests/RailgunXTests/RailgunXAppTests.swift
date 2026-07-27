@@ -1569,21 +1569,44 @@ final class RailgunXAppTests: XCTestCase {
         let manifest = try LegalNotices.loadManifest()
         let records = Dictionary(uniqueKeysWithValues: manifest.components.map { ($0.identifier, $0) })
 
-        XCTAssertEqual(records["swift-markdown"]?.version, "0.8.0")
-        XCTAssertEqual(records["swift-markdown"]?.revision, "3c6f9523da3a1ec2fd829673e472d95b8097a3b8")
-        XCTAssertEqual(records["swift-cmark"]?.version, "0.8.0")
-        XCTAssertEqual(records["swift-cmark"]?.revision, "924936d0427cb25a61169739a7660230bffa6ea6")
-        XCTAssertEqual(records["sparkle"]?.version, "2.9.4")
-        XCTAssertEqual(records["sparkle"]?.revision, "b6496a74a087257ef5e6da1c5b29a447a60f5bd7")
-        XCTAssertEqual(records["barlow"]?.version, "1.208")
-        XCTAssertEqual(records["barlow"]?.license, "OFL-1.1")
-        XCTAssertEqual(records["departure-mono-nerd-font"]?.version, "1.422 / Nerd Fonts 3.4.0")
-        XCTAssertEqual(records["departure-mono-nerd-font"]?.license, "OFL-1.1")
+        let lockedComponents: [String: String] = [
+            "swift-markdown.version": records["swift-markdown"]?.version ?? "",
+            "swift-markdown.revision": records["swift-markdown"]?.revision ?? "",
+            "swift-cmark.version": records["swift-cmark"]?.version ?? "",
+            "swift-cmark.revision": records["swift-cmark"]?.revision ?? "",
+            "sparkle.version": records["sparkle"]?.version ?? "",
+            "sparkle.revision": records["sparkle"]?.revision ?? "",
+            "crate:widevin@0.2.0.version": records["crate:widevin@0.2.0"]?.version ?? "",
+            "crate:widevin@0.2.0.kind": records["crate:widevin@0.2.0"]?.kind.rawValue ?? "",
+            "railgun-icon-artwork.copyright": records["railgun-icon-artwork"]?.copyright ?? "",
+            "railgun.license": records["railgun"]?.license ?? ""
+        ]
 
-        XCTAssertEqual(records["crate:widevin@0.2.0"]?.version, "0.2.0")
-        XCTAssertEqual(records["crate:widevin@0.2.0"]?.kind, .rustCrate)
-        XCTAssertEqual(records["railgun-icon-artwork"]?.copyright, "© 2026 Dante Teo")
-        XCTAssertEqual(records["railgun"]?.license, "MIT")
+        XCTAssertEqual(
+            lockedComponents,
+            [
+                "swift-markdown.version": "0.8.0",
+                "swift-markdown.revision": "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
+                "swift-cmark.version": "0.8.0",
+                "swift-cmark.revision": "924936d0427cb25a61169739a7660230bffa6ea6",
+                "sparkle.version": "2.9.4",
+                "sparkle.revision": "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
+                "crate:widevin@0.2.0.version": "0.2.0",
+                "crate:widevin@0.2.0.kind": "rust-crate",
+                "railgun-icon-artwork.copyright": "© 2026 Dante Teo",
+                "railgun.license": "MIT"
+            ]
+        )
+    }
+
+    func testLegalNoticeManifestExcludesUnusedCustomFonts() throws {
+        let manifest = try LegalNotices.loadManifest()
+        let identifiers = Set(manifest.components.map(\.identifier))
+
+        XCTAssertTrue(
+            !identifiers.contains("barlow")
+                && !identifiers.contains("departure-mono-nerd-font")
+        )
     }
 
     func testLegalNoticeManifestContainsTheLockedRustBackendClosure() throws {

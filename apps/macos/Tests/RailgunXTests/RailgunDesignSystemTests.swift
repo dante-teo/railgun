@@ -87,7 +87,6 @@ final class RailgunDesignSystemTests: XCTestCase {
             ),
             encoding: .utf8
         )
-
         XCTAssertTrue(activitySource.contains("RailgunActivityDashboardSection"))
         XCTAssertTrue(activitySource.contains(".font(RailgunFont.interface(.headline, weight: .semibold))"))
         XCTAssertFalse(activitySource.contains("List {"))
@@ -105,28 +104,34 @@ final class RailgunDesignSystemTests: XCTestCase {
         XCTAssertEqual(RailgunTypographyRole.caption.textStyleName, "caption")
     }
 
-    func testNativeTypographyBundlesRequiredFontFamilies() throws {
-        XCTAssertEqual(RailgunFont.interfaceFamilyName, "Barlow")
-        XCTAssertEqual(RailgunFont.codeFamilyName, "Departure Mono Nerd Font")
-
-        let fontDirectory = repositoryRoot.appendingPathComponent("apps/macos/Resources/Fonts")
-        let fontFiles = [
-            "Barlow-Regular.otf",
-            "Barlow-Medium.otf",
-            "Barlow-SemiBold.otf",
-            "Barlow-Bold.otf",
-            "DepartureMonoNerdFont-Regular.otf"
-        ]
-        XCTAssertEqual(RailgunFont.bundledFontFileNames, fontFiles)
-        for fontFile in fontFiles {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: fontDirectory.appendingPathComponent(fontFile).path))
-        }
-
-        let project = try String(
+    func testNativeTypographyUsesSemanticSystemFontsWithoutBundledFontRegistration() throws {
+        let moduleSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunUI/RailgunUIModule.swift"
+            ),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "apps/macos/Sources/RailgunX/RailgunXApp.swift"
+            ),
+            encoding: .utf8
+        )
+        let projectSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
             encoding: .utf8
         )
-        XCTAssertTrue(project.contains("- path: Resources/Fonts"))
+
+        let usesSystemTypography = [
+            moduleSource.contains(".system(textStyle, design: .default, weight: weight.swiftUIValue)"),
+            moduleSource.contains(".system(textStyle, design: .monospaced)"),
+            !moduleSource.contains(".custom("),
+            !moduleSource.contains("pointSize(for:"),
+            !appSource.contains("registerBundledFonts"),
+            !projectSource.contains("- path: Resources/Fonts")
+        ].allSatisfy { $0 }
+
+        XCTAssertTrue(usesSystemTypography)
     }
 
     func testSpacingScaleIsNamedAndOrdered() {

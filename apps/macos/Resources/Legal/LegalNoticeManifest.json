@@ -42,32 +42,6 @@
     },
     {
       "archive": null,
-      "copyright": null,
-      "identifier": "barlow",
-      "kind": "font",
-      "license": "OFL-1.1",
-      "licenseSource": "https://github.com/jpt/barlow/blob/main/OFL.txt",
-      "name": "Barlow",
-      "noticeContentSHA256": "10b0e6bb43166a50fbe7cde2895bd7f703738a5da843acb5c97c95dc9ea26817",
-      "revision": null,
-      "sourceLocation": "apps/macos/Resources/Fonts/Barlow-Regular.otf; apps/macos/Resources/Fonts/Barlow-Medium.otf; apps/macos/Resources/Fonts/Barlow-SemiBold.otf; apps/macos/Resources/Fonts/Barlow-Bold.otf",
-      "version": "1.208"
-    },
-    {
-      "archive": null,
-      "copyright": null,
-      "identifier": "departure-mono-nerd-font",
-      "kind": "font",
-      "license": "OFL-1.1",
-      "licenseSource": "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0",
-      "name": "Departure Mono Nerd Font",
-      "noticeContentSHA256": "b65e42750f3cb65437a97f4dfd781c58f199259949db2341012be60e32500e83",
-      "revision": null,
-      "sourceLocation": "apps/macos/Resources/Fonts/DepartureMonoNerdFont-Regular.otf",
-      "version": "1.422 / Nerd Fonts 3.4.0"
-    },
-    {
-      "archive": null,
       "copyright": "© 2026 Dante Teo",
       "identifier": "railgun-icon-artwork",
       "kind": "first-party-artwork",
