@@ -10,7 +10,11 @@ use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use futures_util::StreamExt;
 use serde_json::{Map, Value, json};
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::mpsc,
@@ -18,6 +22,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use widevin::{
     DevinAssistantContentPart, DevinChatRequest, DevinContentPart, DevinMessage, DevinStreamEvent,
+    DevinTool,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -606,12 +611,14 @@ impl Coordinator {
         let model = self.active.model.clone();
         let mut messages = self.active.messages.clone();
         let updates = self.updates.clone();
+        let file_root = agent_file_root(&self.paths)?;
         tokio::spawn(async move {
             let result = provider_turn(
                 provider,
                 model,
                 &mut messages,
                 message,
+                file_root,
                 cancellation,
                 &updates,
             )
@@ -1013,6 +1020,7 @@ async fn provider_turn(
     model: String,
     messages: &mut Vec<Value>,
     prompt: String,
+    file_root: PathBuf,
     cancellation: CancellationToken,
     updates: &mpsc::UnboundedSender<RunUpdate>,
 ) -> Result<()> {
@@ -1020,78 +1028,106 @@ async fn provider_turn(
     messages.push(user.clone());
     send_update(updates, json!({"type":"agent_start"}));
     send_update(updates, json!({"type":"turn_start"}));
-    send_update(
-        updates,
-        json!({"type":"message_start","message":{"role":"assistant","content":[]}}),
-    );
-    let widevin_messages = json_messages_to_widevin(messages)?;
-    let mut stream = provider.stream_chat(DevinChatRequest {
-        model,
-        messages: widevin_messages,
-        system_prompt: vec![
-            "You are Railgun, a careful coding agent. Be concise, preserve user data, and report verification honestly.".into(),
-        ],
-        ..Default::default()
-    });
-    let mut text = String::new();
-    let mut thinking = String::new();
+    let mut latest_usage = None;
+
     loop {
-        tokio::select! {
-            _ = cancellation.cancelled() => {
-                if text.is_empty() {
-                    text.push_str("[stopped by user]");
+        send_update(
+            updates,
+            json!({"type":"message_start","message":{"role":"assistant","content":[]}}),
+        );
+        let widevin_messages = json_messages_to_widevin(messages)?;
+        let mut stream = provider.stream_chat(agent_request(model.clone(), widevin_messages));
+        let mut text = String::new();
+        let mut thinking = String::new();
+        let mut tool_calls = Vec::new();
+
+        loop {
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    if text.is_empty() {
+                        text.push_str("[stopped by user]");
+                    }
+                    break;
                 }
-                break;
-            }
-            event = stream.next() => {
-                let Some(event) = event else { break; };
-                match event? {
-                    DevinStreamEvent::TextDelta { delta } => {
-                        text.push_str(&delta);
-                        send_update(updates, json!({"type":"message_update","streamEvent":{"type":"text_delta","delta":delta}}));
-                    }
-                    DevinStreamEvent::ThinkingDelta { delta, signature } => {
-                        thinking.push_str(&delta);
-                        send_update(updates, json!({"type":"message_update","streamEvent":{"type":"thinking_delta","delta":delta,"signature":signature}}));
-                    }
-                    DevinStreamEvent::Usage { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } => {
-                        send_update(updates, json!({"type":"message_update","streamEvent":{
-                            "type":"usage","inputTokens":input_tokens,"outputTokens":output_tokens,
-                            "cacheReadTokens":cache_read_tokens,"cacheWriteTokens":cache_write_tokens
-                        }}));
-                    }
-                    DevinStreamEvent::Done { reason } => {
-                        send_update(updates, json!({"type":"message_update","streamEvent":{"type":"done","reason":format!("{reason:?}").to_lowercase()}}));
-                    }
-                    DevinStreamEvent::ToolCallStart { id, name } => {
-                        send_update(updates, json!({"type":"message_update","streamEvent":{"type":"toolcall_start","id":id,"name":name}}));
-                    }
-                    DevinStreamEvent::ToolCallDelta { id, delta, arguments } => {
-                        send_update(updates, json!({"type":"message_update","streamEvent":{"type":"toolcall_delta","id":id,"delta":delta,"arguments":arguments}}));
-                    }
-                    DevinStreamEvent::ToolCallEnd { id, name, arguments } => {
-                        send_update(updates, json!({"type":"message_update","streamEvent":{"type":"toolcall_end","id":id,"name":name,"arguments":arguments}}));
+                event = stream.next() => {
+                    let Some(event) = event else { break; };
+                    match event? {
+                        DevinStreamEvent::TextDelta { delta } => {
+                            text.push_str(&delta);
+                            send_update(updates, json!({"type":"message_update","streamEvent":{"type":"text_delta","delta":delta}}));
+                        }
+                        DevinStreamEvent::ThinkingDelta { delta, signature } => {
+                            thinking.push_str(&delta);
+                            send_update(updates, json!({"type":"message_update","streamEvent":{"type":"thinking_delta","delta":delta,"signature":signature}}));
+                        }
+                        DevinStreamEvent::Usage { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } => {
+                            latest_usage = Some((input_tokens, output_tokens));
+                            send_update(updates, json!({"type":"message_update","streamEvent":{
+                                "type":"usage","inputTokens":input_tokens,"outputTokens":output_tokens,
+                                "cacheReadTokens":cache_read_tokens,"cacheWriteTokens":cache_write_tokens
+                            }}));
+                        }
+                        DevinStreamEvent::Done { reason } => {
+                            send_update(updates, json!({"type":"message_update","streamEvent":{"type":"done","reason":format!("{reason:?}").to_lowercase()}}));
+                        }
+                        DevinStreamEvent::ToolCallStart { id, name } => {
+                            send_update(updates, json!({"type":"message_update","streamEvent":{"type":"toolcall_start","id":id,"name":name}}));
+                        }
+                        DevinStreamEvent::ToolCallDelta { id, delta, arguments } => {
+                            send_update(updates, json!({"type":"message_update","streamEvent":{"type":"toolcall_delta","id":id,"delta":delta,"arguments":arguments}}));
+                        }
+                        DevinStreamEvent::ToolCallEnd { id, name, arguments } => {
+                            tool_calls.push((id.clone(), name.clone(), arguments.clone()));
+                            send_update(updates, json!({"type":"message_update","streamEvent":{"type":"toolcall_end","id":id,"name":name,"arguments":arguments}}));
+                        }
                     }
                 }
             }
         }
+
+        let mut parts = Vec::new();
+        if !thinking.is_empty() {
+            parts.push(json!({"type":"thinking","thinking":thinking}));
+        }
+        if !text.is_empty() {
+            parts.push(json!({"type":"text","text":text}));
+        }
+        parts.extend(tool_calls.iter().map(|(id, name, arguments)| {
+            json!({"type":"toolCall","id":id,"name":name,"arguments":arguments})
+        }));
+        let assistant = json!({"role":"assistant","content":parts});
+        messages.push(assistant.clone());
+        send_update(
+            updates,
+            json!({"type":"message_end","message":assistant.clone()}),
+        );
+
+        if tool_calls.is_empty() || cancellation.is_cancelled() {
+            break;
+        }
+
+        for (id, name, arguments) in tool_calls {
+            send_update(
+                updates,
+                json!({"type":"tool_execution_start","toolCallId":id,"toolName":name,"args":arguments}),
+            );
+            let result = execute_local_tool(&name, &arguments, &file_root).await;
+            let (content, is_error) = match result {
+                Ok(content) => (content, false),
+                Err(error) => (redact_error(&error.to_string()), true),
+            };
+            messages
+                .push(json!({"role":"tool","toolCallId":id,"content":content,"isError":is_error}));
+            send_update(
+                updates,
+                json!({"type":"tool_execution_end","toolCallId":id,"toolName":name,"result":{"content":content,"isError":is_error}}),
+            );
+        }
     }
-    let mut parts = Vec::new();
-    if !thinking.is_empty() {
-        parts.push(json!({"type":"thinking","thinking":thinking}));
-    }
-    if !text.is_empty() {
-        parts.push(json!({"type":"text","text":text}));
-    }
-    let assistant = json!({"role":"assistant","content":parts});
-    messages.push(assistant.clone());
+
     send_update(
         updates,
-        json!({"type":"message_end","message":assistant.clone()}),
-    );
-    send_update(
-        updates,
-        json!({"type":"turn_end","message":assistant,"toolResults":[]}),
+        json!({"type":"turn_end","usage":latest_usage.map(|(input_tokens, output_tokens)| json!({"inputTokens":input_tokens,"outputTokens":output_tokens}))}),
     );
     send_update(
         updates,
@@ -1099,6 +1135,153 @@ async fn provider_turn(
     );
     send_update(updates, json!({"type":"agent_settled"}));
     Ok(())
+}
+
+fn agent_request(model: String, messages: Vec<DevinMessage>) -> DevinChatRequest {
+    DevinChatRequest {
+        model,
+        messages,
+        system_prompt: vec![
+            "You are Railgun, a careful coding agent. You can read local files in the user's home directory with read_file. When the user supplies an absolute path there, call read_file before claiming the file is unavailable; never say a local path needs to be uploaded. Be concise, preserve user data, and report verification honestly.".into(),
+        ],
+        tools: local_file_tools(),
+        ..Default::default()
+    }
+}
+
+fn local_file_tools() -> Vec<DevinTool> {
+    vec![DevinTool {
+        name: "read_file".into(),
+        description: "Read a UTF-8 text file or extract text from a PDF located under the user's home directory, excluding hidden and credential-bearing paths. Use the absolute path supplied by the user.".into(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "format": "uri-reference",
+                    "description": "Absolute path to a file under the user's home directory."
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+        }),
+        strict: true,
+    }]
+}
+
+fn agent_file_root(paths: &RailgunPaths) -> Result<PathBuf> {
+    paths
+        .home
+        .parent()
+        .map(Path::to_path_buf)
+        .context("Railgun home has no parent")
+}
+
+async fn execute_local_tool(name: &str, arguments: &Value, home: &Path) -> Result<String> {
+    match name {
+        "read_file" => read_local_file(arguments, home).await,
+        _ => bail!("unsupported local tool"),
+    }
+}
+
+async fn read_local_file(arguments: &Value, home: &Path) -> Result<String> {
+    let raw_path = arguments["path"]
+        .as_str()
+        .context("read_file requires a path")?;
+    let path = local_file_path(Path::new(raw_path), home)?;
+    let content = if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+    {
+        extract_pdf_text(&path).await?
+    } else {
+        String::from_utf8(tokio::fs::read(&path).await?)
+            .context("the selected file is not UTF-8 text")?
+    };
+    Ok(truncate_utf8(&content, 1_000_000))
+}
+
+fn local_file_path(path: &Path, home: &Path) -> Result<PathBuf> {
+    let home = home
+        .canonicalize()
+        .context("could not access the user's home directory")?;
+    let path = path
+        .canonicalize()
+        .context("file does not exist or is inaccessible")?;
+    if !path.is_file() {
+        bail!("path is not a regular file");
+    }
+    if !path.starts_with(&home) {
+        bail!("file is outside the user's home directory");
+    }
+    if is_sensitive_local_file_path(&path, &home) {
+        bail!("file is in a protected location");
+    }
+    let metadata = path.metadata()?;
+    if metadata.len() > 10_000_000 {
+        bail!("file is too large to read safely");
+    }
+    Ok(path)
+}
+
+fn is_sensitive_local_file_path(path: &Path, home: &Path) -> bool {
+    let relative = path.strip_prefix(home).unwrap_or(path);
+    let components = relative
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    let file_name = components
+        .last()
+        .copied()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let extension = Path::new(&file_name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+
+    components.first() == Some(&"Library")
+        || components
+            .iter()
+            .any(|component| component.starts_with('.'))
+        || matches!(extension, "key" | "pem" | "p12" | "pfx" | "kdbx")
+        || matches!(
+            file_name.as_str(),
+            "id_rsa" | "id_dsa" | "id_ecdsa" | "id_ed25519"
+        )
+        || ["credential", "password", "secret", "token"]
+            .iter()
+            .any(|term| file_name.contains(term))
+}
+
+async fn extract_pdf_text(path: &Path) -> Result<String> {
+    let output = tokio::process::Command::new("/usr/bin/mdls")
+        .args(["-raw", "-name", "kMDItemTextContent"])
+        .arg(path)
+        .output()
+        .await
+        .context("could not extract text from the PDF")?;
+    if !output.status.success() {
+        bail!("could not extract text from the PDF");
+    }
+    let text =
+        String::from_utf8(output.stdout).context("PDF text extraction returned invalid text")?;
+    let text = text.trim();
+    if text.is_empty() || text == "(null)" {
+        bail!("the PDF has no extractable text");
+    }
+    Ok(text.into())
+}
+
+fn truncate_utf8(text: &str, maximum_bytes: usize) -> String {
+    if text.len() <= maximum_bytes {
+        return text.into();
+    }
+    let mut end = maximum_bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].into()
 }
 
 fn send_update(updates: &mpsc::UnboundedSender<RunUpdate>, frame: Value) {
@@ -1645,6 +1828,58 @@ mod tests {
         );
         assert!(BackendMode::parse(&[]).is_err());
         assert!(BackendMode::parse(&["serve".into()]).is_err());
+    }
+
+    #[test]
+    fn local_file_tool_is_available_for_agent_turns() {
+        let tools = local_file_tools();
+
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "read_file");
+        assert_eq!(
+            tools[0].input_schema["properties"]["path"]["format"],
+            "uri-reference"
+        );
+        assert_eq!(tools[0].input_schema["required"], json!(["path"]));
+    }
+
+    #[test]
+    fn local_file_access_stays_within_the_user_home() {
+        let home = tempfile::tempdir().unwrap();
+        let outside_directory = tempfile::tempdir().unwrap();
+        let permitted = home.path().join("Desktop/report.pdf");
+        let outside = outside_directory.path().join("outside.pdf");
+        std::fs::create_dir_all(permitted.parent().unwrap()).unwrap();
+        std::fs::write(&permitted, "not actually a PDF").unwrap();
+        std::fs::write(&outside, "outside").unwrap();
+
+        assert!(local_file_path(&permitted, home.path()).is_ok());
+        assert!(local_file_path(&outside, home.path()).is_err());
+    }
+
+    #[test]
+    fn local_file_access_rejects_hidden_and_credential_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let protected = [
+            home.path().join(".railgun/devin-token"),
+            home.path().join(".ssh/id_ed25519"),
+            home.path().join("Library/Keychains/login.keychain-db"),
+            home.path().join("Projects/example/.env"),
+        ];
+
+        for path in &protected {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "must-not-reach-the-model").unwrap();
+            assert!(local_file_path(path, home.path()).is_err(), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn agent_file_root_uses_the_backend_user_home() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = RailgunPaths::for_user_home(home.path());
+
+        assert_eq!(agent_file_root(&paths).unwrap(), home.path());
     }
 
     #[test]

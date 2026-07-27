@@ -61,6 +61,15 @@ loaded at backend startup and cached for ordinary reads and selections.
 the active model, Railgun keeps the current task intact and leaves the picker
 available so the user can choose a replacement.
 
+When a user supplies an eligible absolute path in their home directory, the
+agent can read UTF-8 text files and extract indexed text from PDFs through a
+local tool; it should not ask for an upload solely because a file is local.
+The tool rejects hidden paths, `~/Library`, credential- or secret-like
+filenames, private keys and keystores, files outside the configured home, and
+files larger than 10 MB. The context ring shows the latest provider usage while
+it is available and reports **Not measured yet** when the provider has supplied
+no measurement.
+
 ### Archived task browser
 
 Settings → Archived Tasks displays archived sessions without changing their

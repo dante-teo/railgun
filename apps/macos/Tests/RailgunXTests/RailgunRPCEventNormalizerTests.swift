@@ -50,6 +50,10 @@ final class RailgunRPCEventNormalizerTests: XCTestCase {
             .contextUsage(inputTokens: 120, outputTokens: 30)
         )
         XCTAssertEqual(
+            normalize(#"{"type":"message_update","streamEvent":{"type":"usage","inputTokens":120,"outputTokens":30}}"#),
+            .contextUsage(inputTokens: 120, outputTokens: 30)
+        )
+        XCTAssertEqual(
             normalize(#"{"type":"compaction_start","reason":"threshold"}"#),
             .contextReset(reason: .compaction)
         )

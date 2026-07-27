@@ -269,12 +269,34 @@ operations:
 - Treat context usage as optional. The ring tooltip, accessibility label, and
   hover popover must report `Not measured yet` until a provider measurement
   exists; do not substitute zero.
+- Accept a valid provider context measurement whether it arrives in the
+  streamed `message_update` event or the final `turn_end` event. Use the most
+  recent measurement, and keep the existing value when a malformed usage event
+  is received.
 - Render prompt, queued-follow-up, and Stop failures in a visible inline error
   row with Retry. The focused Retry command supplements this control and never
   replaces it.
 
 `RailgunXAppTests` protects the toolbar compiler guard, model-menu composition,
 manual-compaction availability, visible recovery, and optional context usage.
+
+## Local file-reading invariant
+
+The provider may request Railgun's `read_file` tool when a user supplies a
+local path. This is a deliberate local capability, not an upload workflow:
+
+- For an eligible absolute path supplied by the user, call `read_file` before
+  saying the file is unavailable or asking the user to upload it. The tool
+  reads UTF-8 text and extracts indexed text from PDFs.
+- Canonicalize the path before access. Only regular files inside the configured
+  user-home directory are eligible, and files larger than 10 MB are refused.
+- Protect secrets by refusing every hidden path component, the top-level
+  `Library` directory, private-key and keystore extensions, common private-key
+  filenames, and filenames containing `credential`, `password`, `secret`, or
+  `token`. A refusal must not expose file contents to the provider.
+- Keep the boundary visible in agent-facing guidance and tool descriptions so
+  the model neither promises unsupported access nor treats a local path as
+  inaccessible by default.
 
 ## Backend recovery invariant
 

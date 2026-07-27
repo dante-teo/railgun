@@ -92,6 +92,8 @@ public enum RailgunRPCEventNormalizer {
             return .sessionSaved
         case "turn_end":
             return contextUsage(from: event)
+        case "message_update":
+            return messageUpdate(from: event)
         case "compaction_start", "compaction_end":
             guard let reason = event["reason"]?.stringValue,
                   reason == "threshold" || reason == "overflow"
@@ -99,8 +101,6 @@ public enum RailgunRPCEventNormalizer {
                 return nil
             }
             return .contextReset(reason: .compaction)
-        case "message_update":
-            return assistantDelta(from: event)
         case "message_end":
             return assistantCompleted(from: event)
         case "message_start":
@@ -146,6 +146,16 @@ public enum RailgunRPCEventNormalizer {
             return nil
         }
         return .assistantDelta(delta)
+    }
+
+    private static func messageUpdate(from event: [String: RailgunJSONValue]) -> RailgunAgentEvent? {
+        guard let streamEvent = event["streamEvent"]?.objectValue else {
+            return nil
+        }
+        if streamEvent["type"]?.stringValue == "usage" {
+            return contextUsage(from: ["usage": .object(streamEvent)])
+        }
+        return assistantDelta(from: event)
     }
 
     private static func assistantCompleted(from event: [String: RailgunJSONValue]) -> RailgunAgentEvent? {
