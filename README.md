@@ -48,11 +48,13 @@ The desktop interface uses the shared `RailgunSpacing` 4, 8, 12, 16, 24, and 32 
 Transcript rows keep a comfortable 32-point inter-message gap.
 The Activity toolbar button presents a 320×360 popover; it does not reserve
 transcript width, and its dashboard scrolls as one native surface when the
-content exceeds the popover height.
+content exceeds the popover height. Advisor notes are available from its
+Advisor row in a click-to-open, selectable popover.
 
 Model selection remains a native `Menu` whose models are individual `Button`
 actions. The menu locks after a selection until the request settles, preventing
-repeated model changes.
+repeated model changes. Settings → General also stores a default model for new
+tasks and an optional Advisor model; neither setting changes the active task.
 
 ### Archived task browser
 

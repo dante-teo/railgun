@@ -360,6 +360,7 @@ final class RailgunBackendRuntime {
             async let sessions: Void = sessionCoordinator.refresh()
             async let scheduled: Void = scheduledCoordinator.refresh()
             _ = await (controls, sessions, scheduled)
+            await sessionCoordinator.create(modelID: store.state.controls.defaultModelID)
             await refreshForNewScheduledDelivery()
             observeScheduledDeliveries()
         } catch let error as RailgunRPCError {
@@ -492,8 +493,7 @@ final class DesktopClientStartup {
 
 enum RailgunTaskDetailPresentation: Equatable {
     case loading
-    case empty
-    case selectionRequired
+    case newTask
     case selected(RailgunSessionSummary)
     case staleSelection(String)
 
@@ -502,10 +502,8 @@ enum RailgunTaskDetailPresentation: Equatable {
             self = .loading
         } else if let activeSessionID = session.activeSessionID {
             self = session.selectedSession.map(Self.selected) ?? .staleSelection(activeSessionID)
-        } else if session.sessions.isEmpty {
-            self = .empty
         } else {
-            self = .selectionRequired
+            self = .newTask
         }
     }
 
@@ -752,58 +750,7 @@ struct RailgunTaskShell: View {
             )
             .navigationSplitViewColumnWidth(min: Self.sidebarMinimumWidth, ideal: 240)
         } detail: {
-            Group {
-                if appStore.state.destination == .scheduled {
-                    RailgunScheduledWorkspace(appStore: appStore, coordinator: scheduledCoordinator)
-                } else {
-                    transcriptScrollView
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    shellComposer.padding(.bottom, 16)
-                }
-                .toolbar {
-#if compiler(>=6.2)
-                    if #available(macOS 26.0, *) {
-                        ToolbarSpacer(.flexible, placement: .principal)
-                    } else {
-                        ToolbarItem(placement: .principal) {
-                            Spacer()
-                        }
-                    }
-#else
-                    ToolbarItem(placement: .principal) {
-                        Spacer()
-                    }
-#endif
-
-                    ToolbarItemGroup(placement: .navigation) {
-                        Button {
-                            createTask()
-                        } label: {
-                            Label("New Task", systemImage: "square.and.pencil")
-                        }
-                        .disabled(!commandAvailability.canCreateTask)
-                        Button(role: .destructive) {
-                            guard let sessionID = appStore.state.session.activeSessionID else { return }
-                            Task { await sessionCoordinator.archive(sessionID) }
-                        } label: {
-                            Label("Archive Task", systemImage: "archivebox")
-                        }
-                        .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskOperationInFlight)
-                    }
-
-                    ToolbarItem(placement: .primaryAction) {
-                        activityToolbarButton
-                    }
-
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Sidebar", systemImage: "sidebar.right") {
-                            isFilesInspectorPresented.toggle()
-                        }
-                        .help(isFilesInspectorPresented ? "Hide Files" : "Show Files")
-                    }
-                }
-                }
-            }
+            detailWorkspace
         }
         .inspector(isPresented: Binding(
             get: { appStore.state.destination == .task && isFilesInspectorPresented },
@@ -844,6 +791,69 @@ struct RailgunTaskShell: View {
                 submit: confirmBranch
             )
         }
+    }
+
+    @ViewBuilder
+    private var detailWorkspace: some View {
+        if appStore.state.destination == .scheduled {
+            RailgunScheduledWorkspace(
+                appStore: appStore,
+                coordinator: scheduledCoordinator,
+                createTask: createTask,
+                canCreateTask: commandAvailability.canCreateTask
+            )
+        } else {
+            taskWorkspace
+        }
+    }
+
+    private var taskWorkspace: some View {
+        transcriptScrollView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                shellComposer.padding(.bottom, 16)
+            }
+            .toolbar {
+#if compiler(>=6.2)
+                if #available(macOS 26.0, *) {
+                    ToolbarSpacer(.flexible, placement: .principal)
+                } else {
+                    ToolbarItem(placement: .principal) {
+                        Spacer()
+                    }
+                }
+#else
+                ToolbarItem(placement: .principal) {
+                    Spacer()
+                }
+#endif
+
+                ToolbarItemGroup(placement: .navigation) {
+                    Button {
+                        createTask()
+                    } label: {
+                        Label("New Task", systemImage: "square.and.pencil")
+                    }
+                    .disabled(!commandAvailability.canCreateTask)
+                    Button(role: .destructive) {
+                        guard let sessionID = appStore.state.session.activeSessionID else { return }
+                        Task { await sessionCoordinator.archive(sessionID) }
+                    } label: {
+                        Label("Archive Task", systemImage: "archivebox")
+                    }
+                    .disabled(Self.isArchiveActionDisabled(for: appStore.state.session) || isTaskOperationInFlight)
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    activityToolbarButton
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Sidebar", systemImage: "sidebar.right") {
+                        isFilesInspectorPresented.toggle()
+                    }
+                    .help(isFilesInspectorPresented ? "Hide Files" : "Show Files")
+                }
+            }
     }
 
     private var shellComposer: some View {
@@ -1006,7 +1016,8 @@ struct RailgunTaskShell: View {
 
     private func createTask() {
         guard commandAvailability.canCreateTask else { return }
-        Task { await sessionCoordinator.create(modelID: appStore.state.controls.activeModelID) }
+        appStore.send(.destination(.task))
+        Task { await sessionCoordinator.create(modelID: appStore.state.controls.defaultModelID) }
     }
 
     private var selectedSessionID: Binding<String?> {
@@ -1151,22 +1162,10 @@ struct RailgunTaskShell: View {
         case .loading:
             ProgressView("Loading tasks…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .empty:
-            ContentUnavailableView(
-                "No Tasks Yet",
-                systemImage: "text.badge.plus",
-                description: Text("Create and restore tasks in a later Task milestone.")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .selectionRequired:
-            ContentUnavailableView(
-                "Select a Task",
-                systemImage: "sidebar.leading",
-                description: Text("Choose a task from the sidebar to continue.")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .selected:
-            if presentedTranscriptMessages.isEmpty && presentedActivity.entries.isEmpty {
+        case .newTask:
+            EmptyView()
+        case let .selected(session):
+            if session.isPersisted, presentedTranscriptMessages.isEmpty && presentedActivity.entries.isEmpty {
                 ContentUnavailableView(
                     "No Messages Yet",
                     systemImage: "text.bubble",

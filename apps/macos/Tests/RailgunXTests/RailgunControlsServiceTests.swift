@@ -216,6 +216,35 @@ final class RailgunControlsServiceTests: XCTestCase {
         XCTAssertEqual(result.warning, "This task changed to selected, but the default was not saved.")
     }
 
+    func testDefaultModelConfigurationPersistsWithoutChangingTheActiveTaskModel() async throws {
+        let recorder = ControlsCommandRecorder()
+        let service = RailgunControlsService { command in
+            await recorder.record(command)
+            switch command.type {
+            case .getAvailableModels:
+                return try controlsResponse(for: command.type, data: .object(["models": .array([
+                    controlsModel(id: "primary"), controlsModel(id: "default"),
+                ])]))
+            case .getState:
+                return try controlsResponse(for: command.type, data: controlsState(model: "primary"))
+            case .configGet:
+                return try controlsResponse(for: command.type, data: controlsConfig(model: "primary"))
+            case .configUpdate:
+                XCTAssertEqual(command.fields["patch"], .object(["model": .string("default")]))
+                return try controlsResponse(for: command.type, data: controlsConfig(model: "default"))
+            default:
+                throw ControlsStubError.unexpectedCommand
+            }
+        }
+
+        let saved = try await service.configureDefaultModel("default")
+
+        XCTAssertEqual(saved.snapshot.activeModelID, "primary")
+        XCTAssertEqual(saved.snapshot.defaultModelID, "default")
+        let commands = await recorder.commands()
+        XCTAssertEqual(commands.filter { $0.type == .setModel }.count, 0)
+    }
+
     func testAgentUpdatesPersistOnlyTheirFieldsAndPreserveUnknownAdvisorFields() async throws {
         let recorder = ControlsCommandRecorder()
         let service = RailgunControlsService { command in

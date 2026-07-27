@@ -29,6 +29,8 @@ enum RailgunScheduledPresentation {
 struct RailgunScheduledWorkspace: View {
     @Bindable var appStore: RailgunAppStore
     let coordinator: RailgunScheduledCoordinator
+    let createTask: () -> Void
+    let canCreateTask: Bool
     @State private var editor: Editor?
     @State private var deletionTarget: RailgunScheduledJob?
 
@@ -66,18 +68,26 @@ struct RailgunScheduledWorkspace: View {
         }
         .toolbar {
 #if compiler(>=6.2)
-                    if #available(macOS 26.0, *) {
-                        ToolbarSpacer(.flexible, placement: .principal)
-                    } else {
-                        ToolbarItem(placement: .principal) {
-                            Spacer()
-                        }
-                    }
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .principal)
+            } else {
+                ToolbarItem(placement: .principal) {
+                    Spacer()
+                }
+            }
 #else
-                    ToolbarItem(placement: .principal) {
-                        Spacer()
-                    }
+            ToolbarItem(placement: .principal) {
+                Spacer()
+            }
 #endif
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    createTask()
+                } label: {
+                    Label("New Task", systemImage: "square.and.pencil")
+                }
+                .disabled(!canCreateTask)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button("New Schedule", systemImage: "plus") {
                     editor = .new

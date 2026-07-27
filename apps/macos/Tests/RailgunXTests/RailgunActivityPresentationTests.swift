@@ -148,7 +148,7 @@ final class RailgunActivityPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            RailgunTranscriptActivityPresentation.activity(for: .empty, from: activity),
+            RailgunTranscriptActivityPresentation.activity(for: .newTask, from: activity),
             .initial
         )
         let selected = RailgunSessionSummary(

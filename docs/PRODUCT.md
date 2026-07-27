@@ -9,11 +9,19 @@ The task history identifies live agent work without requiring the user to open
 the task: the active task has a trailing spinner, and a just-completed task has
 a green checkmark briefly before returning to its idle appearance.
 
+The Task destination starts as an unsaved new task rather than a selection
+placeholder, and Railgun does not save it until the user sends a message.
+Settings → General lets users choose a default model for new tasks without
+changing the active task's model, and configure an optional Advisor by selecting
+its model and enabling it. Advisor notes appear in Activity and open on click
+for reading and text selection.
+
 Scheduled prompts are stored in the user’s existing `~/.railgun` data. Railgun
 starts a private scheduler after the desktop backend is ready and stops it when
 the app closes, so recurring prompts run while the app is open. Railgun does
 not install a login item, launchd agent, or other background service. Scheduled
-remains responsible for job definitions.
+remains responsible for job definitions. Its toolbar also provides New Task so
+users can return to normal task work without first selecting a sidebar task.
 
 **Settings → Personalization** owns the one global custom instruction and agent
 memory management. The custom-instruction editor has no file picker because

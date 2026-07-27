@@ -31,10 +31,12 @@ same arm64 ZIP and signed appcast assets as previous releases.
 ## Native UI toolchain
 
 The `build-railgun` release job runs on GitHub Actions `macos-26` and verifies
-Xcode 26 before archiving. Liquid Glass is selected by a compiler guard as
-well as a runtime availability check, so an older toolchain would compile only
-the macOS 15–25 material fallback into a release, even when that app later runs
-on macOS 26.
+that the installed toolchain provides the macOS 26 SDK before archiving. The
+runner can identify its Xcode installation with a different major version;
+the SDK is the requirement that enables Liquid Glass. Liquid Glass is selected
+by a compiler guard as well as a runtime availability check, so an older SDK
+would compile only the macOS 15–25 material fallback into a release, even when
+that app later runs on macOS 26.
 
 Standard pull-request and main-branch CI intentionally remains on `macos-15`.
 That keeps the fallback buildable and tested without changing the release

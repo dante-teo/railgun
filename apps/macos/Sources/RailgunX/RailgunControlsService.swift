@@ -81,6 +81,21 @@ actor RailgunControlsService {
         }
     }
 
+    /// Saves the model used for newly created tasks without changing the
+    /// active task's model.
+    func configureDefaultModel(_ modelID: String?) async throws -> RailgunControlsMutationResult {
+        let loaded = try await loadDetailed()
+        guard modelID == nil || loaded.snapshot.models.contains(where: { $0.id == modelID }) else {
+            throw RailgunControlsServiceError.invalidSelection
+        }
+
+        try await updateConfig(["model": modelID.map(RailgunJSONValue.string) ?? .null])
+        return .init(
+            snapshot: loaded.snapshot.withDefaultModel(modelID),
+            warning: nil
+        )
+    }
+
     func selectMoAPreset(_ presetName: String?) async throws -> RailgunControlsMutationResult {
         let loaded = try await loadDetailed()
         guard presetName == nil || loaded.snapshot.moaPresets.contains(where: { $0.name == presetName }) else {
@@ -444,6 +459,12 @@ final class RailgunControlsCoordinator {
             { try await self.service.selectModel(modelID) },
             afterSuccess: { await self.modelDidChange?(modelID) }
         )
+    }
+
+    func configureDefaultModel(_ modelID: String?) async {
+        await performMutation {
+            try await self.service.configureDefaultModel(modelID)
+        }
     }
 
     func selectMoAPreset(_ presetName: String?) async {

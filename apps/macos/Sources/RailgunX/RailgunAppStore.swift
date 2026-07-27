@@ -775,6 +775,19 @@ struct RailgunControlsSnapshot: Equatable, Sendable {
         )
     }
 
+    func withDefaultModel(_ defaultModelID: String?) -> Self {
+        .init(
+            models: models,
+            activeModelID: activeModelID,
+            defaultModelID: defaultModelID,
+            moaPresets: moaPresets,
+            activeMoAPresetName: activeMoAPresetName,
+            advisor: advisor,
+            approval: approval,
+            isBackendRunning: isBackendRunning
+        )
+    }
+
     func withMoAPreset(_ name: String?) -> Self {
         .init(
             models: models,

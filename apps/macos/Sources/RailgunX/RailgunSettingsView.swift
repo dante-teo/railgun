@@ -176,6 +176,46 @@ struct RailgunSettingsView: View {
     private var generalDetail: some View {
         Form {
             Section {
+                Picker("Default model", selection: defaultModelID) {
+                    Text("Choose a model").tag(nil as String?)
+                    ForEach(appStore.state.controls.models) { model in
+                        Text(model.name).tag(Optional(model.id))
+                    }
+                }
+                .disabled(!canEditControls)
+                .accessibilityIdentifier("settings-default-model")
+            } header: {
+                Text("Model")
+            } footer: {
+                Text("New tasks start with this model. It does not change the model of the current task.")
+            }
+
+            Section {
+                Toggle("Enable advisor", isOn: advisorEnabled)
+                    .disabled(!canEditControls || !hasSelectedAdvisorModel)
+                    .accessibilityIdentifier("settings-advisor-enabled")
+
+                Picker("Advisor model", selection: advisorModelID) {
+                    Text("Choose a model").tag(nil as String?)
+                    ForEach(appStore.state.controls.models) { model in
+                        Text(model.name).tag(Optional(model.id))
+                    }
+                }
+                .disabled(!canEditControls)
+                .accessibilityIdentifier("settings-advisor-model")
+
+                if !hasSelectedAdvisorModel {
+                    Text("Select an advisor model to enable the advisor.")
+                        .font(RailgunFont.interface(.caption))
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Advisor")
+            } footer: {
+                Text("The advisor reviews tasks using the selected model.")
+            }
+
+            Section {
                 Picker("Approval mode", selection: approvalMode) {
                     Label("Ask for approval", systemImage: "hand.raised")
                         .tag(RailgunApprovalMode.manual)
@@ -184,7 +224,7 @@ struct RailgunSettingsView: View {
                     Label("Full access", systemImage: "exclamationmark.shield")
                         .tag(RailgunApprovalMode.off)
                 }
-                .disabled(!canEditApproval)
+                .disabled(!canEditControls)
                 .accessibilityIdentifier("settings-approval-mode")
 
                 Picker("Auto-approval model", selection: reviewerModelID) {
@@ -193,7 +233,7 @@ struct RailgunSettingsView: View {
                         Text(model.name).tag(Optional(model.id))
                     }
                 }
-                .disabled(!canEditApproval)
+                .disabled(!canEditControls)
                 .accessibilityIdentifier("settings-approval-model")
 
                 if !hasSelectedReviewerModel {
@@ -231,6 +271,44 @@ struct RailgunSettingsView: View {
         )
     }
 
+    private var defaultModelID: Binding<String?> {
+        Binding(
+            get: { appStore.state.controls.defaultModelID },
+            set: { modelID in
+                Task { await controlsCoordinator.configureDefaultModel(modelID) }
+            }
+        )
+    }
+
+    private var advisorEnabled: Binding<Bool> {
+        Binding(
+            get: { appStore.state.controls.advisor.isEnabled },
+            set: { isEnabled in
+                Task {
+                    await controlsCoordinator.configureAdvisor(.init(
+                        isEnabled: isEnabled,
+                        modelID: appStore.state.controls.advisor.modelID
+                    ))
+                }
+            }
+        )
+    }
+
+    private var advisorModelID: Binding<String?> {
+        Binding(
+            get: { appStore.state.controls.advisor.modelID },
+            set: { modelID in
+                Task {
+                    let advisor = appStore.state.controls.advisor
+                    await controlsCoordinator.configureAdvisor(.init(
+                        isEnabled: modelID == nil ? false : advisor.isEnabled,
+                        modelID: modelID
+                    ))
+                }
+            }
+        )
+    }
+
     private var reviewerModelID: Binding<String?> {
         Binding(
             get: { appStore.state.controls.approval.reviewerModelID },
@@ -249,7 +327,11 @@ struct RailgunSettingsView: View {
         appStore.state.controls.approval.reviewerModelID != nil
     }
 
-    private var canEditApproval: Bool {
+    private var hasSelectedAdvisorModel: Bool {
+        appStore.state.controls.advisor.modelID != nil
+    }
+
+    private var canEditControls: Bool {
         appStore.state.controls.isReadyForMutation && !appStore.state.transcript.isRunning
     }
 }

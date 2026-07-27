@@ -38,7 +38,10 @@ Selecting Scheduled clears task-row selection visually without discarding the
 last active task, so returning to Tasks restores that task. Loading uses
 `ProgressView`, and the empty state uses `ContentUnavailableView` with the
 `tray` SF Symbol. Task rows retain the **Fork Task** context menu while
-preserving native button and context-menu semantics.
+preserving native button and context-menu semantics. When no persisted task is
+selected, the Task destination is an unsaved new task; do not show a Select a
+Task placeholder. Do not persist that task until the user sends its first
+message.
 
 ## Settings window invariant
 
@@ -57,10 +60,12 @@ keyboard, and VoiceOver behavior. Appearance persists an
 **Auto**, **Light**, or **Dark** preference: Auto follows macOS, while Light and
 Dark override both Railgun windows. General uses a native grouped Form for
 command permissions: ask for approval, model-assisted approval, or full access
-(while retaining backend hardline protections). Clearing the model picker
-removes the persisted reviewer model. Keep the system sidebar material and the
-desktop minimum size that accommodates the five-column archive table. Do not add
-custom window chrome or AppKit window manipulation.
+(while retaining backend hardline protections). Default model for new tasks is
+persisted separately from the active task's model and never changes that active
+task. The Advisor requires a selected advisor model before it can be enabled.
+Clearing the model picker removes the persisted reviewer model. Keep the system
+sidebar material and the desktop minimum size that accommodates the five-column
+archive table. Do not add custom window chrome or AppKit window manipulation.
 
 ## Scheduled destination invariant
 
@@ -70,7 +75,9 @@ sheet, and destructive confirmation dialog. Its jobs display the normalized
 five-field cron expression, last-run state, and a bounded safe error for failed
 runs. The editor requires a nonblank prompt and exactly five whitespace-
 normalized cron fields before submitting; backend validation remains
-authoritative for cron semantics. While Scheduled is active, omit task actions,
+authoritative for cron semantics. Scheduled also exposes New Task in its
+navigation toolbar placement so users can return directly to a normal task.
+While Scheduled is active, omit task actions other than that navigation action,
 the composer, Activity controls, focused Task commands, and the Files
 inspector. Keep the Files inspector's stored open state so it is available
 again after returning to Tasks.
@@ -388,6 +395,9 @@ Activity is a toolbar-anchored popover and never a persistent companion pane:
   viewport or scroll geometry.
 - Keep the dashboard inside a native `ScrollView` and hide only its default
   scroll-content background so large Todo sections remain reachable.
+- When advisor notes exist, show an Advisor activity row with a note count and
+  selectable advisor notes in a click-to-open popover; do not expose the note
+  text inline in the dashboard row.
 - Do not add custom glass, tint, material, stroke, or shadow chrome inside the
   system popover.
 - The toolbar Activity button is the sole visibility control. The dashboard has

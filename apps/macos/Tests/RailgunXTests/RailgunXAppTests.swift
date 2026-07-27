@@ -35,6 +35,19 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunTaskShell.filesInspectorMinimumWindowWidth, 1_024)
     }
 
+    func testTaskShellKeepsScheduledAndTaskWorkspacesSeparated() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("if appStore.state.destination == .scheduled"))
+        XCTAssertTrue(source.contains("RailgunScheduledWorkspace("))
+        XCTAssertTrue(source.contains("transcriptScrollView"))
+        XCTAssertTrue(source.contains("ToolbarItemGroup(placement: .navigation)"))
+    }
+
     func testProjectSourceSupportsBothGeneratedPackageHeaderLayouts() throws {
         let project = try String(
             contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
@@ -424,13 +437,10 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains("Button(\"Sidebar\", systemImage: \"sidebar.right\")"))
         XCTAssertTrue(source.contains("isFilesInspectorPresented.toggle()"))
         XCTAssertFalse(source.contains("ToolbarItemGroup(placement: .automatic)"))
-        XCTAssertTrue(source.contains(
-            "#if compiler(>=6.2)\n                    if #available(macOS 26.0, *) {\n                        ToolbarSpacer(.flexible, placement: .principal)"
-        ))
+        XCTAssertTrue(source.contains("#if compiler(>=6.2)"))
+        XCTAssertTrue(source.contains("if #available(macOS 26.0, *)"))
         XCTAssertTrue(source.contains("ToolbarSpacer(.flexible, placement: .principal)"))
-        XCTAssertTrue(source.contains(
-            "#else\n                    ToolbarItem(placement: .principal) {\n                        Spacer()"
-        ))
+        XCTAssertTrue(source.contains("ToolbarItem(placement: .principal)"))
         XCTAssertFalse(source.contains(".toolbarRole(.editor)"))
         XCTAssertFalse(source.contains("Menu(\"Mixture of Agents\")"))
         XCTAssertFalse(source.contains("Toggle(\"Enable Advisor\""))
@@ -447,6 +457,44 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(source.contains(".disabled(controlsAreDisabled || isSessionMutationInFlight)"))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: false))
         XCTAssertTrue(RailgunTaskShell.controlsAreDisabled(.initial, isRunActive: true))
+    }
+
+    func testScheduledWorkspaceOffersANavigationPlacedNewTaskAction() throws {
+        let appSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        let scheduledSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunScheduledView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(appSource.contains("RailgunScheduledWorkspace("))
+        XCTAssertTrue(appSource.contains("createTask: createTask"))
+        XCTAssertTrue(appSource.contains("canCreateTask: commandAvailability.canCreateTask"))
+        XCTAssertTrue(scheduledSource.contains("ToolbarItem(placement: .navigation)"))
+        XCTAssertTrue(scheduledSource.contains("Label(\"New Task\", systemImage: \"square.and.pencil\")"))
+        XCTAssertTrue(scheduledSource.contains("createTask()"))
+        XCTAssertTrue(appSource.contains(
+            "private func createTask() {\n        guard commandAvailability.canCreateTask else { return }\n        appStore.send(.destination(.task))"
+        ))
+    }
+
+    func testNewTaskCreationUsesTheConfiguredDefaultModel() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(
+            "await sessionCoordinator.create(modelID: store.state.controls.defaultModelID)"
+        ))
+        XCTAssertTrue(source.contains(
+            "Task { await sessionCoordinator.create(modelID: appStore.state.controls.defaultModelID) }"
+        ))
     }
 
     func testContextUsagePresentationUsesExactTotalsAndAccessibleProviderSource() throws {
@@ -747,6 +795,25 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("**Fork Task** context menu"))
     }
 
+    func testNativeUIPolicyDocumentsNewTaskAndAdvisorContracts() throws {
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+        let productGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/PRODUCT.md"),
+            encoding: .utf8
+        )
+        let normalizedPolicy = nativeUIPolicy.replacingOccurrences(of: "\n", with: " ")
+
+        XCTAssertTrue(normalizedPolicy.contains("do not show a Select a Task placeholder"))
+        XCTAssertTrue(normalizedPolicy.contains("New Task in its navigation toolbar placement"))
+        XCTAssertTrue(nativeUIPolicy.contains("Default model for new tasks"))
+        XCTAssertTrue(nativeUIPolicy.contains("selectable advisor notes in a click-to-open popover"))
+        XCTAssertTrue(productGuide.contains("starts as an unsaved new task"))
+        XCTAssertTrue(productGuide.contains("default model for new tasks"))
+    }
+
     func testPrimaryWindowUsesTheSharedMatchaTintAndSidebarSelection() throws {
         let appSource = try String(
             contentsOf: repositoryRoot
@@ -799,6 +866,11 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("\"Archived Tasks\",\n                        systemImage: \"archivebox\""))
         XCTAssertTrue(settingsSource.contains("settings-approval-mode"))
         XCTAssertTrue(settingsSource.contains("settings-approval-model"))
+        XCTAssertTrue(settingsSource.contains("settings-default-model"))
+        XCTAssertTrue(settingsSource.contains("settings-advisor-enabled"))
+        XCTAssertTrue(settingsSource.contains("settings-advisor-model"))
+        XCTAssertTrue(settingsSource.contains("controlsCoordinator.configureDefaultModel"))
+        XCTAssertTrue(settingsSource.contains("controlsCoordinator.configureAdvisor"))
         XCTAssertTrue(settingsSource.contains(".navigationSplitViewColumnWidth("))
         XCTAssertTrue(settingsSource.contains(".navigationSplitViewStyle(.prominentDetail)"))
         XCTAssertTrue(settingsSource.contains("CommandGroup(replacing: .appSettings)"))
@@ -1093,7 +1165,10 @@ final class RailgunXAppTests: XCTestCase {
         await runtime.start()
 
         XCTAssertEqual(store.state.backend.phase, .ready)
+        XCTAssertEqual(store.state.session.activeSessionID, "mock-new-1")
+        XCTAssertFalse(store.state.session.selectedSession?.isPersisted ?? true)
         XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
+        XCTAssertFalse(store.state.session.sessions.contains(where: { $0.id == "mock-new-1" }))
         XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
         XCTAssertTrue(store.state.controls.isLoaded)
         XCTAssertEqual(store.state.controls.activeModelID, "mock-model")
@@ -1101,6 +1176,18 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(store.state.controls.advisor, .init(isEnabled: false, modelID: "mock-reference"))
 
         await runtime.shutdown()
+    }
+
+    func testTaskShellNeverShowsASelectionRequiredPlaceholder() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("\"Select a Task\""))
+        XCTAssertFalse(source.contains("Choose a task from the sidebar to continue."))
+        XCTAssertTrue(source.contains("case .newTask:\n            EmptyView()"))
     }
 
     func testPersistedSessionEventRefreshesTheSidebarTasks() async {
@@ -1410,15 +1497,15 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(appcastGenerator.contains("/usr/bin/cp"))
     }
 
-    func testNativeReleaseBuildsWithTheMacOS26ToolchainForLiquidGlass() throws {
+    func testNativeReleaseBuildValidatesTheMacOS26SDKForLiquidGlass() throws {
         let publishWorkflow = try String(
             contentsOf: repositoryRoot.appendingPathComponent(".github/workflows/publish.yml"),
             encoding: .utf8
         )
 
         XCTAssertTrue(publishWorkflow.contains("build-railgun:\n    name: Railgun (arm64)\n    runs-on: macos-26"))
-        XCTAssertTrue(publishWorkflow.contains("name: Verify Xcode 26 release toolchain"))
-        XCTAssertTrue(publishWorkflow.contains("grep -q '^Xcode 26\\.'"))
+        XCTAssertTrue(publishWorkflow.contains("name: Verify macOS 26 SDK for Liquid Glass"))
+        XCTAssertTrue(publishWorkflow.contains("xcodebuild -showsdks | grep -q 'macOS 26'"))
     }
 
     func testReleaseDocumentationExplainsTheMacOS26LiquidGlassToolchainRequirement() throws {
@@ -1428,7 +1515,8 @@ final class RailgunXAppTests: XCTestCase {
         )
 
         XCTAssertTrue(releasingGuide.contains("`macos-26`"))
-        XCTAssertTrue(releasingGuide.contains("Xcode 26"))
+        XCTAssertTrue(releasingGuide.contains("macOS 26 SDK"))
+        XCTAssertFalse(releasingGuide.contains("Xcode 26"))
         XCTAssertTrue(releasingGuide.contains("macOS 15–25 material fallback"))
         XCTAssertTrue(releasingGuide.contains("`macos-15`"))
     }

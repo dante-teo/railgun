@@ -56,7 +56,7 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertNil(state.session.restoreInFlightSessionID)
     }
 
-    func testTaskDetailPresentationHandlesLoadingEmptySelectedAndStaleSelections() {
+    func testTaskDetailPresentationDefaultsToANewTaskWhenNothingIsSelected() {
         let summary = RailgunSessionSummary(
             id: "session-1",
             model: "gpt-5",
@@ -74,7 +74,7 @@ final class RailgunAppStoreTests: XCTestCase {
             )),
             .loading
         )
-        XCTAssertEqual(RailgunTaskDetailPresentation(session: .initial), .empty)
+        XCTAssertEqual(RailgunTaskDetailPresentation(session: .initial), .newTask)
         XCTAssertEqual(
             RailgunTaskDetailPresentation(session: .init(
                 activeSessionID: "session-1",
@@ -100,7 +100,7 @@ final class RailgunAppStoreTests: XCTestCase {
                 archivedSessions: [],
                 isLoading: false
             )),
-            .selectionRequired
+            .newTask
         )
     }
 
@@ -115,8 +115,7 @@ final class RailgunAppStoreTests: XCTestCase {
 
         XCTAssertTrue(RailgunTaskDetailPresentation.selected(summary).displaysTranscriptMessages)
         XCTAssertFalse(RailgunTaskDetailPresentation.loading.displaysTranscriptMessages)
-        XCTAssertFalse(RailgunTaskDetailPresentation.empty.displaysTranscriptMessages)
-        XCTAssertFalse(RailgunTaskDetailPresentation.selectionRequired.displaysTranscriptMessages)
+        XCTAssertFalse(RailgunTaskDetailPresentation.newTask.displaysTranscriptMessages)
         XCTAssertFalse(
             RailgunTaskDetailPresentation
                 .staleSelection("missing")
