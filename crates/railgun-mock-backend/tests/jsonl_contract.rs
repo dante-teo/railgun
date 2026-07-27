@@ -103,7 +103,7 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
         .await;
     let refreshed = mock.response("refresh-models").await;
     assert!(refreshed["success"].as_bool().unwrap());
-    assert!(refreshed["data"]["models"].as_array().unwrap().len() >= 1);
+    assert!(!refreshed["data"]["models"].as_array().unwrap().is_empty());
 
     mock.send(json!({"id":"state","type":"get_state"})).await;
     let state = mock.response("state").await;
