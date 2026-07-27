@@ -488,12 +488,15 @@ final class RailgunSessionCoordinator {
 
     func archive(_ sessionID: String) async {
         let model = store.state.session.selectedSession?.model
+        store.send(.session(.archiveStarted(sessionID)))
         do {
             let freshSessionID = try await service.archive(sessionID)
             activateNewSession(id: freshSessionID, model: model)
+            store.send(.session(.archiveConfirmed))
             await controlsDidActivate?()
             await refresh()
         } catch {
+            store.send(.session(.archiveReverted(sessionID)))
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }
     }

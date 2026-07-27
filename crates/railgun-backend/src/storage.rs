@@ -63,7 +63,10 @@ impl Store {
         };
         let sql = format!(
             "SELECT s.id, s.model, s.started_at, s.archived_at, COUNT(m.id) AS message_count,
-             d.job_id, d.title, d.run_status, d.read_at
+             d.job_id, d.title, d.run_status, d.read_at,
+             (SELECT content_json FROM messages preview
+              WHERE preview.session_id = s.id AND preview.role = 'user'
+              ORDER BY preview.id ASC LIMIT 1) AS first_user_content
              FROM sessions s
              LEFT JOIN messages m ON m.session_id = s.id
              LEFT JOIN session_deliveries d ON d.session_id = s.id
@@ -75,12 +78,10 @@ impl Store {
         for row in rows {
             let id: String = row.try_get("id")?;
             let delivery = delivery_value(&row)?;
-            let first_user_preview =
-                if let Some(title) = row.try_get::<Option<String>, _>("title")? {
-                    title
-                } else {
-                    self.first_user_preview(&id).await?
-                };
+            let first_user_preview = match row.try_get::<Option<String>, _>("title")? {
+                Some(title) => title,
+                None => preview_text(row.try_get("first_user_content")?),
+            };
             let started_at: String = row.try_get("started_at")?;
             let mut value = json!({
                 "id": id,
@@ -98,31 +99,6 @@ impl Store {
             result.push(value);
         }
         Ok(result)
-    }
-
-    async fn first_user_preview(&self, session_id: &str) -> Result<String> {
-        let row = sqlx::query(
-            "SELECT content_json FROM messages
-             WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        let Some(row) = row else {
-            return Ok(String::new());
-        };
-        let raw: String = row.try_get(0)?;
-        let value: Value = serde_json::from_str(&raw)?;
-        let text = content_text(&value);
-        let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        Ok(if collapsed.chars().count() <= 71 {
-            collapsed
-        } else {
-            format!(
-                "{}…",
-                collapsed.chars().take(70).collect::<String>().trim_end()
-            )
-        })
     }
 
     pub async fn load_session(&self, id: &str) -> Result<Option<Session>> {
@@ -633,6 +609,25 @@ fn content_text(value: &Value) -> String {
         .filter_map(|part| part["text"].as_str())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn preview_text(raw: Option<String>) -> String {
+    let Some(raw) = raw else { return String::new() };
+    let Ok(value) = serde_json::from_str::<Value>(&raw) else {
+        return String::new();
+    };
+    let collapsed = content_text(&value)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if collapsed.chars().count() <= 71 {
+        collapsed
+    } else {
+        format!(
+            "{}…",
+            collapsed.chars().take(70).collect::<String>().trim_end()
+        )
+    }
 }
 
 fn local_time(value: &str) -> String {
@@ -1236,6 +1231,40 @@ mod tests {
                 "replacement answer"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn session_list_projects_first_user_preview_without_per_session_reads() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("sessions.db"))
+            .await
+            .unwrap();
+        for (id, prompt) in [
+            ("one", "  First   task prompt  "),
+            ("two", "Second task prompt"),
+        ] {
+            let mut session = Session {
+                id: id.into(),
+                model: "model".into(),
+                started_at: "2026-01-01T00:00:00.000Z".into(),
+                messages: vec![
+                    json!({"role":"user","content":prompt}),
+                    json!({"role":"assistant","content":[{"type":"text","text":"Acknowledged"}]}),
+                ],
+                message_ids: Vec::new(),
+                todos: Vec::new(),
+                persistence: "unsaved",
+            };
+            store.save_session(&mut session).await.unwrap();
+        }
+
+        let summaries = store.list_sessions(false).await.unwrap();
+        let previews = summaries
+            .iter()
+            .map(|summary| summary["firstUserPreview"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(previews.contains(&"First task prompt"));
+        assert!(previews.contains(&"Second task prompt"));
     }
 
     #[test]

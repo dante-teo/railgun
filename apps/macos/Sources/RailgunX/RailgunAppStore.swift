@@ -308,6 +308,8 @@ struct RailgunSessionState: Equatable {
     var error: String? = nil
     var activeSession: RailgunSessionSummary? = nil
     var restoreInFlightSessionID: String? = nil
+    var archiveRollback: RailgunSessionSummary? = nil
+    var archiveRollbackWasActive = false
 
     static let initial = Self(activeSessionID: nil, sessions: [], archivedSessions: [], isLoading: false)
 
@@ -339,6 +341,9 @@ enum RailgunSessionAction: Equatable {
     case archivedLoaded([RailgunArchivedSessionSummary])
     case restoreStarted(String)
     case restoreFinished(String)
+    case archiveStarted(String)
+    case archiveReverted(String)
+    case archiveConfirmed
     case created(id: String, model: String?)
     case selected(String?)
     case hydrated(activeSessionID: String, transcript: [RailgunRestoredTranscriptEntry], todos: [RailgunTodo], isRunning: Bool)
@@ -376,6 +381,43 @@ enum RailgunSessionReducer {
             guard state.restoreInFlightSessionID == sessionID else { return state }
             var next = state
             next.restoreInFlightSessionID = nil
+            return next
+        case let .archiveStarted(sessionID):
+            guard let summary = state.activeSession?.id == sessionID
+                ? state.activeSession
+                : state.sessions.first(where: { $0.id == sessionID })
+            else { return state }
+            var next = state
+            next.sessions.removeAll { $0.id == sessionID }
+            next.archivedSessions.removeAll { $0.id == sessionID }
+            next.archivedSessions.insert(.init(session: summary, archivedAt: Date()), at: 0)
+            next.archiveRollback = summary
+            next.archiveRollbackWasActive = state.activeSessionID == sessionID
+            if next.archiveRollbackWasActive {
+                next.activeSessionID = nil
+                next.activeSession = nil
+            }
+            next.error = nil
+            return next
+        case let .archiveReverted(sessionID):
+            guard let summary = state.archiveRollback, summary.id == sessionID else { return state }
+            var next = state
+            next.archivedSessions.removeAll { $0.id == sessionID }
+            if !next.sessions.contains(where: { $0.id == sessionID }) {
+                next.sessions.insert(summary, at: 0)
+            }
+            if state.archiveRollbackWasActive {
+                next.activeSessionID = sessionID
+                next.activeSession = summary
+            }
+            next.archiveRollback = nil
+            next.archiveRollbackWasActive = false
+            next.error = nil
+            return next
+        case .archiveConfirmed:
+            var next = state
+            next.archiveRollback = nil
+            next.archiveRollbackWasActive = false
             return next
         case let .created(id, model):
             var next = state
@@ -842,6 +884,8 @@ struct RailgunControlsState: Equatable {
     var isLoaded: Bool
     var isBackendRunning: Bool
     var isMutating: Bool
+    var pendingModelID: String?
+    var modelBeforePendingSelection: String?
     var compactionStatus: RailgunCompactionStatus
     var error: String?
 
@@ -859,6 +903,8 @@ struct RailgunControlsState: Equatable {
         isLoaded: false,
         isBackendRunning: false,
         isMutating: false,
+        pendingModelID: nil,
+        modelBeforePendingSelection: nil,
         compactionStatus: .unavailable,
         error: nil
     )
@@ -892,6 +938,8 @@ enum RailgunControlsAction: Equatable {
     case contextReset(RailgunContextResetReason)
     case backendRunChanged(Bool)
     case mutationStarted
+    case modelSelectionStarted(String)
+    case modelSelectionReverted(String)
     case mutationFinished(RailgunControlsSnapshot, warning: String?)
     case mutationFailed(String)
     case compactionUnavailable
@@ -908,6 +956,8 @@ enum RailgunControlsReducer {
             next.isLoading = true
             next.isLoaded = false
             next.isMutating = false
+            next.pendingModelID = nil
+            next.modelBeforePendingSelection = nil
             next.compactionStatus = .unavailable
             next.error = nil
         case let .loaded(snapshot):
@@ -916,12 +966,16 @@ enum RailgunControlsReducer {
             next.isLoading = false
             next.isLoaded = true
             next.isMutating = false
+            next.pendingModelID = nil
+            next.modelBeforePendingSelection = nil
             next.compactionStatus = .unavailable
             next.error = nil
         case let .loadFailed(message):
             next.isLoading = false
             next.isLoaded = false
             next.isMutating = false
+            next.pendingModelID = nil
+            next.modelBeforePendingSelection = nil
             next.compactionStatus = .unavailable
             next.error = message
         case let .contextUsage(usage): next.contextUsage = usage
@@ -934,14 +988,32 @@ enum RailgunControlsReducer {
             next.isMutating = true
             next.compactionStatus = .unavailable
             next.error = nil
+        case let .modelSelectionStarted(modelID):
+            guard state.models.contains(where: { $0.id == modelID }) else { return state }
+            next.modelBeforePendingSelection = state.activeModelID
+            next.pendingModelID = modelID
+            next.activeModelID = modelID
+            next.isMutating = true
+            next.compactionStatus = .unavailable
+            next.error = nil
+        case let .modelSelectionReverted(message):
+            next.activeModelID = state.modelBeforePendingSelection
+            next.pendingModelID = nil
+            next.modelBeforePendingSelection = nil
+            next.isMutating = false
+            next.error = message
         case let .mutationFinished(snapshot, warning):
             apply(snapshot, to: &next)
             resetUsageIfModelChanged(from: state.activeModelID, to: snapshot.activeModelID, state: &next)
             next.isMutating = false
+            next.pendingModelID = nil
+            next.modelBeforePendingSelection = nil
             next.compactionStatus = .unavailable
             next.error = warning
         case let .mutationFailed(message):
             next.isMutating = false
+            next.pendingModelID = nil
+            next.modelBeforePendingSelection = nil
             next.compactionStatus = .unavailable
             next.error = message
         case .compactionUnavailable:

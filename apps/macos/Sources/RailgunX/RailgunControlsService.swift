@@ -36,6 +36,7 @@ actor RailgunControlsService {
     private static let maximumSafeInteger = 9_007_199_254_740_991
 
     private let request: Request
+    private var cached: LoadedControls?
 
     init(request: @escaping Request) {
         self.request = request
@@ -49,6 +50,7 @@ actor RailgunControlsService {
 
     func load() async throws -> RailgunControlsSnapshot {
         let loaded = try await loadDetailed()
+        cached = loaded
         return loaded.snapshot
     }
 
@@ -56,7 +58,7 @@ actor RailgunControlsService {
     /// persistence request deliberately remains a partial success because the
     /// active task has already changed.
     func selectModel(_ modelID: String) async throws -> RailgunControlsMutationResult {
-        let loaded = try await loadDetailed()
+        let loaded = try await cachedOrLoad()
         guard isValidIdentifier(modelID), loaded.snapshot.models.contains(where: { $0.id == modelID }) else {
             throw RailgunControlsServiceError.invalidSelection
         }
@@ -68,49 +70,60 @@ actor RailgunControlsService {
         )
 
         do {
-            try await updateConfig(["model": .string(modelID)])
-            return .init(
+            let patch: [String: RailgunJSONValue] = ["model": .string(modelID)]
+            try await updateConfig(patch)
+            let result = RailgunControlsMutationResult(
                 snapshot: snapshot.withModel(activeModelID: modelID, defaultModelID: modelID),
                 warning: nil
             )
+            cache(result.snapshot, updating: loaded, with: patch)
+            return result
         } catch {
-            return .init(
+            let result = RailgunControlsMutationResult(
                 snapshot: snapshot,
                 warning: "This task changed to \(modelID), but the default was not saved."
             )
+            cached = .init(snapshot: result.snapshot, config: loaded.config)
+            return result
         }
     }
 
     /// Saves the model used for newly created tasks without changing the
     /// active task's model.
     func configureDefaultModel(_ modelID: String?) async throws -> RailgunControlsMutationResult {
-        let loaded = try await loadDetailed()
+        let loaded = try await cachedOrLoad()
         guard modelID == nil || loaded.snapshot.models.contains(where: { $0.id == modelID }) else {
             throw RailgunControlsServiceError.invalidSelection
         }
 
-        try await updateConfig(["model": modelID.map(RailgunJSONValue.string) ?? .null])
-        return .init(
+        let patch: [String: RailgunJSONValue] = ["model": modelID.map(RailgunJSONValue.string) ?? .null]
+        try await updateConfig(patch)
+        let result = RailgunControlsMutationResult(
             snapshot: loaded.snapshot.withDefaultModel(modelID),
             warning: nil
         )
+        cache(result.snapshot, updating: loaded, with: patch)
+        return result
     }
 
     func selectMoAPreset(_ presetName: String?) async throws -> RailgunControlsMutationResult {
-        let loaded = try await loadDetailed()
+        let loaded = try await cachedOrLoad()
         guard presetName == nil || loaded.snapshot.moaPresets.contains(where: { $0.name == presetName }) else {
             throw RailgunControlsServiceError.invalidSelection
         }
 
-        try await updateConfig(["activeMoaPreset": presetName.map(RailgunJSONValue.string) ?? .null])
-        return .init(
+        let patch: [String: RailgunJSONValue] = ["activeMoaPreset": presetName.map(RailgunJSONValue.string) ?? .null]
+        try await updateConfig(patch)
+        let result = RailgunControlsMutationResult(
             snapshot: loaded.snapshot.withMoAPreset(presetName),
             warning: nil
         )
+        cache(result.snapshot, updating: loaded, with: patch)
+        return result
     }
 
     func configureAdvisor(_ advisor: RailgunAdvisorConfiguration) async throws -> RailgunControlsMutationResult {
-        let loaded = try await loadDetailed()
+        let loaded = try await cachedOrLoad()
         guard !advisor.isEnabled || advisor.modelID != nil else {
             throw RailgunControlsServiceError.advisorModelRequired
         }
@@ -125,18 +138,21 @@ actor RailgunControlsService {
         } else {
             rawAdvisor.removeValue(forKey: "model")
         }
-        try await updateConfig(["advisor": .object(rawAdvisor)])
+        let patch: [String: RailgunJSONValue] = ["advisor": .object(rawAdvisor)]
+        try await updateConfig(patch)
 
-        return .init(
+        let result = RailgunControlsMutationResult(
             snapshot: loaded.snapshot.withAdvisor(advisor),
             warning: nil
         )
+        cache(result.snapshot, updating: loaded, with: patch)
+        return result
     }
 
     /// Persists how flagged commands are approved for subsequent runs. Smart
     /// approval delegates the decision to the selected reviewer model.
     func configureApproval(_ approval: RailgunApprovalConfiguration) async throws -> RailgunControlsMutationResult {
-        let loaded = try await loadDetailed()
+        let loaded = try await cachedOrLoad()
         guard approval.mode != .smart || approval.reviewerModelID != nil else {
             throw RailgunControlsServiceError.approvalModelRequired
         }
@@ -150,13 +166,15 @@ actor RailgunControlsService {
         ]
         try await updateConfig(patch)
 
-        return .init(
+        let result = RailgunControlsMutationResult(
             snapshot: loaded.snapshot.withApproval(approval),
             warning: nil
         )
+        cache(result.snapshot, updating: loaded, with: patch)
+        return result
     }
 
-    private func loadDetailed() async throws -> LoadedControls {
+    private func loadDetailed(allowRetiredActiveModel: Bool = false) async throws -> LoadedControls {
         async let catalogRequest = perform(.getAvailableModels)
         async let stateRequest = perform(.getState)
         async let configRequest = perform(.configGet)
@@ -168,7 +186,7 @@ actor RailgunControlsService {
 
         let models = try parseModels(catalogResponse.data)
         let state = try parseState(stateResponse.data)
-        guard models.contains(where: { $0.id == state.modelID }) else {
+        guard allowRetiredActiveModel || models.contains(where: { $0.id == state.modelID }) else {
             throw RailgunControlsServiceError.invalidResponse
         }
         let config = try parseConfig(configResponse.data)
@@ -185,6 +203,34 @@ actor RailgunControlsService {
             ),
             config: config.raw
         )
+    }
+
+    private func cachedOrLoad() async throws -> LoadedControls {
+        if let cached { return cached }
+        let loaded = try await loadDetailed()
+        cached = loaded
+        return loaded
+    }
+
+    private func cache(
+        _ snapshot: RailgunControlsSnapshot,
+        updating loaded: LoadedControls,
+        with patch: [String: RailgunJSONValue]
+    ) {
+        cached = .init(
+            snapshot: snapshot,
+            config: loaded.config.merging(patch, uniquingKeysWith: { _, update in update })
+        )
+    }
+
+    /// Explicit refresh is intentionally the only normal path that can wait
+    /// for provider catalog discovery.
+    func refreshModels() async throws -> RailgunControlsSnapshot {
+        _ = try await perform(.refreshModelCatalog)
+        cached = nil
+        let loaded = try await loadDetailed(allowRetiredActiveModel: true)
+        cached = loaded
+        return loaded.snapshot
     }
 
     private func perform(
@@ -215,7 +261,8 @@ actor RailgunControlsService {
         fields: [String: RailgunJSONValue]
     ) async throws {
         let response = try await perform(type, fields: fields)
-        guard response.data == nil else { throw RailgunControlsServiceError.invalidResponse }
+        // Newer backends include an active-session snapshot. Older backends
+        // return no payload; both forms are valid under the additive contract.
     }
 
     private func updateConfig(_ patch: [String: RailgunJSONValue]) async throws {
@@ -455,10 +502,26 @@ final class RailgunControlsCoordinator {
     }
 
     func useModel(_ modelID: String) async {
-        await performMutation(
-            { try await self.service.selectModel(modelID) },
-            afterSuccess: { await self.modelDidChange?(modelID) }
-        )
+        guard canMutate else { return }
+        store.send(.controls(.modelSelectionStarted(modelID)))
+        do {
+            let result = try await service.selectModel(modelID)
+            store.send(.controls(.mutationFinished(result.snapshot, warning: result.warning)))
+            if let modelDidChange {
+                Task { await modelDidChange(modelID) }
+            }
+        } catch {
+            store.send(.controls(.modelSelectionReverted(presentationMessage(for: error))))
+        }
+    }
+
+    func refreshModels() async {
+        store.send(.controls(.loading))
+        do {
+            store.send(.controls(.loaded(try await service.refreshModels())))
+        } catch {
+            store.send(.controls(.loadFailed(presentationMessage(for: error))))
+        }
     }
 
     func configureDefaultModel(_ modelID: String?) async {

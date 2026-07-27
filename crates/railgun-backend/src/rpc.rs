@@ -71,6 +71,57 @@ enum RunUpdate {
         messages: Vec<Value>,
         result: Result<(), String>,
     },
+    CatalogRefresh {
+        id: Option<String>,
+        result: Result<Vec<widevin::DevinModel>, String>,
+    },
+}
+
+/// Provider discovery never belongs on an interaction-critical command path.
+/// The last good catalog remains authoritative for ordinary reads and model
+/// validation while an explicit refresh runs in the background.
+struct ModelCatalogCache {
+    models: Vec<widevin::DevinModel>,
+    refreshed_at: String,
+    generation: u64,
+    refreshing: bool,
+    last_error: Option<String>,
+}
+
+impl ModelCatalogCache {
+    fn new(models: Vec<widevin::DevinModel>) -> Self {
+        Self {
+            models,
+            refreshed_at: now(),
+            generation: 1,
+            refreshing: false,
+            last_error: None,
+        }
+    }
+
+    fn response_data(&self) -> Value {
+        let mut catalog = json!({
+            "freshness": "cached",
+            "refreshedAt": self.refreshed_at,
+            "generation": self.generation,
+            "refreshing": self.refreshing,
+        });
+        if let Some(error) = &self.last_error {
+            catalog["lastError"] = Value::String(error.clone());
+        }
+        json!({
+            "models": self.models.iter().map(model_value).collect::<Vec<_>>(),
+            "catalog": catalog,
+        })
+    }
+
+    fn replace(&mut self, models: Vec<widevin::DevinModel>) {
+        self.models = models;
+        self.refreshed_at = now();
+        self.generation += 1;
+        self.refreshing = false;
+        self.last_error = None;
+    }
 }
 
 struct Coordinator {
@@ -78,6 +129,7 @@ struct Coordinator {
     authenticated: Authenticated,
     store: Store,
     config: Value,
+    catalog: ModelCatalogCache,
     active: Session,
     initialized: bool,
     run: Option<ActiveRun>,
@@ -121,6 +173,7 @@ async fn run_desktop(paths: RailgunPaths) -> Result<()> {
         authenticated,
         store,
         config,
+        catalog: ModelCatalogCache::new(models),
         active: fresh_session(model),
         initialized: false,
         run: None,
@@ -237,14 +290,12 @@ impl Coordinator {
                 id,
                 Some(json!({"messages": self.active.messages})),
             ),
-            "get_available_models" => {
-                let models = auth::models(&self.authenticated, &self.paths).await?;
-                self.respond(
-                    "get_available_models",
-                    id,
-                    Some(json!({"models": models.iter().map(model_value).collect::<Vec<_>>()})),
-                );
-            }
+            "get_available_models" => self.respond(
+                "get_available_models",
+                id,
+                Some(self.catalog.response_data()),
+            ),
+            "refresh_model_catalog" => self.refresh_catalog(id),
             "prompt" => self.start_prompt(id, command.string("message")?.to_owned())?,
             "abort" => {
                 if let Some(run) = &self.run {
@@ -265,8 +316,12 @@ impl Coordinator {
                     bail!("cannot change model while agent is running");
                 }
                 let model = command.string("modelId")?.to_owned();
-                let models = auth::models(&self.authenticated, &self.paths).await?;
-                if !models.iter().any(|candidate| candidate.id == model) {
+                if !self
+                    .catalog
+                    .models
+                    .iter()
+                    .any(|candidate| candidate.id == model)
+                {
                     bail!("Model \"{model}\" is unavailable.");
                 }
                 if self.active.persistence == "saved" && self.active.model != model {
@@ -278,7 +333,7 @@ impl Coordinator {
                     self.active.persistence = "unsaved";
                 }
                 self.active.model = model;
-                self.respond("set_model", id, None);
+                self.respond("set_model", id, Some(self.active_snapshot()));
             }
             "set_auto_compaction" => self.respond("set_auto_compaction", id, None),
             "compact" => {
@@ -303,7 +358,7 @@ impl Coordinator {
                 self.respond(
                     "session_new",
                     id,
-                    Some(json!({"sessionId": self.active.id})),
+                    Some(json!({"sessionId": self.active.id, "activeSession": self.active_snapshot()})),
                 );
             }
             "session_list" => {
@@ -367,7 +422,11 @@ impl Coordinator {
                 self.respond(
                     &command.kind,
                     id,
-                    Some(json!({"sessionId": self.active.id})),
+                    Some(json!({
+                        "sessionId": self.active.id,
+                        "archivedSessionId": session_id,
+                        "activeSession": self.active_snapshot(),
+                    })),
                 );
             }
             "session_branch" => {
@@ -566,9 +625,54 @@ impl Coordinator {
         Ok(())
     }
 
+    fn active_snapshot(&self) -> Value {
+        json!({
+            "sessionId": self.active.id,
+            "model": self.active.model,
+            "startedAt": self.active.started_at,
+            "persistence": self.active.persistence,
+        })
+    }
+
+    fn refresh_catalog(&mut self, id: Option<String>) {
+        if self.catalog.refreshing {
+            self.respond(
+                "refresh_model_catalog",
+                id,
+                Some(self.catalog.response_data()),
+            );
+            return;
+        }
+        self.catalog.refreshing = true;
+        let authenticated = self.authenticated.clone();
+        let paths = self.paths.clone();
+        let updates = self.updates.clone();
+        tokio::spawn(async move {
+            let result = auth::models(&authenticated, &paths)
+                .await
+                .map_err(|error| redact_error(&error.to_string()));
+            let _ = updates.send(RunUpdate::CatalogRefresh { id, result });
+        });
+    }
+
     async fn handle_run_update(&mut self, update: RunUpdate) {
         match update {
             RunUpdate::Frame(frame) => self.send(frame),
+            RunUpdate::CatalogRefresh { id, result } => match result {
+                Ok(models) => {
+                    self.catalog.replace(models);
+                    self.respond(
+                        "refresh_model_catalog",
+                        id,
+                        Some(self.catalog.response_data()),
+                    );
+                }
+                Err(error) => {
+                    self.catalog.refreshing = false;
+                    self.catalog.last_error = Some(error.clone());
+                    self.respond_error("refresh_model_catalog", id, error);
+                }
+            },
             RunUpdate::Complete {
                 id,
                 messages,
@@ -1121,6 +1225,7 @@ fn v1_only(kind: &str) -> bool {
             | "session_archive"
             | "session_unarchive"
             | "session_save"
+            | "refresh_model_catalog"
             | "session_branch"
             | "session_fork"
             | "session_recent_messages"

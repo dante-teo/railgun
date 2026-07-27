@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// Configuration for the version 1 Railgun RPC connection.
 public struct RailgunRPCConfiguration: Sendable, Equatable {
@@ -99,6 +100,7 @@ public actor RailgunRPCClient {
 
     private struct PendingRequest {
         let command: String
+        let startedAt: Date
         let continuation: CheckedContinuation<Data, Error>
         let timeoutTask: Task<Void, Never>?
     }
@@ -109,6 +111,7 @@ public actor RailgunRPCClient {
     }
 
     private let backend: BackendProcess
+    private let latencyLogger = Logger(subsystem: "com.railgun.desktop", category: "RPCLatency")
     private let configuration: RailgunRPCConfiguration
     private let transportConfiguration: RailgunTransportConfiguration
     private let eventContinuation: AsyncStream<RailgunAgentEvent>.Continuation
@@ -440,6 +443,7 @@ public actor RailgunRPCClient {
         }
         pendingRequests[identifier] = PendingRequest(
             command: command,
+            startedAt: Date(),
             continuation: continuation,
             timeoutTask: timeoutTask
         )
@@ -448,6 +452,7 @@ public actor RailgunRPCClient {
         jsonLine.append(UInt8(ascii: "\n"))
         do {
             try standardInput?.write(contentsOf: jsonLine)
+            latencyLogger.debug("rpc write id=\(identifier, privacy: .public) command=\(command, privacy: .public)")
         } catch {
             settle(identifier, with: .failure(.backendTerminated))
         }
@@ -750,6 +755,8 @@ public actor RailgunRPCClient {
         guard let pending = pendingRequests.removeValue(forKey: identifier) else { return }
         requestIDsAwaitingSettlement.remove(identifier)
         pending.timeoutTask?.cancel()
+        let milliseconds = Int(Date().timeIntervalSince(pending.startedAt) * 1_000)
+        latencyLogger.debug("rpc settled id=\(identifier, privacy: .public) command=\(pending.command, privacy: .public) elapsed_ms=\(milliseconds, privacy: .public)")
         switch result {
         case let .success(response):
             pending.continuation.resume(returning: response)

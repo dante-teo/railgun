@@ -679,6 +679,21 @@ final class RailgunSessionFlowTests: XCTestCase {
         XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
     }
 
+    func testFailedArchiveRestoresTheActiveSelection() {
+        let active = RailgunSessionSummary(
+            id: "active", model: "gpt-5", startedAt: "Today", messageCount: 1, firstUserPreview: "Keep me"
+        )
+        var state = RailgunSessionReducer.reduce(.initial, .loaded([active]))
+        state = RailgunSessionReducer.reduce(state, .selected("active"))
+
+        state = RailgunSessionReducer.reduce(state, .archiveStarted("active"))
+        state = RailgunSessionReducer.reduce(state, .archiveReverted("active"))
+
+        XCTAssertEqual(state.activeSessionID, "active")
+        XCTAssertEqual(state.selectedSession, active)
+        XCTAssertEqual(state.sessions.map(\.id), ["active"])
+    }
+
     func testRestoreIsSingleFlightAndRefreshesBothListsAfterSuccess() async throws {
         let store = RailgunAppStore()
         let gate = RestoreRequestGate()

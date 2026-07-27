@@ -14,6 +14,7 @@ pub const CAPABILITIES: &[&str] = &[
     "instructions",
     "skills",
     "session.delivery",
+    "model_catalog.refresh",
 ];
 
 #[derive(Clone, Debug)]
@@ -262,6 +263,7 @@ fn validate(kind: &str, fields: &Map<String, Value>) -> Result<()> {
         | "get_state"
         | "get_messages"
         | "get_available_models"
+        | "refresh_model_catalog"
         | "compact"
         | "session_list"
         | "session_list_archived"
@@ -291,5 +293,11 @@ mod tests {
             "invalid command: limit must be an integer between 1 and 100"
         );
         assert!(Command::parse(json!({"id":"1","type":"initialize","version":1})).is_ok());
+    }
+
+    #[test]
+    fn accepts_the_additive_fieldless_catalog_refresh_command() {
+        assert!(Command::parse(json!({"id":"refresh-1","type":"refresh_model_catalog"})).is_ok());
+        assert!(CAPABILITIES.contains(&"model_catalog.refresh"));
     }
 }

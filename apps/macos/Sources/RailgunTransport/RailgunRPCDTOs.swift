@@ -70,6 +70,7 @@ public enum RailgunJSONValue: Sendable, Equatable, Codable {
 public enum RailgunRPCCommandType: String, Sendable, CaseIterable, Codable {
     case initialize, prompt, steer, followUp = "follow_up", abort, getState = "get_state"
     case getMessages = "get_messages", setModel = "set_model", getAvailableModels = "get_available_models"
+    case refreshModelCatalog = "refresh_model_catalog"
     case compact, setAutoCompaction = "set_auto_compaction", approvalResponse = "approval_response"
     case clarificationResponse = "clarification_response", sessionNew = "session_new", sessionList = "session_list"
     case sessionListArchived = "session_list_archived", sessionDeliveryCursor = "session_delivery_cursor"
@@ -264,7 +265,7 @@ public struct RailgunRPCCommand: Sendable, Equatable {
         case .instructionFileUpdate:
             try requiredString("fileId")
             guard fields["content"]?.stringValue != nil else { throw RailgunRPCDTOError.invalidField("content", "must be a string") }
-        case .abort, .getState, .getMessages, .getAvailableModels, .compact, .sessionList, .sessionListArchived,
+        case .abort, .getState, .getMessages, .getAvailableModels, .refreshModelCatalog, .compact, .sessionList, .sessionListArchived,
              .sessionDeliveryCursor, .sessionSave, .configGet, .mcpList, .dreamRun, .instructionFilesList, .skillsList:
             break
         }

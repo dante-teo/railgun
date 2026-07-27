@@ -14,7 +14,16 @@ placeholder, and Railgun does not save it until the user sends a message.
 Settings → General lets users choose a default model for new tasks without
 changing the active task's model, and configure an optional Advisor by selecting
 its model and enabling it. Advisor notes appear in Activity and open on click
-for reading and text selection.
+for reading and text selection. The model list is cached while Railgun is
+connected, so choosing a model immediately acknowledges the choice while the
+backend confirms it. **Refresh Models** is available in General when the user
+wants to discover provider changes. If that refresh no longer offers the
+current model, Railgun does not silently change the task; it keeps the picker
+usable so the user can select a replacement.
+
+Archiving a task immediately moves it out of the active list. If the backend
+rejects the archive, Railgun restores the task in place, including its active
+selection and visible transcript.
 
 Scheduled prompts are stored in the user’s existing `~/.railgun` data. Railgun
 starts a private scheduler after the desktop backend is ready and stops it when

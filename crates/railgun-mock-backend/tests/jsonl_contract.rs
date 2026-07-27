@@ -89,8 +89,21 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
             .as_array()
             .unwrap()
             .len(),
-        11
+        12
     );
+    assert!(
+        initialized["data"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "model_catalog.refresh")
+    );
+
+    mock.send(json!({"id":"refresh-models","type":"refresh_model_catalog"}))
+        .await;
+    let refreshed = mock.response("refresh-models").await;
+    assert!(refreshed["success"].as_bool().unwrap());
+    assert!(refreshed["data"]["models"].as_array().unwrap().len() >= 1);
 
     mock.send(json!({"id":"state","type":"get_state"})).await;
     let state = mock.response("state").await;

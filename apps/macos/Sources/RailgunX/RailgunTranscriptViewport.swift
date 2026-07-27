@@ -220,13 +220,10 @@ enum RailgunTranscriptStatusPresentation: Equatable {
 
 enum RailgunTranscriptOrdering {
     static func orderedMessages(in transcript: RailgunTranscriptState) -> [RailgunTranscriptMessage] {
-        transcript.messages.enumerated()
-            .sorted { lhs, rhs in
-                lhs.element.order == rhs.element.order
-                    ? lhs.offset < rhs.offset
-                    : lhs.element.order < rhs.element.order
-            }
-            .map(\.element)
+        // Reducers append transcript entries in display order and hydration
+        // constructs the same order. Returning that stable storage directly
+        // avoids sorting the growing timeline for every streamed frame.
+        transcript.messages
     }
 }
 

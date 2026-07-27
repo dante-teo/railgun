@@ -52,9 +52,14 @@ content exceeds the popover height. Advisor notes are available from its
 Advisor row in a click-to-open, selectable popover.
 
 Model selection remains a native `Menu` whose models are individual `Button`
-actions. The menu locks after a selection until the request settles, preventing
-repeated model changes. Settings → General also stores a default model for new
-tasks and an optional Advisor model; neither setting changes the active task.
+actions. Selection acknowledges locally before backend confirmation and the
+menu locks until that request settles, preventing repeated model changes.
+Settings → General also stores a default model for new tasks and an optional
+Advisor model; neither setting changes the active task. The model catalog is
+loaded at backend startup and cached for ordinary reads and selections.
+**Refresh Models** is the explicit network refresh path. If a refresh retires
+the active model, Railgun keeps the current task intact and leaves the picker
+available so the user can choose a replacement.
 
 ### Archived task browser
 
@@ -169,6 +174,15 @@ Session transcript and recent-message projections follow the parent chain from
 the session's active `current_leaf_id`. After branching, descendants from the
 abandoned branch remain preserved in SQLite but are never projected as active
 history or previews.
+
+`get_available_models` remains compatible with existing callers and returns
+the cached model list. Its additive `catalog` object reports cache freshness,
+generation, refresh state, and a redacted last refresh error when applicable.
+Clients that negotiate `model_catalog.refresh` may send the fieldless
+`refresh_model_catalog` command to refresh that cache without blocking normal
+model reads or control actions. A `set_model` response includes an additive
+active-session snapshot; archive mutations similarly include the affected and
+new active session identifiers for prompt client reconciliation.
 
 The mock backend supports readiness, authentication, delayed and malformed
 startup, rejection, crash/disconnect, store errors, approval, clarification,

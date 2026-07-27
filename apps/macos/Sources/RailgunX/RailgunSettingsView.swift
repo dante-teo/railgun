@@ -184,6 +184,12 @@ struct RailgunSettingsView: View {
                 }
                 .disabled(!canEditControls)
                 .accessibilityIdentifier("settings-default-model")
+
+                Button("Refresh Models", systemImage: "arrow.clockwise") {
+                    Task { await controlsCoordinator.refreshModels() }
+                }
+                .disabled(!canEditControls)
+                .accessibilityIdentifier("refresh-model-catalog")
             } header: {
                 Text("Model")
             } footer: {

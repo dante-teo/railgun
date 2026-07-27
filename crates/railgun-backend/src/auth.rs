@@ -48,6 +48,7 @@ fn authentication_required(source: CredentialSource) -> anyhow::Error {
     AuthenticationRequired { source }.into()
 }
 
+#[derive(Clone)]
 pub struct Authenticated {
     pub provider: DevinProvider,
     pub source: CredentialSource,

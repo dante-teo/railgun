@@ -385,6 +385,14 @@ impl Mock {
                 id.as_deref(),
                 Some(json!({"models":if self.scenario == Scenario::EmptyModelCatalog {Vec::new()} else {mock_models()}})),
             ),
+            "refresh_model_catalog" => self.respond(
+                &kind,
+                id.as_deref(),
+                Some(json!({
+                    "models": if self.scenario == Scenario::EmptyModelCatalog { Vec::new() } else { mock_models() },
+                    "catalog": {"freshness":"cached", "generation":1, "refreshing":false},
+                })),
+            ),
             "session_list" => {
                 if self.fail_store(&kind, id.as_deref()) {
                     return Ok(None);

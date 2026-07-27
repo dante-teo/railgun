@@ -4,6 +4,27 @@ import RailgunTransport
 
 @MainActor
 final class RailgunControlsServiceTests: XCTestCase {
+    func testModelSelectionReducerAcknowledgesImmediatelyAndRevertsOnlyOnRejection() {
+        let loaded = RailgunControlsSnapshot(
+            models: [.init(id: "primary", name: "Primary"), .init(id: "selected", name: "Selected")],
+            activeModelID: "primary",
+            defaultModelID: "primary",
+            moaPresets: [],
+            activeMoAPresetName: nil,
+            advisor: .disabled
+        )
+        var state = RailgunControlsReducer.reduce(.initial, .loaded(loaded))
+
+        state = RailgunControlsReducer.reduce(state, .modelSelectionStarted("selected"))
+        XCTAssertEqual(state.activeModelID, "selected")
+        XCTAssertTrue(state.isMutating)
+
+        state = RailgunControlsReducer.reduce(state, .modelSelectionReverted("Unavailable"))
+        XCTAssertEqual(state.activeModelID, "primary")
+        XCTAssertFalse(state.isMutating)
+        XCTAssertEqual(state.error, "Unavailable")
+    }
+
     func testControlsReducerTracksLoadMutationAndRecoverablePartialSave() {
         let loaded = RailgunControlsSnapshot(
             models: [.init(id: "primary", name: "Primary")],
@@ -155,6 +176,32 @@ final class RailgunControlsServiceTests: XCTestCase {
         await assertInvalidControlsResponse(inconsistentConfig)
     }
 
+    func testRefreshKeepsControlsUsableWhenTheActiveModelWasRetired() async throws {
+        let stage = ControlsCatalogRefreshStage()
+        let service = RailgunControlsService { command in
+            switch command.type {
+            case .refreshModelCatalog:
+                return try controlsResponse(for: command.type, data: .object([:]))
+            case .getAvailableModels:
+                let models = await stage.nextCatalog()
+                return try controlsResponse(for: command.type, data: .object(["models": .array(models)]))
+            case .getState:
+                let model = await stage.nextStateModel()
+                return try controlsResponse(for: command.type, data: controlsState(model: model))
+            case .configGet:
+                return try controlsResponse(for: command.type, data: controlsConfig())
+            default:
+                throw ControlsStubError.unexpectedCommand
+            }
+        }
+
+        _ = try await service.load()
+        let refreshed = try await service.refreshModels()
+
+        XCTAssertEqual(refreshed.activeModelID, "retired")
+        XCTAssertEqual(refreshed.models.map(\.id), ["replacement", "advisor"])
+    }
+
     func testModelSelectionChangesTheTaskAndPersistsTheDefault() async throws {
         let recorder = ControlsCommandRecorder()
         let service = RailgunControlsService { command in
@@ -214,6 +261,38 @@ final class RailgunControlsServiceTests: XCTestCase {
         XCTAssertEqual(result.snapshot.activeModelID, "selected")
         XCTAssertEqual(result.snapshot.defaultModelID, "primary")
         XCTAssertEqual(result.warning, "This task changed to selected, but the default was not saved.")
+    }
+
+    func testCachedDefaultSurvivesALaterPartialModelSelection() async throws {
+        let configUpdates = ControlsConfigUpdateCounter()
+        let service = RailgunControlsService { command in
+            switch command.type {
+            case .getAvailableModels:
+                return try controlsResponse(for: command.type, data: .object(["models": .array([
+                    controlsModel(id: "primary"), controlsModel(id: "default"),
+                    controlsModel(id: "selected"), controlsModel(id: "advisor"),
+                ])]))
+            case .getState:
+                return try controlsResponse(for: command.type, data: controlsState(model: "primary"))
+            case .configGet:
+                return try controlsResponse(for: command.type, data: controlsConfig(model: "primary"))
+            case .setModel:
+                return try controlsResponse(for: command.type)
+            case .configUpdate:
+                return await configUpdates.next() == 1
+                    ? try controlsResponse(for: command.type, data: controlsConfig(model: "default"))
+                    : try controlsFailure(for: command.type, error: "disk full")
+            default:
+                throw ControlsStubError.unexpectedCommand
+            }
+        }
+
+        _ = try await service.configureDefaultModel("default")
+        let result = try await service.selectModel("selected")
+
+        XCTAssertEqual(result.snapshot.activeModelID, "selected")
+        XCTAssertEqual(result.snapshot.defaultModelID, "default")
+        XCTAssertNotNil(result.warning)
     }
 
     func testDefaultModelConfigurationPersistsWithoutChangingTheActiveTaskModel() async throws {
@@ -484,6 +563,32 @@ private actor ControlsCommandRecorder {
     }
 
     func commands() -> [RailgunRPCCommand] { recorded }
+}
+
+private actor ControlsConfigUpdateCounter {
+    private var value = 0
+
+    func next() -> Int {
+        value += 1
+        return value
+    }
+}
+
+private actor ControlsCatalogRefreshStage {
+    private var catalogRequestCount = 0
+    private var stateRequestCount = 0
+
+    func nextCatalog() -> [RailgunJSONValue] {
+        defer { catalogRequestCount += 1 }
+        return catalogRequestCount == 0
+            ? [controlsModel(id: "primary"), controlsModel(id: "advisor")]
+            : [controlsModel(id: "replacement"), controlsModel(id: "advisor")]
+    }
+
+    func nextStateModel() -> String {
+        defer { stateRequestCount += 1 }
+        return stateRequestCount == 0 ? "primary" : "retired"
+    }
 }
 
 private actor CompactionAttemptCounter {

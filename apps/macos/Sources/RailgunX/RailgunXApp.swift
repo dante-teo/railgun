@@ -253,6 +253,8 @@ final class RailgunBackendRuntime {
     private let deliveryTracker = RailgunScheduledDeliveryTracker()
     private var isConnectionAttemptInFlight = false
     private var isObservingScheduledDeliveries = false
+    private var pendingAssistantDelta = ""
+    private var pendingDeltaFlush: Task<Void, Never>?
     private nonisolated let terminationObservationTask: Task<Void, Never>
     private nonisolated let eventObservation = RailgunEventObservation()
     private nonisolated let interactionObservation = RailgunEventObservation()
@@ -382,9 +384,33 @@ final class RailgunBackendRuntime {
     }
 
     func handle(_ event: RailgunAgentEvent) async {
+        if case let .assistantDelta(text) = event {
+            pendingAssistantDelta += text
+            scheduleDeltaFlush()
+            return
+        }
+        flushAssistantDelta()
         store.send(.agentEvent(event))
         guard event == .sessionSaved else { return }
         await sessionCoordinator.refresh()
+    }
+
+    private func scheduleDeltaFlush() {
+        guard pendingDeltaFlush == nil else { return }
+        pendingDeltaFlush = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else { return }
+            self?.flushAssistantDelta()
+        }
+    }
+
+    private func flushAssistantDelta() {
+        pendingDeltaFlush?.cancel()
+        pendingDeltaFlush = nil
+        guard !pendingAssistantDelta.isEmpty else { return }
+        let text = pendingAssistantDelta
+        pendingAssistantDelta = ""
+        store.send(.agentEvent(.assistantDelta(text)))
     }
 
     private func observeEvents() {
