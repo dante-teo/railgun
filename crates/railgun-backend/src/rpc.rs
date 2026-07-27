@@ -4,25 +4,21 @@ use crate::{
     paths::RailgunPaths,
     protocol::{CAPABILITIES, Command, VERSION},
     storage::{Session, Store},
+    tools::{self, InteractionResponse, Interactions, ToolContext},
     transcript,
 };
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
+use chrono::{Timelike, Utc};
 use futures_util::StreamExt;
 use serde_json::{Map, Value, json};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    sync::mpsc,
+    sync::{Mutex, Semaphore, mpsc},
 };
 use tokio_util::sync::CancellationToken;
 use widevin::{
     DevinAssistantContentPart, DevinChatRequest, DevinContentPart, DevinMessage, DevinStreamEvent,
-    DevinTool,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +70,7 @@ enum RunUpdate {
     Complete {
         id: Option<String>,
         messages: Vec<Value>,
+        todos: Vec<Value>,
         result: Result<(), String>,
     },
     CatalogRefresh {
@@ -140,6 +137,8 @@ struct Coordinator {
     run: Option<ActiveRun>,
     output: mpsc::UnboundedSender<Value>,
     updates: mpsc::UnboundedSender<RunUpdate>,
+    interactions: Interactions,
+    session_approvals: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 async fn run_desktop(paths: RailgunPaths) -> Result<()> {
@@ -184,6 +183,8 @@ async fn run_desktop(paths: RailgunPaths) -> Result<()> {
         run: None,
         output: output_tx,
         updates: update_tx,
+        interactions: Interactions::default(),
+        session_approvals: Arc::new(Mutex::new(std::collections::HashSet::new())),
     };
 
     let stdin = tokio::io::stdin();
@@ -197,6 +198,7 @@ async fn run_desktop(paths: RailgunPaths) -> Result<()> {
                         if let Some(run) = coordinator.run.take() {
                             run.cancellation.cancel();
                         }
+                        coordinator.interactions.reject_all().await;
                         break;
                     }
                 }
@@ -306,6 +308,7 @@ impl Coordinator {
                 if let Some(run) = &self.run {
                     run.cancellation.cancel();
                 }
+                self.interactions.reject_all().await;
                 self.respond("abort", id, None);
             }
             "steer" | "follow_up" => {
@@ -336,6 +339,7 @@ impl Coordinator {
                     self.active.started_at = now();
                     self.active.message_ids.clear();
                     self.active.persistence = "unsaved";
+                    self.reset_session_approvals().await;
                 }
                 self.active.model = model;
                 self.respond("set_model", id, Some(self.active_snapshot()));
@@ -360,6 +364,7 @@ impl Coordinator {
                     .unwrap_or(&self.active.model)
                     .to_owned();
                 self.active = fresh_session(model);
+                self.reset_session_approvals().await;
                 self.respond(
                     "session_new",
                     id,
@@ -385,6 +390,7 @@ impl Coordinator {
                     bail!("session not found: {session_id}");
                 };
                 self.active = session;
+                self.reset_session_approvals().await;
                 let mut data = json!({"sessionId": self.active.id});
                 if command
                     .fields
@@ -423,6 +429,7 @@ impl Coordinator {
                     .await?;
                 if command.kind == "session_archive" && session_id == self.active.id {
                     self.active = fresh_session(self.active.model.clone());
+                    self.reset_session_approvals().await;
                 }
                 self.respond(
                     &command.kind,
@@ -472,6 +479,7 @@ impl Coordinator {
                     .load_session(&fork_id)
                     .await?
                     .context("forked session disappeared")?;
+                self.reset_session_approvals().await;
                 let mut data = json!({"sessionId": fork_id});
                 if command
                     .fields
@@ -576,15 +584,26 @@ impl Coordinator {
             }
             "dream_run" => {
                 self.require_idle("run Dream")?;
-                self.send(json!({"type":"dream_progress","phase":"complete","message":"Memory consolidation complete."}));
-                self.respond(
-                    "dream_run",
-                    id,
-                    Some(json!({"reviewed": 0, "consolidated": 0, "deleted": 0})),
-                );
+                let result = run_dream_job(&self.store, &self.paths, &self.output).await?;
+                self.respond("dream_run", id, Some(result));
             }
-            "approval_response" | "clarification_response" => {
-                bail!("interaction request is no longer pending");
+            "approval_response" => {
+                self.interactions
+                    .resolve(
+                        command.string("requestId")?,
+                        InteractionResponse::Approval(command.bool("approved")?),
+                    )
+                    .await?;
+                self.respond("approval_response", id, None);
+            }
+            "clarification_response" => {
+                self.interactions
+                    .resolve(
+                        command.string("requestId")?,
+                        InteractionResponse::Clarification(command.string("answer")?.to_owned()),
+                    )
+                    .await?;
+                self.respond("clarification_response", id, None);
             }
             _ => bail!("unknown command: {}", command.kind),
         }
@@ -596,6 +615,10 @@ impl Coordinator {
             bail!("cannot {action} while agent is running");
         }
         Ok(())
+    }
+
+    async fn reset_session_approvals(&self) {
+        self.session_approvals.lock().await.clear();
     }
 
     fn start_prompt(&mut self, id: Option<String>, message: String) -> Result<()> {
@@ -610,15 +633,29 @@ impl Coordinator {
         let provider = self.authenticated.provider.clone();
         let model = self.active.model.clone();
         let mut messages = self.active.messages.clone();
+        let advisor_message = message.clone();
         let updates = self.updates.clone();
-        let file_root = agent_file_root(&self.paths)?;
+        let todos = Arc::new(Mutex::new(self.active.todos.clone()));
+        let context = ToolContext {
+            paths: self.paths.clone(),
+            store: self.store.clone(),
+            cancellation: cancellation.clone(),
+            updates: self.output.clone(),
+            todos: todos.clone(),
+            interactions: Some(self.interactions.clone()),
+            approvals: self.session_approvals.clone(),
+            delegation_depth: 0,
+            delegation_slots: Arc::new(Semaphore::new(3)),
+            provider: Some(provider.clone()),
+            model: Some(model.clone()),
+        };
         tokio::spawn(async move {
             let result = provider_turn(
                 provider,
                 model,
                 &mut messages,
                 message,
-                file_root,
+                context,
                 cancellation,
                 &updates,
             )
@@ -626,9 +663,24 @@ impl Coordinator {
             let _ = updates.send(RunUpdate::Complete {
                 id,
                 messages,
+                todos: todos.lock().await.clone(),
                 result: result.map_err(|error| redact_error(&error.to_string())),
             });
         });
+        if let Some(advisor_model) = self
+            .config
+            .get("advisor")
+            .and_then(Value::as_object)
+            .filter(|advisor| advisor.get("enabled").and_then(Value::as_bool) == Some(true))
+            .and_then(|advisor| advisor.get("model").and_then(Value::as_str))
+        {
+            let provider = self.authenticated.provider.clone();
+            let updates = self.updates.clone();
+            let advisor_model = advisor_model.to_owned();
+            tokio::spawn(async move {
+                advisor_review(provider, advisor_model, advisor_message, updates).await;
+            });
+        }
         Ok(())
     }
 
@@ -683,6 +735,7 @@ impl Coordinator {
             RunUpdate::Complete {
                 id,
                 messages,
+                todos,
                 result,
             } => {
                 let active_id_matches = self.run.as_ref().is_some_and(|run| run.id == id);
@@ -693,6 +746,7 @@ impl Coordinator {
                 match result {
                     Ok(()) => {
                         self.active.messages = messages;
+                        self.active.todos = todos;
                         match self.store.save_session(&mut self.active).await {
                             Ok(()) => self
                                 .send(json!({"type":"session_saved","sessionId":self.active.id})),
@@ -1020,7 +1074,7 @@ async fn provider_turn(
     model: String,
     messages: &mut Vec<Value>,
     prompt: String,
-    file_root: PathBuf,
+    tool_context: ToolContext,
     cancellation: CancellationToken,
     updates: &mpsc::UnboundedSender<RunUpdate>,
 ) -> Result<()> {
@@ -1111,7 +1165,7 @@ async fn provider_turn(
                 updates,
                 json!({"type":"tool_execution_start","toolCallId":id,"toolName":name,"args":arguments}),
             );
-            let result = execute_local_tool(&name, &arguments, &file_root).await;
+            let result = tools::execute(&name, &arguments, &tool_context).await;
             let (content, is_error) = match result {
                 Ok(content) => (content, false),
                 Err(error) => (redact_error(&error.to_string()), true),
@@ -1137,6 +1191,47 @@ async fn provider_turn(
     Ok(())
 }
 
+async fn advisor_review(
+    provider: widevin::DevinProvider,
+    model: String,
+    message: String,
+    updates: mpsc::UnboundedSender<RunUpdate>,
+) {
+    let request = DevinChatRequest {
+        model,
+        messages: vec![DevinMessage::User { content: vec![DevinContentPart::Text { text: message }] }],
+        system_prompt: vec!["You are Railgun's private implementation advisor. Review the task for one concrete risk. If there is a useful note, call advise once with severity nit, concern, or blocker; otherwise return no tool call. Never produce more than one note.".into()],
+        tools: tools::advisor_schemas(),
+        ..Default::default()
+    };
+    let mut stream = provider.stream_chat(request);
+    while let Some(event) = stream.next().await {
+        let Ok(event) = event else {
+            return;
+        };
+        if let DevinStreamEvent::ToolCallEnd {
+            name, arguments, ..
+        } = event
+        {
+            if name != "advise" {
+                continue;
+            }
+            let Ok((severity, text)) = tools::advisory(&arguments) else {
+                return;
+            };
+            let text = text
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            send_update(
+                &updates,
+                json!({"type":"message_start","message":{"role":"user","content":format!("<advisory severity=\"{severity}\">{text}</advisory>")}}),
+            );
+            return;
+        }
+    }
+}
+
 fn agent_request(model: String, messages: Vec<DevinMessage>) -> DevinChatRequest {
     DevinChatRequest {
         model,
@@ -1144,144 +1239,9 @@ fn agent_request(model: String, messages: Vec<DevinMessage>) -> DevinChatRequest
         system_prompt: vec![
             "You are Railgun, a careful coding agent. You can read local files in the user's home directory with read_file. When the user supplies an absolute path there, call read_file before claiming the file is unavailable; never say a local path needs to be uploaded. Be concise, preserve user data, and report verification honestly.".into(),
         ],
-        tools: local_file_tools(),
+        tools: tools::schemas(),
         ..Default::default()
     }
-}
-
-fn local_file_tools() -> Vec<DevinTool> {
-    vec![DevinTool {
-        name: "read_file".into(),
-        description: "Read a UTF-8 text file or extract text from a PDF located under the user's home directory, excluding hidden and credential-bearing paths. Use the absolute path supplied by the user.".into(),
-        input_schema: json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "format": "uri-reference",
-                    "description": "Absolute path to a file under the user's home directory."
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        }),
-        strict: true,
-    }]
-}
-
-fn agent_file_root(paths: &RailgunPaths) -> Result<PathBuf> {
-    paths
-        .home
-        .parent()
-        .map(Path::to_path_buf)
-        .context("Railgun home has no parent")
-}
-
-async fn execute_local_tool(name: &str, arguments: &Value, home: &Path) -> Result<String> {
-    match name {
-        "read_file" => read_local_file(arguments, home).await,
-        _ => bail!("unsupported local tool"),
-    }
-}
-
-async fn read_local_file(arguments: &Value, home: &Path) -> Result<String> {
-    let raw_path = arguments["path"]
-        .as_str()
-        .context("read_file requires a path")?;
-    let path = local_file_path(Path::new(raw_path), home)?;
-    let content = if path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
-    {
-        extract_pdf_text(&path).await?
-    } else {
-        String::from_utf8(tokio::fs::read(&path).await?)
-            .context("the selected file is not UTF-8 text")?
-    };
-    Ok(truncate_utf8(&content, 1_000_000))
-}
-
-fn local_file_path(path: &Path, home: &Path) -> Result<PathBuf> {
-    let home = home
-        .canonicalize()
-        .context("could not access the user's home directory")?;
-    let path = path
-        .canonicalize()
-        .context("file does not exist or is inaccessible")?;
-    if !path.is_file() {
-        bail!("path is not a regular file");
-    }
-    if !path.starts_with(&home) {
-        bail!("file is outside the user's home directory");
-    }
-    if is_sensitive_local_file_path(&path, &home) {
-        bail!("file is in a protected location");
-    }
-    let metadata = path.metadata()?;
-    if metadata.len() > 10_000_000 {
-        bail!("file is too large to read safely");
-    }
-    Ok(path)
-}
-
-fn is_sensitive_local_file_path(path: &Path, home: &Path) -> bool {
-    let relative = path.strip_prefix(home).unwrap_or(path);
-    let components = relative
-        .components()
-        .filter_map(|component| component.as_os_str().to_str())
-        .collect::<Vec<_>>();
-    let file_name = components
-        .last()
-        .copied()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let extension = Path::new(&file_name)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default();
-
-    components.first() == Some(&"Library")
-        || components
-            .iter()
-            .any(|component| component.starts_with('.'))
-        || matches!(extension, "key" | "pem" | "p12" | "pfx" | "kdbx")
-        || matches!(
-            file_name.as_str(),
-            "id_rsa" | "id_dsa" | "id_ecdsa" | "id_ed25519"
-        )
-        || ["credential", "password", "secret", "token"]
-            .iter()
-            .any(|term| file_name.contains(term))
-}
-
-async fn extract_pdf_text(path: &Path) -> Result<String> {
-    let output = tokio::process::Command::new("/usr/bin/mdls")
-        .args(["-raw", "-name", "kMDItemTextContent"])
-        .arg(path)
-        .output()
-        .await
-        .context("could not extract text from the PDF")?;
-    if !output.status.success() {
-        bail!("could not extract text from the PDF");
-    }
-    let text =
-        String::from_utf8(output.stdout).context("PDF text extraction returned invalid text")?;
-    let text = text.trim();
-    if text.is_empty() || text == "(null)" {
-        bail!("the PDF has no extractable text");
-    }
-    Ok(text.into())
-}
-
-fn truncate_utf8(text: &str, maximum_bytes: usize) -> String {
-    if text.len() <= maximum_bytes {
-        return text.into();
-    }
-    let mut end = maximum_bytes;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].into()
 }
 
 fn send_update(updates: &mpsc::UnboundedSender<RunUpdate>, frame: Value) {
@@ -1793,9 +1753,20 @@ async fn atomic_write(path: &std::path::Path, content: &str) -> Result<()> {
 }
 
 async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
-    if auth::provider(&paths, false).await.is_err() {
-        return Ok(());
-    }
+    let authenticated = match auth::provider(&paths, false).await {
+        Ok(value) => value,
+        Err(_) => return Ok(()),
+    };
+    let config = config::load(&paths).await?;
+    let models = auth::models(&authenticated, &paths).await?;
+    let model = config
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|id| models.iter().any(|candidate| candidate.id == *id))
+        .map(str::to_owned)
+        .or_else(|| models.first().map(|candidate| candidate.id.clone()))
+        .context("Devin returned no available models")?;
+    let store = Store::open(&paths.state).await?;
     tracing::info!("scheduler started");
     let cancellation = CancellationToken::new();
     let signal = cancellation.clone();
@@ -1803,7 +1774,50 @@ async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
         let _ = tokio::signal::ctrl_c().await;
         signal.cancel();
     });
-    cancellation.cancelled().await;
+    loop {
+        if cancellation.is_cancelled() {
+            break;
+        }
+        match load_cron(&paths).await {
+            Ok(mut jobs) => {
+                let timestamp = chrono::Local::now();
+                let mut changed = false;
+                for job in &mut jobs {
+                    if !cron_due(job, timestamp)? {
+                        continue;
+                    }
+                    let prompt = job["prompt"].as_str().unwrap_or_default().to_owned();
+                    let job_id = job["id"].as_str().unwrap_or_default().to_owned();
+                    let result = run_scheduled_job(
+                        &authenticated,
+                        &model,
+                        &store,
+                        &paths,
+                        &job_id,
+                        &prompt,
+                        cancellation.clone(),
+                    )
+                    .await;
+                    let (status, error) = match result {
+                        Ok(status) => (status, None),
+                        Err(error) => ("failed", Some(redact_error(&error.to_string()))),
+                    };
+                    job["lastRun"] = json!(timestamp.timestamp_millis());
+                    job["lastStatus"] = json!(status);
+                    job["lastError"] = error.map(Value::String).unwrap_or(Value::Null);
+                    if status == "completed" {
+                        job["lastSuccess"] = json!(timestamp.timestamp_millis());
+                    }
+                    changed = true;
+                }
+                if changed {
+                    save_cron(&paths, &jobs).await?;
+                }
+            }
+            Err(error) => tracing::warn!(error = %error, "scheduler could not load cron jobs"),
+        }
+        tokio::select! { _ = cancellation.cancelled() => break, _ = tokio::time::sleep(next_minute_delay(chrono::Local::now())) => {} }
+    }
     Ok(())
 }
 
@@ -1811,9 +1825,142 @@ async fn run_dream(paths: RailgunPaths) -> Result<()> {
     if auth::provider(&paths, false).await.is_err() {
         return Ok(());
     }
-    let _store = Store::open(&paths.state).await?;
-    tracing::info!("dream memory maintenance completed");
+    let store = Store::open(&paths.state).await?;
+    let (output, _receiver) = mpsc::unbounded_channel();
+    let summary = run_dream_job(&store, &paths, &output).await?;
+    tracing::info!(?summary, "dream memory maintenance completed");
     Ok(())
+}
+
+fn cron_due<Tz: chrono::TimeZone>(job: &Value, now: chrono::DateTime<Tz>) -> Result<bool> {
+    let schedule = job["schedule"]
+        .as_str()
+        .context("cron job schedule is missing")?;
+    let matching = croner::Cron::from_str(schedule)?.is_time_matching(&now)?;
+    let last_run = job["lastRun"].as_i64().unwrap_or(0);
+    Ok(matching && last_run / 60_000 != now.timestamp_millis() / 60_000)
+}
+
+fn next_minute_delay<Tz: chrono::TimeZone>(now: chrono::DateTime<Tz>) -> std::time::Duration {
+    let millis_until_next_minute =
+        (59 - now.second()) as u64 * 1_000 + (1_000 - now.timestamp_subsec_millis() as u64);
+    std::time::Duration::from_millis(millis_until_next_minute)
+}
+
+async fn run_scheduled_job(
+    authenticated: &Authenticated,
+    model: &str,
+    store: &Store,
+    paths: &RailgunPaths,
+    job_id: &str,
+    prompt: &str,
+    cancellation: CancellationToken,
+) -> Result<&'static str> {
+    let mut session = fresh_session(model.to_owned());
+    session.id = format!("cron-{}", uuid::Uuid::new_v4());
+    let (updates, mut receiver) = mpsc::unbounded_channel();
+    let drain = tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+    let context = ToolContext {
+        paths: paths.clone(),
+        store: store.clone(),
+        cancellation: cancellation.clone(),
+        updates: mpsc::unbounded_channel().0,
+        todos: Arc::new(Mutex::new(Vec::new())),
+        interactions: None,
+        approvals: Arc::new(Mutex::new(std::collections::HashSet::new())),
+        delegation_depth: 0,
+        delegation_slots: Arc::new(Semaphore::new(3)),
+        provider: Some(authenticated.provider.clone()),
+        model: Some(model.to_owned()),
+    };
+    let outcome = provider_turn(
+        authenticated.provider.clone(),
+        model.to_owned(),
+        &mut session.messages,
+        prompt.to_owned(),
+        context,
+        cancellation,
+        &updates,
+    )
+    .await;
+    drop(updates);
+    let _ = drain.await;
+    let status = if outcome.is_ok()
+        && session
+            .messages
+            .last()
+            .is_some_and(|message| message["role"] == "assistant")
+    {
+        "completed"
+    } else {
+        "failed"
+    };
+    if outcome.is_err() {
+        session.messages.push(
+            json!({"role":"assistant","content":[{"type":"text","text":"Scheduled task failed."}]}),
+        );
+    }
+    store
+        .save_scheduled_session(&mut session, job_id, prompt, status)
+        .await?;
+    outcome?;
+    Ok(status)
+}
+
+async fn run_dream_job(
+    store: &Store,
+    paths: &RailgunPaths,
+    output: &mpsc::UnboundedSender<Value>,
+) -> Result<Value> {
+    let before = store.memories(None, 10_000).await?;
+    if before.len() < 5 {
+        let _ = output.send(json!({"type":"dream_progress","phase":"skipped","message":"Dream needs at least five memories."}));
+        return Ok(
+            json!({"status":"skipped","beforeCount":before.len(),"afterCount":before.len()}),
+        );
+    }
+    let _ = output.send(
+        json!({"type":"dream_progress","phase":"reviewing","message":"Reviewing saved memories."}),
+    );
+    let mut seen = std::collections::HashMap::<(String, String), Vec<String>>::new();
+    for memory in &before {
+        seen.entry((
+            memory["category"].as_str().unwrap_or_default().into(),
+            memory["content"]
+                .as_str()
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase(),
+        ))
+        .or_default()
+        .push(memory["id"].as_str().unwrap_or_default().into());
+    }
+    let operations = seen.into_iter().filter(|(_, ids)| ids.len() > 1).map(|((category, content), ids)| json!({"action":"merge","ids":ids,"newContent":content,"category":category,"reason":"Exact duplicate memories"})).collect::<Vec<_>>();
+    if !operations.is_empty() {
+        let _ = output.send(json!({"type":"dream_progress","phase":"consolidating","message":"Consolidating duplicate memories."}));
+        let context = ToolContext {
+            paths: paths.clone(),
+            store: store.clone(),
+            cancellation: CancellationToken::new(),
+            updates: output.clone(),
+            todos: Arc::new(Mutex::new(Vec::new())),
+            interactions: None,
+            approvals: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            delegation_depth: 0,
+            delegation_slots: Arc::new(Semaphore::new(3)),
+            provider: None,
+            model: None,
+        };
+        tools::execute(
+            "memory_consolidate",
+            &json!({"operations":operations}),
+            &context,
+        )
+        .await?;
+    }
+    let after = store.memories(None, 10_000).await?;
+    let _ = output.send(json!({"type":"dream_progress","phase":"complete","message":"Memory consolidation complete."}));
+    Ok(json!({"status":"completed","beforeCount":before.len(),"afterCount":after.len()}))
 }
 
 #[cfg(test)]
@@ -1831,55 +1978,71 @@ mod tests {
     }
 
     #[test]
-    fn local_file_tool_is_available_for_agent_turns() {
-        let tools = local_file_tools();
-
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "read_file");
+    fn provider_request_advertises_every_restored_tool() {
+        let request = agent_request("model".into(), Vec::new());
         assert_eq!(
-            tools[0].input_schema["properties"]["path"]["format"],
-            "uri-reference"
+            request
+                .tools
+                .into_iter()
+                .map(|tool| tool.name)
+                .collect::<Vec<_>>(),
+            tools::TOOL_NAMES,
         );
-        assert_eq!(tools[0].input_schema["required"], json!(["path"]));
     }
 
     #[test]
-    fn local_file_access_stays_within_the_user_home() {
-        let home = tempfile::tempdir().unwrap();
-        let outside_directory = tempfile::tempdir().unwrap();
-        let permitted = home.path().join("Desktop/report.pdf");
-        let outside = outside_directory.path().join("outside.pdf");
-        std::fs::create_dir_all(permitted.parent().unwrap()).unwrap();
-        std::fs::write(&permitted, "not actually a PDF").unwrap();
-        std::fs::write(&outside, "outside").unwrap();
-
-        assert!(local_file_path(&permitted, home.path()).is_ok());
-        assert!(local_file_path(&outside, home.path()).is_err());
+    fn scheduler_only_runs_a_matching_job_once_per_minute() {
+        let now = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 7, 28, 6, 24, 0).unwrap();
+        let job = json!({"schedule":"* * * * *","lastRun":now.timestamp_millis()});
+        assert!(!cron_due(&job, now).unwrap());
+        let old = json!({"schedule":"* * * * *","lastRun":now.timestamp_millis() - 60_000});
+        assert!(cron_due(&old, now).unwrap());
     }
 
     #[test]
-    fn local_file_access_rejects_hidden_and_credential_paths() {
-        let home = tempfile::tempdir().unwrap();
-        let protected = [
-            home.path().join(".railgun/devin-token"),
-            home.path().join(".ssh/id_ed25519"),
-            home.path().join("Library/Keychains/login.keychain-db"),
-            home.path().join("Projects/example/.env"),
-        ];
-
-        for path in &protected {
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, "must-not-reach-the-model").unwrap();
-            assert!(local_file_path(path, home.path()).is_err(), "{path:?}");
-        }
+    fn scheduler_waits_for_the_next_minute_boundary() {
+        let now = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 7, 28, 6, 24, 5)
+            .unwrap()
+            .with_nanosecond(250_000_000)
+            .unwrap();
+        assert_eq!(
+            next_minute_delay(now),
+            std::time::Duration::from_millis(54_750)
+        );
     }
 
     #[test]
-    fn agent_file_root_uses_the_backend_user_home() {
+    fn scheduler_rejects_second_granularity_schedules() {
+        assert!(tools::validate_schedule("*/10 * * * * *").is_err());
+        assert!(tools::validate_schedule("* * * * *").is_ok());
+    }
+
+    #[tokio::test]
+    async fn dream_skips_small_memory_sets_and_consolidates_duplicates() {
         let home = tempfile::tempdir().unwrap();
         let paths = RailgunPaths::for_user_home(home.path());
-
-        assert_eq!(agent_file_root(&paths).unwrap(), home.path());
+        let store = Store::open(&paths.state).await.unwrap();
+        let (output, mut events) = mpsc::unbounded_channel();
+        let skipped = run_dream_job(&store, &paths, &output).await.unwrap();
+        assert_eq!(
+            skipped,
+            json!({"status":"skipped","beforeCount":0,"afterCount":0})
+        );
+        for _ in 0..5 {
+            store
+                .create_memory("Prefer concise answers", "preference")
+                .await
+                .unwrap();
+        }
+        let completed = run_dream_job(&store, &paths, &output).await.unwrap();
+        assert_eq!(completed["status"], "completed");
+        assert_eq!(completed["beforeCount"], 5);
+        assert_eq!(completed["afterCount"], 1);
+        let phases = std::iter::from_fn(|| events.try_recv().ok())
+            .map(|event| event["phase"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        assert!(phases.contains(&"skipped".into()));
+        assert!(phases.contains(&"consolidating".into()));
     }
 
     #[test]

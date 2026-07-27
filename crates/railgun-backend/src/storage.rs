@@ -361,6 +361,31 @@ impl Store {
         .await?)
     }
 
+    pub async fn save_scheduled_session(
+        &self,
+        session: &mut Session,
+        job_id: &str,
+        title: &str,
+        status: &str,
+    ) -> Result<()> {
+        if !matches!(status, "completed" | "incomplete" | "failed") {
+            bail!("invalid scheduled session status {status}");
+        }
+        self.save_session(session).await?;
+        sqlx::query(
+            "INSERT INTO session_deliveries (session_id, job_id, title, run_status, delivered_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&session.id)
+        .bind(job_id)
+        .bind(title)
+        .bind(status)
+        .bind(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn memories(&self, query: Option<&str>, limit: i64) -> Result<Vec<Value>> {
         let rows = if let Some(query) = query {
             sqlx::query(
@@ -1265,6 +1290,35 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(previews.contains(&"First task prompt"));
         assert!(previews.contains(&"Second task prompt"));
+    }
+
+    #[tokio::test]
+    async fn scheduled_sessions_are_persisted_as_deliveries() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("scheduled.db"))
+            .await
+            .unwrap();
+        let mut session = Session {
+            id: "cron-test".into(),
+            model: "model".into(),
+            started_at: "2026-01-01T00:00:00.000Z".into(),
+            messages: vec![
+                json!({"role":"user","content":"scheduled"}),
+                json!({"role":"assistant","content":[{"type":"text","text":"done"}]}),
+            ],
+            message_ids: Vec::new(),
+            todos: Vec::new(),
+            persistence: "unsaved",
+        };
+        store
+            .save_scheduled_session(&mut session, "daily", "scheduled", "completed")
+            .await
+            .unwrap();
+        assert_eq!(store.delivery_cursor().await.unwrap(), 1);
+        assert_eq!(
+            store.list_sessions(false).await.unwrap()[0]["delivery"]["jobId"],
+            "daily"
+        );
     }
 
     #[test]

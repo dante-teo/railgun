@@ -4,6 +4,7 @@ pub mod paths;
 pub mod protocol;
 pub mod rpc;
 pub mod storage;
+pub mod tools;
 pub mod transcript;
 
 pub use rpc::{BackendMode, run_backend};

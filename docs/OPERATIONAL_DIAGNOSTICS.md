@@ -10,29 +10,18 @@ retain the same surface.
 
 The default read-only `railgun_inspect` tool supports five bounded areas:
 
-- `runtime`: surface, Railgun/backend/process facts, cwd, and path inventory.
-- `config`: the effective validated configuration. Credential-like keys and all
-  MCP `env` values are replaced with `[REDACTED]`. MCP argument redaction covers
-  separate credential flag/value pairs, `--key=value`, combined flag/value,
-  Bearer, and Authorization forms while retaining ordinary arguments.
-- `cron`: normalized job `lastRun`, `lastSuccess`, `lastStatus`, and `lastError`
-  fields for the scheduler owned by the open desktop app.
-- `logs`: a bounded tail of `cron-latest.log`.
-- `cron_runs`: bounded summaries for a job's hashed report directory, or one
-  selected bounded full report.
+- `sessions`: the stored non-archived session summaries.
+- `memories`: up to 20 saved memories.
+- `cron`: the current cron job definitions and their recorded run state.
+- `paths`: a fixed configured-state summary for state, cron, and skills paths.
+- `config`: whether the state database and cron definition files exist.
 
-The caller may request at most 200 lines, jobs, or reports. Log and report excerpts
-are capped at 64 KiB; selected oversized reports return a bounded head/tail excerpt.
-Configuration and cron state files are rejected above 1 MiB, and serialized tool
-output is capped at 128,000 characters. Paths are derived internally; callers cannot supply
-arbitrary paths. Cron prompts and tool summaries can appear in cron logs and reports
-by their existing design, so the inspector returns them only when that area is
-explicitly requested.
-
-Argument redaction cannot reliably identify an unlabelled positional secret. MCP
-credentials should be configured in `env`, not as bare positional arguments.
-Use the app's Settings controls for ordinary configuration changes. Do not share
-or paste raw configuration output that contains credentials.
+The tool derives every path internally; callers cannot supply arbitrary paths.
+Its serialized output is capped at 200,000 characters. It intentionally does
+not return configuration contents, credentials, MCP environment values, logs,
+or cron reports. Use the app's Settings controls for ordinary configuration
+changes and inspect the relevant bounded area instead of assuming runtime
+state.
 
 ## Configuration activation
 
