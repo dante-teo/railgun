@@ -287,9 +287,10 @@ local path. This is a deliberate local capability, not an upload workflow:
 
 - For an eligible absolute path supplied by the user, call `read_file` before
   saying the file is unavailable or asking the user to upload it. The tool
-  reads UTF-8 text and extracts indexed text from PDFs.
+  reads UTF-8 text.
 - Canonicalize the path before access. Only regular files inside the configured
-  user-home directory are eligible, and files larger than 10 MB are refused.
+  user-home directory are eligible, and files larger than 1 MB are refused
+  before their contents are read.
 - Protect secrets by refusing every hidden path component, the top-level
   `Library` directory, private-key and keystore extensions, common private-key
   filenames, and filenames containing `credential`, `password`, `secret`, or
