@@ -1410,6 +1410,29 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertFalse(appcastGenerator.contains("/usr/bin/cp"))
     }
 
+    func testNativeReleaseBuildsWithTheMacOS26ToolchainForLiquidGlass() throws {
+        let publishWorkflow = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(".github/workflows/publish.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(publishWorkflow.contains("build-railgun:\n    name: Railgun (arm64)\n    runs-on: macos-26"))
+        XCTAssertTrue(publishWorkflow.contains("name: Verify Xcode 26 release toolchain"))
+        XCTAssertTrue(publishWorkflow.contains("grep -q '^Xcode 26\\.'"))
+    }
+
+    func testReleaseDocumentationExplainsTheMacOS26LiquidGlassToolchainRequirement() throws {
+        let releasingGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/RELEASING.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(releasingGuide.contains("`macos-26`"))
+        XCTAssertTrue(releasingGuide.contains("Xcode 26"))
+        XCTAssertTrue(releasingGuide.contains("macOS 15–25 material fallback"))
+        XCTAssertTrue(releasingGuide.contains("`macos-15`"))
+    }
+
     func testNativeMockBackendRunsDirectlyFromItsRustFixture() throws {
         let mockBackend = try String(
             contentsOf: repositoryRoot.appendingPathComponent("crates/railgun-mock-backend/src/main.rs"),

@@ -28,6 +28,18 @@ The release workflow archives, signs, notarizes, staples, and validates the
 native app, its arm64 Rust backend, and its Sparkle framework. It publishes the
 same arm64 ZIP and signed appcast assets as previous releases.
 
+## Native UI toolchain
+
+The `build-railgun` release job runs on GitHub Actions `macos-26` and verifies
+Xcode 26 before archiving. Liquid Glass is selected by a compiler guard as
+well as a runtime availability check, so an older toolchain would compile only
+the macOS 15–25 material fallback into a release, even when that app later runs
+on macOS 26.
+
+Standard pull-request and main-branch CI intentionally remains on `macos-15`.
+That keeps the fallback buildable and tested without changing the release
+toolchain required to ship the macOS 26 composer.
+
 The workflow requires the existing Developer ID, Apple notarization, and
 Sparkle secrets. The private Sparkle key is passed only to the appcast
 generator. Homebrew distribution is not produced by this workflow.

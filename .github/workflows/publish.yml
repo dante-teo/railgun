@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build-railgun:
     name: Railgun (arm64)
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
@@ -32,6 +32,12 @@ jobs:
 
       - name: Install pinned XcodeGen
         uses: ./.github/actions/install-xcodegen
+
+      - name: Verify Xcode 26 release toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild -version | grep -q '^Xcode 26\.'
 
       - name: Prepare release metadata
         id: metadata
