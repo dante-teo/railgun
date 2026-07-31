@@ -56,8 +56,10 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(project.contains("$(PROJECT_DIR)/../SourcePackages/checkouts/swift-markdown"))
         XCTAssertTrue(project.contains("$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark"))
+        XCTAssertTrue(project.contains("$(PROJECT_DIR)/../SourcePackages/checkouts/iosMath"))
         XCTAssertTrue(project.contains("$(BUILD_DIR)/../../SourcePackages/checkouts/swift-markdown"))
         XCTAssertTrue(project.contains("$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark"))
+        XCTAssertTrue(project.contains("$(BUILD_DIR)/../../SourcePackages/checkouts/iosMath"))
     }
 
     func testTaskCommandAvailabilityKeepsUnavailableActionsDisabled() {
@@ -208,7 +210,9 @@ final class RailgunXAppTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(transcriptSource.contains("Button(\"Branch from this message\")"))
+        XCTAssertTrue(transcriptSource.contains("title: \"Branch from this message\""))
+        XCTAssertTrue(transcriptSource.contains("perform: branchAction"))
+        XCTAssertTrue(transcriptSource.contains("messageContent.contextMenu"))
         XCTAssertTrue(appSource.contains(".sheet(isPresented: isBranchSheetPresented)"))
         XCTAssertTrue(appSource.contains("Toggle(\"Summarize later messages\""))
         XCTAssertTrue(appSource.contains("Button(\"Cancel\", action: cancel)"))
@@ -341,6 +345,31 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("Do not reserve transcript width"))
         XCTAssertTrue(nativeUIPolicy.contains("Do not add custom glass"))
         XCTAssertTrue(nativeUIPolicy.contains("Keep the dashboard inside a native `ScrollView`"))
+    }
+
+    func testDesktopDocumentationCapturesStreamingMarkdownContract() throws {
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+        let productGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/PRODUCT.md"),
+            encoding: .utf8
+        )
+        let readmeProse = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let nativeUIPolicyProse = nativeUIPolicy.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let productGuideProse = productGuide.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+
+        XCTAssertTrue(readmeProse.contains("Live updates supply complete"))
+        XCTAssertTrue(readmeProse.contains("User prompts remain literal selectable text"))
+        XCTAssertTrue(nativeUIPolicyProse.contains("## Assistant Markdown transcript invariant"))
+        XCTAssertTrue(nativeUIPolicyProse.contains("latest-value and replayable"))
+        XCTAssertTrue(nativeUIPolicyProse.contains("only remote HTTPS images are enabled"))
+        XCTAssertTrue(productGuideProse.contains("selectable Markdown while they stream"))
     }
 
     func testNativeComposerPolicyDocumentsItsAppKitAndSubmissionBoundaries() throws {
@@ -1574,6 +1603,13 @@ final class RailgunXAppTests: XCTestCase {
             "swift-markdown.revision": records["swift-markdown"]?.revision ?? "",
             "swift-cmark.version": records["swift-cmark"]?.version ?? "",
             "swift-cmark.revision": records["swift-cmark"]?.revision ?? "",
+            "swift-streaming-markdown.version": records["swift-streaming-markdown"]?.version ?? "",
+            "swift-streaming-markdown.revision": records["swift-streaming-markdown"]?.revision ?? "",
+            "highlight-swift.revision": records["highlight-swift"]?.revision ?? "",
+            "iosmath.revision": records["iosmath"]?.revision ?? "",
+            "latin-modern-math.version": records["latin-modern-math"]?.version ?? "",
+            "swiftui-shimmer.version": records["swiftui-shimmer"]?.version ?? "",
+            "swiftui-shimmer.revision": records["swiftui-shimmer"]?.revision ?? "",
             "sparkle.version": records["sparkle"]?.version ?? "",
             "sparkle.revision": records["sparkle"]?.revision ?? "",
             "crate:widevin@0.2.0.version": records["crate:widevin@0.2.0"]?.version ?? "",
@@ -1585,10 +1621,17 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(
             lockedComponents,
             [
-                "swift-markdown.version": "0.8.0",
-                "swift-markdown.revision": "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
+                "swift-markdown.version": "0.7.3",
+                "swift-markdown.revision": "7d9a5ce307528578dfa777d505496bd5f544ad94",
                 "swift-cmark.version": "0.8.0",
                 "swift-cmark.revision": "924936d0427cb25a61169739a7660230bffa6ea6",
+                "swift-streaming-markdown.version": "0.6.0",
+                "swift-streaming-markdown.revision": "c7b12f7b3d77caa188fd1fc056d0f7ce305ef5cd",
+                "highlight-swift.revision": "99c431b38a1444a5fd6a4978307fbbefe3a7af53",
+                "iosmath.revision": "ba9ab7729b151329c54fd895a7c1859981d9484c",
+                "latin-modern-math.version": "1.959",
+                "swiftui-shimmer.version": "1.5.1",
+                "swiftui-shimmer.revision": "0226e21f9bf355d40e07e5f5e1c33679d50e167f",
                 "sparkle.version": "2.9.4",
                 "sparkle.revision": "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
                 "crate:widevin@0.2.0.version": "0.2.0",

@@ -256,9 +256,9 @@ enum RailgunBranchAffordance {
 }
 
 enum RailgunTranscriptMessageRendering {
-    /// Only immutable completed assistant history is safe to interpret as Markdown.
-    static func usesMarkdown(role: RailgunTranscriptMessage.Role, status: RailgunMessageStatus) -> Bool {
-        role == .assistant && status == .complete
+    /// Every assistant state uses the streaming-safe Markdown renderer.
+    static func usesMarkdown(_ message: RailgunTranscriptMessage) -> Bool {
+        message.role == .assistant
     }
 }
 
@@ -310,9 +310,7 @@ struct RailgunTranscriptMessageRow: View {
     var body: some View {
         if let branchAction {
             messageContent.contextMenu {
-                Button("Branch from this message") {
-                    branchAction()
-                }
+                Button("Branch from this message", action: branchAction)
             }
         } else {
             messageContent
@@ -329,11 +327,12 @@ struct RailgunTranscriptMessageRow: View {
                         .padding(RailgunSpacing.relaxed.points)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                 }
-            } else if RailgunTranscriptMessageRendering.usesMarkdown(
-                role: message.role,
-                status: message.status
-            ) {
-                RailgunMarkdownMessage(markdown: message.text)
+            } else if RailgunTranscriptMessageRendering.usesMarkdown(message) {
+                RailgunMarkdownMessage(
+                    markdown: message.text,
+                    isStreaming: message.status == .streaming,
+                    contextActions: branchContextActions
+                )
             } else {
                 Text(message.text)
                     .textSelection(.enabled)
@@ -353,5 +352,16 @@ struct RailgunTranscriptMessageRow: View {
 
     private var contentAlignment: HorizontalAlignment {
         message.role == .user ? .trailing : .leading
+    }
+
+    private var branchContextActions: [RailgunMarkdownContextAction] {
+        guard let branchAction else { return [] }
+        return [
+            RailgunMarkdownContextAction(
+                id: "branch-from-message",
+                title: "Branch from this message",
+                perform: branchAction
+            )
+        ]
     }
 }

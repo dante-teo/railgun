@@ -60,6 +60,7 @@ require_command xcodebuild
 "$project_root/scripts/generate-project.sh" "$project_dir"
 
 xcodebuild build \
+  -skipMacroValidation \
   -project "$project_dir/RailgunX.xcodeproj" \
   -scheme RailgunX \
   -configuration Debug \

@@ -520,9 +520,9 @@ fn dangerous(command: &str) -> bool {
     ["rm", "mv", "sudo", "chmod", "chown", "curl", "wget"]
         .iter()
         .any(|needle| tokens.iter().any(|token| token == needle))
-        || tokens.windows(2).any(|pair| {
-            (pair[0] == "git" && pair[1] == "reset") || (pair[0] == "git" && pair[1] == "clean")
-        })
+        || tokens
+            .windows(2)
+            .any(|pair| pair[0] == "git" && (pair[1] == "reset" || pair[1] == "clean"))
         || normalized.contains('>')
 }
 async fn run_shell(arguments: &Value, context: &ToolContext) -> Result<String> {

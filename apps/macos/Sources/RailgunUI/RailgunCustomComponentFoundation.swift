@@ -214,9 +214,9 @@ public enum RailgunCustomComponentRegistry {
             interactionClass: .interactive,
             accessibilityRequirements: .interactive,
             rationale: RailgunCustomComponentRationale(
-                customizationRationale: "Completed assistant messages need one reusable presentation for CommonMark/GFM blocks, safe external links and images, selectable code, and horizontally scrollable tables.",
-                macOS15NativeAPILimitation: "macOS 15 SwiftUI has no single native Markdown view that supplies safe destination filtering while preserving selectable rich text, native code wrapping, table scrolling, and asynchronous image accessibility states.",
-                retirementTrigger: "Replace this component when SwiftUI provides a native Markdown renderer with these security, selection, image, code, and table capabilities."
+                customizationRationale: "Streaming and completed assistant messages need one reusable presentation for incomplete CommonMark/GFM snapshots, safe external links, selectable code, remote images, and horizontally scrollable tables.",
+                macOS15NativeAPILimitation: "macOS 15 SwiftUI has no native incremental Markdown renderer that preserves rich text, selection, code, tables, images, and safe link routing while an assistant response grows.",
+                retirementTrigger: "Replace this component when SwiftUI provides a native streaming Markdown renderer with equivalent security, selection, image, code, and table behavior."
             )
         ),
         RailgunCustomComponentSpecification(

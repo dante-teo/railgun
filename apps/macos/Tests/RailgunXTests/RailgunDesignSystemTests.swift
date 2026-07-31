@@ -64,8 +64,8 @@ final class RailgunDesignSystemTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(uiSource.contains("foregroundColor(RailgunColorRole.accent.color)"))
-        XCTAssertFalse(uiSource.contains("foregroundColor(.accentColor)"))
+        XCTAssertTrue(uiSource.contains("linkTextColor: RailgunColorRole.accent.color"))
+        XCTAssertFalse(uiSource.contains("linkTextColor: .accentColor"))
         XCTAssertEqual(
             activitySource.components(separatedBy: "RailgunColorRole.accent.color").count - 1,
             3,

@@ -1,4 +1,5 @@
 import AppKit
+import RailgunUI
 import SwiftUI
 import XCTest
 @testable import RailgunX
@@ -151,6 +152,35 @@ final class RailgunTranscriptViewportTests: XCTestCase {
         model.rowCount += 20
         try await settle(hostingView)
         XCTAssertTrue(isAtNativeBottom(scrollView), "A followed transcript must stay at the bottom after growth.")
+    }
+
+    func testAsyncStreamingMarkdownLayoutGrowthStaysAtTheNativeBottom() async throws {
+        let model = TranscriptScrollHarnessModel()
+        let hostingView = NSHostingView(rootView: TranscriptScrollHarness(model: model))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
+
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+
+        try await settle(hostingView)
+        let scrollView = try XCTUnwrap(firstScrollView(in: hostingView))
+        XCTAssertTrue(isAtNativeBottom(scrollView))
+
+        model.markdown = (1...40)
+            .map { "- **Streaming row \($0)** with progressively rendered content" }
+            .joined(separator: "\n")
+        try await settle(hostingView)
+        try await settle(hostingView)
+
+        XCTAssertTrue(
+            isAtNativeBottom(scrollView),
+            "Asynchronous Markdown layout must preserve transcript bottom-follow."
+        )
     }
 
     func testSelectedHydratedSessionSuppliesOrderedMessagesToTranscript() {
@@ -307,6 +337,7 @@ final class RailgunTranscriptViewportTests: XCTestCase {
 @MainActor
 private final class TranscriptScrollHarnessModel: ObservableObject {
     @Published var rowCount = 80
+    @Published var markdown = "**Streaming"
 }
 
 private struct TranscriptScrollHarness: View {
@@ -315,7 +346,7 @@ private struct TranscriptScrollHarness: View {
     var body: some View {
         RailgunTranscriptScrollView(
             sessionID: "test-session",
-            contentRevision: model.rowCount,
+            contentRevision: "\(model.rowCount):\(model.markdown)",
             contentLeadingMargin: 0,
             hasScrollableContent: true
         ) {
@@ -324,6 +355,10 @@ private struct TranscriptScrollHarness: View {
                     Text("Transcript row \(row)")
                         .frame(maxWidth: .infinity, minHeight: 24)
                 }
+                RailgunMarkdownMessage(
+                    markdown: model.markdown,
+                    isStreaming: true
+                )
             }
         }
     }

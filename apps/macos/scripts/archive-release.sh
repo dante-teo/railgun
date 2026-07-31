@@ -61,6 +61,7 @@ artifact_zip="$output_directory/Railgun-${version}-darwin-${architecture}.zip"
 "$generate_project" "$project_directory"
 
 xcodebuild archive \
+  -skipMacroValidation \
   -project "$project_directory/RailgunX.xcodeproj" \
   -scheme RailgunX \
   -configuration Release \

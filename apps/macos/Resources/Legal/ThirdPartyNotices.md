@@ -2,13 +2,13 @@
 
 This catalog is generated from Cargo.lock and the pinned Swift, font, and artwork inputs.
 
-## Swift Markdown (0.8.0)
+## Swift Markdown (0.7.3)
 
 - Identifier: swift-markdown
 - Kind: swift-package
 - License: Apache-2.0
 - Source: apps/macos/Package.resolved#swift-markdown
-- License source: https://github.com/swiftlang/swift-markdown/blob/3c6f9523da3a1ec2fd829673e472d95b8097a3b8/LICENSE.txt
+- License source: https://github.com/swiftlang/swift-markdown/blob/7d9a5ce307528578dfa777d505496bd5f544ad94/LICENSE.txt
 - Notice SHA-256: 167beb36f181bd163c93c6feb45c68e5f9462fe1af55b278f7bfd1df20e673a3
 
 ### Notice
@@ -409,6 +409,189 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+## SwiftStreamingMarkdown (0.6.0)
+
+- Identifier: swift-streaming-markdown
+- Kind: swift-package
+- License: MIT
+- Source: apps/macos/Package.resolved#swiftstreamingmarkdown
+- License source: https://github.com/microsoft/SwiftStreamingMarkdown/blob/c7b12f7b3d77caa188fd1fc056d0f7ce305ef5cd/LICENSE
+- Notice SHA-256: 646f8936b8ddcd14e13e578ff6857e368780b0d1a4f6066bee89211923a373e2
+
+### Notice
+
+```text
+MIT License
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE
+```
+
+## HighlightSwift (revision 99c431b)
+
+- Identifier: highlight-swift
+- Kind: swift-package
+- License: MIT
+- Source: apps/macos/Package.resolved#highlightswift
+- License source: https://github.com/appstefan/highlightswift/blob/99c431b38a1444a5fd6a4978307fbbefe3a7af53/LICENSE.md
+- Notice SHA-256: 71d978783b52eb1c8a614bfb37cc38055781f9777911c3917d861e01c5fdd8a3
+
+### Notice
+
+```text
+MIT License
+
+Copyright (c) 2023 Stefan Britton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## iosMath (revision ba9ab77)
+
+- Identifier: iosmath
+- Kind: swift-package
+- License: MIT
+- Source: apps/macos/Package.resolved#iosmath
+- License source: https://github.com/junyan72/iosMath/blob/ba9ab7729b151329c54fd895a7c1859981d9484c/LICENSE
+- Notice SHA-256: 431b2cb82b8a55977323598231f1baa44f32accac1231b4781a9a393d0bc29ed
+
+### Notice
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2013 MathChat
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Latin Modern Math (1.959)
+
+- Identifier: latin-modern-math
+- Kind: font
+- License: GUST-Font-License
+- Source: iosMath_iosMath.bundle/Contents/Resources/fonts/latinmodern-math.otf
+- License source: https://github.com/junyan72/iosMath/blob/ba9ab7729b151329c54fd895a7c1859981d9484c/iosMath/fonts/GUST-FONT-LICENSE.txt
+- Notice SHA-256: e120f067589d589a9fa436db09940bd2e03b477cf29b15443c6f87d3861f734b
+
+### Notice
+
+```text
+% This is a preliminary version (2006-09-30), barring acceptance from
+% the LaTeX Project Team and other feedback, of the GUST Font License.
+% (GUST is the Polish TeX Users Group, http://www.gust.org.pl)
+%
+% For the most recent version of this license see
+% http://www.gust.org.pl/fonts/licenses/GUST-FONT-LICENSE.txt
+% or
+% http://tug.org/fonts/licenses/GUST-FONT-LICENSE.txt
+%
+% This work may be distributed and/or modified under the conditions
+% of the LaTeX Project Public License, either version 1.3c of this
+% license or (at your option) any later version.
+%
+% Please also observe the following clause:
+% 1) it is requested, but not legally required, that derived works be
+%    distributed only after changing the names of the fonts comprising this
+%    work and given in an accompanying "manifest", and that the
+%    files comprising the Work, as listed in the manifest, also be given
+%    new names. Any exceptions to this request are also given in the
+%    manifest.
+%
+%    We recommend the manifest be given in a separate file named
+%    MANIFEST-<fontid>.txt, where <fontid> is some unique identification
+%    of the font family. If a separate "readme" file accompanies the Work,
+%    we recommend a name of the form README-<fontid>.txt.
+%
+% The latest version of the LaTeX Project Public License is in
+% http://www.latex-project.org/lppl.txt and version 1.3c or later
+% is part of all distributions of LaTeX version 2006/05/20 or later.
+```
+
+## SwiftUI-Shimmer (1.5.1)
+
+- Identifier: swiftui-shimmer
+- Kind: swift-package
+- License: MIT
+- Source: apps/macos/Package.resolved#swiftui-shimmer
+- License source: https://github.com/markiv/SwiftUI-Shimmer/blob/0226e21f9bf355d40e07e5f5e1c33679d50e167f/LICENSE
+- Notice SHA-256: 4f77e514d5f70e976c4ba48407db21fb286a1ad2365093105c75206da14ecfbf
+
+### Notice
+
+```text
+MIT License
+
+Copyright (c) 2021 Vikram Kriplaney
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## Sparkle (2.9.4)

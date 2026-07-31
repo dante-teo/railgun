@@ -62,6 +62,7 @@ build_scheme() {
   local action="$1"
 
   xcodebuild "$action" \
+    -skipMacroValidation \
     -project "$project_file" \
     -scheme RailgunX \
     -configuration Debug \
@@ -77,6 +78,7 @@ build_scheme() {
 
 archive_release_configuration() {
   xcodebuild archive \
+    -skipMacroValidation \
     -project "$project_file" \
     -scheme RailgunX \
     -configuration Release \

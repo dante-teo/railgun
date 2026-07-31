@@ -99,6 +99,15 @@ fn static_legal_component(root: &Path, legal: &Path, mut record: Value) -> Resul
     let notice = match identifier {
         "swift-markdown" => read_notice(&legal.join("Sources/Apache-2.0.txt"))?,
         "swift-cmark" => read_notice(&legal.join("Sources/Swift-CMark-COPYING.txt"))?,
+        "swift-streaming-markdown" => {
+            read_notice(&legal.join("Sources/SwiftStreamingMarkdown-LICENSE.txt"))?
+        }
+        "highlight-swift" => read_notice(&legal.join("Sources/HighlightSwift-LICENSE.txt"))?,
+        "iosmath" => read_notice(&legal.join("Sources/iosMath-LICENSE.txt"))?,
+        "latin-modern-math" => {
+            read_notice(&legal.join("Sources/Latin-Modern-Math-GUST-FONT-LICENSE.txt"))?
+        }
+        "swiftui-shimmer" => read_notice(&legal.join("Sources/SwiftUI-Shimmer-LICENSE.txt"))?,
         "sparkle" => read_notice(&legal.join("Sources/Sparkle-LICENSE.txt"))?,
         "railgun-icon-artwork" => normalize_notice(
             "© 2026 Dante Teo. Railgun icon artwork is first-party material and is distributed under the Railgun MIT License.",

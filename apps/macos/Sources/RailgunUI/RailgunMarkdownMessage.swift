@@ -1,508 +1,717 @@
+import AppKit
+import Foundation
 import Markdown
+import SwiftStreamingMarkdown
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// A safe, native SwiftUI rendering of an immutable CommonMark/GFM message.
+/// A native action appended to the Markdown renderer's text context menu.
+public struct RailgunMarkdownContextAction: Sendable {
+    public let id: String
+    public let title: String
+    fileprivate let action: RailgunMarkdownAction
+
+    @MainActor
+    public init(id: String, title: String, perform: @escaping () -> Void) {
+        self.id = id
+        self.title = title
+        action = RailgunMarkdownAction(perform: perform)
+    }
+
+    @MainActor
+    fileprivate func perform() {
+        action.perform()
+    }
+}
+
+@MainActor
+fileprivate final class RailgunMarkdownAction {
+    private let closure: () -> Void
+
+    init(perform: @escaping () -> Void) {
+        closure = perform
+    }
+
+    func perform() {
+        closure()
+    }
+}
+
+/// The shared streaming and static Markdown presentation for Railgun surfaces.
 ///
-/// The component intentionally accepts only completed Markdown strings. Callers
-/// keep mutable or incomplete text in a plain selectable `Text` view so a
-/// stream never changes meaning while it is still arriving.
+/// The renderer receives complete source snapshots. A live assistant response
+/// therefore stays Markdown-formatted while incomplete constructs are arriving,
+/// and the same mounted view becomes the immutable completed presentation.
 public struct RailgunMarkdownMessage: View {
-    private let presentation: RailgunMarkdownPresentation
+    private let markdown: String
+    private let isStreaming: Bool
+    private let contextActions: [RailgunMarkdownContextAction]
 
-    public init(markdown: String) {
-        presentation = RailgunMarkdownPresentation(markdown: markdown)
+    @StateObject private var source: RailgunMarkdownStreamSource
+    @StateObject private var listener = RailgunMarkdownListener()
+
+    public init(
+        markdown: String,
+        isStreaming: Bool = false,
+        contextActions: [RailgunMarkdownContextAction] = []
+    ) {
+        self.markdown = markdown
+        self.isStreaming = isStreaming
+        self.contextActions = contextActions
+        _source = StateObject(
+            wrappedValue: RailgunMarkdownStreamSource(
+                markdown: RailgunMarkdownStreamingSnapshot.prepare(
+                    markdown,
+                    isStreaming: isStreaming
+                ),
+                isComplete: !isStreaming
+            )
+        )
     }
 
     public var body: some View {
-        RailgunMarkdownBlocks(blocks: presentation.blocks)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Markdown message")
-    }
-}
-
-// MARK: - Presentation model
-
-/// The testable, value-semantic form consumed by the SwiftUI renderer.
-struct RailgunMarkdownPresentation: Equatable {
-    let blocks: [RailgunMarkdownBlock]
-
-    init(markdown: String) {
-        blocks = RailgunMarkdownParser.blocks(from: Document(parsing: markdown))
-    }
-}
-
-enum RailgunMarkdownBlock: Equatable {
-    case heading(level: Int, inlines: [RailgunMarkdownInline])
-    case paragraph([RailgunMarkdownInline])
-    case unorderedList([RailgunMarkdownListItem])
-    case orderedList(start: Int, items: [RailgunMarkdownListItem])
-    case quote([RailgunMarkdownBlock])
-    case rule
-    case code(language: String?, code: String)
-    case table(header: [[RailgunMarkdownInline]], rows: [[[RailgunMarkdownInline]]], alignments: [RailgunMarkdownTableAlignment?])
-    case image(url: URL?, altText: String)
-}
-
-struct RailgunMarkdownListItem: Equatable {
-    let taskState: RailgunMarkdownTaskState?
-    let blocks: [RailgunMarkdownBlock]
-}
-
-enum RailgunMarkdownTaskState: Equatable {
-    case checked
-    case unchecked
-}
-
-enum RailgunMarkdownTableAlignment: Equatable {
-    case leading
-    case center
-    case trailing
-
-    var textAlignment: TextAlignment {
-        switch self {
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
+        StreamedMarkdownView(
+            source: source,
+            config: RailgunMarkdownTheme.configuration(
+                isStreaming: isStreaming,
+                contextActions: contextActions
+            ),
+            listener: listener
+        )
+        .environment(\.openURL, RailgunMarkdownDestination.openURLAction)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Markdown message")
+        .task(id: updateID) {
+            listener.replaceContextActions(contextActions)
+            source.update(
+                markdown: RailgunMarkdownStreamingSnapshot.prepare(
+                    markdown,
+                    isStreaming: isStreaming
+                ),
+                isComplete: !isStreaming
+            )
         }
     }
 
-    var frameAlignment: Alignment {
-        switch self {
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
+    private var updateID: RailgunMarkdownUpdateID {
+        RailgunMarkdownUpdateID(
+            markdown: markdown,
+            isStreaming: isStreaming,
+            contextActionIDs: contextActions.map(\.id)
+        )
+    }
+}
+
+/// Completes the one inline construct that swift-markdown otherwise exposes
+/// literally while its closing delimiter is still in flight.
+///
+/// SwiftStreamingMarkdown already tolerates unfinished blocks such as fenced
+/// code, lists, and tables. Its public streamed view currently parses snapshots
+/// without enabling the package's partial-strong rewriter, so an unmatched
+/// trailing `**` needs a temporary closing delimiter until the real one arrives.
+enum RailgunMarkdownStreamingSnapshot {
+    static func prepare(_ markdown: String, isStreaming: Bool) -> String {
+        let literalHTML = RailgunMarkdownLiteralHTML.escaping(in: markdown)
+        guard isStreaming, hasUnclosedStrongDelimiter(in: literalHTML) else {
+            return literalHTML
+        }
+        return literalHTML + "**"
+    }
+
+    private static func hasUnclosedStrongDelimiter(in markdown: String) -> Bool {
+        var openDelimiterCount = 0
+        var activeCodeSpanRun: Int?
+        var activeFence: RailgunMarkdownFence?
+
+        for line in markdown.split(
+            separator: "\n",
+            omittingEmptySubsequences: false
+        ) {
+            if let fence = activeFence {
+                if isClosingFence(line, matching: fence) {
+                    activeFence = nil
+                }
+                continue
+            }
+
+            if let fence = openingFence(in: line) {
+                activeFence = fence
+                continue
+            }
+
+            guard !isIndentedCodeLine(line) else { continue }
+
+            var index = line.startIndex
+            while index < line.endIndex {
+                let character = line[index]
+
+                if character == "\\" {
+                    index = line.index(after: index)
+                    if index < line.endIndex {
+                        index = line.index(after: index)
+                    }
+                    continue
+                }
+
+                if character == "`" {
+                    let runLength = repeatedCharacterCount(
+                        in: line,
+                        from: index,
+                        character: "`"
+                    )
+                    if activeCodeSpanRun == nil {
+                        activeCodeSpanRun = runLength
+                    } else if activeCodeSpanRun == runLength {
+                        activeCodeSpanRun = nil
+                    }
+                    index = line.index(index, offsetBy: runLength)
+                    continue
+                }
+
+                guard character == "*", activeCodeSpanRun == nil else {
+                    index = line.index(after: index)
+                    continue
+                }
+
+                let runLength = repeatedCharacterCount(
+                    in: line,
+                    from: index,
+                    character: "*"
+                )
+                if runLength == 2 {
+                    let previous = index == line.startIndex
+                        ? nil
+                        : line[line.index(before: index)]
+                    let nextIndex = line.index(index, offsetBy: runLength)
+                    let next = nextIndex < line.endIndex ? line[nextIndex] : nil
+                    let canOpen = isConservativeStrongOpener(next: next)
+                    let canClose = isStrongCloser(
+                        previous: previous,
+                        next: next
+                    )
+
+                    if canClose, openDelimiterCount > 0 {
+                        openDelimiterCount -= 1
+                    } else if canOpen {
+                        openDelimiterCount += 1
+                    }
+                }
+
+                index = line.index(index, offsetBy: runLength)
+            }
+        }
+
+        return openDelimiterCount > 0
+    }
+
+    private static func openingFence(in line: Substring) -> RailgunMarkdownFence? {
+        let (content, indentation) = contentAfterIndentation(in: line)
+        guard indentation <= 3,
+              let marker = content.first,
+              marker == "`" || marker == "~" else {
+            return nil
+        }
+
+        let runLength = repeatedCharacterCount(
+            in: content,
+            from: content.startIndex,
+            character: marker
+        )
+        guard runLength >= 3 else { return nil }
+        return RailgunMarkdownFence(marker: marker, runLength: runLength)
+    }
+
+    private static func isClosingFence(
+        _ line: Substring,
+        matching fence: RailgunMarkdownFence
+    ) -> Bool {
+        let (content, indentation) = contentAfterIndentation(in: line)
+        guard indentation <= 3, content.first == fence.marker else {
+            return false
+        }
+
+        let runLength = repeatedCharacterCount(
+            in: content,
+            from: content.startIndex,
+            character: fence.marker
+        )
+        guard runLength >= fence.runLength else { return false }
+        let remainder = content.dropFirst(runLength)
+        return remainder.allSatisfy(\.isWhitespace)
+    }
+
+    private static func isIndentedCodeLine(_ line: Substring) -> Bool {
+        let (_, indentation) = contentAfterIndentation(in: line)
+        return indentation >= 4 || line.first == "\t"
+    }
+
+    private static func contentAfterIndentation(
+        in line: Substring
+    ) -> (content: Substring, indentation: Int) {
+        var indentation = 0
+        var index = line.startIndex
+        while index < line.endIndex, line[index] == " " {
+            indentation += 1
+            index = line.index(after: index)
+        }
+        return (line[index...], indentation)
+    }
+
+    private static func isConservativeStrongOpener(next: Character?) -> Bool {
+        guard let next,
+              !next.isWhitespace,
+              !isPunctuation(next) else {
+            return false
+        }
+        return true
+    }
+
+    private static func isStrongCloser(
+        previous: Character?,
+        next: Character?
+    ) -> Bool {
+        guard let previous, !previous.isWhitespace else { return false }
+        return !isPunctuation(previous)
+            || next == nil
+            || next?.isWhitespace == true
+            || next.map(isPunctuation) == true
+    }
+
+    private static func isPunctuation(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy {
+            CharacterSet.punctuationCharacters.contains($0)
+        }
+    }
+
+    private static func repeatedCharacterCount<T: StringProtocol>(
+        in text: T,
+        from start: T.Index,
+        character: Character
+    ) -> Int {
+        var count = 0
+        var index = start
+        while index < text.endIndex, text[index] == character {
+            count += 1
+            index = text.index(after: index)
+        }
+        return count
+    }
+}
+
+private struct RailgunMarkdownFence {
+    let marker: Character
+    let runLength: Int
+}
+
+private enum RailgunMarkdownLiteralHTML {
+    private struct SourceReplacement {
+        let lowerUTF8Offset: Int
+        let upperUTF8Offset: Int
+    }
+
+    static func escaping(in markdown: String) -> String {
+        guard markdown.contains("<") else { return markdown }
+
+        let document = Document(parsing: markdown)
+        let lineStartOffsets = utf8LineStartOffsets(in: markdown)
+        var replacements: [SourceReplacement] = []
+        collectHTMLRanges(
+            in: document,
+            lineStartOffsets: lineStartOffsets,
+            utf8Count: markdown.utf8.count,
+            into: &replacements
+        )
+        guard !replacements.isEmpty else { return markdown }
+
+        var escaped = markdown
+        for replacement in replacements.sorted(
+            by: { $0.lowerUTF8Offset > $1.lowerUTF8Offset }
+        ) {
+            let utf8 = escaped.utf8
+            let lowerUTF8 = utf8.index(
+                utf8.startIndex,
+                offsetBy: replacement.lowerUTF8Offset
+            )
+            let upperUTF8 = utf8.index(
+                utf8.startIndex,
+                offsetBy: replacement.upperUTF8Offset
+            )
+            guard let lower = String.Index(lowerUTF8, within: escaped),
+                  let upper = String.Index(upperUTF8, within: escaped) else {
+                continue
+            }
+            let replacementText = escapeMarkdownSyntax(in: escaped[lower..<upper])
+            escaped.replaceSubrange(
+                lower..<upper,
+                with: replacementText
+            )
+        }
+        return escaped
+    }
+
+    private static func collectHTMLRanges(
+        in markup: Markup,
+        lineStartOffsets: [Int],
+        utf8Count: Int,
+        into replacements: inout [SourceReplacement]
+    ) {
+        if markup is HTMLBlock || markup is InlineHTML,
+           let range = markup.range,
+           let replacement = sourceReplacement(
+               for: range,
+               lineStartOffsets: lineStartOffsets,
+               utf8Count: utf8Count
+           ) {
+            replacements.append(replacement)
+            return
+        }
+
+        for child in markup.children {
+            collectHTMLRanges(
+                in: child,
+                lineStartOffsets: lineStartOffsets,
+                utf8Count: utf8Count,
+                into: &replacements
+            )
+        }
+    }
+
+    private static func sourceReplacement(
+        for range: SourceRange,
+        lineStartOffsets: [Int],
+        utf8Count: Int
+    ) -> SourceReplacement? {
+        guard lineStartOffsets.indices.contains(range.lowerBound.line - 1),
+              lineStartOffsets.indices.contains(range.upperBound.line - 1) else {
+            return nil
+        }
+
+        let lower = lineStartOffsets[range.lowerBound.line - 1]
+            + range.lowerBound.column - 1
+        let upper = lineStartOffsets[range.upperBound.line - 1]
+            + range.upperBound.column - 1
+        guard lower >= 0, lower <= upper, upper <= utf8Count else {
+            return nil
+        }
+        return SourceReplacement(lowerUTF8Offset: lower, upperUTF8Offset: upper)
+    }
+
+    private static func utf8LineStartOffsets(in text: String) -> [Int] {
+        var offsets = [0]
+        for (offset, byte) in text.utf8.enumerated() where byte == 0x0A {
+            offsets.append(offset + 1)
+        }
+        return offsets
+    }
+
+    private static func escapeMarkdownSyntax(in source: Substring) -> String {
+        source.reduce(into: "") { escaped, character in
+            let replacement = switch character {
+            case "&": "&amp;"
+            case "<": "&lt;"
+            case ">": "&gt;"
+            case "\\": "&#92;"
+            case "`": "&#96;"
+            case "*": "&#42;"
+            case "_": "&#95;"
+            case "{": "&#123;"
+            case "}": "&#125;"
+            case "[": "&#91;"
+            case "]": "&#93;"
+            case "(": "&#40;"
+            case ")": "&#41;"
+            case "#": "&#35;"
+            case "+": "&#43;"
+            case "-": "&#45;"
+            case ".": "&#46;"
+            case "!": "&#33;"
+            case "|": "&#124;"
+            case "~": "&#126;"
+            case "$": "&#36;"
+            default: String(character)
+            }
+            escaped += replacement
         }
     }
 }
 
-indirect enum RailgunMarkdownInline: Equatable {
-    case text(String)
-    case emphasis([RailgunMarkdownInline])
-    case strong([RailgunMarkdownInline])
-    case strikethrough([RailgunMarkdownInline])
-    case inlineCode(String)
-    case link(label: [RailgunMarkdownInline], destination: URL?)
-    case image(url: URL?, altText: String)
+private struct RailgunMarkdownUpdateID: Hashable {
+    let markdown: String
+    let isStreaming: Bool
+    let contextActionIDs: [String]
 }
 
+/// Replays the latest full Markdown snapshot to every new renderer subscriber.
+///
+/// `StreamedMarkdownView` may be remounted as a lazy transcript row moves in
+/// and out of the viewport. Completed sources therefore replay their final
+/// value and immediately finish instead of depending on an earlier subscription.
+@MainActor
+final class RailgunMarkdownStreamSource: ObservableObject, StreamedMarkdownSource {
+    private var latestMarkdown: String
+    private var isComplete: Bool
+    private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
+
+    init(markdown: String, isComplete: Bool) {
+        latestMarkdown = markdown
+        self.isComplete = isComplete
+    }
+
+    nonisolated var text: AsyncStream<String> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { [weak self] continuation in
+            Task { @MainActor [weak self] in
+                self?.addSubscriber(continuation)
+            }
+        }
+    }
+
+    func update(markdown: String, isComplete: Bool) {
+        if markdown != latestMarkdown {
+            latestMarkdown = markdown
+            for continuation in continuations.values {
+                continuation.yield(markdown)
+            }
+        }
+
+        guard isComplete, !self.isComplete else { return }
+        self.isComplete = true
+        finishSubscribers()
+    }
+
+    private func addSubscriber(_ continuation: AsyncStream<String>.Continuation) {
+        continuation.yield(latestMarkdown)
+
+        guard !isComplete else {
+            continuation.finish()
+            return
+        }
+
+        let id = UUID()
+        continuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.continuations[id] = nil
+            }
+        }
+    }
+
+    private func finishSubscribers() {
+        let activeContinuations = Array(continuations.values)
+        continuations.removeAll()
+        for continuation in activeContinuations {
+            continuation.finish()
+        }
+    }
+}
+
+@MainActor
 enum RailgunMarkdownDestination {
-    /// Only credential-free absolute HTTPS URLs can navigate or be fetched.
+    /// Only credential-free absolute HTTPS URLs may leave the app.
     static func validatedURL(_ value: String?) -> URL? {
-        guard let value,
-              let components = URLComponents(string: value),
+        guard let value, let url = URL(string: value) else { return nil }
+        return validatedURL(url)
+    }
+
+    static func validatedURL(_ url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == "https",
               components.host?.isEmpty == false,
               components.user == nil,
               components.password == nil,
-              let url = components.url,
               url.isFileURL == false else {
             return nil
         }
         return url
     }
-}
 
-enum RailgunMarkdownImagePresentation {
-    static func loadingLabel(altText: String) -> String { "Loading image: \(altText)" }
-    static func failureLabel(altText: String) -> String { "Unable to load image: \(altText)" }
-    static func invalidLabel(altText: String) -> String { "Image: \(altText)" }
-}
-
-private enum RailgunMarkdownParser {
-    static func blocks(from document: Document) -> [RailgunMarkdownBlock] {
-        document.children.flatMap(block)
-    }
-
-    private static func block(_ markup: Markup) -> [RailgunMarkdownBlock] {
-        switch markup {
-        case let heading as Heading:
-            return [.heading(level: heading.level, inlines: inlines(from: heading))]
-        case let paragraph as Paragraph:
-            return promoteImages(in: inlines(from: paragraph))
-        case let list as UnorderedList:
-            return [.unorderedList(list.listItems.map(listItem))]
-        case let list as OrderedList:
-            return [.orderedList(start: Int(list.startIndex), items: list.listItems.map(listItem))]
-        case let quote as BlockQuote:
-            return [.quote(quote.children.flatMap(block))]
-        case _ as ThematicBreak:
-            return [.rule]
-        case let code as CodeBlock:
-            return [.code(language: code.language, code: code.code)]
-        case let table as Markdown.Table:
-            return [.table(
-                header: table.head.cells.map { inlines(from: $0) },
-                rows: table.body.rows.map { row in row.cells.map { inlines(from: $0) } },
-                alignments: table.columnAlignments.map(tableAlignment)
-            )]
-        case let image as Markdown.Image:
-            return [.image(url: RailgunMarkdownDestination.validatedURL(image.source), altText: plainText(inlines(from: image)))]
-        case let html as HTMLBlock:
-            // HTML is deliberately inert: show its source rather than parsing it.
-            return [.paragraph([.text(html.rawHTML)])]
-        default:
-            return []
-        }
-    }
-
-    private static func listItem(_ item: ListItem) -> RailgunMarkdownListItem {
-        let taskState: RailgunMarkdownTaskState?
-        switch item.checkbox {
-        case .checked:
-            taskState = .checked
-        case .unchecked:
-            taskState = .unchecked
-        case nil:
-            taskState = nil
-        }
-        return RailgunMarkdownListItem(taskState: taskState, blocks: item.children.flatMap(block))
-    }
-
-    private static func inlines(from markup: Markup) -> [RailgunMarkdownInline] {
-        markup.children.flatMap(inline)
-    }
-
-    private static func inline(_ markup: Markup) -> [RailgunMarkdownInline] {
-        switch markup {
-        case let text as Markdown.Text:
-            return [.text(text.string)]
-        case let emphasis as Emphasis:
-            return [.emphasis(inlines(from: emphasis))]
-        case let strong as Strong:
-            return [.strong(inlines(from: strong))]
-        case let strikethrough as Strikethrough:
-            return [.strikethrough(inlines(from: strikethrough))]
-        case let code as InlineCode:
-            return [.inlineCode(code.code)]
-        case let link as Markdown.Link:
-            return [.link(label: inlines(from: link), destination: RailgunMarkdownDestination.validatedURL(link.destination))]
-        case let image as Markdown.Image:
-            return [.image(url: RailgunMarkdownDestination.validatedURL(image.source), altText: plainText(inlines(from: image)))]
-        case let html as InlineHTML:
-            return [.text(html.rawHTML)]
-        case _ as SoftBreak:
-            return [.text(" ")]
-        case _ as LineBreak:
-            return [.text("\n")]
-        default:
-            return []
-        }
-    }
-
-    private static func promoteImages(in inlines: [RailgunMarkdownInline]) -> [RailgunMarkdownBlock] {
-        var blocks: [RailgunMarkdownBlock] = []
-        var paragraph: [RailgunMarkdownInline] = []
-
-        func appendParagraph() {
-            guard !paragraph.isEmpty else { return }
-            blocks.append(.paragraph(paragraph))
-            paragraph.removeAll(keepingCapacity: true)
-        }
-
-        for inline in inlines {
-            if case let .image(url, altText) = inline {
-                appendParagraph()
-                blocks.append(.image(url: url, altText: altText))
-            } else {
-                paragraph.append(inline)
-            }
-        }
-        appendParagraph()
-        return blocks
-    }
-
-    private static func tableAlignment(_ alignment: Markdown.Table.ColumnAlignment?) -> RailgunMarkdownTableAlignment? {
-        switch alignment {
-        case .left: .leading
-        case .center: .center
-        case .right: .trailing
-        case nil: nil
-        }
-    }
-
-    static func plainText(_ inlines: [RailgunMarkdownInline]) -> String {
-        inlines.map { inline in
-            switch inline {
-            case let .text(value), let .inlineCode(value):
-                value
-            case let .emphasis(children), let .strong(children), let .strikethrough(children):
-                plainText(children)
-            case let .link(label, _):
-                plainText(label)
-            case let .image(_, altText):
-                altText
-            }
-        }.joined()
+    static let openURLAction = OpenURLAction { url in
+        validatedURL(url) == nil ? .discarded : .systemAction
     }
 }
 
-// MARK: - Native SwiftUI views
+enum RailgunMarkdownTheme {
+    static func configuration(
+        isStreaming: Bool,
+        contextActions: [RailgunMarkdownContextAction]
+    ) -> MarkdownRenderConfig {
+        let body = textFonts(.body)
+        let emphasizedBody = textFonts(.body, weight: .semibold)
+        let code = codeFonts(.body)
+        let caption = textFonts(.caption1)
 
-private struct RailgunMarkdownBlocks: View {
-    let blocks: [RailgunMarkdownBlock]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: RailgunSpacing.relaxed.points) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                RailgunMarkdownBlockView(block: block)
-            }
-        }
+        return MarkdownRenderConfig(
+            shouldAnimateText: isStreaming,
+            blockQuoteStyle: .init(
+                textFonts: body,
+                textColor: RailgunColorRole.secondaryText.color
+            ),
+            headingStyle: .init(
+                h1Font: textFonts(.title2, weight: .bold),
+                h2Font: textFonts(.title3, weight: .bold),
+                h3Font: textFonts(.headline, weight: .semibold),
+                h4Font: emphasizedBody,
+                h5Font: emphasizedBody,
+                h6Font: emphasizedBody,
+                textColor: RailgunColorRole.primaryText.color
+            ),
+            orderedListStyle: .init(
+                textFonts: body,
+                textColor: RailgunColorRole.primaryText.color
+            ),
+            paragraphStyle: .init(
+                textFonts: body,
+                textColor: RailgunColorRole.primaryText.color
+            ),
+            tableStyle: .init(
+                textFonts: body,
+                headerTextColor: RailgunColorRole.primaryText.color,
+                regularTextColor: RailgunColorRole.primaryText.color,
+                headerBackgroundColor: Color.primary.opacity(0.08),
+                borderColor: RailgunColorRole.separator.color,
+                actionButtonColor: RailgunColorRole.accent.color
+            ),
+            inlineStyle: .init(
+                boldTextColor: RailgunColorRole.primaryText.color,
+                linkTextFont: body.normal,
+                linkTextColor: RailgunColorRole.accent.color,
+                codeTextFont: code.normal,
+                codeTextColor: RailgunColorRole.primaryText.color,
+                codeBackgroundColor: Color.primary.opacity(0.08),
+                codeUnderlineColor: .clear
+            ),
+            textContextMenu: contextMenu(contextActions),
+            citationConfig: .init(
+                isEnabled: false,
+                font: caption.normal,
+                textColor: RailgunColorRole.secondaryText.color,
+                backgroundColor: .clear
+            ),
+            codeBlockConfig: .init(
+                theme: .xcode,
+                backgroundColor: RailgunColorRole.surface.color,
+                foregroundColor: RailgunColorRole.secondaryText.color
+            ),
+            blockSpacing: RailgunSpacing.relaxed.points,
+            textSelectionConfig: .init(
+                isEnabled: true,
+                backgroundColor: RailgunColorRole.canvas.color
+            ),
+            thematicBreakColor: RailgunColorRole.separator.color,
+            imageConfig: .init(
+                enabled: true,
+                allowedImageTypes: [.remote(allowedDomains: [])]
+            )
+        )
     }
-}
 
-private struct RailgunMarkdownBlockView: View {
-    let block: RailgunMarkdownBlock
-
-    @ViewBuilder
-    var body: some View {
-        switch block {
-        case let .heading(level, inlines):
-            RailgunMarkdownInlineText(inlines: inlines)
-                .font(headingFont(level: level))
-                .textSelection(.enabled)
-        case let .paragraph(inlines):
-            RailgunMarkdownInlineText(inlines: inlines)
-                .textSelection(.enabled)
-        case let .unorderedList(items):
-            RailgunMarkdownList(items: items, orderedStart: nil)
-        case let .orderedList(start, items):
-            RailgunMarkdownList(items: items, orderedStart: start)
-        case let .quote(blocks):
-            RailgunMarkdownBlocks(blocks: blocks)
-                .padding(.leading, RailgunSpacing.standard.points)
-                .overlay(alignment: .leading) { Rectangle().fill(.tertiary).frame(width: 3) }
-                .foregroundStyle(.secondary)
-        case .rule:
-            Divider()
-        case let .code(language, code):
-            RailgunMarkdownCodeBlock(language: language, code: code)
-        case let .table(header, rows, alignments):
-            RailgunMarkdownTable(header: header, rows: rows, alignments: alignments)
-        case let .image(url, altText):
-            RailgunMarkdownImage(url: url, altText: altText)
-        }
-    }
-
-    private func headingFont(level: Int) -> Font {
-        switch level {
-        case 1: RailgunFont.interface(.title2, weight: .bold)
-        case 2: RailgunFont.interface(.title3, weight: .bold)
-        case 3: RailgunFont.interface(.headline, weight: .semibold)
-        default: RailgunFont.interface(.body, weight: .semibold)
-        }
-    }
-}
-
-private struct RailgunMarkdownInlineText: View {
-    let inlines: [RailgunMarkdownInline]
-
-    var body: some View {
-        renderedText(inlines)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func renderedText(_ inlines: [RailgunMarkdownInline]) -> SwiftUI.Text {
-        inlines.reduce(SwiftUI.Text("")) { partial, inline in partial + renderedText(inline) }
-    }
-
-    private func renderedText(_ inline: RailgunMarkdownInline) -> SwiftUI.Text {
-        switch inline {
-        case let .text(value):
-            return SwiftUI.Text(value)
-        case let .emphasis(children):
-            return renderedText(children).italic()
-        case let .strong(children):
-            return renderedText(children).bold()
-        case let .strikethrough(children):
-            return renderedText(children).strikethrough()
-        case let .inlineCode(value):
-            return SwiftUI.Text(value).font(RailgunFont.code())
-        case let .link(label, destination):
-            guard let destination else { return renderedText(label) }
-            var attributed = AttributedString(RailgunMarkdownParser.plainText(label))
-            attributed.link = destination
-            return SwiftUI.Text(attributed).foregroundColor(RailgunColorRole.accent.color).underline()
-        case let .image(_, altText):
-            return SwiftUI.Text(altText)
-        }
-    }
-}
-
-private struct RailgunMarkdownList: View {
-    let items: [RailgunMarkdownListItem]
-    let orderedStart: Int?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(alignment: .top, spacing: RailgunSpacing.standard.points) {
-                    marker(for: item, index: index)
-                        .frame(minWidth: 18, alignment: .trailing)
-                    RailgunMarkdownBlocks(blocks: item.blocks)
+    private static func contextMenu(
+        _ actions: [RailgunMarkdownContextAction]
+    ) -> TextContextMenu? {
+        guard !actions.isEmpty else { return nil }
+        return TextContextMenu(menuGroups: [
+            TextContextMenuGroup(
+                title: nil,
+                image: nil,
+                displayInline: true,
+                items: actions.map {
+                    TextContextMenuItem(id: $0.id, title: $0.title)
                 }
-            }
-        }
+            )
+        ])
     }
 
-    @ViewBuilder
-    private func marker(for item: RailgunMarkdownListItem, index: Int) -> some View {
-        switch item.taskState {
-        case .checked:
-            SwiftUI.Image(systemName: "checkmark.square.fill").accessibilityLabel("Completed")
-        case .unchecked:
-            SwiftUI.Image(systemName: "square").accessibilityLabel("Not completed")
-        case nil:
-            if let orderedStart {
-                SwiftUI.Text("\(orderedStart + index).")
-            } else {
-                SwiftUI.Text("•")
-            }
-        }
+    private static func textFonts(
+        _ textStyle: NSFont.TextStyle,
+        weight: NSFont.Weight = .regular
+    ) -> TextFonts {
+        let size = NSFont.preferredFont(forTextStyle: textStyle).pointSize
+        let normal = NSFont.systemFont(ofSize: size, weight: weight)
+        let bold = NSFont.systemFont(ofSize: size, weight: .bold)
+        let italic = NSFontManager.shared.convert(normal, toHaveTrait: .italicFontMask)
+        let boldItalic = NSFontManager.shared.convert(bold, toHaveTrait: .italicFontMask)
+        return TextFonts(
+            normal: normal,
+            italic: italic,
+            bold: bold,
+            boldItalic: boldItalic,
+            preferredLetterSpacing: nil,
+            preferredLineHeight: nil
+        )
     }
-}
 
-private struct RailgunMarkdownCodeBlock: View {
-    let language: String?
-    let code: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: RailgunSpacing.compact.points) {
-            if let language, !language.isEmpty {
-                SwiftUI.Text(language.uppercased())
-                    .font(RailgunFont.interface(.caption, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Code language \(language)")
-            }
-            SwiftUI.Text(code)
-                .font(RailgunFont.code())
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(RailgunSpacing.standard.points)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(language.map { "\($0) code block" } ?? "Code block")
+    private static func codeFonts(_ textStyle: NSFont.TextStyle) -> TextFonts {
+        let size = NSFont.preferredFont(forTextStyle: textStyle).pointSize
+        return TextFonts(
+            normal: .monospacedSystemFont(ofSize: size, weight: .regular),
+            italic: .monospacedSystemFont(ofSize: size, weight: .regular),
+            bold: .monospacedSystemFont(ofSize: size, weight: .bold),
+            boldItalic: .monospacedSystemFont(ofSize: size, weight: .bold),
+            preferredLetterSpacing: nil,
+            preferredLineHeight: nil
+        )
     }
 }
 
-private struct RailgunMarkdownTable: View {
-    let header: [[RailgunMarkdownInline]]
-    let rows: [[[RailgunMarkdownInline]]]
-    let alignments: [RailgunMarkdownTableAlignment?]
+final class RailgunMarkdownListener: ObservableObject, MarkdownListener {
+    private let lock = NSLock()
+    private var contextActions: [String: RailgunMarkdownContextAction] = [:]
 
-    var body: some View {
-        ScrollView(.horizontal) {
-            VStack(alignment: .leading, spacing: 0) {
-                tableRow(header, isHeader: true)
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    tableRow(row, isHeader: false)
-                }
-            }
-            // Fill the message width for compact tables; row cell minimums
-            // still expand this content and activate native horizontal scroll.
-            .containerRelativeFrame(.horizontal, alignment: .leading) { length, _ in length }
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-        }
-        .scrollIndicators(.automatic)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Markdown table")
-    }
-
-    private func tableRow(_ cells: [[RailgunMarkdownInline]], isHeader: Bool) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
-                RailgunMarkdownInlineText(inlines: cell)
-                    .font(
-                        isHeader
-                            ? RailgunFont.interface(.body, weight: .semibold)
-                            : RailgunFont.interface(.body)
-                    )
-                    .textSelection(.enabled)
-                    .multilineTextAlignment(alignment(for: index).textAlignment)
-                    .frame(minWidth: 120, alignment: alignment(for: index).frameAlignment)
-                    .padding(.horizontal, RailgunSpacing.standard.points)
-                    .padding(.vertical, RailgunSpacing.compact.points)
-                    .background(isHeader ? Color.primary.opacity(0.08) : .clear)
-                    .overlay(alignment: .trailing) { Rectangle().fill(.quaternary).frame(width: 1) }
-            }
-        }
-        .overlay(alignment: .bottom) { Rectangle().fill(.quaternary).frame(height: 1) }
-    }
-
-    private func alignment(for index: Int) -> RailgunMarkdownTableAlignment {
-        guard let columnAlignment = alignments[safe: index] else { return .leading }
-        return columnAlignment ?? .leading
-    }
-}
-
-private struct RailgunMarkdownImage: View {
-    let url: URL?
-    let altText: String
-
-    @ViewBuilder
-    var body: some View {
-        if let url {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case let .success(image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 480, alignment: .leading)
-                        .accessibilityLabel(altText)
-                case .empty:
-                    imageStatus(RailgunMarkdownImagePresentation.loadingLabel(altText: altText))
-                case .failure:
-                    imageStatus(RailgunMarkdownImagePresentation.failureLabel(altText: altText))
-                @unknown default:
-                    imageStatus(RailgunMarkdownImagePresentation.invalidLabel(altText: altText))
-                }
-            }
-        } else {
-            imageStatus(RailgunMarkdownImagePresentation.invalidLabel(altText: altText))
+    func replaceContextActions(_ actions: [RailgunMarkdownContextAction]) {
+        lock.withLock {
+            contextActions = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
         }
     }
 
-    private func imageStatus(_ label: String) -> some View {
-        SwiftUI.Text(label)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(label)
-    }
-}
+    func onRender(markdown _: RenderableDocument) async {}
 
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
+    func onTableCopyTap(content: String) async {
+        await MainActor.run {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(content, forType: .string)
+        }
     }
+
+    func onTableDownloadTap(content: String) async {
+        await MainActor.run {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+            panel.nameFieldStringValue = "table.md"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try? content.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func onContextMenuAppear(id _: String, selectedContent _: String) async {}
+
+    func onContextMenuTap(id: String, selectedContent _: String) async {
+        let action = lock.withLock { contextActions[id] }
+        await action?.perform()
+    }
+
+    func onImageTap(image _: MarkdownImage) async {}
 }
 
 #Preview("Markdown message matrix") {
-    let specification = RailgunCustomComponentRegistry.components[0]
     ScrollView {
-        RailgunCustomComponentPreviewMatrixView(specification: specification) { configuration in
-            RailgunMarkdownMessage(markdown: previewMarkdown(for: configuration))
-                .frame(width: configuration.width.points)
-                .padding(RailgunSpacing.section.points)
-                .background(configuration.isError ? Color.red.opacity(0.08) : .clear)
-                .opacity(configuration.isDisabled ? 0.55 : 1)
-                .allowsHitTesting(!configuration.isDisabled)
-                .environment(\.colorScheme, configuration.colorScheme)
-        }
-    }
-}
+        RailgunMarkdownMessage(
+            markdown: """
+            # Streaming Markdown
 
-private func previewMarkdown(for configuration: RailgunCustomComponentPreviewConfiguration) -> String {
-    if configuration.isLoading {
-        return "# Image loading\n\n![Architecture diagram](https://example.invalid/architecture.png)"
+            **Rich text** remains formatted while tables and code grow.
+
+            | State | Result |
+            | :--- | ---: |
+            | Stream | Ready |
+
+            ```swift
+            let completed = true
+            ```
+            """,
+            isStreaming: true
+        )
+        .padding()
     }
-    if configuration.isError {
-        return "# Image unavailable\n\n![Architecture diagram](file:///not-allowed.png)"
-    }
-    if configuration.isLongContent {
-        return "# Long completed response\n\nThis is intentionally long content that verifies wrapping at every preview width. **Rich text** remains selectable, and [a safe link](https://example.com) keeps native external-link behavior.\n\n```swift\nlet complete = true\n```\n\n| Name | Status |\n| --- | ---: |\n| Renderer | Complete |"
-    }
-    return "# Completed response\n\n**Markdown** with `code` and [Docs](https://example.com)."
+    .frame(width: 640, height: 520)
 }

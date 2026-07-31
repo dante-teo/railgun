@@ -114,20 +114,41 @@ or bridge gains a material new behavior or variant.
 
 ### `RailgunMarkdownMessage`
 
-- **Unmet requirement:** Completed assistant history requires safe
-  CommonMark/GFM rendering with selectable rich text, wrapped code, table
-  scrolling, and accessible image states.
-- **Native APIs evaluated:** macOS 15 SwiftUI has no Markdown view that
-  combines destination filtering, text selection, native table scrolling, and
-  image loading/failure semantics.
-- **Accessibility and interaction contract:** Links keep native external-link
-  behavior; code and tables are selectable; images announce their alt text and
-  loading, failure, or invalid-source state to VoiceOver.
-- **Shared ownership:** The renderer is a registered `RailgunUI` component for
-  completed Markdown surfaces. User and incomplete assistant messages remain
-  ordinary selectable `Text` views.
-- **Retirement trigger:** Replace it when SwiftUI provides a safe native
-  Markdown renderer with equivalent selection, image, code, and table support.
+- **Unmet requirement:** Live and restored assistant content requires safe
+  CommonMark/GFM rendering while emphasis, fenced code, lists, and tables may
+  still be incomplete. The same surface must preserve selectable rich text,
+  syntax-highlighted code, horizontally scrolling tables, remote images, and
+  native transcript actions after completion or remounting.
+- **Native APIs evaluated:** `Text`, `AttributedString(markdown:)`, and macOS 15
+  SwiftUI do not provide a streaming Markdown document view with incomplete
+  construct handling, full block rendering, table interaction, image policy,
+  destination filtering, and replayable source semantics.
+- **Deployment-target limitation:** macOS 15 has no native streaming Markdown
+  renderer or public API for extending a rich text selection context menu with
+  transcript actions. Table copy requires `NSPasteboard`, and exporting table
+  Markdown requires `NSSavePanel`.
+- **Accessibility and interaction contract:** Rendered text and code remain
+  selectable. Links retain native external-link behavior only after Railgun
+  accepts a credential-free absolute HTTPS destination. Remote Markdown images
+  may load from any HTTPS host; HTTP, file, asset-catalog, and bundled-resource
+  image sources remain disabled. The native text context menu preserves
+  **Branch from this message** when branching is available. Table actions copy
+  Markdown to the pasteboard or open a native save panel. Citations are
+  disabled.
+- **Supported variants:** Streaming assistant content uses the package's
+  subtle text fade; completed, restored, failed, stopped, and other static
+  assistant content does not animate. The Railgun theme uses semantic macOS
+  fonts, colors, compact block spacing, syntax highlighting, text selection,
+  and horizontal table scrolling in every appearance.
+- **Shared ownership:** `RailgunMarkdownMessage` is the single registered
+  `RailgunUI` surface for streaming and static assistant Markdown. User prompts
+  remain literal selectable `Text`; feature callers supply only the complete
+  current snapshot, streaming state, and optional context actions.
+- **Retirement trigger:** Replace the package-backed component when SwiftUI
+  provides a safe native streaming Markdown renderer with equivalent
+  incomplete-document handling, selection, image and link policy, code, table,
+  replay, and context-menu support. Remove the package, its transitive
+  workarounds, and corresponding legal notices in the same migration.
 
 ### `RailgunComposer`
 
@@ -208,6 +229,7 @@ and accessibility behavior.
 | Quick Look | Native preview behavior for validated local files. | Use only validated local URLs and retain the platform preview interaction. |
 | Precise window coordination | Window behavior that supported SwiftUI presentation or scene APIs cannot provide. | Minimize the AppKit surface and preserve standard window, focus, and keyboard behavior. |
 | Archived task-ID pasteboard | Copy a selected archived task's opaque ID as plain text. | Keep the AppKit call inside an injectable helper; SwiftUI remains responsible for browser state, selection, menu presentation, and restore availability. |
+| Markdown renderer interactions | Copy rendered table Markdown, export it through a save panel, and forward renderer-native text context-menu actions. | Keep pasteboard writes and save panels user initiated; write only to the URL selected by the user; keep transcript action IDs stable and let SwiftUI own action availability. |
 
 Future bridges require a decision record with documented proof that macOS 15
 SwiftUI cannot meet the requirement. They are not approved merely for visual
@@ -355,6 +377,45 @@ bridge.
   not steal focus from the currently focused pending prompt.
 - Keep stable accessibility names and identifiers for each interaction region,
   command preview, answer field, picker, progress/error state, and action.
+
+## Assistant Markdown transcript invariant
+
+Every assistant transcript row uses `RailgunMarkdownMessage`, including live,
+completed, restored, failed, and stopped content. User prompts remain literal
+selectable `Text` so user-authored Markdown syntax is never reinterpreted.
+
+- The transcript reducer owns the canonical accumulated assistant text. Pass
+  that complete current snapshot to the renderer after every update; never
+  convert backend events into renderer-only fragments or introduce a second
+  transcript buffer.
+- Keep the same renderer mounted when a message changes from streaming to a
+  terminal state. Completion finishes its source and disables the streaming
+  fade; it must not swap to a different text or Markdown view for the final
+  chunk.
+- `RailgunMarkdownStreamSource` is latest-value and replayable. It emits the
+  initial full snapshot, suppresses identical snapshots, buffers only the
+  newest value for a slow subscriber, and replays the final snapshot before
+  finishing for late subscribers or remounted lazy rows.
+- Treat raw HTML as literal Markdown content. Do not enable embedded HTML or
+  broaden navigation beyond Railgun's credential-free absolute HTTPS link
+  policy.
+- Keep Markdown image policy separate from link navigation: only remote HTTPS
+  images are enabled, from any host; local, bundled, asset-catalog, and HTTP
+  sources remain disabled.
+- Keep citations disabled. Preserve native selection, syntax-highlighted code,
+  horizontally scrolling tables, table copy/download actions, and the
+  renderer-native branch context action.
+- Streaming Markdown can increase row height asynchronously after a source
+  update. While follow mode is active, both transcript content revisions and
+  observed layout growth must re-anchor the stable bottom sentinel. Once the
+  user scrolls away, growth must preserve their position and expose
+  **Jump to Latest** instead.
+
+Focused coverage lives in `RailgunMarkdownMessageTests`,
+`RailgunTranscriptViewportTests`, and `RailgunXAppTests`. It protects source
+replay and completion, partial constructs, static versus streaming animation,
+link and image policy, context actions, table operations, assistant/user
+routing, and bottom-follow behavior during asynchronous layout growth.
 
 ## Transcript soft top-edge invariant
 

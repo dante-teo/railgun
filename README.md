@@ -46,6 +46,13 @@ before launching the app. They are launch commands, not verification commands.
 
 The desktop interface uses the shared `RailgunSpacing` 4, 8, 12, 16, 24, and 32 point scale.
 Transcript rows keep a comfortable 32-point inter-message gap.
+Assistant responses use the same selectable Markdown renderer while streaming,
+after completion, and when restored from history. Live updates supply complete
+accumulated snapshots rather than deltas, so incomplete emphasis, fenced code,
+lists, and tables remain presentable without a final renderer swap. User
+prompts remain literal selectable text. Clickable links must be
+credential-free absolute HTTPS URLs; Markdown images may load remotely over
+HTTPS, while HTTP and local or bundled image sources remain disabled.
 The Activity toolbar button presents a 320×360 popover; it does not reserve
 transcript width, and its dashboard scrolls as one native surface when the
 content exceeds the popover height. Advisor notes are available from its
@@ -101,6 +108,15 @@ Registry licenses must be reviewed before adding their SPDX identifier to
 `deny.toml`; the allowlist is an explicit policy decision, not a substitute for
 the distributable notice catalog.
 
+Native Swift package declarations live in `apps/macos/project.yml`, with
+`apps/macos/Package.resolved` checked in as the resolved graph.
+`SwiftStreamingMarkdown` is pinned to the immutable revision for its `0.6.0`
+tag, and Railgun's direct `swift-markdown` dependency is pinned exactly to
+`0.7.3` to match that package's constraint. Update those pins together. Keep
+the explicit-module and header-search workaround on `RailgunUI`, and keep the
+package products linked by both `RailgunUI` and the final app while
+`RailgunUI` remains a static library.
+
 Workspace path dependencies must declare both `path` and a compatible
 `version`. This keeps local workspace resolution while avoiding unbounded
 dependency declarations:
@@ -109,8 +125,8 @@ dependency declarations:
 railgun-backend = { version = "0.9.0", path = "../railgun-backend" }
 ```
 
-Dependency changes must also refresh and validate the bundled license and
-attribution texts:
+Cargo or Swift package changes must also refresh and validate the bundled
+license and attribution texts:
 
 ```sh
 cargo xtask legal --write

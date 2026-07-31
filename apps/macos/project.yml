@@ -16,7 +16,15 @@ settings:
 packages:
   Markdown:
     url: https://github.com/swiftlang/swift-markdown
-    exactVersion: 0.8.0
+    exactVersion: 0.7.3
+  SwiftStreamingMarkdown:
+    url: https://github.com/microsoft/SwiftStreamingMarkdown
+    # v0.6.0 depends on revision-pinned packages, so SwiftPM requires the root
+    # package to use the tag's immutable revision instead of stable-version mode.
+    revision: c7b12f7b3d77caa188fd1fc056d0f7ce305ef5cd
+  iosMath:
+    url: https://github.com/junyan72/iosMath
+    revision: ba9ab7729b151329c54fd895a7c1859981d9484c
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.9.4
@@ -53,9 +61,13 @@ targets:
     dependencies:
       - target: RailgunCore
       - package: Markdown
+      - package: SwiftStreamingMarkdown
+      # SwiftStreamingMarkdown exposes iosMath-backed attachment types from its
+      # module, so static consumers need the module on their direct search path.
+      - package: iosMath
     settings:
       base:
-        # swift-markdown 0.8.0 exports C targets whose module metadata is not
+        # swift-markdown exports C targets whose module metadata is not
         # consumable by Xcode 26's explicit-module mode from a static target.
         SWIFT_ENABLE_EXPLICIT_MODULES: NO
         # XcodeGen's isolated validation keeps SourcePackages beside the
@@ -65,9 +77,11 @@ targets:
           - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
           - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark/src/include"
           - "$(PROJECT_DIR)/../SourcePackages/checkouts/swift-cmark/extensions/include"
+          - "$(PROJECT_DIR)/../SourcePackages/checkouts/iosMath/iosMath"
           - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-markdown/Sources/CAtomic/include"
           - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/src/include"
           - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-cmark/extensions/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/iosMath/iosMath"
 
   RailgunTestSupport:
     type: library.static
@@ -94,9 +108,11 @@ targets:
       - target: RailgunTransport
       - target: RailgunServices
       - target: RailgunUI
-      # RailgunUI owns the source dependency. The final app links Markdown
-      # because RailgunUI is a static archive and cannot carry package objects.
+      # RailgunUI owns these source dependencies. The final app links their
+      # products because RailgunUI is a static archive and cannot carry them.
       - package: Markdown
+      - package: SwiftStreamingMarkdown
+      - package: iosMath
       - package: Sparkle
         product: Sparkle
         # XcodeGen's generic Embed Frameworks phase cannot infer Sparkle's

@@ -18,11 +18,13 @@ git push origin main --tags
 Use `minor`, `major`, or an explicit semantic version in place of `patch`.
 Append `--dry-run` to preview the version commit and annotated tag.
 
-When a release changes `Cargo.toml` or `Cargo.lock`, review every newly
-introduced license, update `deny.toml` deliberately, and run
-`cargo xtask legal --write` before the checks above. The checked-in notice
-catalog must contain the actual license and attribution texts; passing
-`cargo deny check` alone is not sufficient for distribution.
+When a release changes `Cargo.toml`, `Cargo.lock`,
+`apps/macos/project.yml`, or `apps/macos/Package.resolved`, review every newly
+introduced license and run `cargo xtask legal --write` before the checks above.
+For Cargo changes, update `deny.toml` deliberately as needed. The checked-in
+notice catalog must contain the actual license and attribution texts for the
+distributed Rust and Swift runtime graphs; passing `cargo deny check` or
+resolving Swift packages alone is not sufficient for distribution.
 
 The release workflow archives, signs, notarizes, staples, and validates the
 native app, its arm64 Rust backend, and its Sparkle framework. It publishes the
