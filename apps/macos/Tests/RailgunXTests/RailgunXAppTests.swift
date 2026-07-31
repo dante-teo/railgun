@@ -25,6 +25,106 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunXApp.lifecycleConfiguration.primaryWindowTitle, "Railgun")
     }
 
+    func testSettingsOwnsExplicitBackgroundSchedulerInstallation() throws {
+        let appSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        let settingsSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunSettingsView.swift"),
+            encoding: .utf8
+        )
+        let schedulerSettingsSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunBackgroundSchedulerSettings.swift"),
+            encoding: .utf8
+        )
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+        let productGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/PRODUCT.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(schedulerSettingsSource.contains("Background Scheduling"))
+        XCTAssertTrue(schedulerSettingsSource.contains("Install"))
+        XCTAssertTrue(schedulerSettingsSource.contains("Uninstall"))
+        XCTAssertTrue(settingsSource.contains("RailgunBackgroundSchedulerService"))
+        XCTAssertFalse(appSource.contains("await scheduler?.shutdown()"))
+        XCTAssertFalse(appSource.contains("try? await scheduler.start()"))
+        XCTAssertTrue(readme.contains("installed background scheduler"))
+        XCTAssertTrue(productGuide.contains("Settings → General → Background Scheduling"))
+        XCTAssertTrue(productGuide.contains("hidden midnight cron job"))
+        XCTAssertFalse(productGuide.contains("stops it when the app closes"))
+    }
+
+    func testLegacyElectronLaunchAgentInvocationIsRecognizedWithoutMatchingNormalLaunches() {
+        XCTAssertEqual(
+            RailgunLegacyBackgroundInvocation.mode(
+                environment: ["ELECTRON_RUN_AS_NODE": "1"],
+                arguments: [
+                    "/Applications/Railgun.app/Contents/MacOS/Railgun",
+                    "/Applications/Railgun.app/Contents/Resources/backend/railgun/dist/backend.js",
+                    "scheduler",
+                ]
+            ),
+            .scheduler
+        )
+        XCTAssertEqual(
+            RailgunLegacyBackgroundInvocation.mode(
+                environment: ["ELECTRON_RUN_AS_NODE": "1"],
+                arguments: [
+                    "/Applications/Railgun.app/Contents/MacOS/Railgun",
+                    "/Applications/Railgun.app/Contents/Resources/backend/railgun/dist/backend.js",
+                    "dream",
+                ]
+            ),
+            .dream
+        )
+        XCTAssertNil(
+            RailgunLegacyBackgroundInvocation.mode(
+                environment: [:],
+                arguments: ["/Applications/Railgun.app/Contents/MacOS/Railgun"]
+            )
+        )
+    }
+
+    func testAppHostNeverRepairsLaunchAgentsDuringTests() {
+        XCTAssertTrue(
+            RailgunAppRuntime.isRunningTests(
+                environment: ["XCTestConfigurationFilePath": "/tmp/tests.xctestconfiguration"],
+                isXCTestLoaded: false
+            )
+        )
+        XCTAssertTrue(
+            RailgunAppRuntime.isRunningTests(
+                environment: [:],
+                isXCTestLoaded: true
+            )
+        )
+        XCTAssertFalse(
+            RailgunAppRuntime.isRunningTests(
+                environment: [:],
+                isXCTestLoaded: false
+            )
+        )
+
+        let appSource = try? String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunXApp.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            appSource?.contains(
+                "guard !RailgunAppRuntime.isRunningTests() else { return }"
+            ) == true
+        )
+    }
+
     func testTaskShellUsesANativeMinimumSidebarWidth() {
         XCTAssertEqual(RailgunTaskShell.sidebarMinimumWidth, 180)
     }

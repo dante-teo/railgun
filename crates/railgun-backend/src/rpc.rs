@@ -4,7 +4,10 @@ use crate::{
     paths::RailgunPaths,
     protocol::{CAPABILITIES, Command, VERSION},
     storage::{Session, Store},
-    tools::{self, InteractionResponse, Interactions, ToolContext},
+    tools::{
+        self, InteractionResponse, Interactions, ToolContext, is_protected_cron_job,
+        visible_cron_jobs, with_internal_cron_jobs,
+    },
     transcript,
 };
 use anyhow::{Context, Result, bail};
@@ -905,9 +908,14 @@ impl Coordinator {
     }
 
     async fn handle_cron(&self, command: &Command) -> Result<Option<Value>> {
-        let mut jobs = load_cron(&self.paths).await?;
+        let stored_jobs = load_cron(&self.paths).await?;
+        let mut jobs = with_internal_cron_jobs(stored_jobs.clone());
+        if jobs != stored_jobs {
+            save_cron(&self.paths, &jobs).await?;
+        }
         let result = match command.kind.as_str() {
             "cron_list" => {
+                let visible_jobs = visible_cron_jobs(&jobs);
                 let cursor = command
                     .fields
                     .get("cursor")
@@ -917,15 +925,15 @@ impl Coordinator {
                     .fields
                     .get("limit")
                     .and_then(Value::as_u64)
-                    .unwrap_or(jobs.len() as u64) as usize;
-                let page = jobs
+                    .unwrap_or(visible_jobs.len() as u64) as usize;
+                let page = visible_jobs
                     .iter()
                     .skip(cursor)
                     .take(limit)
                     .cloned()
                     .collect::<Vec<_>>();
                 let mut data = json!({"jobs": page});
-                if cursor + page.len() < jobs.len() {
+                if cursor + page.len() < visible_jobs.len() {
                     data["nextCursor"] = json!(cursor + page.len());
                 }
                 Some(data)
@@ -938,6 +946,9 @@ impl Coordinator {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
                     .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                if is_protected_cron_job(&job_id) {
+                    bail!("cron job id is reserved");
+                }
                 if jobs.iter().any(|job| job["id"] == job_id) {
                     bail!("cron job already exists: {job_id}");
                 }
@@ -962,6 +973,9 @@ impl Coordinator {
             }
             "cron_update" => {
                 let job_id = command.string("jobId")?;
+                if is_protected_cron_job(job_id) {
+                    bail!("internal cron jobs cannot be changed");
+                }
                 let job = jobs
                     .iter_mut()
                     .find(|job| job["id"] == job_id)
@@ -987,6 +1001,9 @@ impl Coordinator {
                     .then(|| json!({"job":updated}))
             }
             "cron_remove" => {
+                if is_protected_cron_job(command.string("jobId")?) {
+                    bail!("internal cron jobs cannot be removed");
+                }
                 let length = jobs.len();
                 jobs.retain(|job| job["id"] != command.fields["jobId"]);
                 if jobs.len() == length {
@@ -1752,13 +1769,10 @@ async fn atomic_write(path: &std::path::Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
-    let authenticated = match auth::provider(&paths, false).await {
-        Ok(value) => value,
-        Err(_) => return Ok(()),
-    };
-    let config = config::load(&paths).await?;
-    let models = auth::models(&authenticated, &paths).await?;
+async fn scheduled_job_runtime(paths: &RailgunPaths) -> Result<(Authenticated, String)> {
+    let authenticated = auth::background_provider(paths).await?;
+    let config = config::load(paths).await?;
+    let models = auth::models(&authenticated, paths).await?;
     let model = config
         .get("model")
         .and_then(Value::as_str)
@@ -1766,6 +1780,10 @@ async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
         .map(str::to_owned)
         .or_else(|| models.first().map(|candidate| candidate.id.clone()))
         .context("Devin returned no available models")?;
+    Ok((authenticated, model))
+}
+
+async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
     let store = Store::open(&paths.state).await?;
     tracing::info!("scheduler started");
     let cancellation = CancellationToken::new();
@@ -1779,25 +1797,38 @@ async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
             break;
         }
         match load_cron(&paths).await {
-            Ok(mut jobs) => {
+            Ok(stored_jobs) => {
+                let mut jobs = with_internal_cron_jobs(stored_jobs.clone());
                 let timestamp = chrono::Local::now();
-                let mut changed = false;
+                let mut changed = jobs != stored_jobs;
                 for job in &mut jobs {
                     if !cron_due(job, timestamp)? {
                         continue;
                     }
-                    let prompt = job["prompt"].as_str().unwrap_or_default().to_owned();
-                    let job_id = job["id"].as_str().unwrap_or_default().to_owned();
-                    let result = run_scheduled_job(
-                        &authenticated,
-                        &model,
-                        &store,
-                        &paths,
-                        &job_id,
-                        &prompt,
-                        cancellation.clone(),
-                    )
-                    .await;
+                    let result = if job["kind"] == "dream" {
+                        let (output, _receiver) = mpsc::unbounded_channel();
+                        run_dream_job(&store, &paths, &output)
+                            .await
+                            .map(|_| "completed")
+                    } else {
+                        let prompt = job["prompt"].as_str().unwrap_or_default().to_owned();
+                        let job_id = job["id"].as_str().unwrap_or_default().to_owned();
+                        match scheduled_job_runtime(&paths).await {
+                            Ok((authenticated, model)) => {
+                                run_scheduled_job(
+                                    &authenticated,
+                                    &model,
+                                    &store,
+                                    &paths,
+                                    &job_id,
+                                    &prompt,
+                                    cancellation.clone(),
+                                )
+                                .await
+                            }
+                            Err(error) => Err(error),
+                        }
+                    };
                     let (status, error) = match result {
                         Ok(status) => (status, None),
                         Err(error) => ("failed", Some(redact_error(&error.to_string()))),
@@ -1822,7 +1853,7 @@ async fn run_scheduler(paths: RailgunPaths) -> Result<()> {
 }
 
 async fn run_dream(paths: RailgunPaths) -> Result<()> {
-    if auth::provider(&paths, false).await.is_err() {
+    if auth::background_provider(&paths).await.is_err() {
         return Ok(());
     }
     let store = Store::open(&paths.state).await?;
@@ -2008,6 +2039,42 @@ mod tests {
         assert_eq!(
             next_minute_delay(now),
             std::time::Duration::from_millis(54_750)
+        );
+    }
+
+    #[test]
+    fn scheduler_owns_a_hidden_protected_midnight_dream_job() {
+        let user_job = json!({
+            "id":"user-job",
+            "schedule":"0 9 * * *",
+            "prompt":"Morning review",
+        });
+        let jobs = with_internal_cron_jobs(vec![user_job.clone()]);
+        let dream = jobs
+            .iter()
+            .find(|job| job["id"] == tools::INTERNAL_DREAM_JOB_ID)
+            .unwrap();
+
+        assert_eq!(dream["schedule"], "0 0 * * *");
+        assert_eq!(dream["kind"], "dream");
+        assert_eq!(dream["internal"], true);
+        assert_eq!(visible_cron_jobs(&jobs), vec![user_job]);
+        assert!(is_protected_cron_job(tools::INTERNAL_DREAM_JOB_ID));
+    }
+
+    #[tokio::test]
+    async fn scheduler_requires_cached_authentication_without_starting_login() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = RailgunPaths::for_user_home(home.path());
+
+        let error = scheduled_job_runtime(&paths)
+            .await
+            .err()
+            .expect("missing credentials should keep the scheduler idle");
+
+        assert_eq!(
+            auth::authentication_required_source(&error),
+            Some(auth::CredentialSource::File)
         );
     }
 

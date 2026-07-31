@@ -144,9 +144,33 @@ railgun-backend logout
 ```
 
 `desktop` owns RPC v1. `scheduler` is the long-running local-time cron
-processor. `dream` runs memory maintenance. `login` and `logout` manage the
-credential at `~/.railgun/devin-token`. `DEVIN_TOKEN`, when present, remains
-the highest-priority credential.
+processor used by the optional installed background scheduler. Dream memory
+maintenance is registered as a protected hidden midnight job inside that
+scheduler; the standalone `dream` mode remains an implementation helper.
+`login` and `logout` manage the credential at `~/.railgun/devin-token`.
+`DEVIN_TOKEN`, when present, remains the highest-priority credential.
+
+### Background scheduling
+
+Background scheduling is opt-in under **Settings → General → Background
+Scheduling**. Installing it creates the per-user LaunchAgent
+`~/Library/LaunchAgents/sh.railgun.cron.plist`, which invokes the bundled
+`railgun-backend scheduler` executable directly. The LaunchAgent never invokes
+the Railgun app executable, so scheduled work can continue after the app quits
+without reopening a window or waking the GUI process. It remains installed for
+future user logins until it is uninstalled. Without it, schedules can still be
+created and edited, but no background processor evaluates them.
+
+The scheduler writes standard output and error to
+`~/.railgun/logs/scheduler.log`. Repair replaces stale definitions, including
+definitions whose bundled backend changed after an app update. Existing legacy
+cron or Dream LaunchAgents are migrated to the single scheduler agent; Dream
+then runs only as the protected hidden midnight cron job inside it.
+
+Uninstall stops the current and legacy background agents and removes their
+LaunchAgent definitions. It does not delete scheduled prompts, memories,
+delivery history, credentials, or the scheduler log under `~/.railgun`, so a
+later reinstall resumes from the existing Railgun data.
 
 ## Agent tools and safeguards
 
@@ -165,12 +189,15 @@ bounded UTF-8 result. Shell commands hard-block destructive patterns; dangerous
 commands require a desktop approval, which applies only to the active session.
 Scheduled and delegated runs cannot wait for desktop approval or clarification.
 
-Cron tool schedules use five fields and run in local time while Railgun is
-open. Due runs are checked at minute boundaries, record their outcome, and are
+Cron tool schedules use five fields and run in local time. When the background
+scheduler is installed from Settings, due runs continue after the Railgun app
+quits. They are checked at minute boundaries, record their outcome, and are
 saved as resumable scheduled-delivery sessions. Memories remain on demand:
 they are searched or written only through memory tools, rather than injected
-into every prompt. Dream requires at least five memories and consolidates exact
-duplicates while reporting before/after counts and progress.
+into every prompt. Manual Dream remains available in Personalization; its
+nightly run requires the installed background scheduler. Dream requires at
+least five memories and consolidates exact duplicates while reporting
+before/after counts and progress.
 
 `web_fetch` accepts only public HTTP(S) targets without URL credentials. It
 rejects private, loopback, and localhost addresses (including IPv4-mapped IPv6

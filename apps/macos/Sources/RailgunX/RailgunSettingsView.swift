@@ -1,4 +1,5 @@
 import Observation
+import RailgunServices
 import RailgunUI
 import SwiftUI
 
@@ -51,6 +52,7 @@ struct RailgunSettingsView: View {
     @Bindable private var personalizationStore: RailgunPersonalizationStore
     private let sessionCoordinator: RailgunSessionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
+    private let backgroundSchedulerService: RailgunBackgroundSchedulerService?
     @State private var selection: RailgunSettingsDestination? = RailgunSettingsDestination.defaultSelection
     @AppStorage(RailgunAppearance.storageKey) private var appearance: RailgunAppearance = .automatic
 
@@ -58,12 +60,14 @@ struct RailgunSettingsView: View {
         appStore: RailgunAppStore,
         sessionCoordinator: RailgunSessionCoordinator,
         controlsCoordinator: RailgunControlsCoordinator,
-        personalizationStore: RailgunPersonalizationStore
+        personalizationStore: RailgunPersonalizationStore,
+        backgroundSchedulerService: RailgunBackgroundSchedulerService?
     ) {
         _appStore = Bindable(appStore)
         _personalizationStore = Bindable(personalizationStore)
         self.sessionCoordinator = sessionCoordinator
         self.controlsCoordinator = controlsCoordinator
+        self.backgroundSchedulerService = backgroundSchedulerService
     }
 
     var body: some View {
@@ -252,6 +256,8 @@ struct RailgunSettingsView: View {
             } footer: {
                 Text("These permissions apply to the next run. Full access runs flagged commands without asking for confirmation.")
             }
+
+            RailgunBackgroundSchedulerSettings(service: backgroundSchedulerService)
 
             if let error = appStore.state.controls.error {
                 Text(error)

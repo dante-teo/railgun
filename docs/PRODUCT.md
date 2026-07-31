@@ -31,11 +31,16 @@ rejects the archive, Railgun restores the task in place, including its active
 selection and visible transcript.
 
 Scheduled prompts are stored in the user’s existing `~/.railgun` data. Railgun
-starts a private scheduler after the desktop backend is ready and stops it when
-the app closes, so recurring prompts run while the app is open. Railgun does
-not install a login item, launchd agent, or other background service. Scheduled
-remains responsible for job definitions. Its toolbar also provides New Task so
-users can return to normal task work without first selecting a sidebar task.
+offers **Settings → General → Background Scheduling** to install, repair, or
+uninstall a per-user launchd agent. The agent runs the bundled backend directly;
+it remains active after the app quits and never launches the Railgun GUI.
+Installing or uninstalling the agent does not create or delete scheduled prompt
+definitions. An already-installed stale or legacy agent is repaired when the
+app migrates it or when the user chooses Repair in Settings.
+Scheduled remains responsible for user job definitions, which can be edited
+without the agent but run only while the background scheduler is installed.
+Its toolbar also provides New Task so users can return to normal task work
+without first selecting a sidebar task.
 
 **Settings → Personalization** owns the one global custom instruction and agent
 memory management. The custom-instruction editor has no file picker because
@@ -57,9 +62,12 @@ bounded capacity through recurring deliveries, the oldest scheduled deliveries
 move to Archive rather than being deleted.
 
 The bundled backend retains private desktop, scheduler, Dream, login, and logout
-modes for native-app startup. The desktop app owns the scheduler mode while it
-is running; these modes are implementation surfaces, not separately distributed
-user products or installation channels.
+modes. The launchd agent owns the long-running scheduler mode. Nightly Dream
+maintenance is a protected hidden midnight cron job within that scheduler, not
+a second launch agent; it never appears in the user’s Scheduled list and does
+not run nightly when background scheduling is uninstalled. Manual Dream remains
+available from Personalization. These modes are implementation surfaces, not
+separately distributed user products or installation channels.
 
 Install the direct signed app, which updates in-app. There is no separate package or
 terminal interface; the bundled backend is an implementation detail.

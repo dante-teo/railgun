@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import RailgunCore
 import RailgunServices
@@ -247,7 +248,6 @@ final class RailgunBackendRuntime {
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
-    private let scheduler: RailgunSchedulerService?
     private let store: RailgunAppStore
     private let deliveryService: RailgunSessionService
     private let deliveryTracker = RailgunScheduledDeliveryTracker()
@@ -269,8 +269,6 @@ final class RailgunBackendRuntime {
         self.client = client
         self.store = store
         self.launch = configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory)
-        self.scheduler = configuration.schedulerLaunch(resourcesDirectory: resourcesDirectory)
-            .map(RailgunSchedulerService.init)
         let controlsCoordinator = RailgunControlsCoordinator(
             store: store,
             service: RailgunControlsService(rpcClient: client)
@@ -351,12 +349,6 @@ final class RailgunBackendRuntime {
         do {
             let handshake = try await (restarting ? client.restart(launch) : client.start(launch))
             store.send(.backend(.ready(capabilities: handshake.capabilities)))
-            if let scheduler {
-                // Scheduled jobs are independent of the desktop RPC backend.
-                // Keep the processor alive while the app is open, including
-                // after an RPC-only restart.
-                try? await scheduler.start()
-            }
             await establishDeliveryBaseline()
             async let controls: Void = controlsCoordinator.refresh()
             async let sessions: Void = sessionCoordinator.refresh()
@@ -379,7 +371,6 @@ final class RailgunBackendRuntime {
     func shutdown() async {
         deliveryObservation.cancel()
         isObservingScheduledDeliveries = false
-        await scheduler?.shutdown()
         await client.shutdown()
     }
 
@@ -1915,9 +1906,14 @@ struct RailgunXApp: App {
     @AppStorage(RailgunAppearance.storageKey) private var appearance: RailgunAppearance = .automatic
     private let fileService: RailgunFileService
     private let updater: RailgunUpdater?
+    private let backgroundSchedulerService: RailgunBackgroundSchedulerService?
 
     init() {
         let backendLaunchConfiguration = BackendLaunchConfiguration()
+        let resourcesDirectory = Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")
+        RailgunLegacyBackgroundInvocation.replaceProcessIfNeeded(
+            resourcesDirectory: resourcesDirectory
+        )
         let appStore = RailgunAppStore()
         _appStore = State(initialValue: appStore)
         _desktopClientStartup = State(
@@ -1928,6 +1924,24 @@ struct RailgunXApp: App {
         )
         fileService = RailgunFileService()
         updater = RailgunUpdater.makeIfConfigured()
+        let backgroundSchedulerService = backendLaunchConfiguration
+            .schedulerLaunch(resourcesDirectory: resourcesDirectory)
+            .map {
+                RailgunBackgroundSchedulerService(
+                    configuration: .init(
+                        launch: $0,
+                        userID: getuid()
+                    )
+                )
+            }
+        self.backgroundSchedulerService = backgroundSchedulerService
+        if !RailgunAppRuntime.isRunningTests(),
+           backendLaunchConfiguration.mode == .bundled,
+           let backgroundSchedulerService {
+            Task {
+                await backgroundSchedulerService.repairLegacyInstallationIfNeeded()
+            }
+        }
     }
 
     var body: some Scene {
@@ -1965,6 +1979,7 @@ struct RailgunXApp: App {
             .tint(RailgunColorRole.accent.color)
             .preferredColorScheme(appearance.colorScheme)
             .task {
+                guard !RailgunAppRuntime.isRunningTests() else { return }
                 await desktopClientStartup.acquire()
                 if desktopClientStartup.status == .ready {
                     await backendRuntime.start()
@@ -2002,7 +2017,8 @@ struct RailgunXApp: App {
                 appStore: appStore,
                 sessionCoordinator: backendRuntime.sessionCoordinator,
                 controlsCoordinator: backendRuntime.controlsCoordinator,
-                personalizationStore: backendRuntime.personalizationStore
+                personalizationStore: backendRuntime.personalizationStore,
+                backgroundSchedulerService: backgroundSchedulerService
             )
             .preferredColorScheme(appearance.colorScheme)
         }

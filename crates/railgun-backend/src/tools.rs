@@ -43,6 +43,8 @@ pub const ADVISOR_TOOL_NAMES: &[&str] = &["advise"];
 const TEXT_LIMIT: usize = 200_000;
 const WEB_LIMIT: usize = 50_000;
 const MAX_FILE_BYTES: u64 = 1_000_000;
+pub(crate) const INTERNAL_DREAM_JOB_ID: &str = "railgun.internal.dream";
+const INTERNAL_DREAM_SCHEDULE: &str = "0 0 * * *";
 
 #[derive(Clone)]
 pub struct ToolContext {
@@ -707,15 +709,23 @@ async fn memory_consolidate(arguments: &Value, context: &ToolContext) -> Result<
 }
 
 async fn cron(arguments: &Value, context: &ToolContext) -> Result<String> {
-    let mut jobs = load_jobs(&context.paths).await?;
+    let stored_jobs = load_jobs(&context.paths).await?;
+    let mut jobs = with_internal_cron_jobs(stored_jobs.clone());
+    if jobs != stored_jobs {
+        save_jobs(&context.paths, &jobs).await?;
+    }
     match string(arguments, "action")? {
-        "list" => Ok(if jobs.is_empty() {
-            "No cron jobs configured.".into()
-        } else {
-            serde_json::to_string_pretty(&jobs)?
-        }),
+        "list" => {
+            let visible_jobs = visible_cron_jobs(&jobs);
+            Ok(if visible_jobs.is_empty() {
+                "No cron jobs configured.".into()
+            } else {
+                serde_json::to_string_pretty(&visible_jobs)?
+            })
+        }
         "add" => {
             let id = string(arguments, "id")?;
+            reject_protected_cron_job(id)?;
             if jobs.iter().any(|job| job["id"] == id) {
                 bail!("a cron job with id {id:?} already exists")
             };
@@ -728,6 +738,7 @@ async fn cron(arguments: &Value, context: &ToolContext) -> Result<String> {
         }
         "remove" => {
             let id = string(arguments, "id")?;
+            reject_protected_cron_job(id)?;
             let before = jobs.len();
             jobs.retain(|job| job["id"] != id);
             if jobs.len() == before {
@@ -738,6 +749,7 @@ async fn cron(arguments: &Value, context: &ToolContext) -> Result<String> {
         }
         "update" => {
             let id = string(arguments, "id")?;
+            reject_protected_cron_job(id)?;
             let job = jobs
                 .iter_mut()
                 .find(|job| job["id"] == id)
@@ -759,6 +771,62 @@ async fn cron(arguments: &Value, context: &ToolContext) -> Result<String> {
         _ => bail!("unknown cron action"),
     }
 }
+
+fn internal_dream_job() -> Value {
+    json!({
+        "id": INTERNAL_DREAM_JOB_ID,
+        "kind": "dream",
+        "internal": true,
+        "schedule": INTERNAL_DREAM_SCHEDULE,
+        "prompt": "",
+        "lastRun": null,
+        "requiredOutputs": [],
+        "lastSuccess": null,
+        "lastStatus": null,
+        "lastError": null,
+    })
+}
+
+fn normalized_internal_dream_job(mut job: Value) -> Value {
+    job["id"] = json!(INTERNAL_DREAM_JOB_ID);
+    job["kind"] = json!("dream");
+    job["internal"] = json!(true);
+    job["schedule"] = json!(INTERNAL_DREAM_SCHEDULE);
+    job["prompt"] = json!("");
+    job
+}
+
+pub(crate) fn with_internal_cron_jobs(jobs: Vec<Value>) -> Vec<Value> {
+    let dream = jobs
+        .iter()
+        .find(|job| job["id"] == INTERNAL_DREAM_JOB_ID)
+        .cloned()
+        .map(normalized_internal_dream_job)
+        .unwrap_or_else(internal_dream_job);
+    jobs.into_iter()
+        .filter(|job| job["id"] != INTERNAL_DREAM_JOB_ID)
+        .chain(std::iter::once(dream))
+        .collect()
+}
+
+pub(crate) fn visible_cron_jobs(jobs: &[Value]) -> Vec<Value> {
+    jobs.iter()
+        .filter(|job| job["id"] != INTERNAL_DREAM_JOB_ID)
+        .cloned()
+        .collect()
+}
+
+pub(crate) fn is_protected_cron_job(job_id: &str) -> bool {
+    job_id == INTERNAL_DREAM_JOB_ID
+}
+
+fn reject_protected_cron_job(job_id: &str) -> Result<()> {
+    if is_protected_cron_job(job_id) {
+        bail!("internal cron jobs cannot be changed")
+    }
+    Ok(())
+}
+
 pub async fn load_jobs(paths: &RailgunPaths) -> Result<Vec<Value>> {
     match tokio::fs::read_to_string(&paths.cron).await {
         Ok(value) => {
@@ -799,7 +867,10 @@ async fn inspect(arguments: &Value, context: &ToolContext) -> Result<String> {
     let value = match area {
         "sessions" => json!({"sessions":context.store.list_sessions(false).await?}),
         "memories" => json!({"memories":context.store.memories(None,20).await?}),
-        "cron" => json!({"jobs":load_jobs(&context.paths).await?}),
+        "cron" => {
+            let jobs = with_internal_cron_jobs(load_jobs(&context.paths).await?);
+            json!({"jobs":visible_cron_jobs(&jobs)})
+        }
         "paths" => json!({"state":"configured","cron":"configured","skills":"configured"}),
         "config" => {
             json!({"stateExists":context.paths.state.exists(),"cronExists":context.paths.cron.exists()})
@@ -1120,6 +1191,64 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn model_facing_cron_tools_hide_and_protect_internal_jobs() {
+        let home = tempdir().unwrap();
+        let paths = RailgunPaths::for_user_home(home.path());
+        let store = Store::open(&paths.state).await.unwrap();
+        let (updates, _events) = mpsc::unbounded_channel();
+        let context = ToolContext {
+            paths: paths.clone(),
+            store,
+            cancellation: CancellationToken::new(),
+            updates,
+            todos: Arc::new(Mutex::new(Vec::new())),
+            interactions: None,
+            approvals: Arc::new(Mutex::new(HashSet::new())),
+            delegation_depth: 0,
+            delegation_slots: Arc::new(Semaphore::new(3)),
+            provider: None,
+            model: None,
+        };
+        save_jobs(
+            &paths,
+            &[
+                json!({
+                    "id": "user-job",
+                    "schedule": "0 9 * * *",
+                    "prompt": "Morning review"
+                }),
+                json!({
+                    "id": "railgun.internal.dream",
+                    "kind": "dream",
+                    "internal": true,
+                    "schedule": "0 0 * * *",
+                    "prompt": ""
+                }),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let listed = execute("cron", &json!({"action": "list"}), &context)
+            .await
+            .unwrap();
+        let inspected = execute("railgun_inspect", &json!({"area": "cron"}), &context)
+            .await
+            .unwrap();
+        let removal = execute(
+            "cron",
+            &json!({"action": "remove", "id": "railgun.internal.dream"}),
+            &context,
+        )
+        .await;
+
+        assert!(listed.contains("user-job"));
+        assert!(!listed.contains("railgun.internal.dream"));
+        assert!(!inspected.contains("railgun.internal.dream"));
+        assert!(removal.is_err());
     }
 
     #[test]

@@ -82,6 +82,10 @@ pub async fn provider(paths: &RailgunPaths, desktop: bool) -> Result<Authenticat
     Ok(Authenticated { provider, source })
 }
 
+pub async fn background_provider(paths: &RailgunPaths) -> Result<Authenticated> {
+    provider(paths, true).await
+}
+
 pub async fn login(paths: &RailgunPaths) -> Result<()> {
     let store = create_file_token_store(&paths.token);
     let provider = create_devin_provider(DevinProviderOptions {
