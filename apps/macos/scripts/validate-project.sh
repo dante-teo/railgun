@@ -92,6 +92,7 @@ archive_release_configuration() {
     ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_IDENTITY=- \
+    CODE_SIGN_STYLE=Manual \
     DEVELOPMENT_TEAM=GUKP6SNV36 \
     RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY="$sparkle_public_key" \
     RAILGUNX_SPARKLE_FEED_ARCHITECTURE=arm64 \
