@@ -704,6 +704,12 @@ public actor RailgunRPCClient {
     }
 
     private func backendDidTerminate(generation currentGeneration: Int) async {
+        // Stdout is the ordered source of terminal startup statuses. A process
+        // can exit before the reader task has delivered its final buffered
+        // frame, so let that reader end the generation while startup is in
+        // progress. This preserves errors such as authenticationRequired
+        // instead of racing them with backendTerminated.
+        if case .starting? = lifecycle { return }
         await endUnexpectedly(
             currentGeneration,
             error: .backendTerminated,
