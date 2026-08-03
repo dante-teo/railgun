@@ -60,6 +60,8 @@ artifact_zip="$output_directory/Railgun-${version}-darwin-${architecture}.zip"
 
 "$generate_project" "$project_directory"
 
+# Swift package targets are separate generated projects and do not inherit
+# RailgunX's Release DEVELOPMENT_TEAM setting during an archive.
 xcodebuild archive \
   -skipMacroValidation \
   -project "$project_directory/RailgunX.xcodeproj" \
@@ -74,6 +76,7 @@ xcodebuild archive \
   ARCHS="$architecture" \
   ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_IDENTITY="$identity" \
+  DEVELOPMENT_TEAM=GUKP6SNV36 \
   RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY="$RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY" \
   RAILGUNX_SPARKLE_FEED_ARCHITECTURE="$architecture" \
   MARKETING_VERSION="$version" \

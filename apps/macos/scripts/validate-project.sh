@@ -77,6 +77,7 @@ build_scheme() {
 }
 
 archive_release_configuration() {
+  # Mirror the release archive: Xcode 26 signs Swift package targets too.
   xcodebuild archive \
     -skipMacroValidation \
     -project "$project_file" \
@@ -91,7 +92,7 @@ archive_release_configuration() {
     ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_IDENTITY=- \
-    DEVELOPMENT_TEAM= \
+    DEVELOPMENT_TEAM=GUKP6SNV36 \
     RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY="$sparkle_public_key" \
     RAILGUNX_SPARKLE_FEED_ARCHITECTURE=arm64 \
     MARKETING_VERSION=0.0.0 \
