@@ -42868,9 +42868,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## widevin (0.2.0)
+## widevin (0.2.1)
 
-- Identifier: crate:widevin@0.2.0
+- Identifier: crate:widevin@0.2.1
 - Kind: rust-crate
 - License: MIT
 - Source: Cargo.lock

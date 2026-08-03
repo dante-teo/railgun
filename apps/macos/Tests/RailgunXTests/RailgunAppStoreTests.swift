@@ -438,6 +438,29 @@ final class RailgunAppStoreTests: XCTestCase {
         XCTAssertEqual(state.backend.phase, .disconnected("Disconnected"))
     }
 
+    func testAuthenticationStateTracksBrowserLoginLogoutAndCredentialSource() {
+        var state = RailgunAppReducer.reduce(.initial, .authentication(.signedOut(source: .file)))
+        XCTAssertEqual(state.authentication.phase, .signedOut(source: .file))
+
+        state = RailgunAppReducer.reduce(state, .authentication(.loginStarted))
+        XCTAssertEqual(state.authentication.phase, .loggingIn)
+
+        state = RailgunAppReducer.reduce(
+            state,
+            .authentication(.authenticated(source: .file))
+        )
+        XCTAssertEqual(state.authentication.phase, .authenticated(source: .file))
+
+        state = RailgunAppReducer.reduce(state, .authentication(.logoutStarted))
+        XCTAssertEqual(state.authentication.phase, .loggingOut)
+
+        state = RailgunAppReducer.reduce(
+            state,
+            .backend(.authenticationRequired(source: .file))
+        )
+        XCTAssertEqual(state.authentication.phase, .signedOut(source: .file))
+    }
+
     func testLateRunStartDoesNotUndoAnInFlightStopRequest() {
         var state = RailgunAppReducer.reduce(.initial, .transcript(.submit(id: "user", text: "start", at: 0)))
         state = RailgunAppReducer.reduce(state, .transcript(.stopRequested))

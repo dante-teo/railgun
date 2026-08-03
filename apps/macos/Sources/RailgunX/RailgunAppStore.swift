@@ -11,6 +11,7 @@ import RailgunTransport
 struct RailgunAppState: Equatable {
     var destination: RailgunDestination
     var backend: RailgunBackendState
+    var authentication: RailgunAuthenticationState
     var session: RailgunSessionState
     var transcript: RailgunTranscriptState
     var controls: RailgunControlsState
@@ -21,6 +22,7 @@ struct RailgunAppState: Equatable {
     static let initial = Self(
         destination: .task,
         backend: .initial,
+        authentication: .initial,
         session: .initial,
         transcript: .initial,
         controls: .initial,
@@ -51,6 +53,7 @@ final class RailgunAppStore {
 enum RailgunAppAction: Equatable {
     case destination(RailgunDestination)
     case backend(RailgunBackendAction)
+    case authentication(RailgunAuthenticationStateAction)
     case session(RailgunSessionAction)
     case transcript(RailgunTranscriptAction)
     case controls(RailgunControlsAction)
@@ -75,6 +78,28 @@ enum RailgunAppReducer {
         case let .backend(action):
             var next = state
             next.backend = RailgunBackendReducer.reduce(state.backend, action)
+            switch action {
+            case .starting:
+                next.authentication = RailgunAuthenticationStateReducer.reduce(
+                    next.authentication,
+                    .checking
+                )
+            case .ready:
+                next.authentication = RailgunAuthenticationStateReducer.reduce(
+                    next.authentication,
+                    .authenticated(source: nil)
+                )
+            case let .authenticationRequired(source):
+                next.authentication = RailgunAuthenticationStateReducer.reduce(
+                    next.authentication,
+                    .signedOut(source: source)
+                )
+            case .failed, .disconnected:
+                next.authentication = RailgunAuthenticationStateReducer.reduce(
+                    next.authentication,
+                    .unavailable
+                )
+            }
             switch next.backend.phase {
             case let .failed(message), let .disconnected(message):
                 return settleInterruptedRun(next, message: message)
@@ -85,6 +110,13 @@ enum RailgunAppReducer {
             case .ready, .authenticationRequired:
                 return next
             }
+        case let .authentication(action):
+            var next = state
+            next.authentication = RailgunAuthenticationStateReducer.reduce(
+                state.authentication,
+                action
+            )
+            return next
         case let .session(action):
             let session = RailgunSessionReducer.reduce(state.session, action)
             switch action {
@@ -219,6 +251,65 @@ enum RailgunAppReducer {
         next.controls = RailgunControlsReducer.reduce(next.controls, .backendRunChanged(false))
         next.activity = RailgunActivityReducer.reduce(state.activity, .settle)
         return next
+    }
+}
+
+enum RailgunAuthenticationPhase: Equatable {
+    case checking
+    case authenticated(source: RailgunRPCCredentialSource?)
+    case signedOut(source: RailgunRPCCredentialSource)
+    case loggingIn
+    case loggingOut
+    case failed(message: String)
+    case unavailable
+
+    var isOperationInFlight: Bool {
+        switch self {
+        case .loggingIn, .loggingOut:
+            true
+        default:
+            false
+        }
+    }
+}
+
+struct RailgunAuthenticationState: Equatable {
+    var phase: RailgunAuthenticationPhase
+
+    static let initial = Self(phase: .checking)
+}
+
+enum RailgunAuthenticationStateAction: Equatable {
+    case checking
+    case authenticated(source: RailgunRPCCredentialSource?)
+    case signedOut(source: RailgunRPCCredentialSource)
+    case loginStarted
+    case logoutStarted
+    case failed(message: String)
+    case unavailable
+}
+
+enum RailgunAuthenticationStateReducer {
+    static func reduce(
+        _ _: RailgunAuthenticationState,
+        _ action: RailgunAuthenticationStateAction
+    ) -> RailgunAuthenticationState {
+        switch action {
+        case .checking:
+            .init(phase: .checking)
+        case let .authenticated(source):
+            .init(phase: .authenticated(source: source))
+        case let .signedOut(source):
+            .init(phase: .signedOut(source: source))
+        case .loginStarted:
+            .init(phase: .loggingIn)
+        case .logoutStarted:
+            .init(phase: .loggingOut)
+        case let .failed(message):
+            .init(phase: .failed(message: message))
+        case .unavailable:
+            .init(phase: .unavailable)
+        }
     }
 }
 

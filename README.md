@@ -150,6 +150,17 @@ scheduler; the standalone `dream` mode remains an implementation helper.
 `login` and `logout` manage the credential at `~/.railgun/devin-token`.
 `DEVIN_TOKEN`, when present, remains the highest-priority credential.
 
+The macOS desktop app automatically opens Devin in the default browser when
+the file-backed credential is missing or rejected. The same browser-backed
+Login, Log out, and Log in again actions are available under Settings →
+General → Devin. `DEVIN_TOKEN` remains environment-managed and cannot be
+changed from the app.
+
+If the browser helper completes but the RPC backend cannot reconnect, Railgun
+shows **Backend Unavailable** with **Retry** instead of leaving the task shell
+active. Retry starts a fresh backend generation and does not replay a failed
+task.
+
 ### Background scheduling
 
 Background scheduling is opt-in under **Settings → General → Background

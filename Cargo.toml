@@ -34,7 +34,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt", "json"] }
 url = "2.5.8"
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
-widevin = "=0.2.0"
+widevin = "=0.2.1"
 
 [profile.release]
 lto = "thin"

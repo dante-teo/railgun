@@ -1307,6 +1307,181 @@ final class RailgunXAppTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testMissingFileCredentialAutomaticallyRunsDevinLoginBeforeReady() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("railgunx-auth-flow-\(UUID().uuidString)", isDirectory: true)
+        let firstLaunchMarker = directory.appendingPathComponent("first-launch")
+        let logoutMarker = directory.appendingPathComponent("logout-helper-invoked")
+        let loginMarker = directory.appendingPathComponent("login-helper-invoked")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let desktopScript = #"""
+        my $marker = $ARGV[0];
+        my $logout = $ARGV[1];
+        if (!-e $marker || -e $logout) {
+          open my $handle, ">", $marker or die "could not create marker";
+          close $handle;
+          print "{\"type\":\"startup_status\",\"status\":\"authentication_required\",\"credential_source\":\"file\"}\n";
+          exit 1;
+        }
+        $| = 1;
+        while (<STDIN>) {
+          my ($id) = /\"id\"\s*:\s*\"([^\"]+)\"/;
+          my ($type) = /\"type\"\s*:\s*\"([^\"]+)\"/;
+          if ($type eq "initialize") {
+            print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"initialize\",\"success\":true,\"data\":{\"version\":1,\"capabilities\":[\"sessions\",\"interaction.approval\",\"interaction.clarification\"]}}\n";
+          } elsif ($type eq "get_state") {
+            print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"get_state\",\"success\":true,\"data\":{\"running\":false}}\n";
+          } else {
+            print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"$type\",\"success\":true,\"data\":{}}\n";
+          }
+        }
+        """#
+        let desktopLaunch = BackendProcessLaunch(
+            executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
+            arguments: ["-e", desktopScript, firstLaunchMarker.path, logoutMarker.path]
+        )
+        let loginHelperLaunch = BackendProcessLaunch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "touch \"$1\"; rm -f \"$2\"",
+                "railgun-login-helper",
+                loginMarker.path,
+                logoutMarker.path,
+            ]
+        )
+        let logoutHelperLaunch = BackendProcessLaunch(
+            executableURL: URL(fileURLWithPath: "/usr/bin/touch"),
+            arguments: [logoutMarker.path]
+        )
+        let client = RailgunRPCClient()
+        let authenticationService = RailgunAuthenticationService(
+            rpcClient: client,
+            desktopRPCLaunch: desktopLaunch,
+            helperLaunch: { action in
+                switch action {
+                case .login: loginHelperLaunch
+                case .logout: logoutHelperLaunch
+                }
+            }
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(
+            store: store,
+            client: client,
+            desktopRPCLaunch: desktopLaunch,
+            authenticationService: authenticationService,
+            credentialSource: .file
+        )
+
+        await runtime.start()
+
+        XCTAssertEqual(store.state.backend.phase, .ready)
+        XCTAssertEqual(store.state.authentication.phase, .authenticated(source: .file))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: loginMarker.path))
+
+        await runtime.logout()
+        XCTAssertEqual(store.state.backend.phase, .authenticationRequired(source: .file))
+        XCTAssertEqual(store.state.authentication.phase, .signedOut(source: .file))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: logoutMarker.path))
+
+        await runtime.relogin()
+        XCTAssertEqual(store.state.backend.phase, .ready)
+        XCTAssertEqual(store.state.authentication.phase, .authenticated(source: .file))
+
+        await runtime.shutdown()
+    }
+
+    func testAuthenticationReconnectFailureMarksBackendUnavailable() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("railgunx-auth-reconnect-\(UUID().uuidString)", isDirectory: true)
+        let failureMarker = directory.appendingPathComponent("restart-failed")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let desktopScript = #"""
+        my $failure = $ARGV[0];
+        exit 1 if -e $failure;
+        $| = 1;
+        while (<STDIN>) {
+          my ($id) = /\"id\"\s*:\s*\"([^\"]+)\"/;
+          my ($type) = /\"type\"\s*:\s*\"([^\"]+)\"/;
+          if ($type eq "initialize") {
+            print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"initialize\",\"success\":true,\"data\":{\"version\":1,\"capabilities\":[\"sessions\",\"interaction.approval\",\"interaction.clarification\"]}}\n";
+          } elsif ($type eq "get_state") {
+            print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"get_state\",\"success\":true,\"data\":{\"running\":false}}\n";
+          } else {
+            print "{\"type\":\"response\",\"id\":\"$id\",\"command\":\"$type\",\"success\":true,\"data\":{}}\n";
+          }
+        }
+        """#
+        let desktopLaunch = BackendProcessLaunch(
+            executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
+            arguments: ["-e", desktopScript, failureMarker.path]
+        )
+        let helperLaunch = BackendProcessLaunch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "touch \"$1\"",
+                "railgun-login-helper",
+                failureMarker.path,
+            ]
+        )
+        let client = RailgunRPCClient()
+        let authenticationService = RailgunAuthenticationService(
+            rpcClient: client,
+            desktopRPCLaunch: desktopLaunch,
+            helperLaunch: { _ in helperLaunch }
+        )
+        let store = RailgunAppStore()
+        let runtime = RailgunBackendRuntime(
+            store: store,
+            client: client,
+            desktopRPCLaunch: desktopLaunch,
+            authenticationService: authenticationService,
+            credentialSource: .file
+        )
+
+        await runtime.start()
+        XCTAssertEqual(store.state.backend.phase, .ready)
+
+        await runtime.login()
+
+        XCTAssertEqual(
+            store.state.backend.phase,
+            .failed("The backend could not be restarted after Devin authentication.")
+        )
+        XCTAssertEqual(
+            store.state.authentication.phase,
+            .failed(message: "Devin authentication completed, but Railgun could not reconnect.")
+        )
+
+        await runtime.shutdown()
+    }
+
+    func testSettingsExposeDevinLoginLogoutAndReloginActions() throws {
+        let source = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunAuthenticationSettings.swift"),
+            encoding: .utf8
+        )
+        let settingsSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunSettingsView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("settings-devin-login"))
+        XCTAssertTrue(source.contains("settings-devin-logout"))
+        XCTAssertTrue(source.contains("Log in again"))
+        XCTAssertTrue(settingsSource.contains("RailgunAuthenticationSettings"))
+        XCTAssertTrue(settingsSource.contains("await backendRuntime.login()"))
+        XCTAssertTrue(settingsSource.contains("await backendRuntime.logout()"))
+    }
+
     func testTaskShellNeverShowsASelectionRequiredPlaceholder() throws {
         let source = try String(
             contentsOf: repositoryRoot
@@ -1470,7 +1645,7 @@ final class RailgunXAppTests: XCTestCase {
             RailgunBackendPresentation(phase: .authenticationRequired(source: .file)),
             .authenticationRequired(
                 title: "Authentication Required",
-                message: "Sign in with your provider outside Railgun, then retry. Provider sign-in is coming in a later milestone."
+                message: "Railgun opens Devin in your default browser so you can grant access, then reconnects automatically."
             )
         )
         XCTAssertEqual(
@@ -1712,8 +1887,8 @@ final class RailgunXAppTests: XCTestCase {
             "swiftui-shimmer.revision": records["swiftui-shimmer"]?.revision ?? "",
             "sparkle.version": records["sparkle"]?.version ?? "",
             "sparkle.revision": records["sparkle"]?.revision ?? "",
-            "crate:widevin@0.2.0.version": records["crate:widevin@0.2.0"]?.version ?? "",
-            "crate:widevin@0.2.0.kind": records["crate:widevin@0.2.0"]?.kind.rawValue ?? "",
+            "crate:widevin@0.2.1.version": records["crate:widevin@0.2.1"]?.version ?? "",
+            "crate:widevin@0.2.1.kind": records["crate:widevin@0.2.1"]?.kind.rawValue ?? "",
             "railgun-icon-artwork.copyright": records["railgun-icon-artwork"]?.copyright ?? "",
             "railgun.license": records["railgun"]?.license ?? ""
         ]
@@ -1734,8 +1909,8 @@ final class RailgunXAppTests: XCTestCase {
                 "swiftui-shimmer.revision": "0226e21f9bf355d40e07e5f5e1c33679d50e167f",
                 "sparkle.version": "2.9.4",
                 "sparkle.revision": "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
-                "crate:widevin@0.2.0.version": "0.2.0",
-                "crate:widevin@0.2.0.kind": "rust-crate",
+                "crate:widevin@0.2.1.version": "0.2.1",
+                "crate:widevin@0.2.1.kind": "rust-crate",
                 "railgun-icon-artwork.copyright": "© 2026 Dante Teo",
                 "railgun.license": "MIT"
             ]

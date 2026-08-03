@@ -2633,9 +2633,9 @@ dependencies = [
 
 [[package]]
 name = "widevin"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "765107ff69a1e71cc5371453c82af2cdf9dee1818fa87f38a22be13b7ea8f771"
+checksum = "497b025c3929c24c0acbc1d2e6b2e43f36c585bf85e2dfbe1a0cb53b371f6b9d"
 dependencies = [
  "async-stream",
  "base64",

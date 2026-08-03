@@ -31,7 +31,7 @@ struct AppLifecycleConfiguration: Equatable {
     )
 }
 
-struct BackendLaunchConfiguration: Equatable {
+struct BackendLaunchConfiguration: Equatable, Sendable {
     enum Mode: String, Equatable {
         case bundled
         case source
@@ -43,11 +43,18 @@ struct BackendLaunchConfiguration: Equatable {
     let mode: Mode
     let sourceRoot: URL?
     let mockScenario: String?
+    let credentialSource: RailgunRPCCredentialSource
 
-    private init(mode: Mode, sourceRoot: URL?, mockScenario: String?) {
+    private init(
+        mode: Mode,
+        sourceRoot: URL?,
+        mockScenario: String?,
+        credentialSource: RailgunRPCCredentialSource
+    ) {
         self.mode = mode
         self.sourceRoot = sourceRoot
         self.mockScenario = mockScenario
+        self.credentialSource = credentialSource
     }
 
     init(
@@ -66,7 +73,8 @@ struct BackendLaunchConfiguration: Equatable {
             self.init(
                 mode: .source,
                 sourceRoot: Self.sourceRoot(environment: environment, arguments: arguments),
-                mockScenario: nil
+                mockScenario: nil,
+                credentialSource: Self.credentialSourceFromEnvironment(environment)
             )
         case Mode.mock.rawValue:
             let requestedScenario = Self.configurationValue(
@@ -78,10 +86,16 @@ struct BackendLaunchConfiguration: Equatable {
             self.init(
                 mode: .mock,
                 sourceRoot: Self.sourceRoot(environment: environment, arguments: arguments),
-                mockScenario: Self.mockScenario(from: requestedScenario)
+                mockScenario: Self.mockScenario(from: requestedScenario),
+                credentialSource: Self.credentialSourceFromEnvironment(environment)
             )
         default:
-            self.init(mode: .bundled, sourceRoot: nil, mockScenario: nil)
+            self.init(
+                mode: .bundled,
+                sourceRoot: nil,
+                mockScenario: nil,
+                credentialSource: Self.credentialSourceFromEnvironment(environment)
+            )
         }
     }
 
@@ -186,6 +200,35 @@ struct BackendLaunchConfiguration: Equatable {
         }
     }
 
+    func authenticationHelperLaunch(
+        resourcesDirectory: URL,
+        for action: RailgunAuthenticationAction
+    ) -> BackendProcessLaunch? {
+        switch mode {
+        case .bundled:
+            return RailgunBundledBackendLaunchFactory(resourcesDirectory: resourcesDirectory)
+                .authenticationHelperLaunch(for: action)
+        case .source:
+            guard let sourceRoot else { return nil }
+            return sourceLaunch(
+                root: sourceRoot,
+                executable: sourceRoot.appendingPathComponent("target/debug/railgun-backend"),
+                arguments: [action.rawValue]
+            )
+        case .mock:
+            return nil
+        }
+    }
+
+    private static func credentialSourceFromEnvironment(
+        _ environment: [String: String]
+    ) -> RailgunRPCCredentialSource {
+        let hasEnvironmentToken = environment["DEVIN_TOKEN"]
+            .map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            ?? false
+        return hasEnvironmentToken ? .environment : .file
+    }
+
     private func sourceLaunch(
         root: URL,
         executable: URL,
@@ -248,10 +291,13 @@ final class RailgunBackendRuntime {
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
+    private let authenticationService: RailgunAuthenticationService?
+    private let credentialSource: RailgunRPCCredentialSource?
     private let store: RailgunAppStore
     private let deliveryService: RailgunSessionService
     private let deliveryTracker = RailgunScheduledDeliveryTracker()
     private var isConnectionAttemptInFlight = false
+    private var isAuthenticationOperationInFlight = false
     private var isObservingScheduledDeliveries = false
     private var pendingAssistantDelta = ""
     private var pendingDeltaFlush: Task<Void, Never>?
@@ -260,15 +306,40 @@ final class RailgunBackendRuntime {
     private nonisolated let interactionObservation = RailgunEventObservation()
     private nonisolated let deliveryObservation = RailgunEventObservation()
 
-    init(
+    convenience init(
         configuration: BackendLaunchConfiguration,
         store: RailgunAppStore,
         resourcesDirectory: URL = Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")
     ) {
         let client = RailgunRPCClient()
+        let launch = configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory)
+        let authenticationService = Self.makeAuthenticationService(
+            configuration: configuration,
+            client: client,
+            desktopRPCLaunch: launch,
+            resourcesDirectory: resourcesDirectory
+        )
+        self.init(
+            store: store,
+            client: client,
+            desktopRPCLaunch: launch,
+            authenticationService: authenticationService,
+            credentialSource: configuration.mode == .mock ? nil : configuration.credentialSource
+        )
+    }
+
+    init(
+        store: RailgunAppStore,
+        client: RailgunRPCClient,
+        desktopRPCLaunch: BackendProcessLaunch?,
+        authenticationService: RailgunAuthenticationService?,
+        credentialSource: RailgunRPCCredentialSource?
+    ) {
         self.client = client
         self.store = store
-        self.launch = configuration.desktopRPCLaunch(resourcesDirectory: resourcesDirectory)
+        self.launch = desktopRPCLaunch
+        self.authenticationService = authenticationService
+        self.credentialSource = credentialSource
         let controlsCoordinator = RailgunControlsCoordinator(
             store: store,
             service: RailgunControlsService(rpcClient: client)
@@ -317,6 +388,35 @@ final class RailgunBackendRuntime {
         observeInteractions()
     }
 
+    private static func makeAuthenticationService(
+        configuration: BackendLaunchConfiguration,
+        client: RailgunRPCClient,
+        desktopRPCLaunch: BackendProcessLaunch?,
+        resourcesDirectory: URL
+    ) -> RailgunAuthenticationService? {
+        guard let desktopRPCLaunch,
+              let loginLaunch = configuration.authenticationHelperLaunch(
+                  resourcesDirectory: resourcesDirectory,
+                  for: .login
+              ),
+              let logoutLaunch = configuration.authenticationHelperLaunch(
+                  resourcesDirectory: resourcesDirectory,
+                  for: .logout
+              )
+        else { return nil }
+
+        return RailgunAuthenticationService(
+            rpcClient: client,
+            desktopRPCLaunch: desktopRPCLaunch,
+            helperLaunch: { action in
+                switch action {
+                case .login: loginLaunch
+                case .logout: logoutLaunch
+                }
+            }
+        )
+    }
+
     deinit {
         terminationObservationTask.cancel()
         eventObservation.cancel()
@@ -348,18 +448,13 @@ final class RailgunBackendRuntime {
         store.send(.backend(.starting))
         do {
             let handshake = try await (restarting ? client.restart(launch) : client.start(launch))
-            store.send(.backend(.ready(capabilities: handshake.capabilities)))
-            await establishDeliveryBaseline()
-            async let controls: Void = controlsCoordinator.refresh()
-            async let sessions: Void = sessionCoordinator.refresh()
-            async let scheduled: Void = scheduledCoordinator.refresh()
-            _ = await (controls, sessions, scheduled)
-            await sessionCoordinator.create(modelID: store.state.controls.defaultModelID)
-            await refreshForNewScheduledDelivery()
-            observeScheduledDeliveries()
+            await becomeReady(handshake)
         } catch let error as RailgunRPCError {
             if case let .authenticationRequired(source) = error {
                 store.send(.backend(.authenticationRequired(source: source)))
+                if source == .file {
+                    await authenticate(.login, automatic: true)
+                }
             } else {
                 store.send(.backend(.failed(message: "The backend could not be started.")))
             }
@@ -368,9 +463,97 @@ final class RailgunBackendRuntime {
         }
     }
 
+    func login() async {
+        await authenticate(.login)
+    }
+
+    func relogin() async {
+        await login()
+    }
+
+    func logout() async {
+        await authenticate(.logout)
+    }
+
+    private func authenticate(
+        _ action: RailgunAuthenticationAction,
+        automatic: Bool = false
+    ) async {
+        guard automatic || !isConnectionAttemptInFlight else { return }
+        guard !isAuthenticationOperationInFlight else { return }
+        guard let authenticationService else {
+            store.send(.authentication(.unavailable))
+            return
+        }
+        if credentialSource == .environment {
+            return
+        }
+
+        isAuthenticationOperationInFlight = true
+        defer { isAuthenticationOperationInFlight = false }
+
+        store.send(.authentication(
+            action == .login ? .loginStarted : .logoutStarted
+        ))
+        do {
+            let outcome = try await authenticationService.authenticate(action)
+            switch outcome {
+            case .ready:
+                guard let handshake = await client.negotiatedHandshake else {
+                    throw RailgunAuthenticationError.backendRestartFailed
+                }
+                await becomeReady(handshake)
+            case let .authenticationRequired(source):
+                store.send(.backend(.authenticationRequired(source: source)))
+            }
+        } catch let error as RailgunAuthenticationError {
+            if case .backendRestartFailed = error {
+                store.send(.backend(.failed(
+                    message: "The backend could not be restarted after Devin authentication."
+                )))
+            }
+            store.send(.authentication(.failed(message: Self.authenticationMessage(for: error))))
+        } catch {
+            store.send(.authentication(.failed(
+                message: "Devin authentication could not be completed."
+            )))
+        }
+    }
+
+    private func becomeReady(_ handshake: RailgunRPCHandshake) async {
+        store.send(.backend(.ready(capabilities: handshake.capabilities)))
+        store.send(.authentication(.authenticated(source: credentialSource)))
+        await establishDeliveryBaseline()
+        async let controls: Void = controlsCoordinator.refresh()
+        async let sessions: Void = sessionCoordinator.refresh()
+        async let scheduled: Void = scheduledCoordinator.refresh()
+        _ = await (controls, sessions, scheduled)
+        await sessionCoordinator.create(modelID: store.state.controls.defaultModelID)
+        await refreshForNewScheduledDelivery()
+        observeScheduledDeliveries()
+    }
+
+    private static func authenticationMessage(for error: RailgunAuthenticationError) -> String {
+        switch error {
+        case .operationInProgress:
+            "Another Devin authentication operation is already in progress."
+        case .helperFailedToStart:
+            "Railgun could not start the Devin sign-in flow."
+        case .helperExited:
+            "Devin sign-in did not complete. Try again to reopen the browser."
+        case .helperTerminated:
+            "The Devin sign-in flow was interrupted. Try again."
+        case .backendRestartFailed:
+            "Devin authentication completed, but Railgun could not reconnect."
+        case .shuttingDown:
+            "Railgun is closing before Devin authentication could finish."
+        }
+    }
+
     func shutdown() async {
         deliveryObservation.cancel()
         isObservingScheduledDeliveries = false
+        await authenticationService?.shutdown()
         await client.shutdown()
     }
 
@@ -593,7 +776,7 @@ enum RailgunBackendPresentation: Equatable {
     private static func authenticationMessage(for source: RailgunRPCCredentialSource) -> String {
         switch source {
         case .file:
-            "Sign in with your provider outside Railgun, then retry. Provider sign-in is coming in a later milestone."
+            "Railgun opens Devin in your default browser so you can grant access, then reconnects automatically."
         case .environment:
             "Update DEVIN_TOKEN in the environment that launches Railgun, then relaunch Railgun."
         }
@@ -2015,6 +2198,7 @@ struct RailgunXApp: App {
         Window("Settings", id: RailgunSettingsView.windowID) {
             RailgunSettingsView(
                 appStore: appStore,
+                backendRuntime: backendRuntime,
                 sessionCoordinator: backendRuntime.sessionCoordinator,
                 controlsCoordinator: backendRuntime.controlsCoordinator,
                 personalizationStore: backendRuntime.personalizationStore,
@@ -2059,11 +2243,11 @@ struct RailgunXApp: App {
         case let .authenticationRequired(title, message):
             RailgunBackendStatusView(
                 title: title,
-                message: message,
+                message: authenticationStatusMessage(fallback: message),
                 systemImage: "key.fill",
-                retryTitle: "Retry",
-                canRetry: availability.canRetry,
-                retry: restartBackend
+                retryTitle: authenticationRetryTitle,
+                canRetry: availability.canRetry && !appStore.state.authentication.phase.isOperationInFlight,
+                retry: recoverAuthentication
             )
         case let .unavailable(title, message, systemImage, retryTitle):
             RailgunBackendStatusView(
@@ -2079,6 +2263,39 @@ struct RailgunXApp: App {
 
     private func restartBackend() {
         Task { await backendRuntime.restart() }
+    }
+
+    private var authenticationRetryTitle: String {
+        if appStore.state.authentication.phase.isOperationInFlight {
+            return "Waiting for Devin…"
+        }
+        if case .authenticationRequired(source: .file) = appStore.state.backend.phase {
+            return "Log In to Devin"
+        }
+        return "Retry"
+    }
+
+    private func authenticationStatusMessage(fallback: String) -> String {
+        if appStore.state.authentication.phase.isOperationInFlight {
+            return "Complete the Devin sign-in in the browser window opened by Railgun."
+        }
+        if case let .failed(message) = appStore.state.authentication.phase {
+            return message
+        }
+        return fallback
+    }
+
+    private func recoverAuthentication() {
+        guard case let .authenticationRequired(source) = appStore.state.backend.phase else {
+            restartBackend()
+            return
+        }
+        switch source {
+        case .file:
+            Task { await backendRuntime.login() }
+        case .environment:
+            restartBackend()
+        }
     }
 }
 

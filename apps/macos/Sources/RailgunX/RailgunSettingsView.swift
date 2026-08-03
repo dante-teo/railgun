@@ -50,6 +50,7 @@ struct RailgunSettingsView: View {
 
     @Bindable private var appStore: RailgunAppStore
     @Bindable private var personalizationStore: RailgunPersonalizationStore
+    private let backendRuntime: RailgunBackendRuntime
     private let sessionCoordinator: RailgunSessionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
     private let backgroundSchedulerService: RailgunBackgroundSchedulerService?
@@ -58,6 +59,7 @@ struct RailgunSettingsView: View {
 
     init(
         appStore: RailgunAppStore,
+        backendRuntime: RailgunBackendRuntime,
         sessionCoordinator: RailgunSessionCoordinator,
         controlsCoordinator: RailgunControlsCoordinator,
         personalizationStore: RailgunPersonalizationStore,
@@ -65,6 +67,7 @@ struct RailgunSettingsView: View {
     ) {
         _appStore = Bindable(appStore)
         _personalizationStore = Bindable(personalizationStore)
+        self.backendRuntime = backendRuntime
         self.sessionCoordinator = sessionCoordinator
         self.controlsCoordinator = controlsCoordinator
         self.backgroundSchedulerService = backgroundSchedulerService
@@ -179,6 +182,17 @@ struct RailgunSettingsView: View {
 
     private var generalDetail: some View {
         Form {
+            RailgunAuthenticationSettings(
+                state: appStore.state.authentication,
+                backendPhase: appStore.state.backend.phase,
+                login: {
+                    Task { await backendRuntime.login() }
+                },
+                logout: {
+                    Task { await backendRuntime.logout() }
+                }
+            )
+
             Section {
                 Picker("Default model", selection: defaultModelID) {
                     Text("Choose a model").tag(nil as String?)

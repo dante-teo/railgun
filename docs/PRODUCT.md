@@ -26,6 +26,15 @@ wants to discover provider changes. If that refresh no longer offers the
 current model, Railgun does not silently change the task; it keeps the picker
 usable so the user can select a replacement.
 
+**Settings → General → Devin** owns the file-backed authentication lifecycle.
+When that credential is missing or rejected, Railgun opens Devin in the
+default browser and reconnects after the browser-backed helper completes. The
+same page provides **Log in**, **Log out**, and **Log in again**. An explicitly
+configured `DEVIN_TOKEN` takes precedence over the file credential and remains
+managed by the launch environment. If authentication finishes but the backend
+cannot reconnect, Railgun presents **Backend Unavailable** and **Retry** rather
+than keeping an unusable task shell visible.
+
 Archiving a task immediately moves it out of the active list. If the backend
 rejects the archive, Railgun restores the task in place, including its active
 selection and visible transcript.

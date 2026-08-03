@@ -330,13 +330,18 @@ command routing. Treat the following as implementation invariants:
   authentication, launch failure, and post-ready disconnection with
   `ContentUnavailableView` and a visible retry or restart button.
 - Preserve the typed authentication credential source. File-backed failures
-  direct the user to sign in outside Railgun; environment-backed failures
-  direct them to update `DEVIN_TOKEN` in the launch environment and relaunch.
-  Both a missing credential and a provider HTTP 401 must emit
-  `startup_status: authentication_required` with that source. A rejected
-  file-backed credential is cleared before recovery; an environment credential
-  is never mutated by the backend. Provider sign-in/out remains deferred to
-  SWFT-057.
+  open Devin in the default browser, wait for the browser-backed login helper,
+  and restart the RPC backend after the credential is verified. Environment-
+  backed failures direct the user to update `DEVIN_TOKEN` in the launch
+  environment and relaunch. Both a missing credential and a provider HTTP 401
+  must emit `startup_status: authentication_required` with that source. A
+  rejected file-backed credential is cleared before recovery; an environment
+  credential is never mutated by the backend. Settings exposes Login, Log out,
+  and Log in again for file-backed credentials.
+- If a browser-backed authentication helper completes but the fresh RPC
+  generation cannot start, mark the backend unavailable and keep its Retry
+  recovery action visible. Do not leave the task shell in a stale `.ready`
+  state while subsequent RPC requests can no longer succeed.
 - Keep restart single-flight and establish a fresh RPC generation. After it is
   ready, refresh both task summaries and task controls from the backend.
 - Install exactly one event consumer and one interaction consumer for the

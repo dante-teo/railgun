@@ -31,6 +31,23 @@ instruction state are captured at backend startup. Restart the backend before
 claiming a change is active. Diagnose configuration, MCP, extension, cron, and
 desktop failures from inspected state and logs rather than assumptions.
 
+## Devin authentication recovery
+
+The file-backed Devin credential is stored at `~/.railgun/devin-token`.
+`DEVIN_TOKEN`, when present in the environment that launches Railgun, takes
+precedence and is never changed by the app. The standalone backend `login` and
+`logout` modes manage the file-backed credential; the macOS app invokes the
+same browser-backed flow automatically when the file credential is missing or
+rejected. Settings → General → Devin exposes Log in, Log out, and Log in again
+for that file-backed flow.
+
+After a successful browser helper operation, Railgun must establish a fresh
+RPC backend generation before returning to the task shell. If that reconnect
+fails, the app reports **Backend Unavailable** and keeps **Retry** available;
+it does not present the old task shell as ready or replay a failed task. Never
+include the contents of `~/.railgun/devin-token` or `DEVIN_TOKEN` in diagnostic
+output.
+
 The renderer-facing configuration RPC is a security boundary: `config_get` and
 `config_update` never return the stored `mcpServers` object. MCP commands expose
 only the dedicated projection, where environment variable names may be shown

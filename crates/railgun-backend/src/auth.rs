@@ -2,8 +2,8 @@ use crate::paths::RailgunPaths;
 use anyhow::{Context, Result, bail};
 use std::{error::Error, fmt, sync::Arc};
 use widevin::{
-    DevinError, DevinProvider, DevinProviderOptions, OpenBrowser, create_devin_provider,
-    create_file_token_store, create_memory_token_store,
+    DevinClientMetadata, DevinError, DevinProvider, DevinProviderOptions, OpenBrowser,
+    create_devin_provider, create_file_token_store, create_memory_token_store,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,6 +54,14 @@ pub struct Authenticated {
     pub source: CredentialSource,
 }
 
+fn devin_client_metadata() -> DevinClientMetadata {
+    DevinClientMetadata {
+        ide_name: Some("devin".into()),
+        ide_type: Some("local".into()),
+        ..Default::default()
+    }
+}
+
 pub async fn provider(paths: &RailgunPaths, desktop: bool) -> Result<Authenticated> {
     let file_store = create_file_token_store(&paths.token);
     let environment = std::env::var("DEVIN_TOKEN")
@@ -71,6 +79,7 @@ pub async fn provider(paths: &RailgunPaths, desktop: bool) -> Result<Authenticat
     let provider = create_devin_provider(DevinProviderOptions {
         token_store: Some(store),
         open_browser: Some(browser_opener()),
+        client_metadata: Some(devin_client_metadata()),
         ..Default::default()
     });
     if file_store.get().await?.is_none() && matches!(source, CredentialSource::File) {
@@ -91,6 +100,7 @@ pub async fn login(paths: &RailgunPaths) -> Result<()> {
     let provider = create_devin_provider(DevinProviderOptions {
         token_store: Some(store.clone()),
         open_browser: Some(browser_opener()),
+        client_metadata: Some(devin_client_metadata()),
         ..Default::default()
     });
     provider.login().await?;
@@ -181,6 +191,14 @@ mod tests {
             let error = authentication_required(source);
             assert_eq!(authentication_required_source(&error), Some(source));
         }
+    }
+
+    #[test]
+    fn client_metadata_identifies_railgun_as_devin_local() {
+        let metadata = devin_client_metadata();
+
+        assert_eq!(metadata.ide_name.as_deref(), Some("devin"));
+        assert_eq!(metadata.ide_type.as_deref(), Some("local"));
     }
 
     #[tokio::test]
