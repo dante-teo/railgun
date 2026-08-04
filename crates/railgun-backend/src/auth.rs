@@ -55,11 +55,7 @@ pub struct Authenticated {
 }
 
 fn devin_client_metadata() -> DevinClientMetadata {
-    DevinClientMetadata {
-        ide_name: Some("devin".into()),
-        ide_type: Some("local".into()),
-        ..Default::default()
-    }
+    DevinClientMetadata::default()
 }
 
 pub async fn provider(paths: &RailgunPaths, desktop: bool) -> Result<Authenticated> {
@@ -194,11 +190,10 @@ mod tests {
     }
 
     #[test]
-    fn client_metadata_identifies_railgun_as_devin_local() {
+    fn client_metadata_uses_the_provider_compatible_defaults() {
         let metadata = devin_client_metadata();
 
-        assert_eq!(metadata.ide_name.as_deref(), Some("devin"));
-        assert_eq!(metadata.ide_type.as_deref(), Some("local"));
+        assert_eq!(metadata, DevinClientMetadata::default());
     }
 
     #[tokio::test]
