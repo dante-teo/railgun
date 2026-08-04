@@ -10,7 +10,7 @@ settings:
     ARCHS: arm64
     SDKROOT: macosx
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: 0.10.11
+    MARKETING_VERSION: 0.10.12
     CURRENT_PROJECT_VERSION: 1
 
 packages:
