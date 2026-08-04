@@ -30,6 +30,12 @@ The release workflow archives, signs, notarizes, staples, and validates the
 native app, its arm64 Rust backend, and its Sparkle framework. It publishes the
 same arm64 ZIP and signed appcast assets as previous releases.
 
+Notarization-ticket validation runs immediately after stapling, before the app
+is copied and zipped. The later artifact smoke check verifies the staged app's
+Gatekeeper assessment, code signatures, backend, icon assets, archive layout,
+and appcast; it deliberately does not issue a second `stapler validate` call.
+This avoids making the release depend on a redundant CloudKit ticket lookup.
+
 ## Native UI toolchain
 
 The `build-railgun` release job runs on GitHub Actions `macos-26` and verifies

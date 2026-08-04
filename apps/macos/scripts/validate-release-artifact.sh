@@ -47,7 +47,6 @@ backend="$app/Contents/Resources/backend/railgun-backend"
 [[ -x "$backend" ]] || { printf 'error: Rust backend is missing.\n' >&2; exit 1; }
 /usr/bin/codesign --verify --strict --verbose=2 "$backend"
 spctl --assess --type execute --verbose=2 "$app"
-xcrun stapler validate "$app"
 "$validate_backend" --app-bundle "$app"
 "$validate_icon" "$app"
 [[ -d "$app/Contents/Frameworks/Sparkle.framework" ]] || { printf 'error: Sparkle.framework is missing.\n' >&2; exit 1; }

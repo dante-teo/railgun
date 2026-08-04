@@ -1832,6 +1832,17 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(releasingGuide.contains("`macos-15`"))
     }
 
+    func testReleaseDocumentationSeparatesStaplingFromTheArtifactSmokeCheck() throws {
+        let releasingGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/RELEASING.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(releasingGuide.contains("immediately after stapling"))
+        XCTAssertTrue(releasingGuide.contains("Gatekeeper assessment"))
+        XCTAssertTrue(releasingGuide.contains("second `stapler validate`"))
+    }
+
     func testNativeMockBackendRunsDirectlyFromItsRustFixture() throws {
         let mockBackend = try String(
             contentsOf: repositoryRoot.appendingPathComponent("crates/railgun-mock-backend/src/main.rs"),
@@ -1860,6 +1871,21 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertTrue(validation.contains("sparkle:edSignature="))
         XCTAssertFalse(validation.contains("sparkle:signature="))
+    }
+
+    func testReleaseSmokeCheckDoesNotRepeatTheNotarizationTicketCloudQuery() throws {
+        let validation = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/validate-release-artifact.sh"),
+            encoding: .utf8
+        )
+        let archive = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/scripts/archive-release.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(validation.contains("xcrun stapler validate"))
+        XCTAssertTrue(archive.contains("xcrun stapler staple \"$app\""))
+        XCTAssertTrue(archive.contains("xcrun stapler validate \"$app\""))
     }
 
     func testLegalNoticesAreBundledWithTheApplication() throws {
