@@ -71,11 +71,28 @@ available so the user can choose a replacement.
 When a user supplies an eligible absolute path in their home directory, the
 agent can read UTF-8 text files through a local tool; it should not ask for an
 upload solely because a file is local.
-The tool rejects hidden paths, `~/Library`, credential- or secret-like
-filenames, private keys and keystores, files outside the configured home, and
-files larger than 1 MB before reading them. The context ring shows the latest
-provider usage while it is available and reports **Not measured yet** when the
-provider has supplied no measurement.
+The tool accepts regular files throughout the user's home directory, including
+hidden paths and `~/Library`; macOS privacy controls may still require the user
+to grant Railgun folder or Full Disk Access. Reads are bounded in the agent
+context, rather than rejected because the file is large. The context ring shows
+the latest provider usage while it is available and reports **Not measured yet**
+when the provider has supplied no measurement.
+
+### Command approval
+
+Settings → General applies its command-approval mode to the next desktop task:
+
+- **Ask for approval** presents a desktop confirmation for each flagged shell
+  command.
+- **Approve for me** sends the flagged command and the original user task to
+  the selected reviewer model. It runs only when the reviewer returns an exact
+  approval; an ambiguous response, missing task context, or reviewer failure
+  rejects the command.
+- **Full access** runs flagged shell commands without a confirmation prompt.
+
+Railgun always blocks the small set of system- or data-destroying command
+patterns regardless of the selected mode. Scheduled and delegated tasks cannot
+request desktop approval and do not use model-assisted approval.
 
 ### Archived task browser
 
@@ -193,11 +210,13 @@ transcript in provider-call order. MCP and JavaScript extension runtimes are
 not part of this restored tool surface.
 
 Local file tools canonicalize paths and operate only on regular files or
-directories under the user's home directory. Hidden paths, `Library`,
-credential- and secret-like names, private keys, and keystores are protected.
-Text reads reject files over 1 MB before allocating their contents and return a
-bounded UTF-8 result. Shell commands hard-block destructive patterns; dangerous
-commands require a desktop approval, which applies only to the active session.
+directories under the user's home directory, including hidden paths and
+`Library`. macOS privacy controls may require user-granted folder access or
+Full Disk Access. Text reads return a bounded result rather than rejecting a
+large file. Shell commands hard-block destructive patterns; dangerous commands
+follow the selected approval mode and approvals apply only to the active session.
+In model-assisted mode, the reviewer receives both the command and the user task
+that authorized the run; it must return an exact approval for the command to run.
 Scheduled and delegated runs cannot wait for desktop approval or clarification.
 
 Cron tool schedules use five fields and run in local time. When the background

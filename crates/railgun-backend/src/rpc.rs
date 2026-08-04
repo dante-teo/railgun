@@ -5,7 +5,7 @@ use crate::{
     protocol::{CAPABILITIES, Command, VERSION},
     storage::{Session, Store},
     tools::{
-        self, InteractionResponse, Interactions, ToolContext, is_protected_cron_job,
+        self, ApprovalMode, InteractionResponse, Interactions, ToolContext, is_protected_cron_job,
         visible_cron_jobs, with_internal_cron_jobs,
     },
     transcript,
@@ -647,6 +647,8 @@ impl Coordinator {
             todos: todos.clone(),
             interactions: Some(self.interactions.clone()),
             approvals: self.session_approvals.clone(),
+            approval_mode: approval_mode_for(&self.config),
+            user_intent: Some(message.clone()),
             delegation_depth: 0,
             delegation_slots: Arc::new(Semaphore::new(3)),
             provider: Some(provider.clone()),
@@ -1499,6 +1501,21 @@ fn safe_config(config: &Value) -> Value {
     Value::Object(safe)
 }
 
+fn approval_mode_for(config: &Value) -> ApprovalMode {
+    match (
+        config.get("approvalMode").and_then(Value::as_str),
+        config.get("reviewerModel").and_then(Value::as_str),
+    ) {
+        (Some("off"), _) => ApprovalMode::Full,
+        (Some("smart"), Some(reviewer_model)) if !reviewer_model.trim().is_empty() => {
+            ApprovalMode::Smart {
+                reviewer_model: reviewer_model.into(),
+            }
+        }
+        _ => ApprovalMode::Manual,
+    }
+}
+
 fn validate_config_patch(patch: &serde_json::Map<String, Value>) -> Result<()> {
     if patch.contains_key("mcpServers") {
         bail!("mcpServers must be changed with MCP commands");
@@ -1899,6 +1916,8 @@ async fn run_scheduled_job(
         todos: Arc::new(Mutex::new(Vec::new())),
         interactions: None,
         approvals: Arc::new(Mutex::new(std::collections::HashSet::new())),
+        approval_mode: ApprovalMode::Manual,
+        user_intent: None,
         delegation_depth: 0,
         delegation_slots: Arc::new(Semaphore::new(3)),
         provider: Some(authenticated.provider.clone()),
@@ -1977,6 +1996,8 @@ async fn run_dream_job(
             todos: Arc::new(Mutex::new(Vec::new())),
             interactions: None,
             approvals: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            approval_mode: ApprovalMode::Manual,
+            user_intent: None,
             delegation_depth: 0,
             delegation_slots: Arc::new(Semaphore::new(3)),
             provider: None,
@@ -2141,6 +2162,24 @@ mod tests {
             !serde_json::to_string(&projected)
                 .unwrap()
                 .contains("secret")
+        );
+    }
+
+    #[test]
+    fn approval_mode_is_applied_to_the_next_desktop_run() {
+        assert_eq!(
+            approval_mode_for(&json!({"approvalMode": "off"})),
+            ApprovalMode::Full
+        );
+        assert_eq!(
+            approval_mode_for(&json!({"approvalMode": "smart", "reviewerModel": "reviewer"})),
+            ApprovalMode::Smart {
+                reviewer_model: "reviewer".into()
+            }
+        );
+        assert_eq!(
+            approval_mode_for(&json!({"approvalMode": "smart"})),
+            ApprovalMode::Manual
         );
     }
 

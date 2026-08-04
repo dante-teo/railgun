@@ -60,7 +60,11 @@ keyboard, and VoiceOver behavior. Appearance persists an
 **Auto**, **Light**, or **Dark** preference: Auto follows macOS, while Light and
 Dark override both Railgun windows. General uses a native grouped Form for
 command permissions: ask for approval, model-assisted approval, or full access
-(while retaining backend hardline protections). Default model for new tasks is
+(while retaining backend hardline protections). Model-assisted approval receives
+the flagged command and the original user task, then must return an exact
+approval; it fails closed if that task context is unavailable or its response is
+ambiguous. Full access suppresses approval prompts but never overrides the
+backend's hard-blocked destructive patterns. Default model for new tasks is
 persisted separately from the active task's model and never changes that active
 task. The Advisor requires a selected advisor model before it can be enabled.
 Clearing the model picker removes the persisted reviewer model. Keep the system
@@ -309,14 +313,14 @@ local path. This is a deliberate local capability, not an upload workflow:
 
 - For an eligible absolute path supplied by the user, call `read_file` before
   saying the file is unavailable or asking the user to upload it. The tool
-  reads UTF-8 text.
-- Canonicalize the path before access. Only regular files inside the configured
-  user-home directory are eligible, and files larger than 1 MB are refused
-  before their contents are read.
-- Protect secrets by refusing every hidden path component, the top-level
-  `Library` directory, private-key and keystore extensions, common private-key
-  filenames, and filenames containing `credential`, `password`, `secret`, or
-  `token`. A refusal must not expose file contents to the provider.
+  reads text.
+- Canonicalize the path before access. Regular files inside the user's home
+  directory are eligible, including hidden paths and `Library`. Large files are
+  truncated for agent context rather than rejected. macOS privacy controls may
+  still require the user to grant Railgun folder access or Full Disk Access.
+- `write_file` and `list_directory` share the same home-directory boundary.
+  The backend never bypasses macOS privacy controls, and paths outside the
+  user's home directory remain unavailable through these file tools.
 - Keep the boundary visible in agent-facing guidance and tool descriptions so
   the model neither promises unsupported access nor treats a local path as
   inaccessible by default.

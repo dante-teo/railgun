@@ -22,6 +22,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Railgun needs access to files in your Desktop folder to complete tasks you ask it to perform.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Railgun needs access to files in your Documents folder to complete tasks you ask it to perform.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Railgun needs access to files in your Downloads folder to complete tasks you ask it to perform.</string>
 	<key>SUAllowsAutomaticUpdates</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
