@@ -296,6 +296,65 @@ final class RailgunTranscriptViewportTests: XCTestCase {
         ))
     }
 
+    func testTranscriptResponsePasteboardPreservesStoredMarkdownExactly() {
+        let markdown = "# Response\n\n```swift\nlet value = 1\n```\n\n| Name | Value |\n| --- | --- |\n| Railgun | Ready |\n"
+        let pasteboard = NSPasteboard(name: .init("RailgunXTests-\(UUID().uuidString)"))
+        let copier = RailgunTranscriptResponsePasteboard(pasteboard: pasteboard)
+
+        XCTAssertTrue(copier.copy(markdown))
+        XCTAssertEqual(pasteboard.string(forType: .string), markdown)
+    }
+
+    func testTranscriptResponseActionsAreVisibleOnlyForAssistantRows() {
+        let assistant = message(id: "assistant-response", order: 1)
+        let user = RailgunTranscriptMessage(
+            id: "user-prompt",
+            role: .user,
+            text: "User prompt",
+            status: .complete,
+            order: 1,
+            messageID: nil,
+            branchable: false,
+            startedAt: nil,
+            completedAt: nil
+        )
+
+        XCTAssertTrue(RailgunTranscriptMessageRow.showsResponseActions(for: assistant))
+        XCTAssertFalse(RailgunTranscriptMessageRow.showsResponseActions(for: user))
+    }
+
+    func testTranscriptResponseSelectionSurfaceUsesOneSelectableNativeTextView() async throws {
+        let markdown = "# Response\n\n```swift\nlet value = 1\n```\n"
+        let hostingView = NSHostingView(
+            rootView: RailgunTranscriptResponseSelectionSurface(text: markdown)
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        try await settle(hostingView)
+
+        let textViews = allTextViews(in: hostingView)
+        XCTAssertEqual(textViews.count, 1)
+        let textView = try XCTUnwrap(textViews.first)
+        XCTAssertEqual(textView.string, markdown)
+        XCTAssertFalse(textView.isEditable)
+        XCTAssertTrue(textView.isSelectable)
+        XCTAssertTrue(
+            window.firstResponder === textView,
+            "The selectable response surface should receive initial keyboard focus."
+        )
+
+        let scrollView = try XCTUnwrap(firstScrollView(in: hostingView))
+        XCTAssertTrue(scrollView.hasVerticalScroller)
+        XCTAssertTrue(scrollView.hasHorizontalScroller)
+        XCTAssertTrue(scrollView.documentView === textView)
+    }
+
     private func message(id: String, order: Int) -> RailgunTranscriptMessage {
         .init(
             id: id,
@@ -308,6 +367,11 @@ final class RailgunTranscriptViewportTests: XCTestCase {
             startedAt: nil,
             completedAt: nil
         )
+    }
+
+    private func allTextViews(in view: NSView) -> [NSTextView] {
+        let matching = view as? NSTextView
+        return (matching.map { [$0] } ?? []) + view.subviews.flatMap(allTextViews(in:))
     }
 
     private func settle(_ view: NSView) async throws {

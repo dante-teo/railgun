@@ -221,6 +221,68 @@ or bridge gains a material new behavior or variant.
   write a plain string to the macOS pasteboard with the same native behavior;
   route the existing action to that API.
 
+### `RailgunTranscriptResponsePasteboard`
+
+- **Unmet requirement:** Assistant rows need a discrete **Copy response** action
+  that copies the complete stored Markdown source, including delimiters and line
+  breaks, instead of the rendered text from separate Markdown blocks.
+- **Native APIs evaluated:** SwiftUI `Button` supplies the action and
+  `.textSelection(.enabled)` supplies ordinary selection, but macOS 15 SwiftUI
+  exposes no system pasteboard write API. Selecting the package renderer also
+  cannot reconstruct the one stored source string from its block-owned native
+  text views.
+- **Deployment-target limitation:** macOS 15 SwiftUI cannot write an exact
+  plain string to the macOS pasteboard without an AppKit `NSPasteboard` call.
+- **Accessibility and interaction contract:** The native **Copy response**
+  button appears only on assistant rows and writes `message.text` exactly after
+  clearing the system pasteboard. User rows retain their existing literal text
+  selection and never expose this action. The write is user initiated and has
+  no visible custom notification or focus side effect.
+- **Supported variants:** Streaming, completed, restored, failed, and stopped
+  assistant snapshots are copied as their current stored `String`, with all
+  Markdown delimiters, whitespace, and line breaks preserved. Tests may inject a
+  named pasteboard.
+- **Shared ownership:** This helper is feature-local to `RailgunX`; it copies a
+  transcript response and has no shared renderer or UI component contract.
+- **Retirement trigger:** Remove the helper when a supported SwiftUI API can
+  write the exact stored string to the macOS pasteboard with equivalent native
+  behavior, then route **Copy response** to that API.
+
+### `RailgunTranscriptResponseSelectionSurface`
+
+- **Unmet requirement:** Assistant rows need a discrete **Select response**
+  action whose selection can span every Markdown block in the complete stored
+  response. `RailgunMarkdownMessage` intentionally owns separate native text
+  views for rendered blocks, so selection cannot cross those boundaries.
+- **Native APIs evaluated:** `Text`, `.textSelection(.enabled)`,
+  `AttributedString(markdown:)`, `TextEditor`, and the public
+  `SwiftStreamingMarkdown` view API do not provide one noneditable text system
+  document containing the renderer's complete raw Markdown source.
+- **Deployment-target limitation:** macOS 15 SwiftUI has no public full-document
+  raw-source selection surface that combines exact source preservation with one
+  native text view's selection, copy commands, text services, scrolling, and
+  VoiceOver semantics.
+- **Accessibility and interaction contract:** The native **Select response**
+  button appears only on assistant rows and presents a SwiftUI-owned sheet. The
+  sheet contains one AppKit `NSTextView` inside an `NSScrollView`; it is
+  noneditable but selectable, contains the complete stored `message.text`, and
+  receives initial keyboard focus when the sheet attaches. It retains standard
+  Command-A, Command-C, drag selection, text services, keyboard focus, Escape
+  dismissal, and VoiceOver behavior. User rows never present this surface.
+  AppKit owns only the text-system surface; SwiftUI owns the sheet state and
+  response snapshot.
+- **Supported variants:** Streaming and static assistant snapshots use the same
+  plain raw Markdown text, with vertical and horizontal scrolling for long
+  responses and no renderer rewrite or cross-block text-view stitching.
+- **Shared ownership:** This bridge is feature-local to `RailgunX` because the
+  shared `RailgunUI` renderer cannot expose a package-owned whole-document raw
+  selection presentation.
+- **Retirement trigger:** Remove the bridge when SwiftUI or
+  `SwiftStreamingMarkdown` exposes one selectable, noneditable full-document
+  source surface with equivalent selection, copy, scrolling, text-services, and
+  VoiceOver behavior; move the sheet to that native API without changing row
+  action availability.
+
 ## Approved AppKit bridge register
 
 AppKit bridges are narrow adapters around behavior unavailable through the
@@ -234,6 +296,8 @@ and accessibility behavior.
 | Precise window coordination | Window behavior that supported SwiftUI presentation or scene APIs cannot provide. | Minimize the AppKit surface and preserve standard window, focus, and keyboard behavior. |
 | Archived task-ID pasteboard | Copy a selected archived task's opaque ID as plain text. | Keep the AppKit call inside an injectable helper; SwiftUI remains responsible for browser state, selection, menu presentation, and restore availability. |
 | Markdown renderer interactions | Copy rendered table Markdown, export it through a save panel, and forward renderer-native text context-menu actions. | Keep pasteboard writes and save panels user initiated; write only to the URL selected by the user; keep transcript action IDs stable and let SwiftUI own action availability. |
+| Transcript response pasteboard | Copy the complete stored assistant Markdown source as plain text. | Keep the `NSPasteboard` call inside an injectable helper; clear and write `message.text` exactly, expose **Copy response** only for assistant rows, and leave SwiftUI responsible for row state and action presentation. |
+| Transcript response selection surface (`NSTextView`) | Select the complete stored assistant Markdown source across all rendered blocks. | Present one noneditable, selectable `NSTextView` inside a scrollable `NSScrollView`; preserve native Command-A, Command-C, drag selection, text services, keyboard focus, VoiceOver, and exact source text while SwiftUI owns the sheet and availability. |
 
 Future bridges require a decision record with documented proof that macOS 15
 SwiftUI cannot meet the requirement. They are not approved merely for visual

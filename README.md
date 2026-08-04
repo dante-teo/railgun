@@ -49,8 +49,10 @@ Transcript rows keep a comfortable 32-point inter-message gap.
 Assistant responses use the same selectable Markdown renderer while streaming,
 after completion, and when restored from history. Live updates supply complete
 accumulated snapshots rather than deltas, so incomplete emphasis, fenced code,
-lists, and tables remain presentable without a final renderer swap. User
-prompts remain literal selectable text. Clickable links must be
+lists, and tables remain presentable without a final renderer swap. Each
+assistant row offers **Copy response** for the complete stored Markdown source
+and **Select response** for one native selectable surface spanning all Markdown
+blocks. User prompts remain literal selectable text. Clickable links must be
 credential-free absolute HTTPS URLs; Markdown images may load remotely over
 HTTPS, while HTTP and local or bundled image sources remain disabled.
 The Activity toolbar button presents a 320×360 popover; it does not reserve

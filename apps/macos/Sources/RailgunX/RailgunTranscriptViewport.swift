@@ -262,6 +262,23 @@ enum RailgunTranscriptMessageRendering {
     }
 }
 
+private struct RailgunTranscriptRenderItemPresentation: Identifiable {
+    let id: String
+    let item: RailgunTranscriptRenderItem
+
+    init(index: Int, item: RailgunTranscriptRenderItem) {
+        self.item = item
+        switch item {
+        case let .message(message):
+            id = "message:\(message.id)"
+        case .activityRows:
+            id = "activity-rows:\(index)"
+        case .worked:
+            id = "worked:\(index)"
+        }
+    }
+}
+
 struct RailgunTranscriptActivityViewport: View {
     let messages: [RailgunTranscriptMessage]
     let activity: RailgunActivityState
@@ -270,8 +287,8 @@ struct RailgunTranscriptActivityViewport: View {
     let branch: (RailgunTranscriptMessage) -> Void
 
     var body: some View {
-        ForEach(Array(presentation.enumerated()), id: \.offset) { _, item in
-            switch item {
+        ForEach(identifiedPresentation) { presentationItem in
+            switch presentationItem.item {
             case let .message(message):
                 RailgunTranscriptMessageRow(
                     message: message,
@@ -285,6 +302,12 @@ struct RailgunTranscriptActivityViewport: View {
                 RailgunWorkedActivityDisclosure(entries: entries)
                     .frame(maxWidth: 720, alignment: .leading)
             }
+        }
+    }
+
+    private var identifiedPresentation: [RailgunTranscriptRenderItemPresentation] {
+        presentation.enumerated().map { index, item in
+            RailgunTranscriptRenderItemPresentation(index: index, item: item)
         }
     }
 
@@ -303,9 +326,27 @@ struct RailgunTranscriptActivityViewport: View {
     }
 }
 
+@MainActor
 struct RailgunTranscriptMessageRow: View {
     let message: RailgunTranscriptMessage
     let branchAction: (() -> Void)?
+    let responsePasteboard: RailgunTranscriptResponsePasteboard
+
+    @State private var isResponseSelectionPresented = false
+
+    init(
+        message: RailgunTranscriptMessage,
+        branchAction: (() -> Void)?,
+        responsePasteboard: RailgunTranscriptResponsePasteboard = .init()
+    ) {
+        self.message = message
+        self.branchAction = branchAction
+        self.responsePasteboard = responsePasteboard
+    }
+
+    static func showsResponseActions(for message: RailgunTranscriptMessage) -> Bool {
+        message.role == .assistant
+    }
 
     var body: some View {
         if let branchAction {
@@ -339,6 +380,10 @@ struct RailgunTranscriptMessageRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            if Self.showsResponseActions(for: message) {
+                assistantResponseActions
+            }
+
             if let status = RailgunTranscriptStatusPresentation(status: message.status) {
                 Label(status.title, systemImage: status.systemImage)
                     .font(RailgunFont.interface(.caption))
@@ -348,6 +393,28 @@ struct RailgunTranscriptMessageRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("transcript-message-\(message.id)")
+        .sheet(isPresented: $isResponseSelectionPresented) {
+            RailgunTranscriptResponseSelectionSurface(response: message.text)
+                .frame(minWidth: 640, minHeight: 400)
+                .padding()
+        }
+    }
+
+    private var assistantResponseActions: some View {
+        HStack(spacing: RailgunSpacing.standard.points) {
+            Button("Copy response", systemImage: "doc.on.doc") {
+                responsePasteboard.copy(message.text)
+            }
+            .accessibilityIdentifier("transcript-copy-response-\(message.id)")
+
+            Button("Select response", systemImage: "text.cursor") {
+                isResponseSelectionPresented = true
+            }
+            .accessibilityIdentifier("transcript-select-response-\(message.id)")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .font(RailgunFont.interface(.caption))
     }
 
     private var contentAlignment: HorizontalAlignment {

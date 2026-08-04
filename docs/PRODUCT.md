@@ -14,8 +14,11 @@ placeholder, and Railgun does not save it until the user sends a message.
 Assistant responses render as selectable Markdown while they stream, after
 completion, and when restored from history; incomplete Markdown does not fall
 back to a raw plain-text presentation. User prompts remain literal selectable
-text. Code is syntax highlighted, wide tables scroll horizontally, and
-available table actions support copying or saving their Markdown.
+text. Each assistant row offers **Copy response** for the complete stored
+Markdown source and **Select response** for one native selectable surface
+spanning all Markdown blocks. Code is syntax highlighted, wide tables scroll
+horizontally, and available table actions support copying or saving their
+Markdown.
 Settings → General lets users choose a default model for new tasks without
 changing the active task's model, and configure an optional Advisor by selecting
 its model and enabling it. Advisor notes appear in Activity and open on click

@@ -19,6 +19,15 @@ final class RailgunXAppTests: XCTestCase {
             .deletingLastPathComponent()
     }
 
+    private func nativeUIPolicyRecord(named heading: String, in policy: String) -> String? {
+        guard let headingRange = policy.range(of: heading) else { return nil }
+        let nextRecordStart = policy.range(
+            of: "\n### ",
+            range: headingRange.upperBound..<policy.endIndex
+        )?.lowerBound ?? policy.endIndex
+        return String(policy[headingRange.lowerBound..<nextRecordStart])
+    }
+
     func testModuleBoundariesCompile() {}
 
     func testPrimaryWindowUsesProductName() {
@@ -884,6 +893,31 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(nativeUIPolicy.contains("only for exactly one"))
     }
 
+    func testNativeUIPolicyDocumentsWholeResponseSelectionBoundary() throws {
+        let nativeUIPolicy = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
+            encoding: .utf8
+        )
+
+        let pasteboardRecord = try XCTUnwrap(
+            nativeUIPolicyRecord(
+                named: "### `RailgunTranscriptResponsePasteboard`",
+                in: nativeUIPolicy
+            )
+        )
+        let selectionRecord = try XCTUnwrap(
+            nativeUIPolicyRecord(
+                named: "### `RailgunTranscriptResponseSelectionSurface`",
+                in: nativeUIPolicy
+            )
+        )
+
+        XCTAssertTrue(pasteboardRecord.contains("message.text` exactly"))
+        XCTAssertTrue(selectionRecord.contains("selection can span every Markdown block"))
+        XCTAssertTrue(selectionRecord.contains("one AppKit `NSTextView` inside an `NSScrollView`"))
+        XCTAssertTrue(selectionRecord.contains("receives initial keyboard focus when the sheet attaches"))
+    }
+
     func testReadmeDocumentsTheArchivedTaskBrowserBehavior() throws {
         let readme = try String(
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
@@ -894,6 +928,27 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(readme.contains("full task ID"))
         XCTAssertTrue(readme.contains("exactly one selected row"))
         XCTAssertTrue(readme.contains("without opening or resuming it"))
+    }
+
+    func testUserDocumentationDescribesTranscriptResponseActions() throws {
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+        let productGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/PRODUCT.md"),
+            encoding: .utf8
+        )
+
+        for document in [readme, productGuide] {
+            let normalizedDocument = document
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            XCTAssertTrue(normalizedDocument.contains("**Copy response**"))
+            XCTAssertTrue(normalizedDocument.contains("**Select response**"))
+            XCTAssertTrue(normalizedDocument.contains("complete stored Markdown source"))
+            XCTAssertTrue(normalizedDocument.contains("one native selectable surface spanning all Markdown blocks"))
+        }
     }
 
     func testAppUsesThePrimaryLifecycleConfiguration() {
