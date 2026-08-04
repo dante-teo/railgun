@@ -41,10 +41,11 @@ same browser-backed flow automatically when the file credential is missing or
 rejected. Settings → General → Devin exposes Log in, Log out, and Log in again
 for that file-backed flow.
 
-Model discovery uses the provider library's compatible default client identity.
-Do not add a custom Devin client identity unless an authenticated integration
-check confirms that it returns a non-empty model catalog: a valid credential
-can otherwise start the backend but leave it unable to select a model.
+Model discovery uses the provider library's compatible default client identity,
+while Devin login and chat requests identify as Devin Local. Keep those paths
+separate: using the Local identity for discovery can return an empty model
+catalog and prevent backend startup, while omitting it from chat requests can
+reject Local-only models.
 
 After a successful browser helper operation, Railgun must establish a fresh
 RPC backend generation before returning to the task shell. If that reconnect

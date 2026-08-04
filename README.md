@@ -240,6 +240,11 @@ Railgun preserves the existing `~/.railgun` layout:
 ~/.railgun/skills/
 ```
 
+Personalization stores the global custom instruction in
+`~/.railgun/SOUL.md`. On its first read after upgrading, Railgun copies
+non-empty legacy `~/.railgun.md` content into an empty `SOUL.md`; it retains
+the legacy file as a backup.
+
 Configuration updates preserve unknown keys. SQLite uses foreign keys, WAL,
 a five-second busy timeout, embedded up-only SQLx migrations, and the existing
 `user_version` 0–7 importer. Existing `schema_migrations`, retired tables, and

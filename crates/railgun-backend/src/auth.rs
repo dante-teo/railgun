@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use std::{error::Error, fmt, sync::Arc};
 use widevin::{
     DevinClientMetadata, DevinError, DevinProvider, DevinProviderOptions, OpenBrowser,
-    create_devin_provider, create_file_token_store, create_memory_token_store,
+    TokenStoreRef, create_devin_provider, create_file_token_store, create_memory_token_store,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,11 +51,32 @@ fn authentication_required(source: CredentialSource) -> anyhow::Error {
 #[derive(Clone)]
 pub struct Authenticated {
     pub provider: DevinProvider,
+    model_catalog_provider: DevinProvider,
     pub source: CredentialSource,
 }
 
 fn devin_client_metadata() -> DevinClientMetadata {
+    DevinClientMetadata {
+        ide_name: Some("devin".into()),
+        ide_type: Some("local".into()),
+        ..Default::default()
+    }
+}
+
+fn model_catalog_client_metadata() -> DevinClientMetadata {
     DevinClientMetadata::default()
+}
+
+fn create_provider(
+    token_store: TokenStoreRef,
+    client_metadata: DevinClientMetadata,
+) -> DevinProvider {
+    create_devin_provider(DevinProviderOptions {
+        token_store: Some(token_store),
+        open_browser: Some(browser_opener()),
+        client_metadata: Some(client_metadata),
+        ..Default::default()
+    })
 }
 
 pub async fn provider(paths: &RailgunPaths, desktop: bool) -> Result<Authenticated> {
@@ -72,19 +93,19 @@ pub async fn provider(paths: &RailgunPaths, desktop: bool) -> Result<Authenticat
     } else {
         (file_store.clone(), CredentialSource::File)
     };
-    let provider = create_devin_provider(DevinProviderOptions {
-        token_store: Some(store),
-        open_browser: Some(browser_opener()),
-        client_metadata: Some(devin_client_metadata()),
-        ..Default::default()
-    });
+    let provider = create_provider(store.clone(), devin_client_metadata());
+    let model_catalog_provider = create_provider(store.clone(), model_catalog_client_metadata());
     if file_store.get().await?.is_none() && matches!(source, CredentialSource::File) {
         if desktop {
             return Err(authentication_required(CredentialSource::File));
         }
         provider.login().await?;
     }
-    Ok(Authenticated { provider, source })
+    Ok(Authenticated {
+        provider,
+        model_catalog_provider,
+        source,
+    })
 }
 
 pub async fn background_provider(paths: &RailgunPaths) -> Result<Authenticated> {
@@ -93,14 +114,10 @@ pub async fn background_provider(paths: &RailgunPaths) -> Result<Authenticated> 
 
 pub async fn login(paths: &RailgunPaths) -> Result<()> {
     let store = create_file_token_store(&paths.token);
-    let provider = create_devin_provider(DevinProviderOptions {
-        token_store: Some(store.clone()),
-        open_browser: Some(browser_opener()),
-        client_metadata: Some(devin_client_metadata()),
-        ..Default::default()
-    });
+    let provider = create_provider(store.clone(), devin_client_metadata());
     provider.login().await?;
-    match provider.list_models().await {
+    let model_catalog_provider = create_provider(store.clone(), model_catalog_client_metadata());
+    match model_catalog_provider.list_models().await {
         Ok(_) => {}
         Err(error) if unauthorized(&error) => {
             store.clear().await?;
@@ -136,7 +153,7 @@ pub async fn models(
     authenticated: &Authenticated,
     paths: &RailgunPaths,
 ) -> Result<Vec<widevin::DevinModel>> {
-    match authenticated.provider.list_models().await {
+    match authenticated.model_catalog_provider.list_models().await {
         Ok(models) => Ok(models),
         Err(error) if unauthorized(&error) => {
             if matches!(authenticated.source, CredentialSource::File) {
@@ -190,10 +207,19 @@ mod tests {
     }
 
     #[test]
-    fn client_metadata_uses_the_provider_compatible_defaults() {
+    fn chat_client_metadata_identifies_railgun_as_devin_local() {
         let metadata = devin_client_metadata();
 
-        assert_eq!(metadata, DevinClientMetadata::default());
+        assert_eq!(metadata.ide_name.as_deref(), Some("devin"));
+        assert_eq!(metadata.ide_type.as_deref(), Some("local"));
+    }
+
+    #[test]
+    fn model_catalog_client_metadata_uses_provider_compatible_defaults() {
+        assert_eq!(
+            model_catalog_client_metadata(),
+            DevinClientMetadata::default()
+        );
     }
 
     #[tokio::test]
@@ -207,6 +233,10 @@ mod tests {
         });
         let authenticated = Authenticated {
             provider: create_devin_provider(DevinProviderOptions {
+                token_store: Some(store.clone()),
+                ..Default::default()
+            }),
+            model_catalog_provider: create_devin_provider(DevinProviderOptions {
                 token_store: Some(store.clone()),
                 fetch: Some(fetch),
                 ..Default::default()

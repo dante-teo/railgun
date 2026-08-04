@@ -44,7 +44,8 @@ actor RailgunPersonalizationService {
     private static let maximumInstructionLabelLength = 100
     private static let maximumInstructionContentLength = 1_000_000
     private static let maximumSearchLength = 10_000
-    static let customInstructionID = "railgun-dotfile"
+    static let customInstructionID = "soul"
+    private static let legacyCustomInstructionID = "railgun-dotfile"
     private static let instructionStatuses: Set<String> = ["missing", "active", "shadowed"]
 
     private let request: Request
@@ -127,22 +128,39 @@ actor RailgunPersonalizationService {
     }
 
     func customInstruction() async throws -> RailgunInstructionFile {
-        let response = try await perform(.instructionFileGet, fields: ["fileId": .string(Self.customInstructionID)])
-        guard let file = response.data?.objectValue?["file"] else {
-            throw RailgunPersonalizationServiceError.invalidResponse
+        let soul = try await instructionFile(id: Self.customInstructionID)
+        guard soul.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return soul
         }
-        return try parseInstructionFile(file)
+
+        let legacy = try await instructionFile(id: Self.legacyCustomInstructionID)
+        guard !legacy.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return soul
+        }
+        return try await updateInstructionFile(id: Self.customInstructionID, content: legacy.content)
     }
 
     func updateCustomInstruction(content: String) async throws -> RailgunInstructionFile {
         guard content.count <= Self.maximumInstructionContentLength else {
             throw RailgunPersonalizationServiceError.invalidRequest
         }
-        let response = try await perform(.instructionFileUpdate, fields: ["fileId": .string(Self.customInstructionID), "content": .string(content)])
+        return try await updateInstructionFile(id: Self.customInstructionID, content: content)
+    }
+
+    private func instructionFile(id: String) async throws -> RailgunInstructionFile {
+        let response = try await perform(.instructionFileGet, fields: ["fileId": .string(id)])
         guard let file = response.data?.objectValue?["file"] else {
             throw RailgunPersonalizationServiceError.invalidResponse
         }
-        return try parseInstructionFile(file)
+        return try parseInstructionFile(file, expectedID: id)
+    }
+
+    private func updateInstructionFile(id: String, content: String) async throws -> RailgunInstructionFile {
+        let response = try await perform(.instructionFileUpdate, fields: ["fileId": .string(id), "content": .string(content)])
+        guard let file = response.data?.objectValue?["file"] else {
+            throw RailgunPersonalizationServiceError.invalidResponse
+        }
+        return try parseInstructionFile(file, expectedID: id)
     }
 
     private func validatedMemoryMutation(content: String, category: String) throws -> [String: RailgunJSONValue] {
@@ -187,10 +205,10 @@ actor RailgunPersonalizationService {
         return .init(id: id, content: content, category: category, createdAt: Date(timeIntervalSince1970: timestamp))
     }
 
-    private func parseInstructionFile(_ value: RailgunJSONValue) throws -> RailgunInstructionFile {
+    private func parseInstructionFile(_ value: RailgunJSONValue, expectedID: String) throws -> RailgunInstructionFile {
         guard let object = value.objectValue,
               Set(object.keys) == Set(["id", "label", "status", "content"]),
-              object["id"]?.stringValue == Self.customInstructionID,
+              object["id"]?.stringValue == expectedID,
               let label = object["label"]?.stringValue, !label.isEmpty, label.count <= Self.maximumInstructionLabelLength,
               let status = object["status"]?.stringValue, Self.instructionStatuses.contains(status),
               let content = object["content"]?.stringValue, content.count <= Self.maximumInstructionContentLength

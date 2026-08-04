@@ -45,7 +45,7 @@ final class RailgunPersonalizationServiceTests: XCTestCase {
         XCTAssertEqual(commands[1].fields, ["query": .string("concise"), "limit": .number(100)])
     }
 
-    func testCustomInstructionUsesOnlyTheRailgunDotfileAndSavesContent() async throws {
+    func testCustomInstructionUsesSoulFileAndSavesContent() async throws {
         let recorder = PersonalizationCommandRecorder()
         let service = RailgunPersonalizationService { command in
             await recorder.record(command)
@@ -62,11 +62,38 @@ final class RailgunPersonalizationServiceTests: XCTestCase {
         let saved = try await service.updateCustomInstruction(content: "# Updated")
 
         XCTAssertEqual(loaded.content, "# Updated")
-        XCTAssertEqual(saved.label, "~/.railgun.md")
+        XCTAssertEqual(saved.label, "~/.railgun/SOUL.md")
         let commands = await recorder.commands
         XCTAssertEqual(commands.map(\.type), [.instructionFileGet, .instructionFileUpdate])
-        XCTAssertEqual(commands[0].fields, ["fileId": .string("railgun-dotfile")])
-        XCTAssertEqual(commands[1].fields, ["fileId": .string("railgun-dotfile"), "content": .string("# Updated")])
+        XCTAssertEqual(commands[0].fields, ["fileId": .string("soul")])
+        XCTAssertEqual(commands[1].fields, ["fileId": .string("soul"), "content": .string("# Updated")])
+    }
+
+    func testCustomInstructionMigratesLegacyContentIntoSoulFile() async throws {
+        let recorder = PersonalizationCommandRecorder()
+        let service = RailgunPersonalizationService { command in
+            await recorder.record(command)
+            let id = command.fields["fileId"]?.stringValue ?? ""
+            switch command.type {
+            case .instructionFileGet:
+                let content = id == "soul" ? "" : "# Keep this instruction"
+                return try personalizationResponse(command.type, data: .object(["file": instructionValue(id: id, content: content)]))
+            case .instructionFileUpdate:
+                return try personalizationResponse(command.type, data: .object(["file": instructionValue(id: id, content: command.fields["content"]?.stringValue)]))
+            default:
+                throw PersonalizationTestError.unexpectedCommand
+            }
+        }
+
+        let instruction = try await service.customInstruction()
+
+        XCTAssertEqual(instruction.label, "~/.railgun/SOUL.md")
+        XCTAssertEqual(instruction.content, "# Keep this instruction")
+        let commands = await recorder.commands
+        XCTAssertEqual(commands.map(\.type), [.instructionFileGet, .instructionFileGet, .instructionFileUpdate])
+        XCTAssertEqual(commands[0].fields, ["fileId": .string("soul")])
+        XCTAssertEqual(commands[1].fields, ["fileId": .string("railgun-dotfile")])
+        XCTAssertEqual(commands[2].fields, ["fileId": .string("soul"), "content": .string("# Keep this instruction")])
     }
 
     func testRunDreamAcceptsOnlyTheExpectedSummary() async throws {
@@ -133,7 +160,7 @@ final class RailgunPersonalizationServiceTests: XCTestCase {
         let service = RailgunPersonalizationService { command in
             try personalizationResponse(
                 command.type,
-                data: .object(["file": instructionValue(id: "railgun-dotfile", content: "Server instruction")])
+                data: .object(["file": instructionValue(id: "soul", content: "Server instruction")])
             )
         }
         let store = RailgunPersonalizationStore(service: service)
@@ -190,7 +217,8 @@ private func memoryValue(id: String) -> RailgunJSONValue {
 }
 
 private func instructionValue(id: String, content: String? = nil) -> RailgunJSONValue {
-    var value: [String: RailgunJSONValue] = ["id": .string(id), "label": .string("~/.railgun.md"), "status": .string("active")]
+    let label = id == "soul" ? "~/.railgun/SOUL.md" : "~/.railgun.md"
+    var value: [String: RailgunJSONValue] = ["id": .string(id), "label": .string(label), "status": .string("active")]
     if let content { value["content"] = .string(content) }
     return .object(value)
 }

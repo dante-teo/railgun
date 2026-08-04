@@ -53,10 +53,12 @@ without first selecting a sidebar task.
 
 **Settings → Personalization** owns the one global custom instruction and agent
 memory management. The custom-instruction editor has no file picker because
-Railgun exposes only the one instruction stored under `~/.railgun`; drafts are
-retained while moving within Settings. Memory CRUD and search live in a native
-management sheet rather than the main settings page. That sheet also exposes a
-manual Dream action after at least five memories are available.
+Railgun exposes only `~/.railgun/SOUL.md`; drafts are retained while moving
+within Settings. On first read after upgrading, non-empty legacy
+`~/.railgun.md` content is copied into an empty `SOUL.md` and the legacy file
+is retained. Memory CRUD and search live in a native management sheet rather
+than the main settings page. That sheet also exposes a manual Dream action
+after at least five memories are available.
 
 Every attempted scheduled run also arrives in Task as a separate resumable
 session. Delivery never changes the active task or sends a macOS notification.
