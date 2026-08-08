@@ -1779,7 +1779,7 @@ final class RailgunXAppTests: XCTestCase {
         )
     }
 
-    func testShellLaunchersForwardExplicitBackendArgumentsThroughLaunchServices() throws {
+    func testShellLaunchersRunElectronAndConfigureTheMockBackend() throws {
         let runScript = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/run.sh"),
             encoding: .utf8
@@ -1788,24 +1788,48 @@ final class RailgunXAppTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("scripts/run-mock.sh"),
             encoding: .utf8
         )
-        let runSourceScript = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("scripts/run-source.sh"),
+
+        XCTAssertTrue(runScript.contains("apps/desktop"))
+        XCTAssertTrue(runScript.contains("exec pnpm dev \"$@\""))
+        XCTAssertFalse(runScript.contains("xcodebuild"))
+        XCTAssertTrue(runMockScript.contains("cargo build --locked --package railgun-mock-backend"))
+        XCTAssertTrue(runMockScript.contains("export RAILGUNX_BACKEND_MODE=mock"))
+        XCTAssertTrue(runMockScript.contains("RAILGUNX_MOCK_SCENARIO:-ready-idle"))
+        XCTAssertTrue(runMockScript.contains("export RAILGUNX_SOURCE_ROOT=\"$repository_root\""))
+        XCTAssertTrue(runMockScript.contains("exec \"$script_dir/run.sh\" \"$@\""))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: repositoryRoot.appendingPathComponent("scripts/run-source.sh").path
+            )
+        )
+    }
+
+    func testReleaseVersionsAreAlignedAcrossDesktopApps() throws {
+        let project = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/macos/project.yml"),
+            encoding: .utf8
+        )
+        let packageData = try Data(
+            contentsOf: repositoryRoot.appendingPathComponent("apps/desktop/package.json")
+        )
+        let package = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: packageData) as? [String: Any]
+        )
+        let desktopVersion = try XCTUnwrap(package["version"] as? String)
+        let versionLine = try XCTUnwrap(
+            project.split(separator: "\n").first { $0.contains("MARKETING_VERSION:") }
+        )
+        let macosVersion = versionLine.split(separator: ":", maxSplits: 1)[1]
+            .trimmingCharacters(in: .whitespaces)
+        let releaseScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("scripts/release-version.sh"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(runScript.contains("Debug/Railgun.app"))
-        XCTAssertTrue(runScript.contains("Contents/MacOS/Railgun"))
-        XCTAssertTrue(runScript.contains("open -n -W \"$app_bundle\""))
-        XCTAssertTrue(runScript.contains("--railgunx-backend-mode=source"))
-        XCTAssertTrue(runScript.contains("--railgunx-backend-mode=mock"))
-        XCTAssertTrue(runScript.contains("--railgunx-mock-scenario=$mock_scenario"))
-        XCTAssertTrue(runScript.contains("--railgunx-source-root=$source_root"))
-        XCTAssertFalse(runScript.contains("RAILGUNX_BACKEND_MODE"))
-        XCTAssertFalse(runMockScript.contains("export RAILGUNX_BACKEND_MODE"))
-        XCTAssertTrue(runMockScript.contains("--mock-scenario ready-idle"))
-        XCTAssertTrue(runMockScript.contains("--source-root \"$repository_root\""))
-        XCTAssertTrue(runSourceScript.contains("--backend-mode source"))
-        XCTAssertTrue(runSourceScript.contains("--source-root \"$repository_root\""))
+        XCTAssertEqual(desktopVersion, macosVersion)
+        XCTAssertTrue(releaseScript.contains("apps/desktop/package.json"))
+        XCTAssertTrue(releaseScript.contains("macOS is $macos_current, Electron is $desktop_current"))
+        XCTAssertTrue(releaseScript.contains("git -C \"$repository_root\" add apps/macos/project.yml apps/desktop/package.json"))
     }
 
     func testNativeBackendStagingContractUsesArm64AndAnAtomicPayload() throws {

@@ -1,0 +1,6 @@
+shamefullyHoist: true
+
+allowBuilds:
+  electron: true
+  electron-winstaller: false
+  esbuild: true

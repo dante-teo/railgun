@@ -4,6 +4,11 @@ Railgun releases support Apple-silicon Macs only. From a clean `main`
 checkout, run:
 
 ```sh
+pnpm --dir apps/desktop test
+pnpm --dir apps/desktop lint
+pnpm --dir apps/desktop typecheck
+pnpm --dir apps/desktop exec prettier --check .
+pnpm --dir apps/desktop build
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
@@ -17,6 +22,8 @@ git push origin main --tags
 
 Use `minor`, `major`, or an explicit semantic version in place of `patch`.
 Append `--dry-run` to preview the version commit and annotated tag.
+The script requires the native and Electron app versions to match, then updates
+`apps/macos/project.yml` and `apps/desktop/package.json` together.
 
 When a release changes `Cargo.toml`, `Cargo.lock`,
 `apps/macos/project.yml`, or `apps/macos/Package.resolved`, review every newly
@@ -28,7 +35,8 @@ resolving Swift packages alone is not sufficient for distribution.
 
 The release workflow archives, signs, notarizes, staples, and validates the
 native app, its arm64 Rust backend, and its Sparkle framework. It publishes the
-same arm64 ZIP and signed appcast assets as previous releases.
+same arm64 ZIP and signed appcast assets as previous releases. Electron shares
+the tag version but is not packaged or published by the current workflow.
 
 Notarization-ticket validation runs immediately after stapling, before the app
 is copied and zipped. The later artifact smoke check verifies the staged app's

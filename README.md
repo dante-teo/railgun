@@ -1,16 +1,17 @@
 # Railgun
 
-Railgun is a native arm64 macOS agent application with a private Rust backend.
-The app and backend communicate over versioned JSONL RPC on standard input and
-standard output; diagnostics are structured, redacted, and written only to
-standard error.
+Railgun contains a production native arm64 macOS agent application and an empty
+Electron client shell. The native app and its private Rust backend communicate
+over versioned JSONL RPC on standard input and standard output; diagnostics are
+structured, redacted, and written only to standard error.
 
 ## Requirements
 
-- macOS 15 or newer on Apple silicon
-- Xcode and the macOS SDK
-- XcodeGen at the version in `apps/macos/.xcodegen-version`
+- macOS 15 or newer on Apple silicon for the native app
+- Xcode, the macOS SDK, and XcodeGen at the version in
+  `apps/macos/.xcodegen-version` for native development
 - The Rust toolchain pinned by `rust-toolchain.toml`
+- pnpm 11.20.0 for the Electron app
 - `cargo-deny` when reproducing the dependency-policy CI gate locally
 
 ## Workspace
@@ -28,23 +29,29 @@ The Xcode project is generated from `apps/macos/project.yml`. Generated
 
 ## Development
 
-Run the native app with its bundled debug backend:
+Run the Electron app in development mode:
 
 ```sh
 scripts/run.sh
 ```
 
-Run with the source or deterministic mock executable:
+Run it with the deterministic mock backend configuration:
 
 ```sh
-scripts/run-source.sh
 scripts/run-mock.sh
 ```
 
-The wrappers preserve the existing CLI and build the required Rust executable
-before launching the app. They are launch commands, not verification commands.
+The mock launcher builds `railgun-mock-backend`, selects the `ready-idle`
+scenario by default, and then starts Electron. Both scripts forward additional
+arguments to `pnpm dev`. They are launch commands, not verification commands.
 
-The desktop interface uses the shared `RailgunSpacing` 4, 8, 12, 16, 24, and 32 point scale.
+Electron development and preview commands validate the downloaded Electron
+binary before startup. If a package installation was interrupted after the npm
+package was linked, the preflight completes the binary installation before
+`electron-vite` starts.
+
+The native macOS interface uses the shared `RailgunSpacing` 4, 8, 12, 16, 24,
+and 32 point scale.
 Transcript rows keep a comfortable 32-point inter-message gap.
 Assistant responses use the same selectable Markdown renderer while streaming,
 after completion, and when restored from history. Live updates supply complete
@@ -103,6 +110,16 @@ backend order. Search matches title, model, or the full task ID. Restoring a
 task returns it to the active task list without opening or resuming it. Context
 actions that restore a task or copy its exact ID require exactly one selected row,
 so multi-row selection cannot target an arbitrary task.
+
+Electron checks (these do not launch the GUI):
+
+```sh
+pnpm --dir apps/desktop test
+pnpm --dir apps/desktop lint
+pnpm --dir apps/desktop typecheck
+pnpm --dir apps/desktop exec prettier --check .
+pnpm --dir apps/desktop build
+```
 
 Backend-only checks:
 
@@ -248,6 +265,7 @@ name: review
 description: Review a change for correctness and regressions
 disable-model-invocation: false
 ---
+
 # Review
 
 Inspect the change and report concrete findings first.
@@ -333,7 +351,12 @@ cargo xtask migration check
 Clients initialize with:
 
 ```json
-{"id":"initialize-1","type":"initialize","version":1,"clientName":"Railgun"}
+{
+  "id": "initialize-1",
+  "type": "initialize",
+  "version": 1,
+  "clientName": "Railgun"
+}
 ```
 
 Every response carries the command and preserves the request identifier.
@@ -399,5 +422,9 @@ scripts/release-version.sh patch --dry-run
 scripts/release-version.sh patch
 ```
 
-The release workflow continues to publish
-`Railgun-<version>-darwin-arm64.zip` and `Railgun-appcast-arm64.xml`.
+The version script keeps `apps/macos/project.yml` and
+`apps/desktop/package.json` aligned in the same release commit.
+
+The tagged release workflow currently publishes only the native
+`Railgun-<version>-darwin-arm64.zip` and `Railgun-appcast-arm64.xml`; Electron
+artifact publishing has not been added yet.

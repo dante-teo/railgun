@@ -7,7 +7,8 @@ repository_root="$(cd "$script_dir/.." && pwd)"
 
 cargo build --locked --package railgun-mock-backend --manifest-path "$repository_root/Cargo.toml"
 
-exec "$script_dir/run.sh" \
-  --backend-mode mock \
-  --mock-scenario ready-idle \
-  --source-root "$repository_root"
+export RAILGUNX_BACKEND_MODE=mock
+export RAILGUNX_MOCK_SCENARIO="${RAILGUNX_MOCK_SCENARIO:-ready-idle}"
+export RAILGUNX_SOURCE_ROOT="$repository_root"
+
+exec "$script_dir/run.sh" "$@"
