@@ -84,7 +84,8 @@ public enum RailgunRPCCommandType: String, Sendable, CaseIterable, Codable {
     case memoryDelete = "memory_delete"
     case dreamRun = "dream_run", instructionFilesList = "instruction_files_list"
     case instructionFileGet = "instruction_file_get", instructionFileUpdate = "instruction_file_update"
-    case skillsList = "skills_list", skillGet = "skill_get"
+    case skillsList = "skills_list", skillGet = "skill_get", skillCreate = "skill_create"
+    case skillUpdate = "skill_update", skillDelete = "skill_delete"
 }
 
 /// Contract limits shared with the desktop RPC boundary.
@@ -98,6 +99,9 @@ public enum RailgunRPCValidationLimits {
     public static let clarificationAnswer = 100_000
     public static let diagnosticText = 2_000
     public static let detailText = 8_000
+    public static let skillName = 64
+    public static let skillDescription = 1_024
+    public static let skillBody = 200_000
 }
 
 /// A validated outbound RPC command. `id` is intentionally absent: the RPC
@@ -182,6 +186,19 @@ public struct RailgunRPCCommand: Sendable, Equatable {
                 throw RailgunRPCDTOError.invalidField(name, "must be a positive integer")
             }
         }
+        func skillName(_ name: String) throws {
+            try requiredString(name)
+            guard let value = fields[name]?.stringValue,
+                  value.utf8.count <= RailgunRPCValidationLimits.skillName,
+                  value.utf8.allSatisfy({
+                      ($0 >= 97 && $0 <= 122)
+                          || ($0 >= 48 && $0 <= 57)
+                          || $0 == 45
+                  })
+            else {
+                throw RailgunRPCDTOError.invalidField(name, "must match [a-z0-9-]{1,64}")
+            }
+        }
 
         switch type {
         case .initialize:
@@ -229,8 +246,24 @@ public struct RailgunRPCCommand: Sendable, Equatable {
             try requiredString("command")
             try optionalStringArray("args")
             try optionalStringOrNullObject("env")
-        case .mcpRemove, .skillGet:
+        case .mcpRemove:
             try requiredString("name")
+        case .skillGet, .skillDelete:
+            try skillName("name")
+        case .skillCreate, .skillUpdate:
+            try skillName("name")
+            try requiredString("description")
+            guard let description = fields["description"]?.stringValue,
+                  description.utf8.count <= RailgunRPCValidationLimits.skillDescription
+            else {
+                throw RailgunRPCDTOError.invalidField("description", "exceeds the configured limit")
+            }
+            guard let body = fields["body"]?.stringValue,
+                  body.utf8.count <= RailgunRPCValidationLimits.skillBody
+            else {
+                throw RailgunRPCDTOError.invalidField("body", "must be a string within the configured limit")
+            }
+            try optionalBool("disableModelInvocation")
         case .cronList:
             try nonNegativeCursor("cursor")
             try positiveLimit("limit")

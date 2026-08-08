@@ -7,6 +7,7 @@ enum RailgunSettingsDestination: Hashable {
     case general
     case appearance
     case personalization
+    case skills
     case archivedTasks
 
     static let defaultSelection = Self.general
@@ -54,6 +55,7 @@ struct RailgunSettingsView: View {
     private let sessionCoordinator: RailgunSessionCoordinator
     private let controlsCoordinator: RailgunControlsCoordinator
     private let backgroundSchedulerService: RailgunBackgroundSchedulerService?
+    @Bindable private var skillsStore: RailgunSkillsStore
     @State private var selection: RailgunSettingsDestination? = RailgunSettingsDestination.defaultSelection
     @AppStorage(RailgunAppearance.storageKey) private var appearance: RailgunAppearance = .automatic
 
@@ -63,6 +65,7 @@ struct RailgunSettingsView: View {
         sessionCoordinator: RailgunSessionCoordinator,
         controlsCoordinator: RailgunControlsCoordinator,
         personalizationStore: RailgunPersonalizationStore,
+        skillsStore: RailgunSkillsStore,
         backgroundSchedulerService: RailgunBackgroundSchedulerService?
     ) {
         _appStore = Bindable(appStore)
@@ -71,6 +74,7 @@ struct RailgunSettingsView: View {
         self.sessionCoordinator = sessionCoordinator
         self.controlsCoordinator = controlsCoordinator
         self.backgroundSchedulerService = backgroundSchedulerService
+        _skillsStore = Bindable(skillsStore)
     }
 
     var body: some View {
@@ -94,6 +98,12 @@ struct RailgunSettingsView: View {
                         systemImage: "gauge.with.dots.needle.33percent",
                         isSelected: displayedDestination == .personalization,
                         action: { selection = .personalization }
+                    )
+                    RailgunSidebarSelectionRow(
+                        "Skills",
+                        systemImage: "wand.and.stars",
+                        isSelected: displayedDestination == .skills,
+                        action: { selection = .skills }
                     )
                 }
 
@@ -133,6 +143,8 @@ struct RailgunSettingsView: View {
             appearanceDetail
         case .personalization:
             RailgunPersonalizationView(store: personalizationStore)
+        case .skills:
+            RailgunSkillsView(store: skillsStore)
         case .archivedTasks:
             archivedTasksDetail
         }

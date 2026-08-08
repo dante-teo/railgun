@@ -1,4 +1,4 @@
-use crate::{paths::RailgunPaths, storage::Store};
+use crate::{paths::RailgunPaths, skills, storage::Store};
 use anyhow::{Context, Result, bail};
 use futures_util::{StreamExt, future::join_all};
 use reqwest::redirect::Policy;
@@ -910,27 +910,12 @@ async fn inspect(arguments: &Value, context: &ToolContext) -> Result<String> {
 }
 async fn skill_view(arguments: &Value, context: &ToolContext) -> Result<String> {
     let name = string(arguments, "name")?;
-    let path = find_skill(&context.paths.skills, name)?;
-    Ok(bounded(tokio::fs::read_to_string(path).await?, TEXT_LIMIT))
-}
-fn find_skill(root: &Path, name: &str) -> Result<PathBuf> {
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(path) = stack.pop() {
-        if path.file_name().and_then(|n| n.to_str()) == Some(name) {
-            let candidate = path.join("SKILL.md");
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-        if let Ok(entries) = std::fs::read_dir(&path) {
-            for entry in entries.flatten() {
-                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    stack.push(entry.path())
-                }
-            }
-        }
-    }
-    bail!("Skill {name:?} not found.")
+    let skill = skills::discover_async(&context.paths.skills)
+        .await?
+        .into_iter()
+        .find(|skill| skill.name == name && !skill.disabled)
+        .with_context(|| format!("Unknown model-visible skill {name:?}."))?;
+    Ok(bounded(skill.body, TEXT_LIMIT))
 }
 
 async fn web_search(arguments: &Value, _context: &ToolContext) -> Result<String> {
@@ -1322,6 +1307,50 @@ mod tests {
         assert!(!listed.contains("railgun.internal.dream"));
         assert!(!inspected.contains("railgun.internal.dream"));
         assert!(removal.is_err());
+    }
+
+    #[tokio::test]
+    async fn model_facing_skill_view_rejects_manual_only_aliases() {
+        let home = tempdir().unwrap();
+        let paths = RailgunPaths::for_user_home(home.path());
+        let store = Store::open(&paths.state).await.unwrap();
+        let (updates, _events) = mpsc::unbounded_channel();
+        tokio::fs::create_dir_all(&paths.skills).await.unwrap();
+        tokio::fs::write(
+            paths.skills.join("hidden.md"),
+            "---\nname: hidden-alias\ndescription: Hidden\ndisable-model-invocation: true\n---\nmanual only",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            paths.skills.join("visible.md"),
+            "---\nname: visible-alias\ndescription: Visible\n---\nmodel visible",
+        )
+        .await
+        .unwrap();
+        let context = ToolContext {
+            paths,
+            store,
+            cancellation: CancellationToken::new(),
+            updates,
+            todos: Arc::new(Mutex::new(Vec::new())),
+            interactions: None,
+            approvals: Arc::new(Mutex::new(HashSet::new())),
+            approval_mode: ApprovalMode::Manual,
+            user_intent: None,
+            delegation_depth: 0,
+            delegation_slots: Arc::new(Semaphore::new(3)),
+            provider: None,
+            model: None,
+        };
+
+        let hidden = execute("skill_view", &json!({"name": "hidden-alias"}), &context).await;
+        let visible = execute("skill_view", &json!({"name": "visible-alias"}), &context)
+            .await
+            .unwrap();
+
+        assert!(hidden.is_err());
+        assert_eq!(visible, "model visible");
     }
 
     #[tokio::test]

@@ -113,6 +113,13 @@ fn require_string(fields: &Map<String, Value>, field: &str) -> Result<()> {
     Ok(())
 }
 
+fn require_text(fields: &Map<String, Value>, field: &str) -> Result<()> {
+    if !fields.get(field).is_some_and(Value::is_string) {
+        bail!("invalid command: {field} must be a string");
+    }
+    Ok(())
+}
+
 fn require_object(fields: &Map<String, Value>, field: &str) -> Result<()> {
     if !fields.get(field).is_some_and(Value::is_object) {
         bail!("invalid command: {field} must be an object");
@@ -258,7 +265,13 @@ fn validate(kind: &str, fields: &Map<String, Value>) -> Result<()> {
                 bail!("invalid command: content must be a string");
             }
         }
-        "skill_get" => require_string(fields, "name")?,
+        "skill_get" | "skill_delete" => require_string(fields, "name")?,
+        "skill_create" | "skill_update" => {
+            require_string(fields, "name")?;
+            require_string(fields, "description")?;
+            require_text(fields, "body")?;
+            optional_bool(fields, "disableModelInvocation")?;
+        }
         "abort"
         | "get_state"
         | "get_messages"
@@ -299,5 +312,47 @@ mod tests {
     fn accepts_the_additive_fieldless_catalog_refresh_command() {
         assert!(Command::parse(json!({"id":"refresh-1","type":"refresh_model_catalog"})).is_ok());
         assert!(CAPABILITIES.contains(&"model_catalog.refresh"));
+    }
+
+    #[test]
+    fn validates_skill_crud_shapes_without_rejecting_an_empty_body() {
+        assert!(
+            Command::parse(json!({
+                "type":"skill_create",
+                "name":"review",
+                "description":"Review the change",
+                "body":"",
+                "disableModelInvocation":false
+            }))
+            .is_ok()
+        );
+        assert!(
+            Command::parse(json!({
+                "type":"skill_update",
+                "name":"review",
+                "description":"Review the change",
+                "body":"body"
+            }))
+            .is_ok()
+        );
+        assert!(Command::parse(json!({"type":"skill_delete","name":"review"})).is_ok());
+        assert!(
+            Command::parse(json!({
+                "type":"skill_create",
+                "name":"review",
+                "description":"Review"
+            }))
+            .is_err()
+        );
+        assert!(
+            Command::parse(json!({
+                "type":"skill_create",
+                "name":"review",
+                "description":"Review",
+                "body":"body",
+                "disableModelInvocation":"false"
+            }))
+            .is_err()
+        );
     }
 }

@@ -960,6 +960,46 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(RailgunSettingsView.windowID, "settings")
     }
 
+    func testSettingsSkillsSurfaceCoversManagementStatesAndDocumentation() throws {
+        let settingsSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunSettingsView.swift"),
+            encoding: .utf8
+        )
+        let skillsSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("apps/macos/Sources/RailgunX/RailgunSkillsView.swift"),
+            encoding: .utf8
+        )
+        let readme = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("README.md"),
+            encoding: .utf8
+        )
+        let productGuide = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/PRODUCT.md"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(settingsSource.contains("case skills"))
+        XCTAssertTrue(settingsSource.contains("RailgunSkillsView"))
+        for contract in [
+            ".searchable(text:",
+            "RailgunMarkdownMessage",
+            ".confirmationDialog(",
+            "ProgressView(\"Loading skills…\")",
+            "ContentUnavailableView",
+            "Button(\"Retry\"",
+            "Available to the model",
+        ] {
+            XCTAssertTrue(skillsSource.contains(contract), "Missing Skills Settings contract: \(contract)")
+        }
+        for document in [readme, productGuide] {
+            XCTAssertTrue(document.contains("Settings → Skills"))
+            XCTAssertTrue(document.contains("/skill:<name> [arguments]"))
+            XCTAssertTrue(document.contains("~/.railgun/skills/<name>/SKILL.md"))
+        }
+    }
+
     func testAppearancePreferenceMapsEachChoiceToItsExpectedColorScheme() {
         XCTAssertNil(RailgunAppearance.automatic.colorScheme)
         XCTAssertEqual(RailgunAppearance.light.colorScheme, .light)

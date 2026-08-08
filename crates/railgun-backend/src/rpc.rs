@@ -3,6 +3,7 @@ use crate::{
     config,
     paths::RailgunPaths,
     protocol::{CAPABILITIES, Command, VERSION},
+    skills::{self, SkillInput},
     storage::{Session, Store},
     tools::{
         self, ApprovalMode, InteractionResponse, Interactions, ToolContext, is_protected_cron_job,
@@ -14,7 +15,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{Timelike, Utc};
 use futures_util::StreamExt;
 use serde_json::{Map, Value, json};
-use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::{Mutex, Semaphore, mpsc},
@@ -218,6 +219,20 @@ async fn run_desktop(paths: RailgunPaths) -> Result<()> {
     Ok(())
 }
 
+async fn discover_skills_for_run(
+    root: &std::path::Path,
+    explicit_invocation: bool,
+) -> Result<Vec<skills::Skill>> {
+    match skills::discover_async(root).await {
+        Ok(discovered) => Ok(discovered),
+        Err(error) if explicit_invocation => Err(error).context("unable to load requested skill"),
+        Err(error) => {
+            tracing::warn!(path = %root.display(), error = %error, "skill discovery unavailable for agent run");
+            Ok(Vec::new())
+        }
+    }
+}
+
 impl Coordinator {
     async fn handle_line(&mut self, line: &str) {
         let parsed = serde_json::from_str::<Value>(line)
@@ -306,7 +321,10 @@ impl Coordinator {
                 Some(self.catalog.response_data()),
             ),
             "refresh_model_catalog" => self.refresh_catalog(id),
-            "prompt" => self.start_prompt(id, command.string("message")?.to_owned())?,
+            "prompt" => {
+                self.start_prompt(id, command.string("message")?.to_owned())
+                    .await?
+            }
             "abort" => {
                 if let Some(run) = &self.run {
                     run.cancellation.cancel();
@@ -577,9 +595,9 @@ impl Coordinator {
                 let data = self.handle_memory(&command).await?;
                 self.respond(&command.kind, id, data);
             }
-            "skills_list" | "skill_get" => {
+            "skills_list" | "skill_get" | "skill_create" | "skill_update" | "skill_delete" => {
                 let data = self.handle_skills(&command).await?;
-                self.respond(&command.kind, id, Some(data));
+                self.respond(&command.kind, id, (!data.is_null()).then_some(data));
             }
             "instruction_files_list" | "instruction_file_get" | "instruction_file_update" => {
                 let data = self.handle_instruction(&command).await?;
@@ -624,10 +642,16 @@ impl Coordinator {
         self.session_approvals.lock().await.clear();
     }
 
-    fn start_prompt(&mut self, id: Option<String>, message: String) -> Result<()> {
+    async fn start_prompt(&mut self, id: Option<String>, message: String) -> Result<()> {
         if self.run.is_some() {
             bail!("agent is already running");
         }
+        let explicit_invocation = message.starts_with("/skill:");
+        let discovered_skills =
+            discover_skills_for_run(&self.paths.skills, explicit_invocation).await?;
+        let prompt = skills::expand_slash_invocation(&message, &discovered_skills)?
+            .unwrap_or_else(|| message.clone());
+        let available_skills = skills::available_skills_prompt(&discovered_skills);
         let cancellation = CancellationToken::new();
         self.run = Some(ActiveRun {
             id: id.clone(),
@@ -637,6 +661,7 @@ impl Coordinator {
         let model = self.active.model.clone();
         let mut messages = self.active.messages.clone();
         let advisor_message = message.clone();
+        let available_skills_for_run = available_skills.clone();
         let updates = self.updates.clone();
         let todos = Arc::new(Mutex::new(self.active.todos.clone()));
         let context = ToolContext {
@@ -659,7 +684,10 @@ impl Coordinator {
                 provider,
                 model,
                 &mut messages,
-                message,
+                AgentRunPrompt {
+                    user: prompt,
+                    available_skills: available_skills_for_run,
+                },
                 context,
                 cancellation,
                 &updates,
@@ -1020,27 +1048,66 @@ impl Coordinator {
     }
 
     async fn handle_skills(&self, command: &Command) -> Result<Value> {
-        let skills = discover_skills(&self.paths.skills).await?;
+        let discovered = skills::discover_async(&self.paths.skills).await?;
         match command.kind.as_str() {
-            "skills_list" => Ok(json!({"skills": skills.iter().map(|skill| json!({
-                "name":skill.name,
-                "description":skill.description,
-                "disableModelInvocation":skill.disabled,
-            })).collect::<Vec<_>>() })),
+            "skills_list" => Ok(
+                json!({"skills": discovered.iter().map(Self::skill_summary_value).collect::<Vec<_>>() }),
+            ),
             "skill_get" => {
-                let skill = skills
+                let skill = discovered
                     .into_iter()
                     .find(|skill| skill.name == command.string("name").unwrap_or_default())
                     .context("skill not found")?;
-                Ok(json!({"skill":{
-                    "name":skill.name,
-                    "description":skill.description,
-                    "disableModelInvocation":skill.disabled,
-                    "body":skill.body,
-                }}))
+                Ok(json!({"skill":Self::skill_value(&skill)}))
+            }
+            "skill_create" => {
+                let skill =
+                    skills::create(&self.paths.skills, &Self::skill_input(command)?).await?;
+                Ok(json!({"skill":Self::skill_value(&skill)}))
+            }
+            "skill_update" => {
+                let skill =
+                    skills::update(&self.paths.skills, &Self::skill_input(command)?).await?;
+                Ok(json!({"skill":Self::skill_value(&skill)}))
+            }
+            "skill_delete" => {
+                skills::delete(&self.paths.skills, command.string("name")?).await?;
+                Ok(Value::Null)
             }
             _ => unreachable!(),
         }
+    }
+
+    fn skill_summary_value(skill: &skills::Skill) -> Value {
+        json!({
+        "name": skill.name.clone(),
+        "description": skill.description.clone(),
+        "disableModelInvocation": skill.disabled,
+        })
+    }
+
+    fn skill_value(skill: &skills::Skill) -> Value {
+        let mut value = Self::skill_summary_value(skill);
+        value["body"] = Value::String(skill.body.clone());
+        value
+    }
+
+    fn skill_input(command: &Command) -> Result<SkillInput> {
+        let body = command
+            .fields
+            .get("body")
+            .and_then(Value::as_str)
+            .context("invalid command: body must be a string")?;
+        Ok(SkillInput {
+            name: command.string("name")?.to_owned(),
+            description: command.string("description")?.to_owned(),
+            body: body.to_owned(),
+            disabled: command
+                .fields
+                .get("disableModelInvocation")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
     }
 
     async fn handle_instruction(&self, command: &Command) -> Result<Value> {
@@ -1088,16 +1155,21 @@ impl Coordinator {
     }
 }
 
+struct AgentRunPrompt {
+    user: String,
+    available_skills: String,
+}
+
 async fn provider_turn(
     provider: widevin::DevinProvider,
     model: String,
     messages: &mut Vec<Value>,
-    prompt: String,
+    prompt: AgentRunPrompt,
     tool_context: ToolContext,
     cancellation: CancellationToken,
     updates: &mpsc::UnboundedSender<RunUpdate>,
 ) -> Result<()> {
-    let user = json!({"role":"user","content":prompt});
+    let user = json!({"role":"user","content":prompt.user});
     messages.push(user.clone());
     send_update(updates, json!({"type":"agent_start"}));
     send_update(updates, json!({"type":"turn_start"}));
@@ -1109,7 +1181,11 @@ async fn provider_turn(
             json!({"type":"message_start","message":{"role":"assistant","content":[]}}),
         );
         let widevin_messages = json_messages_to_widevin(messages)?;
-        let mut stream = provider.stream_chat(agent_request(model.clone(), widevin_messages));
+        let mut stream = provider.stream_chat(agent_request(
+            model.clone(),
+            widevin_messages,
+            prompt.available_skills.clone(),
+        ));
         let mut text = String::new();
         let mut thinking = String::new();
         let mut tool_calls = Vec::new();
@@ -1251,12 +1327,17 @@ async fn advisor_review(
     }
 }
 
-fn agent_request(model: String, messages: Vec<DevinMessage>) -> DevinChatRequest {
+fn agent_request(
+    model: String,
+    messages: Vec<DevinMessage>,
+    available_skills: String,
+) -> DevinChatRequest {
     DevinChatRequest {
         model,
         messages,
         system_prompt: vec![
             "You are Railgun, a careful coding agent. You can read local files in the user's home directory with read_file. When the user supplies an absolute path there, call read_file before claiming the file is unavailable; never say a local path needs to be uploaded. Be concise, preserve user data, and report verification honestly.".into(),
+            available_skills,
         ],
         tools: tools::schemas(),
         ..Default::default()
@@ -1409,6 +1490,9 @@ fn v1_only(kind: &str) -> bool {
             | "memory_delete"
             | "skills_list"
             | "skill_get"
+            | "skill_create"
+            | "skill_update"
+            | "skill_delete"
             | "instruction_files_list"
             | "instruction_file_get"
             | "instruction_file_update"
@@ -1567,109 +1651,6 @@ async fn save_cron(paths: &RailgunPaths, jobs: &[Value]) -> Result<()> {
         &format!("{}\n", serde_json::to_string_pretty(jobs)?),
     )
     .await
-}
-
-struct Skill {
-    name: String,
-    description: String,
-    disabled: bool,
-    body: String,
-}
-
-async fn discover_skills(root: &std::path::Path) -> Result<Vec<Skill>> {
-    let root = root.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let mut files = Vec::new();
-        collect_skill_files(&root, &mut files)?;
-        files
-            .into_iter()
-            .filter_map(|path| match parse_skill(&path) {
-                Ok(Some(skill)) => Some(Ok(skill)),
-                Ok(None) => None,
-                Err(error) => {
-                    tracing::warn!(path = %path.display(), error = %error, "skipping invalid skill");
-                    None
-                }
-            })
-            .collect()
-    })
-    .await?
-}
-
-fn collect_skill_files(root: &std::path::Path, files: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = match std::fs::read_dir(root) {
-        Ok(value) => value.collect::<std::io::Result<Vec<_>>>()?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    if entries.iter().any(|entry| {
-        entry.file_type().is_ok_and(|kind| kind.is_file()) && entry.file_name() == "SKILL.md"
-    }) {
-        files.push(root.join("SKILL.md"));
-        return Ok(());
-    }
-    for entry in entries {
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            collect_skill_files(&entry.path(), files)?;
-        } else if kind.is_file()
-            && entry.path().extension().and_then(|value| value.to_str()) == Some("md")
-        {
-            files.push(entry.path());
-        }
-    }
-    Ok(())
-}
-
-fn parse_skill(path: &std::path::Path) -> Result<Option<Skill>> {
-    let raw = std::fs::read_to_string(path)?;
-    let (frontmatter, body) = split_frontmatter(&raw);
-    let meta: HashMap<String, Value> = if frontmatter.is_empty() {
-        HashMap::new()
-    } else {
-        serde_yaml::from_str(frontmatter)?
-    };
-    let inferred = if path.file_name().and_then(|value| value.to_str()) == Some("SKILL.md") {
-        path.parent().and_then(|value| value.file_name())
-    } else {
-        path.file_stem()
-    }
-    .and_then(|value| value.to_str())
-    .unwrap_or_default();
-    let name = meta.get("name").and_then(Value::as_str).unwrap_or(inferred);
-    if !regex::Regex::new(r"^[a-z0-9-]{1,64}$")?.is_match(name) {
-        return Ok(None);
-    }
-    let Some(description) = meta
-        .get("description")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty() && value.len() <= 1024)
-    else {
-        return Ok(None);
-    };
-    Ok(Some(Skill {
-        name: name.into(),
-        description: description.into(),
-        disabled: meta
-            .get("disable-model-invocation")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        body: body.into(),
-    }))
-}
-
-fn split_frontmatter(raw: &str) -> (&str, &str) {
-    let Some(rest) = raw.strip_prefix("---\n") else {
-        return ("", raw);
-    };
-    let Some(end) = rest.find("\n---") else {
-        return ("", raw);
-    };
-    let after = &rest[end + 4..];
-    if !after.is_empty() && !after.starts_with('\n') && !after.starts_with("\r\n") {
-        return ("", raw);
-    }
-    (&rest[..end], after.trim_start_matches(['\r', '\n']))
 }
 
 struct InstructionCandidate {
@@ -1905,6 +1886,8 @@ async fn run_scheduled_job(
     cancellation: CancellationToken,
 ) -> Result<&'static str> {
     let mut session = fresh_session(model.to_owned());
+    let available_skills =
+        skills::available_skills_prompt(&discover_skills_for_run(&paths.skills, false).await?);
     session.id = format!("cron-{}", uuid::Uuid::new_v4());
     let (updates, mut receiver) = mpsc::unbounded_channel();
     let drain = tokio::spawn(async move { while receiver.recv().await.is_some() {} });
@@ -1927,7 +1910,10 @@ async fn run_scheduled_job(
         authenticated.provider.clone(),
         model.to_owned(),
         &mut session.messages,
-        prompt.to_owned(),
+        AgentRunPrompt {
+            user: prompt.to_owned(),
+            available_skills,
+        },
         context,
         cancellation,
         &updates,
@@ -2029,9 +2015,33 @@ mod tests {
         assert!(BackendMode::parse(&["serve".into()]).is_err());
     }
 
+    #[tokio::test]
+    async fn skill_scan_failures_are_best_effort_except_for_explicit_invocations() {
+        let home = tempfile::tempdir().unwrap();
+        let paths = RailgunPaths::for_user_home(home.path());
+        tokio::fs::create_dir_all(&paths.home).await.unwrap();
+        tokio::fs::write(&paths.skills, "not a directory")
+            .await
+            .unwrap();
+
+        let ordinary = discover_skills_for_run(&paths.skills, false).await.unwrap();
+        let explicit = discover_skills_for_run(&paths.skills, true)
+            .await
+            .unwrap_err();
+
+        assert!(ordinary.is_empty());
+        assert!(explicit.to_string().contains("requested skill"));
+    }
+
     #[test]
     fn provider_request_advertises_every_restored_tool() {
-        let request = agent_request("model".into(), Vec::new());
+        let available_skills =
+            "<available_skills>\n  <skill><name>review</name></skill>\n</available_skills>";
+        let request = agent_request("model".into(), Vec::new(), available_skills.into());
+        assert_eq!(
+            request.system_prompt.last().map(String::as_str),
+            Some(available_skills)
+        );
         assert_eq!(
             request
                 .tools

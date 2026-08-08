@@ -63,6 +63,25 @@ is retained. Memory CRUD and search live in a native management sheet rather
 than the main settings page. That sheet also exposes a manual Dream action
 after at least five memories are available.
 
+**Settings → Skills** manages valid reusable instructions discovered under
+`~/.railgun/skills`. Users can search the list, inspect a rendered Markdown
+preview, create or edit a skill, choose whether the model may invoke it, and
+delete it after confirmation. Managed skills use
+`~/.railgun/skills/<name>/SKILL.md`; editing never renames a skill, and deletion
+does not recursively remove sibling assets. Malformed external files remain on
+disk for manual repair.
+
+For each new agent run, Railgun exposes only model-visible skill names and
+descriptions, loading instruction bodies on demand. The model-facing
+`skill_view` path enforces that visibility even when the model guesses a hidden
+name or frontmatter alias. Users alone can bypass model visibility and invoke a
+valid manual-only skill directly with `/skill:<name> [arguments]`. An unknown
+skill stops at the prompt boundary with a safe error rather than starting a
+task with unresolved instructions. Discovery is best-effort for ordinary and
+scheduled prompts so a broken or unreadable optional skills directory cannot
+make core prompting unavailable; explicit skill invocations still fail with a
+targeted discovery error.
+
 Every attempted scheduled run also arrives in Task as a separate resumable
 session. Delivery never changes the active task or sends a macOS notification.
 New deliveries remain unread until opened and use the scheduled prompt as

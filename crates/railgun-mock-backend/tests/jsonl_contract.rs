@@ -216,6 +216,71 @@ async fn cancellation_purges_prompt_frames_and_preserves_terminal_order() {
 }
 
 #[tokio::test]
+async fn skills_list_get_create_update_and_delete_match_the_jsonl_contract() {
+    let mut mock = MockProcess::start("ready-idle").await;
+
+    mock.send(json!({"id":"list","type":"skills_list"})).await;
+    let listed = mock.response("list").await;
+    assert_eq!(listed["success"], true);
+    assert!(
+        listed["data"]["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|skill| {
+                skill.get("body").is_none()
+                    && skill.get("name").is_some()
+                    && skill.get("description").is_some()
+            })
+    );
+
+    mock.send(json!({"id":"get","type":"skill_get","name":"desktop-testing"}))
+        .await;
+    let fetched = mock.response("get").await;
+    assert_eq!(
+        fetched["data"]["skill"]["body"],
+        "# Desktop testing\n\nUse deterministic scenarios and assert renderer-safe boundaries."
+    );
+
+    mock.send(json!({
+        "id":"create",
+        "type":"skill_create",
+        "name":"contract-skill",
+        "description":"Contract coverage",
+        "body":"Run the contract.",
+        "disableModelInvocation":true
+    }))
+    .await;
+    let created = mock.response("create").await;
+    assert_eq!(created["data"]["skill"]["name"], "contract-skill");
+    assert_eq!(created["data"]["skill"]["disableModelInvocation"], true);
+
+    mock.send(json!({
+        "id":"update",
+        "type":"skill_update",
+        "name":"contract-skill",
+        "description":"Updated contract coverage",
+        "body":"Run the updated contract.",
+        "disableModelInvocation":false
+    }))
+    .await;
+    let updated = mock.response("update").await;
+    assert_eq!(
+        updated["data"]["skill"]["description"],
+        "Updated contract coverage"
+    );
+    assert_eq!(
+        updated["data"]["skill"]["body"],
+        "Run the updated contract."
+    );
+
+    mock.send(json!({"id":"delete","type":"skill_delete","name":"contract-skill"}))
+        .await;
+    assert_eq!(mock.response("delete").await["success"], true);
+    assert!(mock.stop().await.success());
+}
+
+#[tokio::test]
 async fn interactions_validate_correlation_and_settle_the_original_prompt() {
     let mut mock = MockProcess::start("approval").await;
     mock.send(json!({"id":"prompt","type":"prompt","message":"Run it"}))

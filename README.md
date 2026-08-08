@@ -231,6 +231,56 @@ nightly run requires the installed background scheduler. Dream requires at
 least five memories and consolidates exact duplicates while reporting
 before/after counts and progress.
 
+### Skills
+
+Railgun discovers reusable Markdown skills from either of these layouts:
+
+```text
+~/.railgun/skills/review.md
+~/.railgun/skills/review/SKILL.md
+```
+
+Each file starts with YAML frontmatter followed by the Markdown instructions:
+
+```markdown
+---
+name: review
+description: Review a change for correctness and regressions
+disable-model-invocation: false
+---
+# Review
+
+Inspect the change and report concrete findings first.
+```
+
+The effective name must match `[a-z0-9-]{1,64}`. `description` is required and
+limited to 1,024 bytes; the Markdown body is limited to 200,000 bytes. `name`
+may override the filename-derived name, `disable-model-invocation` defaults to
+`false`, and both LF and CRLF files are accepted. Invalid files and symlinked
+entries are skipped so they can be repaired directly on disk. If multiple
+files declare the same effective name, the first source in deterministic path
+order wins and later duplicates are reported in backend diagnostics.
+
+Railgun refreshes discovery at the start of every agent run and advertises only
+the names and descriptions of model-visible skills. Bodies are omitted from the
+system prompt and returned only on demand; `skill_view` rejects manual-only
+skills even if the model guesses their name or frontmatter alias. A user can
+explicitly load any valid skill, including a manual-only one, by starting a
+prompt with `/skill:<name> [arguments]`; an unknown name is rejected before an
+agent run starts. If the skills root cannot be scanned, ordinary desktop and
+scheduled prompts continue without skills, while an explicit `/skill:`
+invocation returns a targeted load error.
+
+**Settings → Skills** provides search, Markdown preview, create, edit,
+visibility toggle, and delete controls. Settings writes managed skills to
+`~/.railgun/skills/<name>/SKILL.md` atomically, with `0700` directories and
+`0600` files. Names are immutable after creation, and managed mutations reject
+symlinked roots, directories, or files. Updating a valid legacy bare file
+migrates it to the managed layout, while deleting a skill removes only its
+Markdown file and an empty skill directory; sibling asset files are left
+intact. Settings lists only valid discovered skills, so malformed external
+files remain a manual filesystem repair.
+
 `web_fetch` accepts only public HTTP(S) targets without URL credentials. It
 rejects private, loopback, and localhost addresses (including IPv4-mapped IPv6
 forms), pins validated DNS addresses for the request, revalidates redirects,
@@ -290,6 +340,22 @@ Every response carries the command and preserves the request identifier.
 Session, interaction, configuration, MCP, cron, memory, dream, instruction,
 skill, and delivery capabilities retain their existing field casing and
 ordering rules. The backend emits protocol frames only on stdout.
+
+Skill management uses the following additive RPC v1 command shapes. Create and
+update return a full `skill` object; get returns the same detail, list returns
+summary objects without `body`, and delete has no response data.
+
+```json
+{"type":"skills_list"}
+{"type":"skill_get","name":"review"}
+{"type":"skill_create","name":"review","description":"Review a change","body":"Inspect the diff.","disableModelInvocation":false}
+{"type":"skill_update","name":"review","description":"Review a change","body":"Inspect the diff and tests.","disableModelInvocation":true}
+{"type":"skill_delete","name":"review"}
+```
+
+Skill summaries contain `name`, `description`, and
+`disableModelInvocation`; details add `body`. `name` identifies the immutable
+managed skill during update.
 
 Session transcript and recent-message projections follow the parent chain from
 the session's active `current_leaf_id`. After branching, descendants from the

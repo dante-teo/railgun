@@ -49,14 +49,18 @@ message.
 `Settings` scene. This keeps General and the archived-task browser in a normal
 macOS window with standard window behavior. Its `NavigationSplitView` uses a
 native `.sidebar`-styled `List`; **General** is the default selection and
-**Appearance**, **Personalization**, and **Archived Tasks** are sibling
-destinations. Personalization contains Railgun's one global custom-instruction
-editor plus a **Manage Memories** sheet for memory search, CRUD, and manual
-Dream maintenance; it does not expose an instruction-file picker or put memory
-controls directly on the settings page. Its destination rows use
-`RailgunSidebarSelectionRow`, matching the main window's matcha foreground and
-subtle rounded selection background while preserving native button, focus,
-keyboard, and VoiceOver behavior. Appearance persists an
+**Appearance**, **Personalization**, **Skills**, and **Archived Tasks** are
+sibling destinations. Personalization contains Railgun's one global
+custom-instruction editor plus a **Manage Memories** sheet for memory search,
+CRUD, and manual Dream maintenance; it does not expose an instruction-file
+picker or put memory controls directly on the settings page. Skills uses a
+searchable native list, rendered Markdown detail, and native create/edit and
+delete-confirmation surfaces. Detail requests are selection-scoped:
+cancellation or a late response from a previous selection must never replace
+the current detail, clear its error state, or end its loading state. Settings
+destination rows use `RailgunSidebarSelectionRow`, matching the main window's
+matcha foreground and subtle rounded selection background while preserving
+native button, focus, keyboard, and VoiceOver behavior. Appearance persists an
 **Auto**, **Light**, or **Dark** preference: Auto follows macOS, while Light and
 Dark override both Railgun windows. General uses a native grouped Form for
 command permissions: ask for approval, model-assisted approval, or full access

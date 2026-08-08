@@ -49,6 +49,7 @@ struct Mock {
     pending_prompt: Option<ActivePrompt>,
     interaction: Option<ActiveInteraction>,
     instructions: Vec<Value>,
+    skills: Vec<Value>,
     output: mpsc::UnboundedSender<OutputFrame>,
     cancelled_prompts: Arc<Mutex<HashSet<u64>>>,
     scheduled: mpsc::UnboundedSender<Scheduled>,
@@ -281,6 +282,7 @@ impl Mock {
             pending_prompt: None,
             interaction: None,
             instructions: instruction_files(true),
+            skills: mock_skills(true),
             output,
             cancelled_prompts,
             scheduled,
@@ -1166,7 +1168,14 @@ impl Mock {
                 let skills = if self.scenario == Scenario::EmptyStores {
                     Vec::new()
                 } else {
-                    mock_skills(false)
+                    self.skills
+                        .iter()
+                        .cloned()
+                        .map(|mut skill| {
+                            skill.as_object_mut().unwrap().remove("body");
+                            skill
+                        })
+                        .collect()
                 };
                 self.respond(
                     &kind,
@@ -1181,7 +1190,9 @@ impl Mock {
                 let skill = if self.scenario == Scenario::EmptyStores {
                     None
                 } else {
-                    mock_skills(true)
+                    self.skills
+                        .iter()
+                        .cloned()
                         .into_iter()
                         .find(|skill| skill["name"] == command["name"])
                 };
@@ -1200,6 +1211,65 @@ impl Mock {
                             command["name"].as_str().unwrap_or_default()
                         ),
                     );
+                }
+            }
+            "skill_create" => {
+                if self.fail_store(&kind, id.as_deref()) {
+                    return Ok(None);
+                }
+                let name = command["name"].as_str().unwrap_or_default();
+                if self.skills.iter().any(|skill| skill["name"] == name) {
+                    self.respond_error(&kind, id.as_deref(), "skill already exists");
+                    return Ok(None);
+                }
+                let skill = json!({
+                    "name": name,
+                    "description": command["description"],
+                    "disableModelInvocation": command
+                        .get("disableModelInvocation")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    "body": command["body"],
+                });
+                self.skills.push(skill.clone());
+                self.respond(&kind, id.as_deref(), Some(json!({"skill":skill})));
+            }
+            "skill_update" => {
+                if self.fail_store(&kind, id.as_deref()) {
+                    return Ok(None);
+                }
+                let name = command["name"].as_str().unwrap_or_default();
+                let Some(index) = self.skills.iter().position(|skill| skill["name"] == name) else {
+                    self.respond_error(&kind, id.as_deref(), "skill not found");
+                    return Ok(None);
+                };
+                let updated = {
+                    let skill = &mut self.skills[index];
+                    skill["description"] = command["description"].clone();
+                    skill["body"] = command["body"].clone();
+                    skill["disableModelInvocation"] = json!(command
+                        .get("disableModelInvocation")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false));
+                    skill.clone()
+                };
+                self.respond(
+                    &kind,
+                    id.as_deref(),
+                    Some(json!({"skill":updated})),
+                );
+            }
+            "skill_delete" => {
+                if self.fail_store(&kind, id.as_deref()) {
+                    return Ok(None);
+                }
+                let name = command["name"].as_str().unwrap_or_default();
+                let before = self.skills.len();
+                self.skills.retain(|skill| skill["name"] != name);
+                if self.skills.len() == before {
+                    self.respond_error(&kind, id.as_deref(), "skill not found");
+                } else {
+                    self.respond(&kind, id.as_deref(), None);
                 }
             }
             "instruction_files_list" => {

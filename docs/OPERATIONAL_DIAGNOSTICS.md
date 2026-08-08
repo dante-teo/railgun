@@ -31,6 +31,33 @@ instruction state are captured at backend startup. Restart the backend before
 claiming a change is active. Diagnose configuration, MCP, extension, cron, and
 desktop failures from inspected state and logs rather than assumptions.
 
+Skills are the exception to the startup-capture rule: Railgun discovers
+`~/.railgun/skills` afresh for every desktop or scheduled agent run, and the
+Settings list performs its own discovery. A valid filesystem edit therefore
+becomes available on the next run without restarting the backend.
+
+## Skill discovery and repair
+
+Discovery accepts root-level Markdown files and nested directories containing
+`SKILL.md`, normalizes CRLF input, and does not follow symlinks. Files with
+invalid frontmatter, names, descriptions, or oversized bodies are skipped;
+parse and read failures produce a backend warning. Duplicate effective names
+are resolved by deterministic relative-path order; the first valid file wins
+and later files are skipped with their paths in diagnostics.
+
+If the skills root itself is a symlink, not a directory, or cannot be read,
+ordinary desktop and scheduled prompts continue with no advertised skills.
+This is deliberate because skills are optional prompting input. An explicit
+`/skill:<name>` invocation instead reports that the requested skill could not
+be loaded, and Settings exposes the discovery failure with Retry. Repair the
+filesystem condition directly; malformed files are intentionally not rewritten
+or deleted by discovery.
+
+Managed Settings writes reject symlinked roots and targets, write
+`<name>/SKILL.md` atomically with private permissions, and never recursively
+delete a skill directory. If deletion leaves sibling assets behind, remove or
+repair those assets manually only after confirming they are no longer needed.
+
 ## Devin authentication recovery
 
 The file-backed Devin credential is stored at `~/.railgun/devin-token`.

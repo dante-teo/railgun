@@ -288,6 +288,7 @@ final class RailgunBackendRuntime {
     let compactionCoordinator: RailgunCompactionCoordinator
     let scheduledCoordinator: RailgunScheduledCoordinator
     let personalizationStore: RailgunPersonalizationStore
+    let skillsStore: RailgunSkillsStore
 
     private let client: RailgunRPCClient
     private let launch: BackendProcessLaunch?
@@ -355,6 +356,9 @@ final class RailgunBackendRuntime {
         )
         self.personalizationStore = RailgunPersonalizationStore(
             service: RailgunPersonalizationService(rpcClient: client)
+        )
+        self.skillsStore = RailgunSkillsStore(
+            service: RailgunSkillService(rpcClient: client)
         )
         let deliveryService = RailgunSessionService(rpcClient: client)
         self.deliveryService = deliveryService
@@ -2202,6 +2206,7 @@ struct RailgunXApp: App {
                 sessionCoordinator: backendRuntime.sessionCoordinator,
                 controlsCoordinator: backendRuntime.controlsCoordinator,
                 personalizationStore: backendRuntime.personalizationStore,
+                skillsStore: backendRuntime.skillsStore,
                 backgroundSchedulerService: backgroundSchedulerService
             )
             .preferredColorScheme(appearance.colorScheme)
