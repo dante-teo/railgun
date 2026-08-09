@@ -1,6 +1,6 @@
 # Railgun
 
-Railgun contains a production native arm64 macOS agent application and an empty
+Railgun contains a production native arm64 macOS agent application and a prototype
 Electron client shell. The native app and its private Rust backend communicate
 over versioned JSONL RPC on standard input and standard output; diagnostics are
 structured, redacted, and written only to standard error.

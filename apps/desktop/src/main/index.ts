@@ -37,10 +37,11 @@ function startConfiguredBackend(): void {
 }
 
 function createWindow(): void {
-  // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1440,
+    height: 900,
+    minWidth: 1280,
+    minHeight: 720,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#ffffff',
@@ -54,7 +55,7 @@ function createWindow(): void {
     titleBarStyle: 'hidden',
     trafficLightPosition: {
       x: 16,
-      y: 16
+      y: 18
     }
   })
 
@@ -64,8 +65,7 @@ function createWindow(): void {
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
+  // Use electron-vite's renderer server in development and the bundled HTML in production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {

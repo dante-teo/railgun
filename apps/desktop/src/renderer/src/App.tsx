@@ -1,12 +1,15 @@
 import { Route, Routes } from 'react-router'
 
-import { EmptyPage } from '@/pages/EmptyPage'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { TasksPage } from '@/pages/TasksPage'
 
 function App(): React.JSX.Element {
   return (
-    <Routes>
-      <Route path="/" element={<EmptyPage />} />
-    </Routes>
+    <TooltipProvider delayDuration={350}>
+      <Routes>
+        <Route path="/" element={<TasksPage />} />
+      </Routes>
+    </TooltipProvider>
   )
 }
 
