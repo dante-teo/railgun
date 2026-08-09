@@ -1,8 +1,9 @@
 # Railgun Desktop
 
 A prototype Electron application shell built with TypeScript, React, React Router, Tailwind CSS,
-and shadcn/ui. It currently provides the static Tasks interface and local shell interactions; it
-is not a supported release surface or connected domain client.
+and shadcn/ui. Its Tasks interface reads saved conversation sessions from the configured JSONL
+backend and supports optimistic archiving. It is not yet a supported release surface or complete
+domain client.
 
 ## Requirements
 
@@ -39,6 +40,10 @@ The mock launcher builds `railgun-mock-backend`, sets `RAILGUNX_BACKEND_MODE=moc
 RAILGUNX_MOCK_SCENARIO=delayed-startup scripts/run-mock.sh
 ```
 
+`run-mock.sh` is the current end-to-end path for the connected task list. Production backend
+bundling is a separate packaging milestone; when Electron has no configured backend, the task list
+shows an unavailable state instead of static fallback data.
+
 Both root launchers forward additional arguments to `pnpm dev`. To work directly in this
 directory without a configured backend, run:
 
@@ -63,6 +68,21 @@ implementation.
 The renderer runs with context isolation and sandboxing enabled and without Node integration.
 Keep privileged APIs behind the preload boundary rather than importing Node or Electron APIs into
 renderer code.
+
+### Task backend boundary
+
+The context-isolated preload exposes only `window.railgun.tasks.list()` and
+`window.railgun.tasks.archive(sessionId)`. List results contain the session ID, presentation title,
+and an ISO-8601 `lastMessageAt` timestamp; the main process validates every response before it
+crosses into the renderer and validates renderer-supplied session IDs before archiving.
+
+The Electron process manager initializes JSONL protocol version 1 before serving requests and
+correlates every response by request ID. Each stdout JSONL frame is limited to 8 MiB; malformed,
+oversized, or invalid correlated output fails the connection instead of remaining buffered. Normal
+initialization and read requests time out after 10 seconds. Archive mutations deliberately do not
+use that client-side timeout: they remain pending until the backend responds or the process
+terminates, so a delayed successful commit cannot be mistaken for a rejection and rolled back in
+the task list.
 
 ## Application Shell Contract
 
@@ -116,9 +136,13 @@ semantic Tailwind tokens in `src/renderer/src/assets/main.css`. Topbar icon acti
 `TopBarIconButton` contract so sizing, interaction states, drag behavior, and accessible labeling
 remain consistent.
 
-The current Tasks content is intentionally static. Resizing and Sidebar/Inspector collapse are the
-only functional shell behaviors; navigation rows, task data, composer controls, inspector fields,
-and Sidecar content are placeholders.
+The Tasks content column lists real saved sessions in backend order. Selecting a row only reveals a
+visual transcript placeholder in this milestone; transcript loading and task resumption remain out
+of scope. Archive actions remove a task optimistically and restore it at its original position when
+the backend rejects the request. The displayed date comes from the latest message on the session's
+active branch and falls back to the session start when that branch has no messages. Navigation rows,
+transcript content, composer controls, inspector fields, and archived-task browsing remain
+placeholders or future work.
 
 ## Electron Binary Repair
 
@@ -147,6 +171,18 @@ pnpm exec prettier --check .
 pnpm build
 ```
 
+From the repository root, the corresponding backend and JSONL contract checks are:
+
+```sh
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
+```
+
+The locked workspace tests include the mock backend's process-level JSONL contract suite and session
+listing coverage. The desktop test suite covers correlated list requests and timeout-free archive
+mutations through the Electron process manager.
+
 ## Packaging
 
 Create an unpacked application for local inspection without using a signing identity:
@@ -165,7 +201,8 @@ pnpm build:linux
 
 Electron Builder may automatically use a matching macOS signing identity from the keychain;
 timestamped signing also requires access to Apple's timestamp service. The current tagged GitHub
-release workflow publishes only the native arm64 macOS application, not Electron artifacts.
+release workflow publishes only the native arm64 macOS application, not Electron artifacts. These
+Electron commands do not currently bundle the production Rust backend.
 
 App versions are kept aligned by the repository-level release command:
 

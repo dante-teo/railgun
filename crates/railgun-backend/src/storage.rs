@@ -64,6 +64,11 @@ impl Store {
         let sql = format!(
             "SELECT s.id, s.model, s.started_at, s.archived_at, COUNT(m.id) AS message_count,
              d.job_id, d.title, d.run_status, d.read_at,
+             COALESCE(
+               (SELECT active.created_at FROM messages active
+                WHERE active.id = s.current_leaf_id AND active.session_id = s.id),
+               s.started_at
+             ) AS last_message_at,
              (SELECT content_json FROM messages preview
               WHERE preview.session_id = s.id AND preview.role = 'user'
               ORDER BY preview.id ASC LIMIT 1) AS first_user_content
@@ -87,6 +92,7 @@ impl Store {
                 "id": id,
                 "model": row.try_get::<String, _>("model")?,
                 "startedAtLocal": local_time(&started_at),
+                "lastMessageAt": row.try_get::<String, _>("last_message_at")?,
                 "messageCount": row.try_get::<i64, _>("message_count")?,
                 "firstUserPreview": first_user_preview,
             });
@@ -1290,6 +1296,73 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(previews.contains(&"First task prompt"));
         assert!(previews.contains(&"Second task prompt"));
+    }
+
+    #[tokio::test]
+    async fn session_list_uses_the_active_branch_leaf_timestamp_and_session_start_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("session-timestamps.db"))
+            .await
+            .unwrap();
+        let started_at = "2026-01-01T00:00:00.000Z";
+        let mut branched = Session {
+            id: "branched".into(),
+            model: "model".into(),
+            started_at: started_at.into(),
+            messages: vec![
+                json!({"role":"user","content":"root"}),
+                json!({"role":"assistant","content":[{"type":"text","text":"branch point"}]}),
+                json!({"role":"user","content":"abandoned"}),
+                json!({"role":"assistant","content":[{"type":"text","text":"abandoned answer"}]}),
+            ],
+            message_ids: Vec::new(),
+            todos: Vec::new(),
+            persistence: "unsaved",
+        };
+        store.save_session(&mut branched).await.unwrap();
+
+        for (message_id, created_at) in branched.message_ids.iter().zip([
+            "2026-01-01T00:01:00.000Z",
+            "2026-01-01T00:02:00.000Z",
+            "2026-01-01T00:03:00.000Z",
+            "2026-01-01T00:04:00.000Z",
+        ]) {
+            sqlx::query("UPDATE messages SET created_at = ? WHERE id = ?")
+                .bind(created_at)
+                .bind(message_id)
+                .execute(&store.pool)
+                .await
+                .unwrap();
+        }
+        store
+            .branch(&branched.id, branched.message_ids[1])
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO sessions (id, model, started_at, todos_json)
+             VALUES ('empty', 'model', ?, '[]')",
+        )
+        .bind(started_at)
+        .execute(&store.pool)
+        .await
+        .unwrap();
+
+        let summaries = store.list_sessions(false).await.unwrap();
+        let branched_summary = summaries
+            .iter()
+            .find(|summary| summary["id"] == "branched")
+            .unwrap();
+        let empty_summary = summaries
+            .iter()
+            .find(|summary| summary["id"] == "empty")
+            .unwrap();
+
+        assert_eq!(
+            branched_summary["lastMessageAt"],
+            "2026-01-01T00:02:00.000Z"
+        );
+        assert_eq!(empty_summary["lastMessageAt"], started_at);
     }
 
     #[tokio::test]

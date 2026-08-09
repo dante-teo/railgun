@@ -385,6 +385,11 @@ the session's active `current_leaf_id`. After branching, descendants from the
 abandoned branch remain preserved in SQLite but are never projected as active
 history or previews.
 
+`session_list` summaries include the additive ISO-8601 `lastMessageAt` field. It is the creation
+timestamp of the session's active `current_leaf_id`, falling back to the session start when the
+active branch has no message. Mock summaries use the latest timestamped message in visible order so
+trailing fixture messages without timestamps do not erase known activity time.
+
 `get_available_models` remains compatible with existing callers and returns
 the cached model list. Its additive `catalog` object reports cache freshness,
 generation, refresh state, and a redacted last refresh error when applicable.

@@ -244,4 +244,19 @@
     transform: none !important;
     transition: opacity var(--duration-feedback) var(--ease-out) !important;
   }
+
+  [data-slot='task-list-row'],
+  [data-slot='task-list-state'] {
+    transform: none !important;
+    translate: none !important;
+    transition:
+      background-color var(--duration-feedback) var(--ease-out),
+      opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+
+  [data-slot='task-list-error'],
+  [data-slot='task-list-row'],
+  [data-slot='task-list-state'] {
+    animation-duration: var(--duration-feedback) !important;
+  }
 }

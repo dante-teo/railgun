@@ -1,95 +1,76 @@
-import { AtSign, Circle, Paperclip, Send, Smile } from 'lucide-react'
+import { MessageSquareText, MousePointer2, Sparkles } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { TaskSummary } from '@/lib/task-api'
 
-type PlaceholderWidth = 'short' | 'medium' | 'wide'
-
-interface PlaceholderLineProps {
-  width: PlaceholderWidth
+interface TaskDetailPlaceholderProps {
+  task?: TaskSummary
 }
 
-interface PlaceholderGroup {
-  readonly id: string
-  readonly offset: 'mt-11' | 'mt-14'
-  readonly widths: readonly PlaceholderWidth[]
-}
-
-const PLACEHOLDER_GROUPS: readonly PlaceholderGroup[] = [
-  { id: 'summary', offset: 'mt-11', widths: ['short', 'medium', 'wide'] },
-  { id: 'notes', offset: 'mt-14', widths: ['short', 'wide', 'wide'] },
-  { id: 'activity', offset: 'mt-14', widths: ['short', 'wide', 'wide'] }
-]
-
-function PlaceholderLine({ width }: PlaceholderLineProps): React.JSX.Element {
+function TranscriptEmptyGraphic(): React.JSX.Element {
   return (
-    <span
-      aria-hidden="true"
-      className={cn('block h-2.5 rounded-full bg-placeholder', {
-        'w-[31%]': width === 'short',
-        'w-[48%]': width === 'medium',
-        'w-[81%]': width === 'wide'
-      })}
-    />
+    <div aria-hidden="true" className="flex w-44 flex-col gap-2">
+      <div className="flex w-36 items-center gap-3 self-start rounded-xl border bg-card p-3 shadow-minimal">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <MessageSquareText className="size-4" strokeWidth={1.7} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <span className="h-1.5 w-full rounded-full bg-muted" />
+          <span className="h-1.5 w-2/3 rounded-full bg-muted" />
+        </span>
+      </div>
+      <div className="flex w-36 items-center gap-3 self-end rounded-xl border bg-accent p-3 shadow-minimal">
+        <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <span className="h-1.5 w-4/5 rounded-full bg-primary/20" />
+          <span className="h-1.5 w-full rounded-full bg-primary/20" />
+        </span>
+        <Sparkles className="size-4 shrink-0 text-primary" strokeWidth={1.7} />
+      </div>
+      <MousePointer2 className="size-5 self-center text-muted-foreground" strokeWidth={1.5} />
+    </div>
   )
 }
 
-function ComposerPlaceholder(): React.JSX.Element {
+export function TaskDetailPlaceholder({ task }: TaskDetailPlaceholderProps): React.JSX.Element {
+  if (!task) {
+    return (
+      <section aria-label="Transcript" className="flex h-full min-h-0 p-6">
+        <Empty>
+          <EmptyMedia>
+            <TranscriptEmptyGraphic />
+          </EmptyMedia>
+          <EmptyHeader>
+            <EmptyTitle>Select a task</EmptyTitle>
+            <EmptyDescription>Choose a task to preview its transcript.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </section>
+    )
+  }
+
   return (
     <section
-      aria-label="Task composer"
-      className="flex h-[96px] items-center rounded-lg border bg-card px-4 shadow-minimal"
+      aria-label={`Transcript for ${task.title}`}
+      className="flex h-full min-h-0 flex-col px-7 py-8"
     >
-      <Button aria-label="Attach file" size="icon-sm" type="button" variant="ghost">
-        <Paperclip aria-hidden="true" data-icon="inline-start" strokeWidth={1.65} />
-      </Button>
-      <span className="ml-2 min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-        Add a note or update...
-      </span>
-      <div className="flex items-center gap-1">
-        <Button aria-label="Mention someone" size="icon-sm" type="button" variant="ghost">
-          <AtSign aria-hidden="true" data-icon="inline-start" strokeWidth={1.65} />
-        </Button>
-        <Button aria-label="Add emoji" size="icon-sm" type="button" variant="ghost">
-          <Smile aria-hidden="true" data-icon="inline-start" strokeWidth={1.65} />
-        </Button>
-        <Button aria-label="Send update" size="icon-sm" type="button" variant="ghost">
-          <Send
-            aria-hidden="true"
-            data-icon="inline-start"
-            className="text-primary"
-            strokeWidth={1.75}
-          />
-        </Button>
-      </div>
-    </section>
-  )
-}
-
-export function TaskDetailPlaceholder(): React.JSX.Element {
-  return (
-    <section className="flex h-full min-h-0 flex-col px-7 py-10">
-      <div className="flex items-center gap-4">
-        <Circle
-          aria-hidden="true"
-          className="size-[18px] shrink-0 text-subtle-foreground"
-          strokeWidth={1.45}
-        />
-        <h2 className="text-[21px] font-semibold leading-none tracking-[-0.015em]">
-          Draft project brief
+      <header className="min-w-0 border-b pb-5">
+        <h2 className="truncate text-lg font-semibold" title={task.title}>
+          {task.title}
         </h2>
-      </div>
-
-      {PLACEHOLDER_GROUPS.map(({ id, offset, widths }) => (
-        <div className={cn('flex flex-col gap-5', offset)} key={id}>
-          {widths.map((width, index) => (
-            <PlaceholderLine key={`${id}-${width}-${index}`} width={width} />
-          ))}
+        <p className="mt-1 text-xs text-muted-foreground">Transcript preview</p>
+      </header>
+      <div className="flex max-w-2xl flex-col gap-8 py-8" aria-hidden="true">
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-4 w-3/5" />
         </div>
-      ))}
-
-      <div className="mt-auto pt-8">
-        <ComposerPlaceholder />
+        <div className="flex flex-col gap-3 pl-10">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
       </div>
     </section>
   )

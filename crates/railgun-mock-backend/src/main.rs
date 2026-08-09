@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use chrono::Utc;
+use chrono::{SecondsFormat, TimeZone, Utc};
 use railgun_backend::{protocol::CAPABILITIES, transcript};
 use serde_json::{Map, Value, json};
 use std::{
@@ -1968,7 +1968,31 @@ fn push_tool_use(messages: &mut Vec<Value>, id: &str, name: &str, arguments: Val
 }
 
 fn session_summary(session: &MockSession) -> Value {
-    json!({"id":session.id,"model":session.model,"startedAtLocal":session.started_at_local,"messageCount":session.messages.len(),"firstUserPreview":session.messages.iter().find(|message|message["role"]=="user").and_then(|message|message["content"].as_str()).unwrap_or_default().chars().take(500).collect::<String>()})
+    let last_message_at = session
+        .messages
+        .iter()
+        .rev()
+        .find_map(|message| message.get("at").and_then(Value::as_i64))
+        .and_then(|milliseconds| Utc.timestamp_millis_opt(milliseconds).single())
+        .map(|date| date.to_rfc3339_opts(SecondsFormat::Millis, true))
+        .unwrap_or_else(|| session.started_at.clone());
+    let first_user_preview = session
+        .messages
+        .iter()
+        .find(|message| message["role"] == "user")
+        .and_then(|message| message["content"].as_str())
+        .unwrap_or_default()
+        .chars()
+        .take(500)
+        .collect::<String>();
+    json!({
+        "id": session.id,
+        "model": session.model,
+        "startedAtLocal": session.started_at_local,
+        "lastMessageAt": last_message_at,
+        "messageCount": session.messages.len(),
+        "firstUserPreview": first_user_preview,
+    })
 }
 
 fn branchable_message_ids(session: &MockSession) -> std::collections::HashSet<i64> {
@@ -2187,6 +2211,32 @@ mod tests {
         assert_eq!(
             sessions[2].messages[3]["content"][0]["arguments"]["token"],
             "must-not-cross-boundary"
+        );
+    }
+
+    #[test]
+    fn session_summaries_use_the_latest_known_message_time_with_empty_fallback() {
+        let mut session = fresh_active_session("timestamped", "mock-model");
+        session.started_at = "2026-07-14T08:30:00.000Z".into();
+        assert_eq!(
+            session_summary(&session)["lastMessageAt"],
+            "2026-07-14T08:30:00.000Z"
+        );
+
+        session.messages = vec![
+            json!({"role":"user","at":1_784_496_000_000_i64,"content":"first"}),
+            json!({"role":"assistant","at":1_784_496_060_000_i64,"content":"latest"}),
+            json!({"role":"assistant","content":"trailing message without a timestamp"}),
+        ];
+        assert_eq!(
+            session_summary(&session)["lastMessageAt"],
+            "2026-07-19T21:21:00.000Z"
+        );
+
+        let default_sessions = saved_sessions();
+        assert_eq!(
+            session_summary(&default_sessions[0])["lastMessageAt"],
+            "2026-07-19T21:20:21.000Z"
         );
     }
 

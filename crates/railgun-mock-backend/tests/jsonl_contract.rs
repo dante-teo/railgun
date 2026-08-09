@@ -129,6 +129,13 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
     );
     assert_eq!(sessions["data"]["sessions"][0]["messageCount"], 34);
     assert_eq!(sessions["data"]["sessions"][1]["messageCount"], 202);
+    assert!(
+        sessions["data"]["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|session| session["lastMessageAt"].as_str().is_some())
+    );
 
     mock.send(json!({
         "id":"load-page",
