@@ -116,6 +116,18 @@ final class RailgunSessionFlowTests: XCTestCase {
 
     func testResumeHydratesPaginatedTranscriptStateAndSafeMetadataInBackendOrder() async throws {
         let store = RailgunAppStore()
+        let previousControls = RailgunControlsSnapshot(
+            models: [
+                .init(id: "previous", name: "Previous", contextWindow: 100_000),
+                .init(id: "gpt-5", name: "GPT-5", contextWindow: 200_000),
+            ],
+            activeModelID: "previous",
+            defaultModelID: nil,
+            moaPresets: [],
+            activeMoAPresetName: nil,
+            advisor: .disabled
+        )
+        store.send(.controls(.loaded(previousControls)))
         let selected = RailgunSessionSummary(
             id: "saved", model: "gpt-5", startedAt: "Today", messageCount: 3, firstUserPreview: "Resume me"
         )
@@ -130,6 +142,10 @@ final class RailgunSessionFlowTests: XCTestCase {
                 return try response(for: command.type, data: .object([
                     "sessionId": .string("saved"),
                     "running": .bool(true),
+                    "latestUsage": .object([
+                        "inputTokens": .number(120_000),
+                        "outputTokens": .number(30_000),
+                    ]),
                     "todos": .array([.object([
                         "id": .string("todo-1"),
                         "content": .string("Ship it"),
@@ -169,7 +185,16 @@ final class RailgunSessionFlowTests: XCTestCase {
                 return try response(for: command.type, data: .object([:]))
             }
         }
-        let coordinator = RailgunSessionCoordinator(store: store, service: service)
+        let coordinator = RailgunSessionCoordinator(
+            store: store,
+            service: service,
+            controlsDidActivate: {
+                store.send(.controls(.loaded(previousControls.withModel(
+                    activeModelID: "gpt-5",
+                    defaultModelID: nil
+                ))))
+            }
+        )
 
         await coordinator.resume("saved")
 
@@ -186,6 +211,7 @@ final class RailgunSessionFlowTests: XCTestCase {
             .tool(id: "tool-1", name: "read_file", status: .success, order: 2, input: "notes.md", output: nil),
         ])
         XCTAssertEqual(store.state.activity.todos, [.init(id: "todo-1", content: "Ship it", status: .inProgress)])
+        XCTAssertEqual(store.state.controls.contextUsage, .init(inputTokens: 120_000, outputTokens: 30_000))
         XCTAssertNil(store.state.session.error)
     }
 

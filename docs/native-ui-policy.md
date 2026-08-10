@@ -360,6 +360,8 @@ operations:
   run, control mutation, compaction, or empty transcript.
 - Do not add multi-agent controls to the Task surface. Each task uses its
   selected model directly.
+- Keep the context ring as read-only status. Hover may reveal its detail
+  popover, but the ring must not adopt button styling or a darker hover state.
 - Treat context usage as optional. The ring tooltip, accessibility label, and
   hover popover must report `Not measured yet` until a provider measurement
   exists; do not substitute zero.
@@ -367,6 +369,10 @@ operations:
   streamed `message_update` event or the final `turn_end` event. Use the most
   recent measurement, and keep the existing value when a malformed usage event
   is received.
+- Restore a saved task's valid `get_state.latestUsage` after rehydrating its
+  active model. Never leak the previously selected task's usage into a task
+  with no measurement. Model changes, branching, and compaction invalidate the
+  prior context measurement until the provider reports a replacement.
 - Render prompt, queued-follow-up, and Stop failures in a visible inline error
   row with Retry. The focused Retry command supplements this control and never
   replaces it.

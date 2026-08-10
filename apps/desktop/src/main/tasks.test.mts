@@ -8,35 +8,30 @@ import {
   type BackendRequestOptions
 } from './tasks.mts'
 
-class StubBackend implements BackendRequester {
+interface StubBackend extends BackendRequester {
   readonly calls: Array<{
     command: string
     fields?: Record<string, unknown>
     options?: BackendRequestOptions
-  }> = []
-  private readonly failure: Error | undefined
-  private readonly response: unknown
+  }>
+}
 
-  constructor(response: unknown, failure?: Error) {
-    this.response = response
-    this.failure = failure
-  }
-
-  async request(
-    command: string,
-    fields?: Record<string, unknown>,
-    options?: BackendRequestOptions
-  ): Promise<unknown> {
-    this.calls.push({ command, fields, options })
-    if (this.failure) {
-      throw this.failure
+function stubBackend(response: unknown, failure?: Error): StubBackend {
+  const calls: StubBackend['calls'] = []
+  return {
+    calls,
+    request: async (command, fields, options) => {
+      calls.push({ command, fields, options })
+      if (failure) {
+        throw failure
+      }
+      return response
     }
-    return this.response
   }
 }
 
 test('TaskService validates and narrows task summaries without changing backend order', async (): Promise<void> => {
-  const backend = new StubBackend({
+  const backend = stubBackend({
     sessions: [
       {
         id: 'first',
@@ -76,12 +71,12 @@ test('TaskService rejects malformed list responses', async (): Promise<void> => 
     { sessions: [{ id: 'task', firstUserPreview: 'Task', lastMessageAt: 'not-a-date' }] },
     { sessions: [{ id: '', firstUserPreview: 'Task', lastMessageAt: '2026-08-09T02:00:00Z' }] }
   ]) {
-    await assert.rejects(new TaskService(new StubBackend(response)).list(), /invalid/i)
+    await assert.rejects(new TaskService(stubBackend(response)).list(), /invalid/i)
   }
 })
 
 test('TaskService validates renderer session IDs before archiving', async (): Promise<void> => {
-  const backend = new StubBackend(undefined)
+  const backend = stubBackend(undefined)
   const service = new TaskService(backend)
 
   await service.archive('task-123')
@@ -99,7 +94,7 @@ test('TaskService validates renderer session IDs before archiving', async (): Pr
 })
 
 test('TaskService opens a validated task without crossing transcript content into the renderer', async (): Promise<void> => {
-  const backend = new StubBackend({ sessionId: 'task-123' })
+  const backend = stubBackend({ sessionId: 'task-123' })
   const service = new TaskService(backend)
 
   await service.open('task-123')
@@ -116,13 +111,13 @@ test('TaskService opens a validated task without crossing transcript content int
 
 test('TaskService rejects malformed or mismatched loaded task responses', async (): Promise<void> => {
   for (const response of [undefined, {}, { sessionId: 'another-task' }]) {
-    await assert.rejects(new TaskService(new StubBackend(response)).open('task-123'), /invalid/i)
+    await assert.rejects(new TaskService(stubBackend(response)).open('task-123'), /invalid/i)
   }
 })
 
 test('TaskService preserves archive failures for the IPC caller', async (): Promise<void> => {
   const service = new TaskService(
-    new StubBackend(undefined, new Error('active session task-123 not found'))
+    stubBackend(undefined, new Error('active session task-123 not found'))
   )
 
   await assert.rejects(service.archive('task-123'), /active session task-123 not found/)

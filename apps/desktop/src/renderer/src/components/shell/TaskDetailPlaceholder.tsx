@@ -91,7 +91,7 @@ export function TaskDetailPlaceholder({ task }: TaskDetailPlaceholderProps): Rea
       </div>
       <div className="w-full shrink-0 px-4 pb-4">
         <div className="mx-auto w-full max-w-180">
-          <TaskComposer />
+          <TaskComposer key={task.id} />
         </div>
       </div>
     </section>

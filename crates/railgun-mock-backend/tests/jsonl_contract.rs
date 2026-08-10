@@ -78,6 +78,48 @@ impl MockProcess {
 }
 
 #[tokio::test]
+async fn model_selection_updates_the_active_task_and_future_default() {
+    let mut mock = MockProcess::start("ready-idle").await;
+
+    mock.send(json!({"id":"models","type":"get_available_models"}))
+        .await;
+    let models = mock.response("models").await;
+    assert_eq!(models["data"]["models"][0]["name"], "Mock Model");
+    assert_eq!(models["data"]["models"][1]["name"], "Mock Reference");
+
+    mock.send(json!({
+        "id":"active",
+        "type":"set_model",
+        "modelId":"mock-reference"
+    }))
+    .await;
+    assert_eq!(mock.response("active").await["success"], true);
+
+    mock.send(json!({"id":"state","type":"get_state"})).await;
+    let state = mock.response("state").await;
+    assert_eq!(state["data"]["model"], "mock-reference");
+    assert!(state["data"]["latestUsage"].is_null());
+
+    mock.send(json!({
+        "id":"default",
+        "type":"config_update",
+        "patch":{"model":"mock-reference"}
+    }))
+    .await;
+    assert_eq!(
+        mock.response("default").await["data"]["config"]["model"],
+        "mock-reference"
+    );
+
+    mock.send(json!({"id":"config","type":"config_get"})).await;
+    assert_eq!(
+        mock.response("config").await["data"]["config"]["model"],
+        "mock-reference"
+    );
+    assert!(mock.stop().await.success());
+}
+
+#[tokio::test]
 async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contract() {
     let mut mock = MockProcess::start("ready-idle").await;
     mock.send(json!({"id":"init","type":"initialize","version":1}))
@@ -108,6 +150,10 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
     mock.send(json!({"id":"state","type":"get_state"})).await;
     let state = mock.response("state").await;
     assert_eq!(state["data"]["persistence"], "unsaved");
+    assert_eq!(
+        state["data"]["latestUsage"],
+        json!({"inputTokens":72000,"outputTokens":8000})
+    );
     assert!(state["data"].get("checkpointError").is_none());
 
     mock.send(json!({"id":"list","type":"session_list"})).await;
@@ -148,6 +194,13 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
     .await;
     let loaded = mock.response("load-page").await;
     assert!(loaded["data"].get("messages").is_none());
+    mock.send(json!({"id":"loaded-state","type":"get_state"}))
+        .await;
+    let loaded_state = mock.response("loaded-state").await;
+    assert_eq!(
+        loaded_state["data"]["latestUsage"],
+        json!({"inputTokens":165000,"outputTokens":20000})
+    );
     mock.send(json!({
         "id":"page",
         "type":"session_transcript",

@@ -7,6 +7,7 @@ import {
   releaseDesktopClientLock,
   type DesktopClientLockHandle
 } from './desktop-client-lock.mts'
+import { asObject } from './value-validation.mts'
 
 const defaultMockScenario = 'ready-idle'
 const protocolVersion = 1
@@ -86,12 +87,6 @@ export function resolveBackendLaunch(
 
 function hasExited(child: ChildProcessWithoutNullStreams): boolean {
   return child.exitCode !== null || child.signalCode !== null
-}
-
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function validateInitializationData(data: unknown): void {

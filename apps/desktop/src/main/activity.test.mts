@@ -9,26 +9,31 @@ import {
   type ActivityBackend
 } from './activity.mts'
 
-class StubActivityBackend implements ActivityBackend {
-  readonly listeners = new Set<(frame: Record<string, unknown>) => void>()
-  response: unknown = { todos: [] }
-  requests: string[] = []
+interface StubActivityBackend extends ActivityBackend {
+  readonly listeners: Set<(frame: Record<string, unknown>) => void>
+  readonly requests: string[]
+  response: unknown
+  emit: (frame: Record<string, unknown>) => void
+}
 
-  async request(command: string): Promise<unknown> {
-    this.requests.push(command)
-    return this.response
+function stubActivityBackend(): StubActivityBackend {
+  const listeners = new Set<(frame: Record<string, unknown>) => void>()
+  const requests: string[] = []
+  const backend: StubActivityBackend = {
+    listeners,
+    requests,
+    response: { todos: [] },
+    request: async (command) => {
+      requests.push(command)
+      return backend.response
+    },
+    subscribeFrames: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    emit: (frame) => listeners.forEach((listener) => listener(frame))
   }
-
-  subscribeFrames(listener: (frame: Record<string, unknown>) => void): () => void {
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
-  }
-
-  emit(frame: Record<string, unknown>): void {
-    for (const listener of this.listeners) {
-      listener(frame)
-    }
-  }
+  return backend
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -107,7 +112,7 @@ test('activity state hydration validates TODO snapshots and defaults missing sta
 })
 
 test('ActivityService hydrates TODOs, streams subagents, resets runs, and orders revisions', async () => {
-  const backend = new StubActivityBackend()
+  const backend = stubActivityBackend()
   backend.response = {
     todos: [
       { id: 'one', content: 'One', status: 'completed' },
@@ -192,7 +197,7 @@ test('ActivityService hydrates TODOs, streams subagents, resets runs, and orders
 })
 
 test('ActivityService ignores advisor and end frames from an older tagged run', () => {
-  const backend = new StubActivityBackend()
+  const backend = stubActivityBackend()
   const service = new ActivityService(backend)
 
   backend.emit({ type: 'agent_start', runId: 'run-one' })
@@ -233,7 +238,7 @@ test('ActivityService ignores advisor and end frames from an older tagged run', 
 })
 
 test('ActivityService coalesces streamed deltas and publishes final results immediately', async () => {
-  const backend = new StubActivityBackend()
+  const backend = stubActivityBackend()
   const service = new ActivityService(backend, { streamBroadcastIntervalMilliseconds: 10 })
   const updates: ActivityUpdate[] = []
   service.subscribe((update) => updates.push(update))
@@ -262,7 +267,7 @@ test('ActivityService coalesces streamed deltas and publishes final results imme
 })
 
 test('ActivityService rejects malformed initial TODO hydration', async () => {
-  const backend = new StubActivityBackend()
+  const backend = stubActivityBackend()
   backend.response = { todos: [{ id: 'x', content: 'X', status: 'unknown' }] }
   const service = new ActivityService(backend)
 
@@ -272,7 +277,7 @@ test('ActivityService rejects malformed initial TODO hydration', async () => {
 })
 
 test('ActivityService refreshes TODO state after the active task changes', async () => {
-  const backend = new StubActivityBackend()
+  const backend = stubActivityBackend()
   const service = new ActivityService(backend)
 
   await service.hydrate()

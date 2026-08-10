@@ -1,15 +1,30 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { ActivityService } from './activity.mts'
+import {
+  attachmentDialogProperties,
+  pickAttachments,
+  type AttachmentDialogKind,
+  type SeparateAttachmentDialogKind
+} from './attachment-picker.mts'
+import { getApprovalConfiguration, setApprovalMode } from './approval.mts'
 import { BackendProcessManager, resolveBackendLaunch } from './backend-process.mts'
+import { ContextUsageService } from './context-usage.mts'
+import { getModelConfiguration, selectModel } from './models.mts'
 import { TaskService } from './tasks.mts'
 import { activitySnapshotChannel, activityUpdateChannel } from '../shared/activity-api'
+import { attachmentsPickChannel } from '../shared/attachment-api'
+import { approvalGetChannel, approvalSetModeChannel } from '../shared/approval-api'
+import { contextUsageSnapshotChannel, contextUsageUpdateChannel } from '../shared/context-usage-api'
+import { modelsGetChannel, modelsSelectChannel } from '../shared/model-api'
 import { tasksArchiveChannel, tasksListChannel, tasksOpenChannel } from '../shared/task-api'
 
 const backendProcess = new BackendProcessManager()
 const activityService = new ActivityService(backendProcess)
+const contextUsageService = new ContextUsageService(backendProcess)
 const taskService = new TaskService(backendProcess)
 let isQuitting = false
 let backendFailureReported = false
@@ -35,7 +50,7 @@ function startConfiguredBackend(): void {
   const child = backendProcess.start(launch)
   void backendProcess
     .waitUntilReady()
-    .then(() => activityService.hydrate())
+    .then(() => Promise.all([activityService.hydrate(), contextUsageService.hydrate()]))
     .catch(reportBackendFailure)
   child.once('error', reportBackendFailure)
   child.once('exit', (code, signal) => {
@@ -46,24 +61,90 @@ function startConfiguredBackend(): void {
   })
 }
 
+async function refreshContextUsageBestEffort(): Promise<void> {
+  await contextUsageService.refresh().catch(() => undefined)
+}
+
+function broadcastUpdate(channel: string, update: unknown): void {
+  BrowserWindow.getAllWindows()
+    .filter((window) => !window.isDestroyed())
+    .forEach((window) => window.webContents.send(channel, update))
+}
+
+const separateAttachmentDialogKinds: readonly SeparateAttachmentDialogKind[] = ['files', 'folders']
+
+async function chooseAttachmentDialogKind(
+  parentWindow: BrowserWindow | null
+): Promise<SeparateAttachmentDialogKind | undefined> {
+  const options: Electron.MessageBoxOptions = {
+    buttons: ['Choose Files', 'Choose Folders', 'Cancel'],
+    cancelId: 2,
+    defaultId: 0,
+    detail: 'Files and folders use separate system pickers on this platform.',
+    message: 'What would you like to attach?',
+    noLink: true,
+    title: 'Attach files or folders',
+    type: 'question'
+  }
+  const result = parentWindow
+    ? await dialog.showMessageBox(parentWindow, options)
+    : await dialog.showMessageBox(options)
+  return separateAttachmentDialogKinds[result.response]
+}
+
+function attachmentDialogOptions(kind: AttachmentDialogKind): Electron.OpenDialogOptions {
+  const subject = kind === 'files' ? 'files' : kind === 'folders' ? 'folders' : 'files or folders'
+  return {
+    buttonLabel: 'Attach',
+    message: `Choose ${subject} to attach`,
+    properties: attachmentDialogProperties(kind),
+    title: `Attach ${subject}`
+  }
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(activitySnapshotChannel, () => activityService.getSnapshot())
+  ipcMain.handle(contextUsageSnapshotChannel, () => contextUsageService.getSnapshot())
+  ipcMain.handle(attachmentsPickChannel, (event) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+    return pickAttachments({
+      chooseDialogKind: () => chooseAttachmentDialogKind(parentWindow),
+      inspectDirectory: async (path) => (await stat(path)).isDirectory(),
+      platform: process.platform,
+      showDialog: (kind) => {
+        const options = attachmentDialogOptions(kind)
+        return parentWindow
+          ? dialog.showOpenDialog(parentWindow, options)
+          : dialog.showOpenDialog(options)
+      }
+    })
+  })
+  ipcMain.handle(approvalGetChannel, () => getApprovalConfiguration(backendProcess))
+  ipcMain.handle(approvalSetModeChannel, (_event, mode: unknown) =>
+    setApprovalMode(backendProcess, mode)
+  )
+  ipcMain.handle(modelsGetChannel, () => getModelConfiguration(backendProcess))
+  ipcMain.handle(modelsSelectChannel, async (_event, modelId: unknown) => {
+    const configuration = await selectModel(backendProcess, modelId)
+    await refreshContextUsageBestEffort()
+    return configuration
+  })
   ipcMain.handle(tasksListChannel, () => taskService.list())
   ipcMain.handle(tasksArchiveChannel, (_event, sessionId: unknown) =>
     taskService.archive(sessionId)
   )
   ipcMain.handle(tasksOpenChannel, async (_event, sessionId: unknown) => {
     await taskService.open(sessionId)
-    await activityService.refresh()
+    await Promise.all([activityService.refresh(), contextUsageService.refresh()])
   })
 }
 
 activityService.subscribe((update) => {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) {
-      window.webContents.send(activityUpdateChannel, update)
-    }
-  }
+  broadcastUpdate(activityUpdateChannel, update)
+})
+
+contextUsageService.subscribe((update) => {
+  broadcastUpdate(contextUsageUpdateChannel, update)
 })
 
 function createWindow(): void {

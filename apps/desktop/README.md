@@ -55,6 +55,10 @@ automatically during initial state hydration with:
 RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
 ```
 
+The `ready-idle` fixture seeds deterministic context usage for the active task and every saved
+task, so the context ring is populated immediately after launch and remains populated while
+switching between mock tasks.
+
 `run-mock.sh` remains the deterministic fixture path. Production backend packaging is a separate
 packaging milestone; the development launcher uses the source-built executable at
 `target/debug/railgun-backend`.
@@ -207,9 +211,20 @@ future work.
 When a task is selected, Detail anchors the composer placeholder below the scrollable transcript
 scaffolding. The composer fills the available width with `px-4` edge spacing and is centered at
 `max-w-180`. Its textarea starts at one line, grows with its content, and scrolls after ten lines.
-The attachment, approval mode, context usage, model, and send controls are intentionally inert at
-this milestone. They retain individual accessible names and live in a labeled group; the group does
-not claim toolbar semantics until it also implements the corresponding keyboard-navigation model.
+The attachment control opens the operating system picker for multiple files or folders. Windows and
+Linux first ask which kind to attach because their native pickers cannot offer both kinds together.
+Selections appear once as removable file or folder chips, reset when switching tasks, and remain
+unchanged when the picker is cancelled. Picker failures surface inline. The approval selector loads
+and persists the native-equivalent Ask for approval, Approve for me, and Full access modes; auto
+approval remains unavailable until a reviewer model is configured and still present in the model
+catalog. The context ring restores the selected session's latest provider-reported usage and
+streams subsequent updates. It is read-only and keeps the same appearance on hover; hovering only
+opens its detail card with usage against the active model's context window. The model selector
+applies a choice to the active session and saves it as the default for future sessions. If the
+active-session change succeeds but saving the default fails, the active choice remains and the
+composer shows a warning. The message send action remains intentionally inert. The controls retain
+individual accessible names and live in a labeled group; the group does not claim toolbar semantics
+until it also implements the corresponding keyboard-navigation model.
 
 Focus anywhere inside the composer reveals its animated rainbow bloom. The spectrum pauses while
 the composer is idle, and reduced-motion mode keeps static opacity feedback without transform
@@ -264,8 +279,11 @@ The desktop suite covers correlated requests, exact session-load validation and 
 activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
 coalesced streaming updates with immediate terminal publication, native-compatible shared-lock
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
-and keyboard interactions. Renderer coverage also pins the composer textarea, labeled control group,
-context progress semantics, and selector/send state attributes used by its motion layer.
+and keyboard interactions. Composer coverage includes platform-correct file and folder dialogs,
+attachment deduplication, approval reviewer availability, context hydration and streaming, and
+active/default model selection including partial-save warnings. Renderer coverage also pins the
+composer textarea, labeled control group, context progress semantics, and selector/send state
+attributes used by its motion layer.
 
 ## Packaging
 

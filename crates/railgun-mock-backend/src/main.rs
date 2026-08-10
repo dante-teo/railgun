@@ -19,6 +19,7 @@ mod scenario;
 use scenario::Scenario;
 
 const ACTIVITY_DEMO_SESSION_ID: &str = "mock-session-agent-activity";
+const INITIAL_CONTEXT_USAGE: (u64, u64) = (72_000, 8_000);
 
 #[derive(Clone)]
 struct MockSession {
@@ -28,6 +29,7 @@ struct MockSession {
     started_at_local: String,
     messages: Vec<Value>,
     todos: Vec<Value>,
+    latest_usage: Option<(u64, u64)>,
     persistence: &'static str,
     checkpoint_error: Option<String>,
     message_ids: Vec<i64>,
@@ -226,6 +228,7 @@ impl Mock {
                 started_at_local: "7/14/2026, 5:00:00 PM".into(),
                 messages: Vec::new(),
                 todos: Vec::new(),
+                latest_usage: Some(INITIAL_CONTEXT_USAGE),
                 persistence: "unsaved",
                 checkpoint_error: None,
                 message_ids: Vec::new(),
@@ -373,6 +376,7 @@ impl Mock {
                         "sessionId":self.active.id,
                         "startedAt":self.active.started_at,
                         "persistence":self.active.persistence,
+                        "latestUsage":mock_usage_value(self.active.latest_usage),
                     });
                 if let Some(error) = &self.active.checkpoint_error {
                     state["checkpointError"] = Value::String(error.clone());
@@ -455,6 +459,7 @@ impl Mock {
                     started_at_local: "7/14/2026, 6:00:00 PM".into(),
                     messages: Vec::new(),
                     todos: Vec::new(),
+                    latest_usage: None,
                     persistence: "unsaved",
                     checkpoint_error: None,
                     message_ids: Vec::new(),
@@ -760,6 +765,7 @@ impl Mock {
                     }
                     self.active.messages.truncate(index + 1);
                     self.active.message_ids.truncate(index + 1);
+                    self.active.latest_usage = None;
                     self.compacted_message_count = None;
                     upsert_session(&mut self.sessions, self.active.clone());
                     let start = self.active.messages.len().saturating_sub(10);
@@ -837,6 +843,7 @@ impl Mock {
                         self.active.checkpoint_error = None;
                     }
                     self.active.model = model.into();
+                    self.active.latest_usage = None;
                     self.compacted_message_count = None;
                     self.respond(&kind, id.as_deref(), None);
                 }
@@ -1352,6 +1359,7 @@ impl Mock {
                     };
                     tokio::time::sleep(Duration::from_millis(delay)).await;
                     self.compacted_message_count = Some(1);
+                    self.active.latest_usage = None;
                     self.respond(&kind, id.as_deref(), None);
                 }
             }
@@ -1600,6 +1608,8 @@ impl Mock {
         }
         if prompt.checkpoint_on_finish {
             self.checkpoint_mock_turn(text);
+        } else {
+            upsert_session(&mut self.sessions, self.active.clone());
         }
         if let Some(id) = prompt.id.as_deref() {
             self.respond("prompt", Some(id), None);
@@ -1618,13 +1628,7 @@ impl Mock {
         } else {
             self.active.persistence = "saved";
             self.active.checkpoint_error = None;
-        }
-        if !self
-            .sessions
-            .iter()
-            .any(|session| session.id == self.active.id)
-        {
-            self.sessions.insert(0, self.active.clone());
+            upsert_session(&mut self.sessions, self.active.clone());
         }
     }
 
@@ -1783,6 +1787,9 @@ impl Mock {
                     .as_ref()
                     .is_some_and(|prompt| prompt.token == token)
                 {
+                    if let Some(usage) = mock_usage_from_frame(&frame) {
+                        self.active.latest_usage = Some(usage);
+                    }
                     self.send_prompt(token, frame);
                 }
             }
@@ -1877,6 +1884,7 @@ fn saved_sessions() -> Vec<MockSession> {
             message_ids: assign_ids(activity.len()),
             messages: activity,
             todos: activity_demo_todos(),
+            latest_usage: Some((24_000, 3_000)),
             persistence: "saved",
             checkpoint_error: None,
         },
@@ -1893,6 +1901,7 @@ fn saved_sessions() -> Vec<MockSession> {
                 json!({"id":"complex-ui","content":"Expose an actionable paused state","status":"completed"}),
                 json!({"id":"complex-verify","content":"Run focused and full desktop verification","status":"completed"}),
             ],
+            latest_usage: Some((122_000, 18_000)),
             persistence: "saved",
             checkpoint_error: None,
         },
@@ -1904,6 +1913,7 @@ fn saved_sessions() -> Vec<MockSession> {
             message_ids: assign_ids(paginated.len()),
             messages: paginated,
             todos: Vec::new(),
+            latest_usage: Some((165_000, 20_000)),
             persistence: "saved",
             checkpoint_error: None,
         },
@@ -1920,6 +1930,7 @@ fn saved_sessions() -> Vec<MockSession> {
                 json!({"id":"rich-next","content":"Test filtering and session switching","status":"pending"}),
                 json!({"id":"rich-cancelled","content":"Render raw tool payloads","status":"cancelled"}),
             ],
+            latest_usage: Some((90_000, 10_000)),
             persistence: "saved",
             checkpoint_error: None,
         },
@@ -1933,6 +1944,7 @@ fn saved_sessions() -> Vec<MockSession> {
             todos: vec![
                 json!({"id":"mock-todo","content":"Verify restored session UI","status":"in_progress"}),
             ],
+            latest_usage: Some((45_000, 5_000)),
             persistence: "saved",
             checkpoint_error: None,
         },
@@ -1944,6 +1956,7 @@ fn saved_sessions() -> Vec<MockSession> {
             message_ids: assign_ids(older.len()),
             messages: older,
             todos: Vec::new(),
+            latest_usage: Some((62_000, 8_000)),
             persistence: "saved",
             checkpoint_error: None,
         },
@@ -2203,6 +2216,7 @@ fn fresh_active_session(id: &str, model: &str) -> MockSession {
         started_at_local: Utc::now().format("%-m/%-d/%Y, %-I:%M:%S %p").to_string(),
         messages: Vec::new(),
         todos: Vec::new(),
+        latest_usage: None,
         persistence: "unsaved",
         checkpoint_error: None,
         message_ids: Vec::new(),
@@ -2214,6 +2228,20 @@ fn upsert_session(sessions: &mut Vec<MockSession>, session: MockSession) {
     } else {
         sessions.insert(0, session)
     }
+}
+
+fn mock_usage_value(usage: Option<(u64, u64)>) -> Value {
+    usage.map_or(Value::Null, |(input_tokens, output_tokens)| {
+        json!({"inputTokens":input_tokens,"outputTokens":output_tokens})
+    })
+}
+
+fn mock_usage_from_frame(frame: &Value) -> Option<(u64, u64)> {
+    let usage = (frame["type"] == "turn_end").then_some(&frame["usage"])?;
+    Some((
+        usage["inputTokens"].as_u64()?,
+        usage["outputTokens"].as_u64()?,
+    ))
 }
 async fn write_fragmented_frame(frame: &Value) -> Result<()> {
     let mut stdout = tokio::io::stdout();
@@ -2354,6 +2382,24 @@ mod tests {
         assert_eq!(page["data"]["messages"].as_array().unwrap().len(), 100);
         assert_eq!(page["data"]["nextCursor"], 100);
         assert_eq!(branchable_message_ids(&mock.active).len(), 101);
+
+        let branch_message_id = mock.active.message_ids[1];
+        assert!(mock.active.latest_usage.is_some());
+        mock.handle(
+            json!({
+                "id":"branch",
+                "type":"session_branch",
+                "messageId":branch_message_id,
+                "summarize":false,
+                "includeMessages":false
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(mock.active.latest_usage, None);
     }
 
     #[tokio::test]

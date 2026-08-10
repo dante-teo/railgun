@@ -38,6 +38,16 @@
   transition: transform var(--duration-feedback) var(--ease-out);
 }
 
+.composer [data-composer-selector] {
+  transition-duration: var(--duration-feedback);
+  transition-property: background-color, border-color, box-shadow, color, opacity, transform;
+  transition-timing-function: var(--ease-out);
+}
+
+.composer [data-composer-selector][aria-busy='true'] {
+  opacity: 0.62;
+}
+
 .composer
   [data-composer-selector][aria-expanded='true']
   [data-slot='task-composer-selector-indicator'] {
@@ -50,6 +60,48 @@
   transition:
     opacity var(--duration-feedback) var(--ease-out),
     transform var(--duration-feedback) var(--ease-out);
+}
+
+.composer [data-slot='task-composer-attachment'] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+.composer [data-slot='task-composer-attachment'][data-present='false'] {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.125rem) scale(0.97);
+  transition-duration: 100ms;
+}
+
+.composer [data-slot='task-composer-error'] {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+.composer [data-slot='task-composer-error'][data-present='false'] {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-0.125rem);
+  transition-duration: 100ms;
+}
+
+@starting-style {
+  .composer [data-slot='task-composer-attachment'] {
+    opacity: 0;
+    transform: translateY(0.125rem) scale(0.97);
+  }
+
+  .composer [data-slot='task-composer-error'] {
+    opacity: 0;
+    transform: translateY(-0.125rem);
+  }
 }
 
 .composer
@@ -80,6 +132,12 @@
 
   .composer [data-slot='task-composer-selector-indicator'] {
     transform: none !important;
+  }
+
+  .composer [data-slot='task-composer-attachment'],
+  .composer [data-slot='task-composer-error'] {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
   }
 
   .composer [data-slot='task-composer-send-glyph'] {

@@ -3,11 +3,30 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{
     Row, Sqlite, SqlitePool, Transaction,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow},
 };
 use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+const MAXIMUM_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+impl SessionUsage {
+    pub fn new(input_tokens: u64, output_tokens: u64) -> Option<Self> {
+        input_tokens
+            .checked_add(output_tokens)
+            .filter(|total| *total <= MAXIMUM_SAFE_INTEGER)
+            .map(|_| Self {
+                input_tokens,
+                output_tokens,
+            })
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Session {
@@ -17,7 +36,33 @@ pub struct Session {
     pub messages: Vec<Value>,
     pub message_ids: Vec<i64>,
     pub todos: Vec<Value>,
+    pub latest_usage: Option<SessionUsage>,
     pub persistence: &'static str,
+}
+
+fn decode_session_usage(row: &SqliteRow) -> Result<Option<SessionUsage>> {
+    let input_tokens = row.try_get::<Option<i64>, _>("latest_input_tokens")?;
+    let output_tokens = row.try_get::<Option<i64>, _>("latest_output_tokens")?;
+    match (input_tokens, output_tokens) {
+        (None, None) => Ok(None),
+        (Some(input), Some(output)) => {
+            let input = u64::try_from(input).context("saved input token usage is negative")?;
+            let output = u64::try_from(output).context("saved output token usage is negative")?;
+            SessionUsage::new(input, output)
+                .map(Some)
+                .context("saved token usage exceeds the safe integer range")
+        }
+        _ => bail!("saved token usage is incomplete"),
+    }
+}
+
+fn encoded_session_usage(usage: Option<SessionUsage>) -> (Option<i64>, Option<i64>) {
+    usage.map_or((None, None), |usage| {
+        (
+            Some(usage.input_tokens as i64),
+            Some(usage.output_tokens as i64),
+        )
+    })
 }
 
 #[derive(Clone)]
@@ -109,7 +154,8 @@ impl Store {
 
     pub async fn load_session(&self, id: &str) -> Result<Option<Session>> {
         let row = sqlx::query(
-            "SELECT id, model, started_at, todos_json, current_leaf_id, archived_at
+            "SELECT id, model, started_at, todos_json, current_leaf_id, archived_at,
+                    latest_input_tokens, latest_output_tokens
              FROM sessions WHERE id = ?",
         )
         .bind(id)
@@ -161,6 +207,7 @@ impl Store {
             messages,
             message_ids,
             todos,
+            latest_usage: decode_session_usage(&row)?,
             persistence: "saved",
         }))
     }
@@ -186,14 +233,18 @@ impl Store {
                 );
             }
         } else {
+            let (input_tokens, output_tokens) = encoded_session_usage(session.latest_usage);
             sqlx::query(
-                "INSERT INTO sessions (id, model, started_at, todos_json)
-                 VALUES (?, ?, ?, ?)",
+                "INSERT INTO sessions
+                 (id, model, started_at, todos_json, latest_input_tokens, latest_output_tokens)
+                 VALUES (?, ?, ?, ?, ?, ?)",
             )
             .bind(&session.id)
             .bind(&session.model)
             .bind(&session.started_at)
             .bind(serde_json::to_string(&session.todos)?)
+            .bind(input_tokens)
+            .bind(output_tokens)
             .execute(&mut *transaction)
             .await?;
         }
@@ -243,12 +294,20 @@ impl Store {
             .await?;
             parent = Some(result.last_insert_rowid());
         }
-        sqlx::query("UPDATE sessions SET current_leaf_id = ?, todos_json = ? WHERE id = ?")
-            .bind(parent)
-            .bind(serde_json::to_string(&session.todos)?)
-            .bind(&session.id)
-            .execute(&mut *transaction)
-            .await?;
+        let (input_tokens, output_tokens) = encoded_session_usage(session.latest_usage);
+        sqlx::query(
+            "UPDATE sessions
+             SET current_leaf_id = ?, todos_json = ?,
+                 latest_input_tokens = ?, latest_output_tokens = ?
+             WHERE id = ?",
+        )
+        .bind(parent)
+        .bind(serde_json::to_string(&session.todos)?)
+        .bind(input_tokens)
+        .bind(output_tokens)
+        .bind(&session.id)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
         session.persistence = "saved";
         if let Some(saved) = self.load_session(&session.id).await? {
@@ -302,11 +361,15 @@ impl Store {
         {
             bail!("message {message_id} is not on the active branch of session {session_id}");
         }
-        sqlx::query("UPDATE sessions SET current_leaf_id = ? WHERE id = ?")
-            .bind(message_id)
-            .bind(session_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE sessions
+             SET current_leaf_id = ?, latest_input_tokens = NULL, latest_output_tokens = NULL
+             WHERE id = ?",
+        )
+        .bind(message_id)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -856,6 +919,17 @@ async fn validate_schema(pool: &SqlitePool) -> Result<()> {
             bail!("session database is missing required table {table}");
         }
     }
+    let session_columns = sqlx::query("PRAGMA table_info(sessions)")
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| row.try_get::<String, _>("name"))
+        .collect::<std::result::Result<HashSet<_>, _>>()?;
+    for column in ["latest_input_tokens", "latest_output_tokens"] {
+        if !session_columns.contains(column) {
+            bail!("session database is missing required column sessions.{column}");
+        }
+    }
     let version = sqlx::query_scalar::<_, i64>("PRAGMA user_version")
         .fetch_one(pool)
         .await?;
@@ -1004,7 +1078,16 @@ mod tests {
             .fetch_one(&store.pool)
             .await
             .unwrap();
-        assert_eq!(ledger, 1);
+        assert_eq!(ledger, 2);
+        let columns = sqlx::query("PRAGMA table_info(sessions)")
+            .fetch_all(&store.pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.try_get::<String, _>("name").unwrap())
+            .collect::<HashSet<_>>();
+        assert!(columns.contains("latest_input_tokens"));
+        assert!(columns.contains("latest_output_tokens"));
     }
 
     #[tokio::test]
@@ -1108,7 +1191,7 @@ mod tests {
                 .fetch_one(&store.pool)
                 .await
                 .unwrap(),
-            1
+            2
         );
     }
 
@@ -1203,6 +1286,7 @@ mod tests {
             messages: messages.clone(),
             message_ids: Vec::new(),
             todos: vec![json!({"id":"todo-1","content":"inspect","status":"completed"})],
+            latest_usage: SessionUsage::new(120_000, 30_000),
             persistence: "unsaved",
         };
 
@@ -1210,6 +1294,7 @@ mod tests {
         let loaded = store.load_session(&session.id).await.unwrap().unwrap();
         assert_eq!(loaded.messages, messages);
         assert_eq!(loaded.todos, session.todos);
+        assert_eq!(loaded.latest_usage, SessionUsage::new(120_000, 30_000));
         assert_eq!(loaded.message_ids.len(), messages.len());
     }
 
@@ -1231,6 +1316,7 @@ mod tests {
             ],
             message_ids: Vec::new(),
             todos: Vec::new(),
+            latest_usage: SessionUsage::new(90_000, 10_000),
             persistence: "unsaved",
         };
         store.save_session(&mut session).await.unwrap();
@@ -1240,6 +1326,7 @@ mod tests {
             .await
             .unwrap();
         let mut active = store.load_session(&session.id).await.unwrap().unwrap();
+        assert_eq!(active.latest_usage, None);
         active
             .messages
             .push(json!({"role":"user","content":"replacement user"}));
@@ -1284,6 +1371,7 @@ mod tests {
                 ],
                 message_ids: Vec::new(),
                 todos: Vec::new(),
+                latest_usage: None,
                 persistence: "unsaved",
             };
             store.save_session(&mut session).await.unwrap();
@@ -1317,6 +1405,7 @@ mod tests {
             ],
             message_ids: Vec::new(),
             todos: Vec::new(),
+            latest_usage: None,
             persistence: "unsaved",
         };
         store.save_session(&mut branched).await.unwrap();
@@ -1381,6 +1470,7 @@ mod tests {
             ],
             message_ids: Vec::new(),
             todos: Vec::new(),
+            latest_usage: None,
             persistence: "unsaved",
         };
         store

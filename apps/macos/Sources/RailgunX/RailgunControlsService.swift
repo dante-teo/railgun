@@ -260,7 +260,7 @@ actor RailgunControlsService {
         _ type: RailgunRPCCommandType,
         fields: [String: RailgunJSONValue]
     ) async throws {
-        let response = try await perform(type, fields: fields)
+        _ = try await perform(type, fields: fields)
         // Newer backends include an active-session snapshot. Older backends
         // return no payload; both forms are valid under the additive contract.
     }

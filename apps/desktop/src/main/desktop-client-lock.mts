@@ -10,6 +10,8 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 
+import { asObject } from './value-validation.mts'
+
 const lockFilename = 'desktop-client.lock'
 const recoveryFilename = 'desktop-client.lock.recovery'
 const maximumProcessID = 2_147_483_647
@@ -31,12 +33,6 @@ interface DesktopClientLockOptions {
   processID?: number
   startTime?: string
   isProcessLive?: (pid: number) => boolean
-}
-
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function nonemptyString(value: unknown): value is string {

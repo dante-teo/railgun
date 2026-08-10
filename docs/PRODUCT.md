@@ -30,6 +30,20 @@ wants to discover provider changes. If that refresh no longer offers the
 current model, Railgun does not silently change the task; it keeps the picker
 usable so the user can select a replacement.
 
+The context ring is read-only status, not a button. It shows the latest
+provider-reported input and output usage against the active model's context
+window. Railgun persists that measurement per saved task and restores it when
+the task resumes; tasks without a valid measurement show **Not measured yet**.
+Changing models, branching, or compacting context invalidates the previous
+measurement until the provider reports usage for the new context.
+
+Settings → General applies **Ask for approval**, **Approve for me**, or **Full
+access** to flagged commands in the next desktop task. Model-assisted approval
+requires a configured reviewer that is still available in the current model
+catalog and fails closed on ambiguous or failed reviews. Full access removes
+the confirmation step but never bypasses Railgun's hard-blocked destructive
+command patterns.
+
 **Settings → General → Devin** owns the file-backed authentication lifecycle.
 When that credential is missing or rejected, Railgun opens Devin in the
 default browser and reconnects after the browser-backed helper completes. The

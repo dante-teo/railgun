@@ -445,11 +445,12 @@ final class RailgunXAppTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("docs/native-ui-policy.md"),
             encoding: .utf8
         )
+        let readmeProse = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
 
-        XCTAssertTrue(readme.contains("4, 8, 12, 16, 24, and 32 point scale"))
-        XCTAssertTrue(readme.contains("32-point inter-message gap"))
-        XCTAssertTrue(readme.contains("presents a 320×360 popover"))
-        XCTAssertTrue(readme.replacingOccurrences(of: "\n", with: " ").contains("scrolls as one native surface"))
+        XCTAssertTrue(readmeProse.contains("4, 8, 12, 16, 24, and 32 point scale"))
+        XCTAssertTrue(readmeProse.contains("32-point inter-message gap"))
+        XCTAssertTrue(readmeProse.contains("presents a 320×360 popover"))
+        XCTAssertTrue(readmeProse.contains("scrolls as one native surface"))
         XCTAssertTrue(nativeUIPolicy.contains("## Activity popover layout invariant"))
         XCTAssertTrue(nativeUIPolicy.contains("Do not reserve transcript width"))
         XCTAssertTrue(nativeUIPolicy.contains("Do not add custom glass"))
@@ -1391,7 +1392,7 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertEqual(store.state.backend.phase, .ready)
         XCTAssertEqual(store.state.session.activeSessionID, "mock-new-1")
         XCTAssertFalse(store.state.session.selectedSession?.isPersisted ?? true)
-        XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
+        XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-agent-activity")
         XCTAssertFalse(store.state.session.sessions.contains(where: { $0.id == "mock-new-1" }))
         XCTAssertTrue(store.state.session.archivedSessions.isEmpty)
         XCTAssertTrue(store.state.controls.isLoaded)
@@ -1609,7 +1610,7 @@ final class RailgunXAppTests: XCTestCase {
 
         XCTAssertEqual(
             store.state.session.sessions.map(\.id),
-            ["mock-session-complex-task", "mock-session-paginated-history", "mock-session-rich-history", "mock-session-recent", "mock-session-older"]
+            ["mock-session-agent-activity", "mock-session-complex-task", "mock-session-paginated-history", "mock-session-rich-history", "mock-session-recent", "mock-session-older"]
         )
         await runtime.shutdown()
     }
@@ -1660,7 +1661,7 @@ final class RailgunXAppTests: XCTestCase {
         _ = await (firstRecovery, duplicateRecovery)
 
         XCTAssertEqual(store.state.backend.phase, .ready)
-        XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-complex-task")
+        XCTAssertEqual(store.state.session.sessions.first?.id, "mock-session-agent-activity")
         XCTAssertTrue(store.state.controls.isLoaded)
 
         await runtime.shutdown()

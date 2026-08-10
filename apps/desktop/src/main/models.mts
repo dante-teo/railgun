@@ -1,0 +1,137 @@
+import type { ModelConfiguration, ModelOption } from '../shared/model-api.ts'
+import { asObject } from './value-validation.mts'
+
+const maximumModels = 256
+const maximumModelIdLength = 256
+const maximumModelNameLength = 500
+
+export interface ModelBackendRequestOptions {
+  timeout?: 'default' | 'none'
+}
+
+export interface ModelBackend {
+  request(
+    command: string,
+    fields?: Record<string, unknown>,
+    options?: ModelBackendRequestOptions
+  ): Promise<unknown>
+}
+
+function validModelId(value: unknown): string | undefined {
+  return typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= maximumModelIdLength &&
+    ![...value].some((character) => /\s/u.test(character))
+    ? value
+    : undefined
+}
+
+function validModelName(value: unknown): string | undefined {
+  return typeof value === 'string' &&
+    value.trim().length > 0 &&
+    value.length <= maximumModelNameLength
+    ? value
+    : undefined
+}
+
+export function parseModelCatalog(value: unknown): readonly ModelOption[] {
+  const rawModels = asObject(value)?.models
+  if (!Array.isArray(rawModels) || rawModels.length === 0 || rawModels.length > maximumModels) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+
+  const models = rawModels.map((rawModel) => {
+    const model = asObject(rawModel)
+    const id = validModelId(model?.id)
+    const name = validModelName(model?.name)
+    if (!id || !name) {
+      throw new Error('The backend returned an invalid model configuration')
+    }
+    return { id, name }
+  })
+  if (new Set(models.map(({ id }) => id)).size !== models.length) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return models
+}
+
+function parseActiveState(value: unknown): { activeModelId: string; isRunning: boolean } {
+  const state = asObject(value)
+  const activeModelId = validModelId(state?.model)
+  if (!activeModelId || typeof state?.running !== 'boolean') {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return { activeModelId, isRunning: state.running }
+}
+
+function parseDefaultModelId(value: unknown): string | null {
+  const config = asObject(asObject(value)?.config)
+  if (!config) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  if (config.model === undefined || config.model === null) {
+    return null
+  }
+  const modelId = validModelId(config.model)
+  if (!modelId) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return modelId
+}
+
+export async function getModelConfiguration(backend: ModelBackend): Promise<ModelConfiguration> {
+  const [catalog, state, config] = await Promise.all([
+    backend.request('get_available_models'),
+    backend.request('get_state'),
+    backend.request('config_get')
+  ])
+  const models = parseModelCatalog(catalog)
+  const active = parseActiveState(state)
+  if (!models.some(({ id }) => id === active.activeModelId)) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return {
+    ...active,
+    defaultModelId: parseDefaultModelId(config),
+    models,
+    warning: null
+  }
+}
+
+export async function selectModel(
+  backend: ModelBackend,
+  value: unknown
+): Promise<ModelConfiguration> {
+  const modelId = validModelId(value)
+  if (!modelId) {
+    throw new Error('Invalid model selection')
+  }
+
+  const current = await getModelConfiguration(backend)
+  const selected = current.models.find(({ id }) => id === modelId)
+  if (!selected) {
+    throw new Error('Invalid model selection')
+  }
+  if (current.isRunning) {
+    throw new Error('Cannot change models while the task is running')
+  }
+
+  await backend.request('set_model', { modelId }, { timeout: 'none' })
+  const activeConfiguration = { ...current, activeModelId: modelId }
+  try {
+    const updated = await backend.request(
+      'config_update',
+      { patch: { model: modelId } },
+      { timeout: 'none' }
+    )
+    if (parseDefaultModelId(updated) !== modelId) {
+      throw new Error('The backend did not save the selected default model')
+    }
+    return { ...activeConfiguration, defaultModelId: modelId }
+  } catch {
+    return {
+      ...activeConfiguration,
+      warning: `This task changed to ${selected.name}, but the default was not saved.`
+    }
+  }
+}

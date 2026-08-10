@@ -1,4 +1,5 @@
 import type { TaskSummary } from '../shared/task-api.ts'
+import { asObject } from './value-validation.mts'
 
 const untitledTask = 'Untitled Task'
 const maximumSessionIdLength = 512
@@ -14,12 +15,6 @@ export interface BackendRequester {
 
 export interface BackendRequestOptions {
   timeout?: 'default' | 'none'
-}
-
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
 }
 
 function containsControlCharacter(value: string): boolean {

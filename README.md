@@ -52,7 +52,10 @@ arguments to `pnpm dev`. They are launch commands, not verification commands.
 The default mock task list includes **Inspect the personal agent activity
 card**. Select it to play the deterministic Advisor, Subagents, and Tasks
 fixture. `RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh` remains
-available when an automatically starting activity run is useful.
+available when an automatically starting activity run is useful. The default
+fixture also seeds deterministic context usage for its active and saved tasks,
+so the Electron context ring is measurable immediately and while switching
+tasks.
 
 Electron development and preview commands validate the downloaded Electron
 binary before startup. If a package installation was interrupted after the npm
@@ -93,8 +96,11 @@ The tool accepts regular files throughout the user's home directory, including
 hidden paths and `~/Library`; macOS privacy controls may still require the user
 to grant Railgun folder or Full Disk Access. Reads are bounded in the agent
 context, rather than rejected because the file is large. The context ring shows
-the latest provider usage while it is available and reports **Not measured yet**
-when the provider has supplied no measurement.
+the latest provider usage and reports **Not measured yet** when the provider has
+supplied no measurement. The latest input and output totals are persisted with
+each saved session and restored when that task resumes. A model change, branch,
+or context compaction clears the now-stale measurement until the provider
+reports usage for the new context.
 
 ### Command approval
 
@@ -105,7 +111,8 @@ Settings → General applies its command-approval mode to the next desktop task:
 - **Approve for me** sends the flagged command and the original user task to
   the selected reviewer model. It runs only when the reviewer returns an exact
   approval; an ambiguous response, missing task context, or reviewer failure
-  rejects the command.
+  rejects the command. The mode cannot be enabled unless its configured
+  reviewer is still present in the available model catalog.
 - **Full access** runs flagged shell commands without a confirmation prompt.
 
 Railgun always blocks the small set of system- or data-destroying command
@@ -400,6 +407,12 @@ timestamp of the session's active `current_leaf_id`, falling back to the session
 active branch has no message. Mock summaries use the latest timestamped message in visible order so
 trailing fixture messages without timestamps do not erase known activity time.
 
+`get_state` and active-session snapshots expose additive `latestUsage` as
+`inputTokens` and `outputTokens`, or `null` before a valid provider measurement.
+The pair is saved atomically with the session and restored on load. Model
+changes, branch selection, and compaction invalidate it rather than presenting
+usage measured against a different context.
+
 `get_available_models` remains compatible with existing callers and returns
 the cached model list. Its additive `catalog` object reports cache freshness,
 generation, refresh state, and a redacted last refresh error when applicable.
@@ -412,7 +425,8 @@ new active session identifiers for prompt client reconciliation.
 The mock backend supports readiness, authentication, delayed and malformed
 startup, rejection, crash/disconnect, store errors, approval, clarification,
 cancellation, agent activity, empty model catalog, and slow compaction
-scenarios.
+scenarios. Its `ready-idle` session corpus includes deterministic persisted
+usage values for immediate context-ring verification.
 
 ## Packaging and release
 

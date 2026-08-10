@@ -12,12 +12,20 @@ struct RailgunRestoredSession: Equatable, Sendable {
     let transcript: [RailgunRestoredTranscriptEntry]
     let todos: [RailgunTodo]
     let isRunning: Bool
+    let contextUsage: RailgunContextUsage?
 }
 
 /// Owns session-management RPC effects. Reducers only receive its validated
 /// results, keeping backend response handling out of feature state.
 actor RailgunSessionService {
     typealias Request = @Sendable (RailgunRPCCommand) async throws -> RailgunRPCResponse
+
+    private struct CurrentSessionState {
+        let id: String
+        let todos: [RailgunTodo]
+        let isRunning: Bool
+        let contextUsage: RailgunContextUsage?
+    }
 
     private static let timeout: Duration = .seconds(15)
     private static let maximumSessions = 500
@@ -82,18 +90,14 @@ actor RailgunSessionService {
             fields: fields
         )
         guard loadedID == sessionID else { throw RailgunSessionServiceError.invalidResponse }
-        let state = try await restoredState(expectedSessionID: sessionID)
-        let transcript = try await transcript(for: sessionID)
-        return .init(id: sessionID, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+        return try await restoredSession(expectedSessionID: sessionID)
     }
 
     /// Rehydrates the task currently active in the backend. Model changes can
     /// fork a persisted task, so callers must not assume the prior session ID
     /// is still active after `set_model` succeeds.
     func activeSession() async throws -> RailgunRestoredSession {
-        let state = try await currentState()
-        let transcript = try await transcript(for: state.id)
-        return .init(id: state.id, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+        try await restoredSession()
     }
 
     func archive(_ sessionID: String) async throws -> String {
@@ -119,10 +123,7 @@ actor RailgunSessionService {
             "includeMessages": .bool(false),
         ])
         try validateBranchMutation(response)
-
-        let state = try await currentState()
-        let transcript = try await transcript(for: state.id)
-        return .init(id: state.id, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+        return try await restoredSession()
     }
 
     /// Forks a saved task and only exposes the backend's reloaded active
@@ -139,10 +140,7 @@ actor RailgunSessionService {
             ]
         )
         guard forkID != sessionID else { throw RailgunSessionServiceError.invalidResponse }
-        let state = try await currentState()
-        guard state.id == forkID else { throw RailgunSessionServiceError.invalidResponse }
-        let transcript = try await transcript(for: forkID)
-        return .init(id: forkID, transcript: transcript, todos: state.todos, isRunning: state.isRunning)
+        return try await restoredSession(expectedSessionID: forkID)
     }
 
     private func list(_ type: RailgunRPCCommandType) async throws -> [RailgunSessionSummary] {
@@ -255,13 +253,21 @@ actor RailgunSessionService {
         return String(redacted.prefix(240))
     }
 
-    private func restoredState(expectedSessionID: String) async throws -> (todos: [RailgunTodo], isRunning: Bool) {
+    private func restoredSession(expectedSessionID: String? = nil) async throws -> RailgunRestoredSession {
         let state = try await currentState()
-        guard state.id == expectedSessionID else { throw RailgunSessionServiceError.invalidResponse }
-        return (state.todos, state.isRunning)
+        if let expectedSessionID, state.id != expectedSessionID {
+            throw RailgunSessionServiceError.invalidResponse
+        }
+        return .init(
+            id: state.id,
+            transcript: try await transcript(for: state.id),
+            todos: state.todos,
+            isRunning: state.isRunning,
+            contextUsage: state.contextUsage
+        )
     }
 
-    private func currentState() async throws -> (id: String, todos: [RailgunTodo], isRunning: Bool) {
+    private func currentState() async throws -> CurrentSessionState {
         let response = try await perform(.getState)
         guard let object = response.data?.objectValue,
               let sessionID = object["sessionId"]?.stringValue,
@@ -271,7 +277,25 @@ actor RailgunSessionService {
               case let .array(todoValues) = todoValue,
               todoValues.count <= Self.maximumTodos
         else { throw RailgunSessionServiceError.invalidResponse }
-        return (sessionID, try todoValues.map(parseTodo), isRunning)
+        return .init(
+            id: sessionID,
+            todos: try todoValues.map(parseTodo),
+            isRunning: isRunning,
+            contextUsage: try parseContextUsage(object["latestUsage"])
+        )
+    }
+
+    private func parseContextUsage(_ value: RailgunJSONValue?) throws -> RailgunContextUsage? {
+        guard let value, value != .null else { return nil }
+        guard let object = value.objectValue,
+              Set(object.keys) == Set(["inputTokens", "outputTokens"]),
+              let inputValue = object["inputTokens"],
+              let outputValue = object["outputTokens"],
+              let inputTokens = safeNonNegativeInteger(inputValue),
+              let outputTokens = safeNonNegativeInteger(outputValue),
+              inputTokens <= Self.maximumSafeInteger - outputTokens
+        else { throw RailgunSessionServiceError.invalidResponse }
+        return .init(inputTokens: inputTokens, outputTokens: outputTokens)
     }
 
     private func transcript(for sessionID: String) async throws -> [RailgunRestoredTranscriptEntry] {
@@ -458,13 +482,9 @@ final class RailgunSessionCoordinator {
     func resume(_ sessionID: String) async {
         do {
             let restored = try await service.resume(sessionID)
-            store.send(.session(.hydrated(
-                activeSessionID: restored.id,
-                transcript: restored.transcript,
-                todos: restored.todos,
-                isRunning: restored.isRunning
-            )))
+            hydrate(restored)
             await controlsDidActivate?()
+            restoreContextUsage(restored)
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
         }
@@ -474,12 +494,8 @@ final class RailgunSessionCoordinator {
         do {
             let restored = try await service.activeSession()
             activateNewSession(id: restored.id, model: modelID)
-            store.send(.session(.hydrated(
-                activeSessionID: restored.id,
-                transcript: restored.transcript,
-                todos: restored.todos,
-                isRunning: restored.isRunning
-            )))
+            hydrate(restored)
+            restoreContextUsage(restored)
             await refresh()
         } catch {
             store.send(.session(.failed(message: presentationMessage(for: error))))
@@ -544,14 +560,25 @@ final class RailgunSessionCoordinator {
     }
 
     private func hydrateMutation(_ restored: RailgunRestoredSession) async {
+        hydrate(restored)
+        await controlsDidActivate?()
+        restoreContextUsage(restored)
+        await refresh()
+    }
+
+    private func hydrate(_ restored: RailgunRestoredSession) {
         store.send(.session(.hydrated(
             activeSessionID: restored.id,
             transcript: restored.transcript,
             todos: restored.todos,
             isRunning: restored.isRunning
         )))
-        await controlsDidActivate?()
-        await refresh()
+    }
+
+    private func restoreContextUsage(_ restored: RailgunRestoredSession) {
+        if let usage = restored.contextUsage {
+            store.send(.controls(.contextUsage(usage)))
+        }
     }
 
     private func activateNewSession(id: String, model: String?) {

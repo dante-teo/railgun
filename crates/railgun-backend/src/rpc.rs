@@ -4,7 +4,7 @@ use crate::{
     paths::RailgunPaths,
     protocol::{CAPABILITIES, Command, VERSION},
     skills::{self, SkillInput},
-    storage::{Session, Store},
+    storage::{Session, SessionUsage, Store},
     tools::{
         self, ApprovalMode, InteractionResponse, Interactions, ToolContext, is_protected_cron_job,
         visible_cron_jobs, with_internal_cron_jobs,
@@ -77,7 +77,7 @@ enum RunUpdate {
         run_id: String,
         messages: Vec<Value>,
         todos: Vec<Value>,
-        result: Result<(), String>,
+        result: Result<Option<SessionUsage>, String>,
     },
     CatalogRefresh {
         id: Option<String>,
@@ -310,6 +310,7 @@ impl Coordinator {
                     "sessionId": self.active.id,
                     "startedAt": self.active.started_at,
                     "persistence": self.active.persistence,
+                    "latestUsage": session_usage_value(self.active.latest_usage),
                 })),
             ),
             "get_messages" => self.respond(
@@ -355,14 +356,15 @@ impl Coordinator {
                 {
                     bail!("Model \"{model}\" is unavailable.");
                 }
-                if self.active.persistence == "saved" && self.active.model != model {
-                    let source = self.active.clone();
-                    self.active = source;
-                    self.active.id = format!("fork-{}", uuid::Uuid::new_v4());
-                    self.active.started_at = now();
-                    self.active.message_ids.clear();
-                    self.active.persistence = "unsaved";
-                    self.reset_session_approvals().await;
+                if self.active.model != model {
+                    if self.active.persistence == "saved" {
+                        self.active.id = format!("fork-{}", uuid::Uuid::new_v4());
+                        self.active.started_at = now();
+                        self.active.message_ids.clear();
+                        self.active.persistence = "unsaved";
+                        self.reset_session_approvals().await;
+                    }
+                    self.active.latest_usage = None;
                 }
                 self.active.model = model;
                 self.respond("set_model", id, Some(self.active_snapshot()));
@@ -739,6 +741,7 @@ impl Coordinator {
             "model": self.active.model,
             "startedAt": self.active.started_at,
             "persistence": self.active.persistence,
+            "latestUsage": session_usage_value(self.active.latest_usage),
         })
     }
 
@@ -797,9 +800,12 @@ impl Coordinator {
                 }
                 self.run = None;
                 match result {
-                    Ok(()) => {
+                    Ok(latest_usage) => {
                         self.active.messages = messages;
                         self.active.todos = todos;
+                        if let Some(usage) = latest_usage {
+                            self.active.latest_usage = Some(usage);
+                        }
                         match self.store.save_session(&mut self.active).await {
                             Ok(()) => self
                                 .send(json!({"type":"session_saved","sessionId":self.active.id})),
@@ -841,6 +847,7 @@ impl Coordinator {
             json!({"role":"assistant","content":[{"type":"text","text":summary}]}),
         ];
         self.active.message_ids.clear();
+        self.active.latest_usage = None;
         self.active.id = format!("compact-{}", uuid::Uuid::new_v4());
         self.active.started_at = now();
         self.active.persistence = "unsaved";
@@ -1189,7 +1196,7 @@ async fn provider_turn(
     tool_context: ToolContext,
     cancellation: CancellationToken,
     updates: &mpsc::UnboundedSender<RunUpdate>,
-) -> Result<()> {
+) -> Result<Option<SessionUsage>> {
     let run_id = prompt.run_id.clone();
     let user = json!({"role":"user","content":prompt.user});
     messages.push(user.clone());
@@ -1231,7 +1238,8 @@ async fn provider_turn(
                             send_update(updates, json!({"type":"message_update","streamEvent":{"type":"thinking_delta","delta":delta,"signature":signature}}));
                         }
                         DevinStreamEvent::Usage { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } => {
-                            latest_usage = Some((input_tokens, output_tokens));
+                            latest_usage = Some(SessionUsage::new(input_tokens, output_tokens)
+                                .context("provider token usage exceeds the safe integer range")?);
                             send_update(updates, json!({"type":"message_update","streamEvent":{
                                 "type":"usage","inputTokens":input_tokens,"outputTokens":output_tokens,
                                 "cacheReadTokens":cache_read_tokens,"cacheWriteTokens":cache_write_tokens
@@ -1297,14 +1305,14 @@ async fn provider_turn(
 
     send_update(
         updates,
-        json!({"type":"turn_end","usage":latest_usage.map(|(input_tokens, output_tokens)| json!({"inputTokens":input_tokens,"outputTokens":output_tokens}))}),
+        json!({"type":"turn_end","usage":session_usage_value(latest_usage)}),
     );
     send_update(
         updates,
         json!({"type":"agent_end","runId":run_id,"messages":messages.clone()}),
     );
     send_update(updates, json!({"type":"agent_settled"}));
-    Ok(())
+    Ok(latest_usage)
 }
 
 async fn advisor_review(
@@ -1461,6 +1469,15 @@ fn model_value(model: &widevin::DevinModel) -> Value {
     })
 }
 
+fn session_usage_value(usage: Option<SessionUsage>) -> Value {
+    usage.map_or(Value::Null, |usage| {
+        json!({
+            "inputTokens": usage.input_tokens,
+            "outputTokens": usage.output_tokens,
+        })
+    })
+}
+
 fn fresh_session(model: String) -> Session {
     Session {
         id: format!("session-{}", uuid::Uuid::new_v4()),
@@ -1469,6 +1486,7 @@ fn fresh_session(model: String) -> Session {
         messages: Vec::new(),
         message_ids: Vec::new(),
         todos: Vec::new(),
+        latest_usage: None,
         persistence: "unsaved",
     }
 }
@@ -1942,6 +1960,9 @@ async fn run_scheduled_job(
         &updates,
     )
     .await;
+    if let Ok(Some(usage)) = &outcome {
+        session.latest_usage = Some(*usage);
+    }
     drop(updates);
     let _ = drain.await;
     let status = if outcome.is_ok()

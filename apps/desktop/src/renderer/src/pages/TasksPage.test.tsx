@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { emptyActivitySnapshot } from '@/lib/activity-api'
+import type { ComposerAttachment } from '@/lib/attachment-api'
+import { emptyContextUsageSnapshot } from '@/lib/context-usage-api'
+import type { ModelConfiguration } from '@/lib/model-api'
 import type { TaskSummary } from '@/lib/task-api'
 import { TasksPage } from '@/pages/TasksPage'
 
@@ -28,10 +31,22 @@ const tasks: TaskSummary[] = [
   { id: 'third', title: 'Third task', lastMessageAt: '2026-08-07T01:00:00.000Z' }
 ]
 
+const modelConfiguration: ModelConfiguration = {
+  activeModelId: 'mock-model',
+  defaultModelId: 'mock-model',
+  isRunning: false,
+  models: [
+    { id: 'mock-model', name: 'Mock Model' },
+    { id: 'mock-reference', name: 'Mock Reference' }
+  ],
+  warning: null
+}
+
 function installTaskApi(
   list: () => Promise<TaskSummary[]>,
   archive: (sessionId: string) => Promise<void> = async () => undefined,
-  open: (sessionId: string) => Promise<void> = async () => undefined
+  open: (sessionId: string) => Promise<void> = async () => undefined,
+  pickAttachments: () => Promise<readonly ComposerAttachment[]> = async () => []
 ): void {
   Object.defineProperty(window, 'railgun', {
     configurable: true,
@@ -39,6 +54,26 @@ function installTaskApi(
       activity: {
         getSnapshot: async () => emptyActivitySnapshot(),
         subscribe: () => () => undefined
+      },
+      attachments: { pick: pickAttachments },
+      approval: {
+        get: async () => ({ mode: 'manual', reviewerModelId: null }),
+        setMode: async (mode: 'manual' | 'smart' | 'off') => ({
+          mode,
+          reviewerModelId: null
+        })
+      },
+      contextUsage: {
+        getSnapshot: async () => emptyContextUsageSnapshot(),
+        subscribe: () => () => undefined
+      },
+      models: {
+        get: async () => modelConfiguration,
+        select: async (modelId: string) => ({
+          ...modelConfiguration,
+          activeModelId: modelId,
+          defaultModelId: modelId
+        })
       },
       tasks: { archive, list, open }
     }
@@ -55,9 +90,10 @@ function renderTasksPage(): ReturnType<typeof render> {
 
 async function renderPopulatedPage(
   archive: (sessionId: string) => Promise<void>,
-  open: (sessionId: string) => Promise<void> = async () => undefined
+  open: (sessionId: string) => Promise<void> = async () => undefined,
+  pickAttachments: () => Promise<readonly ComposerAttachment[]> = async () => []
 ): Promise<void> {
-  installTaskApi(async () => tasks, archive, open)
+  installTaskApi(async () => tasks, archive, open, pickAttachments)
   renderTasksPage()
   await screen.findByRole('button', { name: 'Select First task' })
 }
@@ -197,12 +233,33 @@ describe('TasksPage', () => {
     expect(
       controls.getByRole('button', { name: 'Approval mode: Ask for approval' })
     ).toBeInTheDocument()
-    expect(controls.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute(
-      'aria-valuenow',
-      '0'
-    )
-    expect(controls.getByRole('button', { name: 'Select model: GPT-5' })).toBeInTheDocument()
+    expect(
+      controls.getByRole('meter', { name: 'Context usage not measured yet' })
+    ).toBeInTheDocument()
+    expect(
+      await controls.findByRole('button', { name: 'Select model: Mock Model' })
+    ).toBeInTheDocument()
     expect(controls.getByRole('button', { name: 'Send message' })).toBeInTheDocument()
+  })
+
+  it('does not carry attachments into another task composer', async () => {
+    const attachment = {
+      kind: 'folder',
+      name: 'project',
+      path: '/tmp/project'
+    } as const
+    await renderPopulatedPage(
+      async () => undefined,
+      async () => undefined,
+      async () => [attachment]
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select First task' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    expect(await screen.findByText(attachment.name)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Second task' }))
+    expect(screen.queryByText(attachment.name)).not.toBeInTheDocument()
   })
 
   it('reports a task-open failure without replacing a newer selection', async () => {

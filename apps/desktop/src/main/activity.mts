@@ -8,6 +8,7 @@ import type {
   TodoStatus
 } from '../shared/activity-api.ts'
 import { emptyActivitySnapshot } from '../shared/activity-api.ts'
+import { asObject, nonNegativeInteger, positiveInteger } from './value-validation.mts'
 
 const advisorTextLimit = 2_000
 const goalTextLimit = 2_000
@@ -44,12 +45,6 @@ export interface ActivityServiceOptions {
   streamBroadcastIntervalMilliseconds?: number
 }
 
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
 function bounded(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1))}…`
 }
@@ -77,14 +72,6 @@ function optionalRunId(value: unknown): string | null | undefined {
 
 function isTodoStatus(value: unknown): value is TodoStatus {
   return typeof value === 'string' && todoStatuses.includes(value as TodoStatus)
-}
-
-function nonNegativeInteger(value: unknown): number | undefined {
-  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined
-}
-
-function positiveInteger(value: unknown): number | undefined {
-  return Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : undefined
 }
 
 function decodeXmlText(value: string): string {
