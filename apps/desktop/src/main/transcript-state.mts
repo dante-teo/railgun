@@ -13,6 +13,9 @@ const maximumMessageTextLength = 100_000
 const maximumToolIdLength = 512
 const maximumToolNameLength = 128
 const maximumToolTargetLength = 256
+const maximumToolDetailLength = 256
+const maximumShellCommandLength = 4_096
+const maximumShellOutputLength = 12_288
 const maximumInteractionIdLength = 128
 const maximumInteractionTextLength = 8_000
 const maximumInteractionChoiceLength = 500
@@ -39,7 +42,11 @@ export type TranscriptAction =
       readonly id: string
       readonly name?: string
       readonly target?: string
+      readonly detail?: string
+      readonly command?: string
+      readonly output?: string
       readonly failed?: boolean
+      readonly running?: boolean
     }
   | { readonly type: 'interaction-received'; readonly request: TranscriptInteractionRequest }
   | { readonly type: 'interaction-response-started'; readonly id: string }
@@ -58,13 +65,18 @@ export type NormalizedLiveFrame =
       readonly toolCallId: string
       readonly name: string
       readonly target?: string
+      readonly detail?: string
+      readonly command?: string
     }
   | {
       readonly type: 'tool-ended'
       readonly toolCallId: string
       readonly failed: boolean
+      readonly output?: string
     }
   | { readonly type: 'interaction-requested'; readonly request: TranscriptInteractionRequest }
+
+type NormalizedToolStartedFrame = Extract<NormalizedLiveFrame, { readonly type: 'tool-started' }>
 
 type TranscriptPage = {
   readonly messages: readonly TranscriptMessage[]
@@ -112,6 +124,10 @@ function nonNegativeSafeInteger(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined
 }
 
+function optionalTimestamp(value: unknown): number | undefined {
+  return value === undefined ? undefined : nonNegativeSafeInteger(value)
+}
+
 function safeBasename(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined
@@ -126,6 +142,126 @@ function safeToolTarget(name: string, argumentsValue: unknown): string | undefin
   return ['read_file', 'write_file', 'list_directory'].includes(name)
     ? safeBasename(asObject(argumentsValue)?.path)
     : undefined
+}
+
+function countLabel(value: unknown, singular: string, plural: string): string | undefined {
+  return Array.isArray(value)
+    ? `${value.length} ${value.length === 1 ? singular : plural}`
+    : undefined
+}
+
+function mappedDetail(
+  value: unknown,
+  labels: Readonly<Record<string, string>>
+): string | undefined {
+  return typeof value === 'string' ? labels[value] : undefined
+}
+
+const memoryDetails: Readonly<Record<string, string>> = {
+  preference: 'Preference memory',
+  fact: 'Fact memory',
+  project: 'Project memory'
+}
+
+const scheduleDetails: Readonly<Record<string, string>> = {
+  list: 'Scheduled tasks',
+  add: 'Add scheduled task',
+  update: 'Update scheduled task',
+  remove: 'Remove scheduled task'
+}
+
+const inspectionDetails: Readonly<Record<string, string>> = {
+  config: 'Configuration diagnostics',
+  sessions: 'Session diagnostics',
+  memories: 'Memory diagnostics',
+  cron: 'Schedule diagnostics',
+  paths: 'Path diagnostics'
+}
+
+function safeToolDetail(name: string, argumentsValue: unknown): string | undefined {
+  const fields = asObject(argumentsValue)
+  const detail = (() => {
+    switch (name) {
+      case 'read_file':
+      case 'write_file':
+      case 'list_directory':
+        return safeBasename(fields?.path)
+      case 'run_shell_command':
+        return 'Local shell command'
+      case 'todo':
+        return countLabel(fields?.todos, 'task item', 'task items') ?? 'Current task list'
+      case 'clarify':
+        return 'User clarification request'
+      case 'memory_write':
+        return mappedDetail(fields?.category, memoryDetails)
+      case 'memory_search':
+        return 'Saved memories'
+      case 'memory_consolidate':
+        return countLabel(fields?.operations, 'memory operation', 'memory operations')
+      case 'cron':
+        return mappedDetail(fields?.action, scheduleDetails)
+      case 'railgun_inspect':
+        return mappedDetail(fields?.area, inspectionDetails)
+      case 'skill_view': {
+        const skill = strictRequiredText(fields?.name, maximumToolDetailLength)
+        return skill ? `Skill: ${skill}` : undefined
+      }
+      case 'web_search':
+        return 'Public web search'
+      case 'web_fetch':
+        return 'Public web page'
+      case 'delegate_task':
+        return countLabel(fields?.goals, 'delegated task', 'delegated tasks')
+      default:
+        return undefined
+    }
+  })()
+  return detail ? bounded(detail, maximumToolDetailLength) : undefined
+}
+
+const ansiEscapePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
+
+function stripUnsafeTerminalControls(value: string): string {
+  return [...value]
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0
+      return codePoint === 9 || codePoint === 10 || (codePoint >= 32 && codePoint !== 127)
+    })
+    .join('')
+}
+
+function safeTerminalText(value: unknown, limit: number): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  const text = stripUnsafeTerminalControls(
+    value.replace(ansiEscapePattern, '').replaceAll(/\r\n?/g, '\n')
+  ).trim()
+  return text ? bounded(text, limit) : undefined
+}
+
+function safeShellCommand(name: string, argumentsValue: unknown): string | undefined {
+  return name === 'run_shell_command'
+    ? safeTerminalText(asObject(argumentsValue)?.command, maximumShellCommandLength)
+    : undefined
+}
+
+function normalizedToolStartedFrame(
+  toolCallId: string,
+  name: string,
+  argumentsValue: unknown
+): NormalizedToolStartedFrame {
+  const target = safeToolTarget(name, argumentsValue)
+  const detail = safeToolDetail(name, argumentsValue)
+  const command = safeShellCommand(name, argumentsValue)
+  return {
+    type: 'tool-started',
+    toolCallId,
+    name,
+    ...(target ? { target } : {}),
+    ...(detail ? { detail } : {}),
+    ...(command ? { command } : {})
+  }
 }
 
 function copyMessage(message: TranscriptMessage): TranscriptMessage {
@@ -163,9 +299,24 @@ function parseConversationMessage(
     return undefined
   }
   const id = messageId === undefined ? `restored-message-${ordinal}` : `message-${messageId}`
+  const timestamp = optionalTimestamp(
+    fields.role === 'user' ? fields.startedAt : fields.completedAt
+  )
+  if (
+    (fields.role === 'user' && fields.startedAt !== undefined && timestamp === undefined) ||
+    (fields.role === 'assistant' && fields.completedAt !== undefined && timestamp === undefined)
+  ) {
+    return undefined
+  }
   return fields.role === 'user'
-    ? { id, role: 'user', text }
-    : { id, role: 'assistant', text, status: 'complete' }
+    ? { id, role: 'user', text, ...(timestamp === undefined ? {} : { startedAt: timestamp }) }
+    : {
+        id,
+        role: 'assistant',
+        text,
+        status: 'complete',
+        ...(timestamp === undefined ? {} : { completedAt: timestamp })
+      }
 }
 
 function parseToolMessage(fields: Record<string, unknown>): TranscriptToolMessage | undefined {
@@ -175,11 +326,27 @@ function parseToolMessage(fields: Record<string, unknown>): TranscriptToolMessag
   const id = strictRequiredText(fields.id, maximumToolIdLength)
   const name = strictRequiredText(fields.name, maximumToolNameLength)
   const target = fields.target === undefined ? undefined : safeBasename(fields.target)
+  const detail =
+    fields.detail === undefined
+      ? undefined
+      : strictRequiredText(fields.detail, maximumToolDetailLength)
+  const command =
+    fields.command === undefined
+      ? undefined
+      : safeTerminalText(fields.command, maximumShellCommandLength)
+  const output =
+    fields.output === undefined
+      ? undefined
+      : safeTerminalText(fields.output, maximumShellOutputLength)
   if (
     !id ||
     !name ||
     typeof fields.failed !== 'boolean' ||
-    (fields.target !== undefined && !target)
+    (fields.target !== undefined && !target) ||
+    (fields.detail !== undefined && !detail) ||
+    (fields.command !== undefined && !command) ||
+    (fields.output !== undefined && !output) ||
+    (name !== 'run_shell_command' && (command !== undefined || output !== undefined))
   ) {
     return undefined
   }
@@ -188,6 +355,9 @@ function parseToolMessage(fields: Record<string, unknown>): TranscriptToolMessag
     role: 'tool',
     name,
     ...(target ? { target } : {}),
+    ...(detail ? { detail } : {}),
+    ...(command ? { command } : {}),
+    ...(output ? { output } : {}),
     failed: fields.failed
   }
 }
@@ -273,12 +443,16 @@ function normalizeToolExecutionFrame(
     if (!name) {
       return undefined
     }
-    const target = safeToolTarget(name, frame.args)
-    return { type: 'tool-started', toolCallId, name, ...(target ? { target } : {}) }
+    return normalizedToolStartedFrame(toolCallId, name, frame.args)
   }
   const result = asObject(frame.result)
+  const name = requiredText(frame.toolName, maximumToolNameLength)
+  const output =
+    name === 'run_shell_command'
+      ? safeTerminalText(result?.content, maximumShellOutputLength)
+      : undefined
   return typeof result?.isError === 'boolean'
-    ? { type: 'tool-ended', toolCallId, failed: result.isError }
+    ? { type: 'tool-ended', toolCallId, failed: result.isError, ...(output ? { output } : {}) }
     : undefined
 }
 
@@ -299,8 +473,11 @@ function normalizeMessageUpdate(frame: Record<string, unknown>): NormalizedLiveF
   if (!toolCallId || !name) {
     return undefined
   }
-  const target = event.type === 'toolcall_end' ? safeToolTarget(name, event.arguments) : undefined
-  return { type: 'tool-started', toolCallId, name, ...(target ? { target } : {}) }
+  return normalizedToolStartedFrame(
+    toolCallId,
+    name,
+    event.type === 'toolcall_end' ? event.arguments : undefined
+  )
 }
 
 function normalizeInteractionRequest(
@@ -471,7 +648,11 @@ export function reduceTranscriptSnapshot(
                 ...message,
                 ...(action.name ? { name: action.name } : {}),
                 ...(action.target ? { target: action.target } : {}),
-                ...(action.failed === undefined ? {} : { failed: action.failed })
+                ...(action.detail ? { detail: action.detail } : {}),
+                ...(action.command ? { command: action.command } : {}),
+                ...(action.output ? { output: action.output } : {}),
+                ...(action.failed === undefined ? {} : { failed: action.failed }),
+                ...(action.running === undefined ? {} : { running: action.running })
               }
             : message
         )

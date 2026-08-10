@@ -55,6 +55,13 @@ automatically during initial state hydration with:
 RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
 ```
 
+The default list also includes the saved `mock-session-all-tools` release-readiness conversation.
+It contains all 15 built-in tool names across 21 reasoned calls, including complete mock arguments,
+results, thinking, one failed call, TODO transitions, and a final answer. Use it to inspect every
+tool-row presentation without running tools against the local machine. The renderer still receives
+only the safe projection described below; completeness is retained inside the backend fixture for
+contract testing.
+
 The `ready-idle` fixture seeds deterministic context usage for the active task and every saved
 task, so the context ring is populated immediately after launch and remains populated while
 switching between mock tasks.
@@ -116,11 +123,17 @@ change can fork a saved session, so model selection returns the backend's active
 main process adopts and rehydrates that session before the composer becomes available again.
 
 Only renderer-safe presentation data crosses this boundary. Assistant text deltas are coalesced to
-at most one IPC publication every 50 ms. Tool activity contains the bounded tool name, failure state,
-and—only for file tools—a safe basename. Raw thinking, tool arguments, tool results, and full tool
-paths are never copied into renderer snapshots. Approval requests expose the command that requires
-the user's decision; clarification requests expose only a bounded question and optional bounded
-choices. Failed interaction submissions remain visible and retryable.
+at most one IPC publication every 50 ms. Tool activity contains the bounded tool name, live/failure
+state, and a simplified tool-specific detail such as a file basename or item count. Shell commands
+are the sole raw-payload exception: bounded command and output text is stripped of terminal control
+sequences before it enters a renderer snapshot. Raw thinking, non-shell arguments and results, and
+full tool paths never cross the boundary. User and final assistant rows may also carry additive
+millisecond turn-boundary timestamps sourced from the persisted message `event_at` column. That
+column is intentionally nullable: legacy checkpoint `created_at` values are not interpreted as
+turn boundaries, so restored legacy rows use the untimed fallback instead of a fabricated duration.
+Approval requests expose the command that requires the user's decision; clarification requests
+expose only a bounded question and optional bounded choices. Failed interaction submissions remain
+visible and retryable.
 
 Assistant Markdown links retain Streamdown's confirmation step. The BrowserWindow still denies all
 renderer-created windows; after confirmation, the main process opens only bounded, credential-free
@@ -243,7 +256,24 @@ inset composer share a centered 720 px reading column. User prompts are framed a
 tool activity is unframed, muted, and left-aligned; assistant responses occupy the full reading
 column. Streamdown renders only the active assistant row in streaming mode and completed or restored
 rows in static mode. HTML is skipped, no Shiki, math, or Mermaid plugin configuration is supplied,
-and no transcript-entry animation is applied.
+and historical transcript entries do not animate on load. Each user turn groups intermediate
+assistant rows, tool activity, interaction requests, and working status in one disclosure. Active
+work defaults open; arrival of the end-turn assistant response remounts it collapsed as **Worked for
+3m 27s** (or **Worked** for legacy untimed history), followed by a horizontal separator. Only this
+live completion handoff gives the completed label and final answer a subtle 120 ms entrance; the
+collapse, separator, and scroll position remain immediate and stationary. The final assistant
+response remains visible below that separator, and users can reopen completed work explicitly.
+The completion handoff follows the turn's transcript position rather than its user-message ID,
+because successful prompt rehydration intentionally replaces `optimistic-user-*` IDs with persisted
+`message-*` IDs.
+
+Every tool row keeps the compact **icon → readable name → chevron** order, with the chevron directly
+after the name rather than pinned to the far edge. Completed rows start collapsed; active rows
+replace the chevron with a loading indicator, stay expanded, and cannot be collapsed. Failed rows
+remain destructive-colored and replace the leading tool glyph with a visible circled X, providing a
+non-color cue without adding a **Failed** label. Expanded non-shell details are one unframed,
+single-line summary with no label/value grid. `run_shell_command` is the only framed detail: it uses
+a compact terminal treatment with the command followed by bounded output.
 
 The transcript initially follows the latest content and keeps following routine streaming updates.
 Deliberately scrolling upward pauses that behavior and reveals **Jump to latest**. An explicit jump
@@ -325,6 +355,7 @@ From the repository root, the corresponding backend and JSONL contract checks ar
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
+cargo xtask migration check
 ```
 
 The locked workspace tests include the mock backend's process-level JSONL contract suite, ordered
@@ -335,10 +366,12 @@ coalesced streaming updates with immediate terminal publication, native-compatib
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
 and keyboard interactions. Transcript coverage includes pagination, strict snapshot validation,
 immutable streaming reduction, safe tool normalization, private-frame rejection, prompt projection,
-send/abort lifecycle, approval and clarification responses, final rehydration, model-fork adoption,
-preload cleanup, and validated external links. Renderer coverage exercises role-specific Markdown,
-loading and error states, working and interaction indicators, controlled submission and restoration,
-task-summary refreshes, task-switch locking, and stick-to-bottom pause, jump, and resume behavior.
+shell-only output projection, legacy timestamp fallback, send/abort lifecycle, approval and
+clarification responses, final rehydration, model-fork adoption, preload cleanup, and validated
+external links. Renderer coverage exercises role-specific Markdown, loading and error states,
+working and interaction indicators, optimistic-to-persisted completion handoff, tool disclosure and
+failure states, controlled submission and restoration, task-summary refreshes, task-switch locking,
+and stick-to-bottom pause, jump, and resume behavior.
 
 ## Packaging
 

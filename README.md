@@ -431,7 +431,12 @@ The mock backend supports readiness, authentication, delayed and malformed
 startup, rejection, crash/disconnect, store errors, approval, clarification,
 cancellation, agent activity, empty model catalog, and slow compaction
 scenarios. Its `ready-idle` session corpus includes deterministic persisted
-usage values for immediate context-ring verification.
+usage values for immediate context-ring verification. That corpus also includes
+`mock-session-all-tools`, a completed release-readiness conversation covering
+all 15 built-in tool names across 21 calls. Complete mock arguments, results,
+thinking, TODO transitions, and the intentional failed call remain in backend
+history so the renderer's safe projection and every tool-row state can be
+tested deterministically.
 
 ## Packaging and release
 

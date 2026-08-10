@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::process::Stdio;
 use std::time::Instant;
 use tokio::{
@@ -166,6 +167,7 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
             .map(|session| session["id"].as_str().unwrap())
             .collect::<Vec<_>>(),
         [
+            "mock-session-all-tools",
             "mock-session-agent-activity",
             "mock-session-complex-task",
             "mock-session-paginated-history",
@@ -174,15 +176,103 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
             "mock-session-older",
         ]
     );
-    assert_eq!(sessions["data"]["sessions"][0]["messageCount"], 2);
-    assert_eq!(sessions["data"]["sessions"][1]["messageCount"], 34);
-    assert_eq!(sessions["data"]["sessions"][2]["messageCount"], 202);
+    let session_summaries = sessions["data"]["sessions"].as_array().unwrap();
+    for (id, message_count) in [
+        ("mock-session-all-tools", 49),
+        ("mock-session-agent-activity", 2),
+        ("mock-session-complex-task", 34),
+        ("mock-session-paginated-history", 202),
+    ] {
+        let summary = session_summaries
+            .iter()
+            .find(|session| session["id"] == id)
+            .expect("saved session summary");
+        assert_eq!(summary["messageCount"], message_count, "{id} message count");
+    }
     assert!(
-        sessions["data"]["sessions"]
-            .as_array()
-            .unwrap()
+        session_summaries
             .iter()
             .all(|session| session["lastMessageAt"].as_str().is_some())
+    );
+
+    mock.send(json!({
+        "id":"load-tools",
+        "type":"session_load",
+        "sessionId":"mock-session-all-tools",
+        "includeMessages":false
+    }))
+    .await;
+    assert_eq!(mock.response("load-tools").await["success"], true);
+    mock.send(json!({
+        "id":"tools",
+        "type":"session_transcript",
+        "sessionId":"mock-session-all-tools"
+    }))
+    .await;
+    let all_tools = mock.response("tools").await;
+    let conversation_messages = all_tools["data"]["messages"].as_array().unwrap();
+    assert_eq!(
+        conversation_messages
+            .iter()
+            .filter_map(|message| message.get("startedAt").and_then(Value::as_i64))
+            .collect::<Vec<_>>(),
+        [
+            1_785_979_200_000_i64,
+            1_785_980_520_000_i64,
+            1_785_981_420_000_i64
+        ]
+    );
+    assert_eq!(
+        conversation_messages
+            .iter()
+            .filter_map(|message| message.get("completedAt").and_then(Value::as_i64))
+            .collect::<Vec<_>>(),
+        [
+            1_785_980_407_000_i64,
+            1_785_981_327_000_i64,
+            1_785_981_627_000_i64
+        ]
+    );
+    let tool_messages = all_tools["data"]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .collect::<Vec<_>>();
+    assert_eq!(tool_messages.len(), 21);
+    assert!(tool_messages.iter().all(|message| {
+        message["detail"]
+            .as_str()
+            .is_some_and(|detail| !detail.trim().is_empty())
+            && message.get("arguments").is_none()
+            && message.get("content").is_none()
+    }));
+    let shell_messages = tool_messages
+        .iter()
+        .filter(|message| message["name"] == "run_shell_command")
+        .collect::<Vec<_>>();
+    assert_eq!(shell_messages.len(), 2);
+    assert!(shell_messages.iter().all(|message| {
+        message["command"]
+            .as_str()
+            .is_some_and(|command| !command.trim().is_empty())
+            && message["output"]
+                .as_str()
+                .is_some_and(|output| !output.trim().is_empty())
+    }));
+    assert!(tool_messages.iter().all(|message| {
+        message["name"] == "run_shell_command"
+            || (message.get("command").is_none() && message.get("output").is_none())
+    }));
+    assert_eq!(
+        tool_messages
+            .iter()
+            .filter_map(|message| message["name"].as_str())
+            .collect::<HashSet<_>>(),
+        railgun_backend::tools::TOOL_NAMES
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>()
     );
 
     mock.send(json!({
@@ -210,9 +300,15 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
     }))
     .await;
     let page = mock.response("page").await;
-    assert_eq!(page["data"]["messages"].as_array().unwrap().len(), 100);
+    let page_messages = page["data"]["messages"].as_array().unwrap();
+    assert_eq!(page_messages.len(), 100);
     assert_eq!(page["data"]["nextCursor"], 100);
-    assert_eq!(page["data"]["messages"][0]["messageId"], 1036);
+    let message_ids = page_messages
+        .iter()
+        .filter_map(|message| message["messageId"].as_i64())
+        .collect::<Vec<_>>();
+    assert_eq!(message_ids.len(), page_messages.len());
+    assert!(message_ids.windows(2).all(|pair| pair[0] < pair[1]));
 
     mock.send(json!({
         "id":"load-rich",

@@ -13,17 +13,35 @@
   transform: translateY(0.25rem);
 }
 
+.completionCue {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
 @starting-style {
   .jumpToLatest,
   .transcriptEmptyState {
     opacity: 0;
     transform: translateY(0.25rem);
   }
+
+  .completionCue {
+    opacity: 0;
+    transform: translateY(0.125rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .jumpToLatest,
   .transcriptEmptyState {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+
+  .completionCue {
     transform: none !important;
     transition: opacity var(--duration-feedback) var(--ease-out) !important;
   }

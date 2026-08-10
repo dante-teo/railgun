@@ -1,0 +1,1 @@
+ALTER TABLE messages ADD COLUMN event_at TEXT NULL;

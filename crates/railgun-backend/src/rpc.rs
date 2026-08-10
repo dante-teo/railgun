@@ -1198,7 +1198,7 @@ async fn provider_turn(
     updates: &mpsc::UnboundedSender<RunUpdate>,
 ) -> Result<Option<SessionUsage>> {
     let run_id = prompt.run_id.clone();
-    let user = json!({"role":"user","content":prompt.user});
+    let user = json!({"role":"user","at":now_millis(),"content":prompt.user});
     messages.push(user.clone());
     send_update(updates, json!({"type":"turn_start"}));
     let mut latest_usage = None;
@@ -1273,7 +1273,7 @@ async fn provider_turn(
         parts.extend(tool_calls.iter().map(|(id, name, arguments)| {
             json!({"type":"toolCall","id":id,"name":name,"arguments":arguments})
         }));
-        let assistant = json!({"role":"assistant","content":parts});
+        let assistant = json!({"role":"assistant","at":now_millis(),"content":parts});
         messages.push(assistant.clone());
         send_update(
             updates,
@@ -1294,8 +1294,13 @@ async fn provider_turn(
                 Ok(content) => (content, false),
                 Err(error) => (redact_error(&error.to_string()), true),
             };
-            messages
-                .push(json!({"role":"tool","toolCallId":id,"content":content,"isError":is_error}));
+            messages.push(json!({
+                "role":"tool",
+                "at":now_millis(),
+                "toolCallId":id,
+                "content":content,
+                "isError":is_error
+            }));
             send_update(
                 updates,
                 json!({"type":"tool_execution_end","toolCallId":id,"toolName":name,"result":{"content":content,"isError":is_error}}),
@@ -1493,6 +1498,10 @@ fn fresh_session(model: String) -> Session {
 
 fn now() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+fn now_millis() -> i64 {
+    Utc::now().timestamp_millis()
 }
 
 fn v1_only(kind: &str) -> bool {

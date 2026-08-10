@@ -14,8 +14,12 @@ use tokio::{
     sync::mpsc,
 };
 
+mod all_tools_fixture;
 mod scenario;
 
+use all_tools_fixture::{
+    ALL_TOOLS_DEMO_SESSION_ID, all_tools_completed_todos, all_tools_task_messages,
+};
 use scenario::Scenario;
 
 const ACTIVITY_DEMO_SESSION_ID: &str = "mock-session-agent-activity";
@@ -1833,6 +1837,7 @@ fn saved_sessions() -> Vec<MockSession> {
             .collect::<Vec<_>>()
     };
 
+    let all_tools = all_tools_task_messages();
     let complex = complex_task_messages();
     let paginated = (1..=101)
         .flat_map(|index| {
@@ -1876,6 +1881,18 @@ fn saved_sessions() -> Vec<MockSession> {
     ];
 
     vec![
+        MockSession {
+            id: ALL_TOOLS_DEMO_SESSION_ID.into(),
+            model: "mock-model".into(),
+            started_at: "2026-08-06T01:20:00.000Z".into(),
+            started_at_local: "8/6/2026, 9:20:00 AM".into(),
+            message_ids: assign_ids(all_tools.len()),
+            messages: all_tools,
+            todos: all_tools_completed_todos(),
+            latest_usage: Some((148_000, 24_000)),
+            persistence: "saved",
+            checkpoint_error: None,
+        },
         MockSession {
             id: ACTIVITY_DEMO_SESSION_ID.into(),
             model: "mock-model".into(),
@@ -2309,6 +2326,7 @@ mod tests {
                 .map(|session| session.id.as_str())
                 .collect::<Vec<_>>(),
             [
+                "mock-session-all-tools",
                 "mock-session-agent-activity",
                 "mock-session-complex-task",
                 "mock-session-paginated-history",
@@ -2317,17 +2335,28 @@ mod tests {
                 "mock-session-older",
             ]
         );
-        assert_eq!(sessions[0].messages.len(), 2);
-        assert_eq!(sessions[1].messages.len(), 34);
-        assert_eq!(sessions[2].messages.len(), 202);
-        assert_eq!(sessions[3].messages.len(), 10);
-        assert_eq!(sessions[4].messages.len(), 3);
-        assert_eq!(sessions[5].messages.len(), 2);
-        assert_eq!(sessions[0].todos.len(), 2);
-        assert_eq!(sessions[1].todos.len(), 4);
-        assert_eq!(sessions[3].todos.len(), 4);
+        for (id, message_count, todo_count) in [
+            ("mock-session-all-tools", 49, 6),
+            ("mock-session-agent-activity", 2, 2),
+            ("mock-session-complex-task", 34, 4),
+            ("mock-session-paginated-history", 202, 0),
+            ("mock-session-rich-history", 10, 4),
+            ("mock-session-recent", 3, 1),
+            ("mock-session-older", 2, 0),
+        ] {
+            let session = sessions
+                .iter()
+                .find(|session| session.id == id)
+                .expect("saved fixture session");
+            assert_eq!(session.messages.len(), message_count, "{id} message count");
+            assert_eq!(session.todos.len(), todo_count, "{id} todo count");
+        }
+        let rich = sessions
+            .iter()
+            .find(|session| session.id == "mock-session-rich-history")
+            .expect("rich history session");
         assert_eq!(
-            sessions[3].messages[3]["content"][0]["arguments"]["token"],
+            rich.messages[3]["content"][0]["arguments"]["token"],
             "must-not-cross-boundary"
         );
     }
@@ -2352,8 +2381,12 @@ mod tests {
         );
 
         let default_sessions = saved_sessions();
+        let complex = default_sessions
+            .iter()
+            .find(|session| session.id == "mock-session-complex-task")
+            .expect("complex task session");
         assert_eq!(
-            session_summary(&default_sessions[1])["lastMessageAt"],
+            session_summary(complex)["lastMessageAt"],
             "2026-07-19T21:20:21.000Z"
         );
     }

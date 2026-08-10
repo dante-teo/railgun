@@ -1,9 +1,17 @@
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const PAGE_LIMIT: usize = 100;
 const DATA_BUDGET: usize = 48 * 1024;
 const TEXT_BUDGET: usize = 24 * 1024;
+const TOOL_DETAIL_BUDGET: usize = 256;
+const SHELL_COMMAND_BUDGET: usize = 4 * 1024;
+const SHELL_OUTPUT_BUDGET: usize = 12 * 1024;
+
+struct TranscriptToolResult {
+    output: Option<String>,
+    failed: bool,
+}
 
 pub fn page(
     session_id: &str,
@@ -39,7 +47,7 @@ pub fn page(
 }
 
 fn entries(history: &[Value], message_ids: Option<&[i64]>, hide_initial_user: bool) -> Vec<Value> {
-    let failures = tool_failures(history);
+    let tool_results = transcript_tool_results(history);
     let hidden = hide_initial_user.then(|| {
         history
             .iter()
@@ -69,7 +77,7 @@ fn entries(history: &[Value], message_ids: Option<&[i64]>, hide_initial_user: bo
                 result.push(message);
             }
         }
-        result.extend(transcript_tools(source, history_index, &failures));
+        result.extend(transcript_tools(source, history_index, &tool_results));
     }
     result
 }
@@ -104,7 +112,11 @@ fn transcript_message(message: &Value) -> Option<Value> {
 }
 
 fn transcript_text(item: &Map<String, Value>) -> String {
-    match item.get("content") {
+    text_content(item.get("content"))
+}
+
+fn text_content(content: Option<&Value>) -> String {
+    match content {
         Some(Value::String(value)) => value.clone(),
         Some(Value::Array(parts)) => parts
             .iter()
@@ -115,14 +127,29 @@ fn transcript_text(item: &Map<String, Value>) -> String {
     }
 }
 
-fn tool_failures(history: &[Value]) -> HashMap<String, bool> {
+fn transcript_tool_results(history: &[Value]) -> HashMap<String, TranscriptToolResult> {
+    let shell_tool_call_ids = history
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .filter_map(|message| message.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter(|part| part["type"] == "toolCall" && part["name"] == "run_shell_command")
+        .filter_map(|part| part.get("id").and_then(Value::as_str))
+        .collect::<HashSet<_>>();
     history
         .iter()
         .filter(|message| message["role"] == "tool")
         .filter_map(|message| {
+            let id = message.get("toolCallId")?.as_str()?;
             Some((
-                message.get("toolCallId")?.as_str()?.to_owned(),
-                message.get("isError").and_then(Value::as_bool) == Some(true),
+                id.to_owned(),
+                TranscriptToolResult {
+                    output: shell_tool_call_ids
+                        .contains(id)
+                        .then(|| tool_result_text(message.get("content")))
+                        .flatten(),
+                    failed: message.get("isError").and_then(Value::as_bool) == Some(true),
+                },
             ))
         })
         .collect()
@@ -131,7 +158,7 @@ fn tool_failures(history: &[Value]) -> HashMap<String, bool> {
 fn transcript_tools(
     message: &Value,
     history_index: usize,
-    failures: &HashMap<String, bool>,
+    tool_results: &HashMap<String, TranscriptToolResult>,
 ) -> Vec<Value> {
     if message["role"] != "assistant" {
         return Vec::new();
@@ -155,7 +182,7 @@ fn transcript_tools(
                 "role": "tool",
                 "id": format!("restored-tool-{history_index}-{part_index}"),
                 "name": truncate_utf8(name, 128),
-                "failed": failures.get(id).copied().unwrap_or(false),
+                "failed": tool_results.get(id).is_some_and(|result| result.failed),
             });
             if matches!(name, "read_file" | "write_file" | "list_directory") {
                 if let Some(path) = call
@@ -174,9 +201,143 @@ fn transcript_tools(
                     result["target"] = Value::String(truncate_utf8(path.trim(), 256));
                 }
             }
+            if let Some(detail) = tool_detail(name, call.get("arguments")) {
+                result["detail"] = Value::String(detail);
+            }
+            if name == "run_shell_command" {
+                if let Some(command) = call
+                    .get("arguments")
+                    .and_then(Value::as_object)
+                    .and_then(|arguments| arguments.get("command"))
+                    .and_then(Value::as_str)
+                    .and_then(|command| safe_terminal_text(command, SHELL_COMMAND_BUDGET))
+                {
+                    result["command"] = Value::String(command);
+                }
+                if let Some(output) = tool_results
+                    .get(id)
+                    .and_then(|tool_result| tool_result.output.as_deref())
+                    .and_then(|output| safe_terminal_text(output, SHELL_OUTPUT_BUDGET))
+                {
+                    result["output"] = Value::String(output);
+                }
+            }
             Some(result)
         })
         .collect()
+}
+
+fn tool_result_text(content: Option<&Value>) -> Option<String> {
+    let text = text_content(content);
+    (!text.is_empty()).then_some(text)
+}
+
+fn safe_terminal_text(value: &str, budget: usize) -> Option<String> {
+    let mut output = String::with_capacity(value.len().min(budget));
+    let mut characters = value.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\u{1b}' {
+            if characters.next_if_eq(&'[').is_some() {
+                for sequence in characters.by_ref() {
+                    if ('@'..='~').contains(&sequence) {
+                        break;
+                    }
+                }
+            } else {
+                characters.next();
+            }
+            continue;
+        }
+        match character {
+            '\n' | '\t' => output.push(character),
+            '\r' => {
+                characters.next_if_eq(&'\n');
+                output.push('\n');
+            }
+            value if !value.is_control() => output.push(value),
+            _ => {}
+        }
+    }
+    let output = output.trim().to_owned();
+    (!output.is_empty()).then(|| truncate_utf8(&output, budget))
+}
+
+fn tool_detail(name: &str, arguments: Option<&Value>) -> Option<String> {
+    let arguments = arguments.and_then(Value::as_object);
+    let array_count = |key: &str, singular: &str, plural: &str| {
+        arguments
+            .and_then(|value| value.get(key))
+            .and_then(Value::as_array)
+            .map(|items| count_label(items.len(), singular, plural))
+    };
+    match name {
+        "read_file" | "write_file" | "list_directory" => arguments
+            .and_then(|value| value.get("path"))
+            .and_then(Value::as_str)
+            .and_then(safe_basename),
+        "run_shell_command" => Some("Local shell command".into()),
+        "todo" => array_count("todos", "task item", "task items")
+            .or_else(|| Some("Current task list".into())),
+        "clarify" => Some("User clarification request".into()),
+        "memory_write" => arguments
+            .and_then(|value| value.get("category"))
+            .and_then(Value::as_str)
+            .and_then(|category| match category {
+                "preference" => Some("Preference memory".into()),
+                "fact" => Some("Fact memory".into()),
+                "project" => Some("Project memory".into()),
+                _ => None,
+            }),
+        "memory_search" => Some("Saved memories".into()),
+        "memory_consolidate" => array_count("operations", "memory operation", "memory operations"),
+        "cron" => arguments
+            .and_then(|value| value.get("action"))
+            .and_then(Value::as_str)
+            .and_then(|action| match action {
+                "list" => Some("Scheduled tasks".into()),
+                "add" => Some("Add scheduled task".into()),
+                "update" => Some("Update scheduled task".into()),
+                "remove" => Some("Remove scheduled task".into()),
+                _ => None,
+            }),
+        "railgun_inspect" => arguments
+            .and_then(|value| value.get("area"))
+            .and_then(Value::as_str)
+            .and_then(|area| match area {
+                "config" => Some("Configuration diagnostics".into()),
+                "sessions" => Some("Session diagnostics".into()),
+                "memories" => Some("Memory diagnostics".into()),
+                "cron" => Some("Schedule diagnostics".into()),
+                "paths" => Some("Path diagnostics".into()),
+                _ => None,
+            }),
+        "skill_view" => arguments
+            .and_then(|value| value.get("name"))
+            .and_then(Value::as_str)
+            .and_then(safe_one_line)
+            .map(|name| format!("Skill: {name}")),
+        "web_search" => Some("Public web search".into()),
+        "web_fetch" => Some("Public web page".into()),
+        "delegate_task" => array_count("goals", "delegated task", "delegated tasks"),
+        _ => None,
+    }
+    .map(|detail| truncate_utf8(&detail, TOOL_DETAIL_BUDGET))
+}
+
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
+}
+
+fn safe_basename(path: &str) -> Option<String> {
+    path.replace('\\', "/")
+        .split('/')
+        .next_back()
+        .and_then(safe_one_line)
+}
+
+fn safe_one_line(value: &str) -> Option<String> {
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!value.is_empty()).then(|| truncate_utf8(&value, TOOL_DETAIL_BUDGET))
 }
 
 fn truncate_utf8(text: &str, max_bytes: usize) -> String {
@@ -209,7 +370,105 @@ mod tests {
         let encoded = result.to_string();
         assert!(encoded.contains("Visible"));
         assert!(encoded.contains("token.txt"));
+        assert!(encoded.contains("\"detail\":\"token.txt\""));
         assert!(!encoded.contains("\"secret\""));
         assert!(!encoded.contains("/private/"));
+    }
+
+    #[test]
+    fn projects_turn_boundary_timestamps() {
+        let history = vec![
+            json!({"role":"user","at":1_000,"content":"Start"}),
+            json!({"role":"assistant","at":208_000,"content":[{"type":"text","text":"Done"}]}),
+        ];
+
+        let result = page("s", &history, 0, 100, None, false);
+        assert_eq!(result["messages"][0]["startedAt"], 1_000);
+        assert_eq!(result["messages"][1]["completedAt"], 208_000);
+    }
+
+    #[test]
+    fn projects_bounded_human_readable_tool_details_without_raw_payloads() {
+        assert_eq!(
+            tool_detail(
+                "run_shell_command",
+                Some(&json!({"command":"echo private"}))
+            ),
+            Some("Local shell command".into())
+        );
+        assert_eq!(
+            tool_detail("todo", Some(&json!({"todos":[{}, {}]}))),
+            Some("2 task items".into())
+        );
+        assert_eq!(
+            tool_detail("memory_consolidate", Some(&json!({"operations":[{}]}))),
+            Some("1 memory operation".into())
+        );
+        assert_eq!(
+            tool_detail("cron", Some(&json!({"action":"add","prompt":"private"}))),
+            Some("Add scheduled task".into())
+        );
+        assert_eq!(
+            tool_detail("skill_view", Some(&json!({"name":"desktop-testing"}))),
+            Some("Skill: desktop-testing".into())
+        );
+        assert_eq!(
+            tool_detail(
+                "delegate_task",
+                Some(&json!({"goals":[{"goal":"one"},{"goal":"two"}]}))
+            ),
+            Some("2 delegated tasks".into())
+        );
+
+        for name in crate::tools::TOOL_NAMES {
+            let arguments = match *name {
+                "read_file" | "write_file" | "list_directory" => json!({"path":"notes.md"}),
+                "memory_write" => json!({"category":"project"}),
+                "railgun_inspect" => json!({"area":"sessions"}),
+                "skill_view" => json!({"name":"desktop-testing"}),
+                "cron" => json!({"action":"list"}),
+                "todo" => json!({"todos":[]}),
+                "memory_consolidate" => json!({"operations":[]}),
+                "delegate_task" => json!({"goals":[]}),
+                _ => json!({}),
+            };
+            assert!(
+                tool_detail(name, Some(&arguments)).is_some(),
+                "{name} should have a safe tool detail"
+            );
+        }
+    }
+
+    #[test]
+    fn projects_bounded_terminal_text_only_for_shell_commands() {
+        let history = vec![
+            json!({"role":"assistant","content":[
+                {"type":"toolCall","id":"shell","name":"run_shell_command","arguments":{"command":"printf '\u{1b}[31mhello\u{1b}[0m'"}},
+                {"type":"toolCall","id":"memory","name":"memory_write","arguments":{"content":"private memory","category":"fact"}}
+            ]}),
+            json!({"role":"tool","toolCallId":"shell","content":"\u{1b}[32mhello\u{1b}[0m\n","isError":false}),
+            json!({"role":"tool","toolCallId":"memory","content":"private memory result","isError":false}),
+        ];
+
+        let result = page("s", &history, 0, 100, None, false);
+        let tools = result["messages"].as_array().unwrap();
+        let shell = tools
+            .iter()
+            .find(|message| message["name"] == "run_shell_command")
+            .unwrap();
+        assert_eq!(shell["command"], "printf 'hello'");
+        assert_eq!(shell["output"], "hello");
+        let memory = tools
+            .iter()
+            .find(|message| message["name"] == "memory_write")
+            .unwrap();
+        assert!(memory.get("command").is_none());
+        assert!(memory.get("output").is_none());
+        assert!(transcript_tool_results(&history)["memory"].output.is_none());
+        assert!(!result.to_string().contains("private memory"));
+        assert_eq!(
+            safe_terminal_text("first\r\nsecond\rthird", 100),
+            Some("first\nsecond\nthird".into())
+        );
     }
 }

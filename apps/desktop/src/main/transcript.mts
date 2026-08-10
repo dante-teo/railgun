@@ -13,6 +13,7 @@ import {
   transcriptLoadError,
   transcriptSendError,
   validateClarificationAnswer,
+  type NormalizedLiveFrame,
   type TranscriptAction
 } from './transcript-state.mts'
 import { validateSessionId } from './tasks.mts'
@@ -21,6 +22,8 @@ import { asObject } from './value-validation.mts'
 export { normalizeTranscriptFrame, reduceTranscriptSnapshot } from './transcript-state.mts'
 
 const defaultStreamBroadcastIntervalMilliseconds = 50
+
+type NormalizedToolStartedFrame = Extract<NormalizedLiveFrame, { readonly type: 'tool-started' }>
 
 export interface TranscriptBackend {
   request(
@@ -128,15 +131,27 @@ export function createTranscriptService(
 
   const ensureAssistant = (): string => activeAssistantId ?? startAssistant(true)
 
-  const ensureTool = (toolCallId: string, name: string, target: string | undefined): void => {
+  const ensureTool = ({
+    toolCallId,
+    name,
+    target,
+    detail,
+    command
+  }: NormalizedToolStartedFrame): void => {
+    const presentation = {
+      name,
+      ...(target ? { target } : {}),
+      ...(detail ? { detail } : {}),
+      ...(command ? { command } : {})
+    }
     const existingId = toolMessageIds.get(toolCallId)
     if (existingId) {
       commit(
         {
           type: 'tool-updated',
           id: existingId,
-          name,
-          ...(target ? { target } : {})
+          ...presentation,
+          running: true
         },
         true
       )
@@ -150,9 +165,9 @@ export function createTranscriptService(
         message: {
           id,
           role: 'tool',
-          name,
-          ...(target ? { target } : {}),
-          failed: false
+          ...presentation,
+          failed: false,
+          running: true
         }
       },
       true
@@ -186,12 +201,21 @@ export function createTranscriptService(
         finishActiveAssistant()
         return
       case 'tool-started':
-        ensureTool(normalized.toolCallId, normalized.name, normalized.target)
+        ensureTool(normalized)
         return
       case 'tool-ended': {
         const id = toolMessageIds.get(normalized.toolCallId)
         if (id) {
-          commit({ type: 'tool-updated', id, failed: normalized.failed }, true)
+          commit(
+            {
+              type: 'tool-updated',
+              id,
+              failed: normalized.failed,
+              running: false,
+              ...(normalized.output ? { output: normalized.output } : {})
+            },
+            true
+          )
         }
         return
       }

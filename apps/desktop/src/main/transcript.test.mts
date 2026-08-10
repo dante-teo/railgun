@@ -95,23 +95,41 @@ test('transcript hydration validates and collects every page into an immutable s
       return {
         sessionId: 'session-one',
         messages: [
-          { role: 'user', messageId: 11, text: 'Question' },
+          { role: 'user', messageId: 11, text: 'Question', startedAt: 1_000 },
           {
             role: 'tool',
             id: 'restored-tool-1',
             name: 'read_file',
             target: '/private/project/notes.txt',
+            detail: 'notes.txt',
             failed: false,
             arguments: { token: 'must-not-cross' }
+          },
+          {
+            role: 'tool',
+            id: 'restored-tool-2',
+            name: 'run_shell_command',
+            detail: 'Local shell command',
+            command: 'pnpm test',
+            output: '21 tests passed',
+            failed: false
           }
         ],
-        nextCursor: 2
+        nextCursor: 3
       }
     }
-    if (command === 'session_transcript' && fields.cursor === 2) {
+    if (command === 'session_transcript' && fields.cursor === 3) {
       return {
         sessionId: 'session-one',
-        messages: [{ role: 'assistant', messageId: 12, text: 'Answer', branchable: true }]
+        messages: [
+          {
+            role: 'assistant',
+            messageId: 12,
+            text: 'Answer',
+            branchable: true,
+            completedAt: 208_000
+          }
+        ]
       }
     }
     throw new Error(`Unexpected request: ${command}`)
@@ -127,15 +145,31 @@ test('transcript hydration validates and collects every page into an immutable s
   assert.deepEqual(
     snapshot.messages.map((message) => ({ ...message })),
     [
-      { id: 'message-11', role: 'user', text: 'Question' },
+      { id: 'message-11', role: 'user', text: 'Question', startedAt: 1_000 },
       {
         id: 'restored-tool-1',
         role: 'tool',
         name: 'read_file',
         target: 'notes.txt',
+        detail: 'notes.txt',
         failed: false
       },
-      { id: 'message-12', role: 'assistant', text: 'Answer', status: 'complete' }
+      {
+        id: 'restored-tool-2',
+        role: 'tool',
+        name: 'run_shell_command',
+        detail: 'Local shell command',
+        command: 'pnpm test',
+        output: '21 tests passed',
+        failed: false
+      },
+      {
+        id: 'message-12',
+        role: 'assistant',
+        text: 'Answer',
+        status: 'complete',
+        completedAt: 208_000
+      }
     ]
   )
   assert.deepEqual(
@@ -143,7 +177,7 @@ test('transcript hydration validates and collects every page into an immutable s
     [
       ['session_load', undefined],
       ['session_transcript', 0],
-      ['session_transcript', 2]
+      ['session_transcript', 3]
     ]
   )
   assert.ok(updates.every((update) => update.revision === update.snapshot.revision))
@@ -302,6 +336,25 @@ test('live reduction batches text, normalizes tools, and hides private frames an
     toolName: 'read_file',
     result: { content: 'sensitive tool result', isError: true }
   })
+  backend.emit({
+    type: 'message_update',
+    streamEvent: { type: 'toolcall_start', id: 'call-shell', name: 'run_shell_command' }
+  })
+  backend.emit({
+    type: 'message_update',
+    streamEvent: {
+      type: 'toolcall_end',
+      id: 'call-shell',
+      name: 'run_shell_command',
+      arguments: { command: '\u001b[31mpnpm test\u001b[0m' }
+    }
+  })
+  backend.emit({
+    type: 'tool_execution_end',
+    toolCallId: 'call-shell',
+    toolName: 'run_shell_command',
+    result: { content: '\u001b[32m21 tests passed\u001b[0m', isError: false }
+  })
 
   assert.equal(updates.length, 1, 'only the optimistic submission publishes synchronously')
   assert.equal(service.getSnapshot().messages[1]?.role, 'assistant')
@@ -311,6 +364,8 @@ test('live reduction batches text, normalizes tools, and hides private frames an
   assert.match(encoded, /One two/)
   assert.match(encoded, /token\.txt/)
   assert.match(encoded, /"failed":true/)
+  assert.match(encoded, /"command":"pnpm test"/)
+  assert.match(encoded, /"output":"21 tests passed"/)
   assert.doesNotMatch(
     encoded,
     /private chain of thought|private arguments|raw-secret|sensitive tool result|\/private\//

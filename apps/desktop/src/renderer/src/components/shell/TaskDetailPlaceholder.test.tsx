@@ -147,6 +147,137 @@ describe('TaskDetailPlaceholder', () => {
     expect(screen.queryByRole('status', { name: 'Agent is working' })).not.toBeInTheDocument()
   })
 
+  it('keeps the final answer visible below a collapsed, expandable work summary', async () => {
+    const snapshot: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: task.id,
+      status: 'ready',
+      messages: [
+        {
+          id: 'user-one',
+          role: 'user',
+          text: 'Prepare the release brief.',
+          startedAt: 1_000
+        },
+        {
+          id: 'tool-one',
+          role: 'tool',
+          name: 'read_file',
+          detail: 'RELEASING.md',
+          failed: false
+        },
+        {
+          id: 'assistant-progress',
+          role: 'assistant',
+          text: 'I found the release checklist.',
+          status: 'complete'
+        },
+        {
+          id: 'assistant-final',
+          role: 'assistant',
+          text: 'The release brief is ready.',
+          status: 'complete',
+          completedAt: 208_000
+        }
+      ]
+    }
+    installApi(snapshot)
+    render(<TaskDetailPlaceholder task={task} />)
+
+    const transcript = await screen.findByRole('log', { name: 'Task transcript' })
+    const disclosure = within(transcript).getByRole('button', {
+      name: 'Worked for 3m 27s. Show work'
+    })
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    expect(disclosure.querySelector('[data-completion-cue]')).toBeNull()
+    const finalAnswer = within(transcript).getByText('The release brief is ready.')
+    expect(finalAnswer).toBeInTheDocument()
+    expect(finalAnswer.closest('[data-message-role="assistant"]')).not.toHaveAttribute(
+      'data-completion-cue'
+    )
+    expect(within(transcript).queryByText('I found the release checklist.')).not.toBeInTheDocument()
+    expect(within(transcript).queryByText('Read File')).not.toBeInTheDocument()
+    const separator = transcript.querySelector('[data-slot="separator"]')
+    expect(separator).not.toBeNull()
+    expect(disclosure.nextElementSibling).toBe(separator)
+
+    fireEvent.click(disclosure)
+
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    expect(disclosure).toHaveAccessibleName('Worked for 3m 27s. Hide work')
+    expect(disclosure.nextElementSibling).toBe(separator)
+    expect(within(transcript).getByText('I found the release checklist.')).toBeInTheDocument()
+    expect(within(transcript).getByText('Read File')).toBeInTheDocument()
+    expect(within(transcript).getByText('The release brief is ready.')).toBeInTheDocument()
+  })
+
+  it('automatically collapses active work when the end-turn answer arrives', async () => {
+    const running: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: task.id,
+      status: 'running',
+      messages: [
+        { id: 'optimistic-user-one', role: 'user', text: 'Inspect this.', startedAt: 1_000 },
+        {
+          id: 'tool-one',
+          role: 'tool',
+          name: 'railgun_inspect',
+          detail: 'Configuration diagnostics',
+          failed: false,
+          running: true
+        }
+      ]
+    }
+    const api = installApi(running)
+    render(<TaskDetailPlaceholder task={task} />)
+
+    const activeDisclosure = await screen.findByRole('button', {
+      name: 'Working… Hide work'
+    })
+    expect(activeDisclosure).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Inspect Railgun')).toBeInTheDocument()
+
+    await act(async () => {
+      api.emit({
+        ...running,
+        revision: 2,
+        status: 'ready',
+        messages: [
+          { id: 'message-41', role: 'user', text: 'Inspect this.', startedAt: 1_000 },
+          {
+            id: 'tool-one',
+            role: 'tool',
+            name: 'railgun_inspect',
+            detail: 'Configuration diagnostics',
+            failed: false
+          },
+          {
+            id: 'assistant-final',
+            role: 'assistant',
+            text: 'Inspection finished.',
+            status: 'complete',
+            completedAt: 208_000
+          }
+        ]
+      })
+    })
+
+    const completedDisclosure = screen.getByRole('button', {
+      name: 'Worked for 3m 27s. Show work'
+    })
+    expect(completedDisclosure).toHaveAttribute('aria-expanded', 'false')
+    expect(completedDisclosure.querySelector('[data-completion-cue="true"]')).not.toBeNull()
+    expect(screen.queryByText('Inspect Railgun')).not.toBeInTheDocument()
+    const finalAnswer = screen.getByText('Inspection finished.')
+    expect(finalAnswer).toBeInTheDocument()
+    expect(finalAnswer.closest('[data-message-role="assistant"]')).toHaveAttribute(
+      'data-completion-cue',
+      'true'
+    )
+  })
+
   it('surfaces approval and clarification requests while preserving Stop', async () => {
     const respondToApproval = vi.fn(async () => undefined)
     const respondToClarification = vi.fn(async () => undefined)
@@ -205,6 +336,7 @@ describe('TaskDetailPlaceholder', () => {
           role: 'tool',
           name: 'read_file',
           target: 'notes.txt',
+          detail: 'notes.txt',
           failed: true
         },
         {
@@ -229,12 +361,12 @@ describe('TaskDetailPlaceholder', () => {
       'data-message-role',
       'user'
     )
-    const tool = within(transcript)
-      .getByText(/read_file/)
-      .closest('li')
+    const tool = within(transcript).getByText('Read File').closest('li')
     expect(tool).toHaveAttribute('data-message-role', 'tool')
+    expect(tool).not.toHaveTextContent('notes.txt')
+    fireEvent.click(within(tool!).getByRole('button', { name: /Show details/ }))
     expect(tool).toHaveTextContent('notes.txt')
-    expect(tool).toHaveTextContent('failed')
+    expect(tool).not.toHaveTextContent('Failed')
     expect(within(transcript).getByText('finished')).toBeInTheDocument()
     expect(within(transcript).getByText('partial')).toBeInTheDocument()
     expect(within(transcript).queryByText(/\*\*partial/)).not.toBeInTheDocument()

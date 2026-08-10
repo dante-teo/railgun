@@ -1,0 +1,54 @@
+.trigger {
+  transition:
+    color 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.trigger:active {
+  transform: scale(0.98);
+}
+
+.chevron {
+  transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.trigger[data-state='open'] .chevron {
+  transform: rotate(90deg);
+}
+
+.completionCue {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+@starting-style {
+  .completionCue {
+    opacity: 0;
+    transform: translateY(0.125rem);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trigger:hover {
+    color: var(--foreground);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .chevron {
+    transition: none;
+  }
+
+  .trigger:active {
+    transform: none;
+  }
+
+  .completionCue {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+}

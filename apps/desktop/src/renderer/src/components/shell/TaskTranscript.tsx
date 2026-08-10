@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useState } from 'react'
 import { ArrowDownIcon, LoaderCircleIcon } from 'lucide-react'
 import { Streamdown } from 'streamdown'
 import { useStickToBottom } from 'use-stick-to-bottom'
@@ -13,11 +13,13 @@ import type {
   TranscriptAssistantMessage,
   TranscriptMessage,
   TranscriptSnapshot,
-  TranscriptToolMessage
+  TranscriptUserMessage
 } from '@/lib/transcript-api'
 
 import { TaskComposer } from './TaskComposer'
 import { TaskInteractionRows } from './TaskInteractions'
+import { ToolUseRow } from './ToolUseRow'
+import { TurnWorkRow } from './TurnWorkRow'
 import styles from './TaskTranscript.module.css'
 
 interface TaskTranscriptProps {
@@ -72,13 +74,67 @@ const AssistantTranscriptMessage = memo(function AssistantTranscriptMessage({
   )
 })
 
-function toolActivityLabel(message: TranscriptToolMessage): string {
-  return [message.name, message.target, message.failed ? 'failed' : undefined]
-    .filter(Boolean)
-    .join(' · ')
+interface TranscriptTurn {
+  readonly active: boolean
+  readonly finalAssistant?: TranscriptAssistantMessage
+  readonly kind: 'turn'
+  readonly user: TranscriptUserMessage
+  readonly work: readonly TranscriptMessage[]
 }
 
-function TranscriptRow({ message }: { message: TranscriptMessage }): React.JSX.Element {
+interface StandaloneTranscriptMessage {
+  readonly kind: 'standalone'
+  readonly message: TranscriptMessage
+}
+
+type TranscriptSection = TranscriptTurn | StandaloneTranscriptMessage
+
+function transcriptSections(
+  messages: readonly TranscriptMessage[],
+  running: boolean
+): readonly TranscriptSection[] {
+  const sections: TranscriptSection[] = []
+  let index = 0
+  while (index < messages.length) {
+    const message = messages[index]
+    if (message.role !== 'user') {
+      sections.push({ kind: 'standalone', message })
+      index += 1
+      continue
+    }
+
+    let nextUserIndex = index + 1
+    while (nextUserIndex < messages.length && messages[nextUserIndex].role !== 'user') {
+      nextUserIndex += 1
+    }
+    const responses = messages.slice(index + 1, nextUserIndex)
+    const active = running && nextUserIndex === messages.length
+    const possibleFinal = active ? undefined : responses.at(-1)
+    const finalAssistant =
+      possibleFinal?.role === 'assistant' && possibleFinal.status !== 'streaming'
+        ? possibleFinal
+        : undefined
+    sections.push({
+      kind: 'turn',
+      user: message,
+      active,
+      work: finalAssistant ? responses.slice(0, -1) : responses,
+      ...(finalAssistant ? { finalAssistant } : {})
+    })
+    index = nextUserIndex
+  }
+  return sections
+}
+
+function TranscriptRow({
+  animateCompletionOnMount = false,
+  message
+}: {
+  animateCompletionOnMount?: boolean
+  message: TranscriptMessage
+}): React.JSX.Element {
+  const [completionCue] = useState(animateCompletionOnMount)
+
   if (message.role === 'user') {
     return (
       <li className="ml-auto max-w-105" data-message-role="user">
@@ -90,22 +146,54 @@ function TranscriptRow({ message }: { message: TranscriptMessage }): React.JSX.E
   }
 
   if (message.role === 'tool') {
-    return (
-      <li className="mr-auto max-w-105" data-message-role="tool">
-        <p className={cn('text-xs text-muted-foreground', message.failed && 'text-destructive')}>
-          {toolActivityLabel(message)}
-        </p>
-      </li>
-    )
+    return <ToolUseRow message={message} />
   }
 
   return (
-    <li className="w-full" data-message-role="assistant">
+    <li
+      className={cn('w-full', completionCue && styles.completionCue)}
+      data-completion-cue={completionCue ? 'true' : undefined}
+      data-message-role="assistant"
+    >
       <article>
         <AssistantTranscriptMessage message={message} />
       </article>
     </li>
   )
+}
+
+function useCompletionCueTurnId(
+  sessionId: string,
+  snapshot: TranscriptSnapshot,
+  sections: readonly TranscriptSection[]
+): string | undefined {
+  const snapshotMatchesSession = snapshot.sessionId === sessionId
+  const turns = sections.filter((section): section is TranscriptTurn => section.kind === 'turn')
+  const activeTurnIndex = snapshotMatchesSession ? turns.findIndex((turn) => turn.active) : -1
+  const normalizedActiveTurnIndex = activeTurnIndex < 0 ? undefined : activeTurnIndex
+  const [state, setState] = useState<{
+    readonly activeTurnIndex?: number
+    readonly completionCueTurnId?: string
+    readonly sessionId: string
+  }>(() => ({
+    activeTurnIndex: normalizedActiveTurnIndex,
+    sessionId
+  }))
+  if (state.sessionId !== sessionId || state.activeTurnIndex !== normalizedActiveTurnIndex) {
+    const completedTurn =
+      state.sessionId === sessionId &&
+      state.activeTurnIndex !== undefined &&
+      normalizedActiveTurnIndex === undefined
+        ? turns[state.activeTurnIndex]
+        : undefined
+    setState({
+      activeTurnIndex: normalizedActiveTurnIndex,
+      completionCueTurnId: completedTurn?.finalAssistant ? completedTurn.user.id : undefined,
+      sessionId
+    })
+  }
+
+  return state.completionCueTurnId
 }
 
 function AgentWorkingIndicator(): React.JSX.Element {
@@ -184,6 +272,9 @@ function TranscriptContent({
   sessionId: string
   snapshot: TranscriptSnapshot
 }): React.JSX.Element {
+  const sections = transcriptSections(snapshot.messages, snapshot.status === 'running')
+  const completionCueTurnId = useCompletionCueTurnId(sessionId, snapshot, sections)
+
   if (
     snapshot.sessionId !== sessionId ||
     snapshot.status === 'idle' ||
@@ -216,17 +307,55 @@ function TranscriptContent({
     )
   }
 
+  const hasActiveTurn = sections.some((section) => section.kind === 'turn' && section.active)
+
   return (
     <ol
       aria-label="Task transcript"
       className="mx-auto flex min-h-full w-full max-w-180 flex-col justify-end gap-6 p-4"
       role="log"
     >
-      {snapshot.messages.map((message) => (
-        <TranscriptRow key={message.id} message={message} />
-      ))}
-      <TaskInteractionRows requests={snapshot.interactions} sessionId={sessionId} />
-      {snapshot.status === 'running' ? <AgentWorkingIndicator /> : null}
+      {sections.map((section) =>
+        section.kind === 'standalone' ? (
+          <TranscriptRow key={section.message.id} message={section.message} />
+        ) : (
+          <Fragment key={section.user.id}>
+            <TranscriptRow message={section.user} />
+            {section.active || section.finalAssistant || section.work.length > 0 ? (
+              <TurnWorkRow
+                active={section.active}
+                animateCompletionOnMount={completionCueTurnId === section.user.id}
+                completedAt={section.finalAssistant?.completedAt}
+                hasWork={section.work.length > 0 || section.active}
+                key={`${section.user.id}-${section.active ? 'active' : 'complete'}`}
+                startedAt={section.user.startedAt}
+              >
+                {section.work.map((message) => (
+                  <TranscriptRow key={message.id} message={message} />
+                ))}
+                {section.active ? (
+                  <>
+                    <TaskInteractionRows requests={snapshot.interactions} sessionId={sessionId} />
+                    <AgentWorkingIndicator />
+                  </>
+                ) : null}
+              </TurnWorkRow>
+            ) : null}
+            {section.finalAssistant ? (
+              <TranscriptRow
+                animateCompletionOnMount={completionCueTurnId === section.user.id}
+                message={section.finalAssistant}
+              />
+            ) : null}
+          </Fragment>
+        )
+      )}
+      {!hasActiveTurn ? (
+        <>
+          <TaskInteractionRows requests={snapshot.interactions} sessionId={sessionId} />
+          {snapshot.status === 'running' ? <AgentWorkingIndicator /> : null}
+        </>
+      ) : null}
     </ol>
   )
 }

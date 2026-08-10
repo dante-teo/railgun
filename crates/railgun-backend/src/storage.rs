@@ -170,14 +170,14 @@ impl Store {
         let leaf = row.try_get::<Option<i64>, _>("current_leaf_id")?;
         let message_rows = if let Some(leaf) = leaf {
             sqlx::query(
-                "WITH RECURSIVE branch(id, role, content_json, tool_call_id, tool_error, response_id, parent_id) AS (
-                   SELECT id, role, content_json, tool_call_id, tool_error, response_id, parent_id
+                "WITH RECURSIVE branch(id, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at, parent_id) AS (
+                   SELECT id, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at, parent_id
                    FROM messages WHERE id = ? AND session_id = ?
                    UNION ALL
-                   SELECT m.id, m.role, m.content_json, m.tool_call_id, m.tool_error, m.response_id, m.parent_id
+                   SELECT m.id, m.role, m.content_json, m.tool_call_id, m.tool_error, m.response_id, m.created_at, m.event_at, m.parent_id
                    FROM messages m JOIN branch b ON m.id = b.parent_id WHERE m.session_id = ?
                  )
-                 SELECT id, role, content_json, tool_call_id, tool_error, response_id
+                 SELECT id, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at
                  FROM branch ORDER BY id ASC",
             )
             .bind(leaf)
@@ -261,6 +261,7 @@ impl Store {
                 session.id
             );
         }
+        ensure_new_message_timestamps(&mut session.messages, visible.len())?;
         for (index, row) in visible.iter().enumerate() {
             let stored_message = decode_message(row)?;
             if stored_message != session.messages[index] {
@@ -278,8 +279,8 @@ impl Store {
             let encoded = encode_message(message)?;
             let result = sqlx::query(
                 "INSERT INTO messages
-                 (session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at, parent_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 (session_id, ordinal, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at, parent_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&session.id)
             .bind(ordinal as i64)
@@ -288,7 +289,8 @@ impl Store {
             .bind(encoded.tool_call_id)
             .bind(encoded.tool_error)
             .bind(encoded.response_id)
-            .bind(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+            .bind(encoded.created_at)
+            .bind(encoded.event_at)
             .bind(parent)
             .execute(&mut *transaction)
             .await?;
@@ -554,6 +556,48 @@ struct EncodedMessage {
     tool_call_id: Option<String>,
     tool_error: Option<i64>,
     response_id: Option<String>,
+    created_at: String,
+    event_at: String,
+}
+
+fn valid_message_timestamp(value: i64) -> bool {
+    value >= 0
+        && u64::try_from(value).is_ok_and(|value| value <= MAXIMUM_SAFE_INTEGER)
+        && DateTime::<Utc>::from_timestamp_millis(value).is_some()
+}
+
+fn message_timestamp(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .filter(|value| valid_message_timestamp(*value))
+}
+
+fn ensure_new_message_timestamps(messages: &mut [Value], persisted_count: usize) -> Result<()> {
+    let fallback = Utc::now().timestamp_millis();
+    for (ordinal, message) in messages.iter_mut().enumerate() {
+        let Some(object) = message.as_object_mut() else {
+            bail!("message {ordinal} is not an object");
+        };
+        match object.get("at") {
+            Some(value) if message_timestamp(value).is_some() => {}
+            Some(_) => bail!("message {ordinal} timestamp is invalid"),
+            None if ordinal >= persisted_count => {
+                object.insert("at".into(), json!(fallback));
+            }
+            None => {}
+        }
+    }
+    Ok(())
+}
+
+fn encoded_message_timestamp(message: &Value) -> Result<String> {
+    let milliseconds = message
+        .get("at")
+        .and_then(message_timestamp)
+        .context("message timestamp is invalid")?;
+    Ok(DateTime::<Utc>::from_timestamp_millis(milliseconds)
+        .context("message timestamp is out of range")?
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 
 fn encode_message(message: &Value) -> Result<EncodedMessage> {
@@ -567,6 +611,7 @@ fn encode_message(message: &Value) -> Result<EncodedMessage> {
     let content = message
         .get("content")
         .context("message content is missing")?;
+    let event_at = encoded_message_timestamp(message)?;
     Ok(EncodedMessage {
         role: role.to_owned(),
         content_json: serde_json::to_string(content)?,
@@ -582,6 +627,8 @@ fn encode_message(message: &Value) -> Result<EncodedMessage> {
             .get("responseId")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        created_at: event_at.clone(),
+        event_at,
     })
 }
 
@@ -599,6 +646,15 @@ fn decode_message(row: &sqlx::sqlite::SqliteRow) -> Result<Value> {
         if let Some(value) = row.try_get::<Option<String>, _>("response_id")? {
             result["responseId"] = Value::String(value);
         }
+    }
+    if let Some(event_at) = row.try_get::<Option<String>, _>("event_at")? {
+        let milliseconds = DateTime::parse_from_rfc3339(&event_at)
+            .with_context(|| format!("saved message event timestamp is invalid: {event_at}"))?
+            .timestamp_millis();
+        if !valid_message_timestamp(milliseconds) {
+            bail!("saved message event timestamp is out of range");
+        }
+        result["at"] = json!(milliseconds);
     }
     Ok(result)
 }
@@ -673,15 +729,15 @@ async fn active_branch_rows<'a>(
     session_id: &str,
 ) -> Result<Vec<sqlx::sqlite::SqliteRow>> {
     Ok(sqlx::query(
-        "WITH RECURSIVE branch(id, role, content_json, tool_call_id, tool_error, response_id, parent_id) AS (
-          SELECT id, role, content_json, tool_call_id, tool_error, response_id, parent_id
+        "WITH RECURSIVE branch(id, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at, parent_id) AS (
+          SELECT id, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at, parent_id
           FROM messages
           WHERE id = (SELECT current_leaf_id FROM sessions WHERE id = ?) AND session_id = ?
           UNION ALL
-          SELECT m.id, m.role, m.content_json, m.tool_call_id, m.tool_error, m.response_id, m.parent_id
+          SELECT m.id, m.role, m.content_json, m.tool_call_id, m.tool_error, m.response_id, m.created_at, m.event_at, m.parent_id
           FROM messages m JOIN branch b ON m.id = b.parent_id WHERE m.session_id = ?
         )
-        SELECT id, role, content_json, tool_call_id, tool_error, response_id
+        SELECT id, role, content_json, tool_call_id, tool_error, response_id, created_at, event_at
         FROM branch ORDER BY id ASC",
     )
     .bind(session_id)
@@ -930,6 +986,15 @@ async fn validate_schema(pool: &SqlitePool) -> Result<()> {
             bail!("session database is missing required column sessions.{column}");
         }
     }
+    let message_columns = sqlx::query("PRAGMA table_info(messages)")
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| row.try_get::<String, _>("name"))
+        .collect::<std::result::Result<HashSet<_>, _>>()?;
+    if !message_columns.contains("event_at") {
+        bail!("session database is missing required column messages.event_at");
+    }
     let version = sqlx::query_scalar::<_, i64>("PRAGMA user_version")
         .fetch_one(pool)
         .await?;
@@ -1078,7 +1143,7 @@ mod tests {
             .fetch_one(&store.pool)
             .await
             .unwrap();
-        assert_eq!(ledger, 2);
+        assert_eq!(ledger, 3);
         let columns = sqlx::query("PRAGMA table_info(sessions)")
             .fetch_all(&store.pool)
             .await
@@ -1132,6 +1197,12 @@ mod tests {
             assert_eq!(session.messages.len(), 2, "legacy version {version}");
             assert_eq!(session.messages[0]["content"], "hello");
             assert_eq!(session.messages[1]["content"][0]["text"], "world");
+            assert!(
+                session
+                    .messages
+                    .iter()
+                    .all(|message| message.get("at").is_none())
+            );
             assert_eq!(
                 sqlx::query_scalar::<_, i64>("PRAGMA user_version")
                     .fetch_one(&store.pool)
@@ -1191,7 +1262,7 @@ mod tests {
                 .fetch_one(&store.pool)
                 .await
                 .unwrap(),
-            2
+            3
         );
     }
 
@@ -1263,21 +1334,48 @@ mod tests {
         assert!(!table_exists(&check, "messages_v2").await.unwrap());
     }
 
+    #[test]
+    fn message_timestamps_preserve_valid_values_leave_legacy_rows_untimed_and_fill_new_rows() {
+        let mut messages = vec![
+            json!({"role":"user","at":1_000,"content":"timestamped"}),
+            json!({"role":"assistant","content":"legacy"}),
+            json!({"role":"user","content":"new"}),
+        ];
+
+        ensure_new_message_timestamps(&mut messages, 2).unwrap();
+
+        assert_eq!(messages[0]["at"], 1_000);
+        assert!(messages[1].get("at").is_none());
+        assert!(
+            messages[2]["at"]
+                .as_i64()
+                .is_some_and(valid_message_timestamp)
+        );
+
+        let mut invalid = vec![json!({"role":"user","at":-1,"content":"invalid"})];
+        assert!(
+            ensure_new_message_timestamps(&mut invalid, 0)
+                .unwrap_err()
+                .to_string()
+                .contains("message 0 timestamp is invalid")
+        );
+    }
+
     #[tokio::test]
     async fn tool_transcripts_round_trip_without_changing_persisted_json() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("tools.db");
         let store = Store::open(&path).await.unwrap();
         let messages = vec![
-            json!({"role":"user","content":"inspect both"}),
-            json!({"role":"assistant","content":[
+            json!({"role":"user","at":1_000,"content":"inspect both"}),
+            json!({"role":"assistant","at":2_000,"content":[
                 {"type":"thinking","thinking":"I will inspect them.","thinkingSignature":"signed"},
                 {"type":"toolCall","id":"call-a","name":"read_file","arguments":{"path":"a"}},
                 {"type":"toolCall","id":"call-b","name":"read_file","arguments":{"path":"b"}}
             ],"responseId":"response-1"}),
-            json!({"role":"tool","toolCallId":"call-b","content":[{"type":"text","text":"B"}]}),
-            json!({"role":"tool","toolCallId":"call-a","content":"A","isError":false}),
-            json!({"role":"assistant","content":[{"type":"text","text":"Done."}]}),
+            json!({"role":"tool","at":3_000,"toolCallId":"call-b","content":[{"type":"text","text":"B"}]}),
+            json!({"role":"tool","at":4_000,"toolCallId":"call-a","content":"A","isError":false}),
+            json!({"role":"assistant","at":208_000,"content":[{"type":"text","text":"Done."}]}),
         ];
         let mut session = Session {
             id: "tool-session".into(),
@@ -1292,7 +1390,13 @@ mod tests {
 
         store.save_session(&mut session).await.unwrap();
         let loaded = store.load_session(&session.id).await.unwrap().unwrap();
-        assert_eq!(loaded.messages, messages);
+        assert_eq!(loaded.messages, session.messages);
+        assert!(loaded.messages.iter().all(|message| {
+            message
+                .get("at")
+                .and_then(Value::as_i64)
+                .is_some_and(valid_message_timestamp)
+        }));
         assert_eq!(loaded.todos, session.todos);
         assert_eq!(loaded.latest_usage, SessionUsage::new(120_000, 30_000));
         assert_eq!(loaded.message_ids.len(), messages.len());

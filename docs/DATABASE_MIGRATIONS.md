@@ -24,6 +24,18 @@ message parent chains, preserves retired Notes tables, and leaves the former
 `schema_migrations` ledger untouched. The idempotent SQLx baseline then
 validates required tables, columns, indexes, checks, and foreign keys.
 
+Message persistence distinguishes two timestamps:
+
+- `messages.created_at` is the storage timestamp used by active-leaf ordering and session-summary
+  activity dates.
+- Nullable `messages.event_at` is the semantic message time used for transcript turn boundaries and
+  duration labels.
+
+The `event_at` migration deliberately leaves existing rows `NULL`. Historical `created_at` values
+were recorded while checkpointing a completed turn and therefore cannot be reconstructed into
+accurate user-start or assistant-completion boundaries. Never backfill `event_at` from `created_at`;
+legacy transcripts must remain untimed and render the **Worked** fallback.
+
 Never seed `_sqlx_migrations` manually, delete unknown tables, or add a down
 migration. Test fresh, legacy, current, malformed, and rollback cases before
 shipping a schema change.

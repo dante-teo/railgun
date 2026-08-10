@@ -17,6 +17,7 @@ export interface TranscriptUserMessage {
   readonly id: string
   readonly role: 'user'
   readonly text: string
+  readonly startedAt?: number
 }
 
 export interface TranscriptAssistantMessage {
@@ -24,6 +25,7 @@ export interface TranscriptAssistantMessage {
   readonly role: 'assistant'
   readonly text: string
   readonly status: 'streaming' | 'complete' | 'failed'
+  readonly completedAt?: number
 }
 
 export interface TranscriptToolMessage {
@@ -31,7 +33,11 @@ export interface TranscriptToolMessage {
   readonly role: 'tool'
   readonly name: string
   readonly target?: string
+  readonly detail?: string
+  readonly command?: string
+  readonly output?: string
   readonly failed: boolean
+  readonly running?: boolean
 }
 
 interface TranscriptInteractionBase {
