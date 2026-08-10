@@ -2,6 +2,12 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+import {
+  acquireDesktopClientLock,
+  releaseDesktopClientLock,
+  type DesktopClientLockHandle
+} from './desktop-client-lock.mts'
+
 const defaultMockScenario = 'ready-idle'
 const protocolVersion = 1
 const defaultRequestTimeoutMilliseconds = 10_000
@@ -14,6 +20,8 @@ export interface BackendLaunch {
   executablePath: string
   arguments: string[]
   currentDirectory: string
+  dataLockDirectory?: string
+  environment?: NodeJS.ProcessEnv
 }
 
 export interface BackendProcessManagerOptions {
@@ -47,22 +55,32 @@ export function resolveBackendLaunch(
     return undefined
   }
 
-  if (mode !== 'mock') {
+  if (mode !== 'source' && mode !== 'mock') {
     throw new Error(`Unsupported Electron backend mode: ${mode}`)
   }
 
   const configuredRoot = configuredValue(environment, 'RAILGUNX_SOURCE_ROOT')
   if (!configuredRoot) {
-    throw new Error('RAILGUNX_SOURCE_ROOT is required when the mock backend is enabled')
+    throw new Error(`RAILGUNX_SOURCE_ROOT is required when the ${mode} backend is enabled`)
   }
 
   const sourceRoot = resolve(configuredRoot)
-  const executableName = platform === 'win32' ? 'railgun-mock-backend.exe' : 'railgun-mock-backend'
+  const binaryName = mode === 'source' ? 'railgun-backend' : 'railgun-mock-backend'
+  const executableName = platform === 'win32' ? `${binaryName}.exe` : binaryName
+  const home = mode === 'source' ? configuredValue(environment, 'HOME') : undefined
+  if (mode === 'source' && !home) {
+    throw new Error('HOME is required when the source backend is enabled')
+  }
 
   return {
     executablePath: join(sourceRoot, 'target', 'debug', executableName),
-    arguments: [configuredValue(environment, 'RAILGUNX_MOCK_SCENARIO') ?? defaultMockScenario],
-    currentDirectory: sourceRoot
+    arguments:
+      mode === 'source'
+        ? ['desktop']
+        : [configuredValue(environment, 'RAILGUNX_MOCK_SCENARIO') ?? defaultMockScenario],
+    currentDirectory: sourceRoot,
+    ...(home ? { dataLockDirectory: join(resolve(home), '.railgun') } : {}),
+    environment: { ...environment, RAILGUN_DESKTOP_RPC: '1' }
   }
 }
 
@@ -93,6 +111,7 @@ export class BackendProcessManager {
   private readonly requestTimeoutMilliseconds: number
   private child: ChildProcessWithoutNullStreams | undefined
   private connectionFailure: Error | undefined
+  private dataLock: DesktopClientLockHandle | undefined
   private readonly frameListeners = new Set<(frame: Record<string, unknown>) => void>()
   private isStopping = false
   private nextRequest = 1
@@ -122,13 +141,25 @@ export class BackendProcessManager {
       throw new Error('The backend process is already running')
     }
 
-    accessSync(launch.executablePath, constants.X_OK)
-
-    const child = spawn(launch.executablePath, launch.arguments, {
-      cwd: launch.currentDirectory,
-      stdio: 'pipe'
-    })
+    const dataLock = launch.dataLockDirectory
+      ? acquireDesktopClientLock(launch.dataLockDirectory)
+      : undefined
+    let child: ChildProcessWithoutNullStreams
+    try {
+      accessSync(launch.executablePath, constants.X_OK)
+      child = spawn(launch.executablePath, launch.arguments, {
+        cwd: launch.currentDirectory,
+        env: launch.environment,
+        stdio: 'pipe'
+      })
+    } catch (error) {
+      if (dataLock) {
+        releaseDesktopClientLock(dataLock)
+      }
+      throw error
+    }
     this.child = child
+    this.dataLock = dataLock
     this.connectionFailure = undefined
     this.isStopping = false
     this.readyState = false
@@ -200,6 +231,7 @@ export class BackendProcessManager {
     const child = this.child
     if (!child || hasExited(child)) {
       this.child = undefined
+      this.releaseDataLock()
       return
     }
 
@@ -405,8 +437,17 @@ export class BackendProcessManager {
       return
     }
     this.child = undefined
+    this.releaseDataLock()
     this.readyState = false
     this.connectionFailure ??= error
     this.rejectPending(this.connectionFailure)
+  }
+
+  private releaseDataLock(): void {
+    const dataLock = this.dataLock
+    this.dataLock = undefined
+    if (dataLock) {
+      releaseDesktopClientLock(dataLock)
+    }
   }
 }

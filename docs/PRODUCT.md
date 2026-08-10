@@ -2,8 +2,9 @@
 
 Railgun is a native, Apple-silicon macOS coding-agent application. The
 supported user surfaces are the app’s task, Scheduled, Settings, and knowledge
-interfaces. The former Electron application has been retired; it is not a
-supported installation, development, or release surface.
+interfaces. The Electron shell is an active internal development prototype that
+can connect to the production backend from source, but it is not a supported
+installation or release surface.
 
 The task history identifies live agent work without requiring the user to open
 the task: the active task has a trailing spinner, and a just-completed task has

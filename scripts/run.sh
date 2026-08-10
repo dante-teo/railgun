@@ -19,5 +19,12 @@ if [[ ! -f "$desktop_root/package.json" ]]; then
   exit 1
 fi
 
+if [[ -z "${RAILGUNX_BACKEND_MODE:-}" ]]; then
+  require_command cargo
+  cargo build --locked --package railgun-backend --manifest-path "$repository_root/Cargo.toml"
+  export RAILGUNX_BACKEND_MODE=source
+  export RAILGUNX_SOURCE_ROOT="$repository_root"
+fi
+
 cd "$desktop_root"
 exec pnpm dev "$@"

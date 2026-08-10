@@ -1779,7 +1779,7 @@ final class RailgunXAppTests: XCTestCase {
         )
     }
 
-    func testShellLaunchersRunElectronAndConfigureTheMockBackend() throws {
+    func testShellLaunchersRunElectronAndConfigureProductionAndMockBackends() throws {
         let runScript = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/run.sh"),
             encoding: .utf8
@@ -1792,6 +1792,9 @@ final class RailgunXAppTests: XCTestCase {
         XCTAssertTrue(runScript.contains("apps/desktop"))
         XCTAssertTrue(runScript.contains("exec pnpm dev \"$@\""))
         XCTAssertFalse(runScript.contains("xcodebuild"))
+        XCTAssertTrue(runScript.contains("cargo build --locked --package railgun-backend"))
+        XCTAssertTrue(runScript.contains("export RAILGUNX_BACKEND_MODE=source"))
+        XCTAssertTrue(runScript.contains("export RAILGUNX_SOURCE_ROOT=\"$repository_root\""))
         XCTAssertTrue(runMockScript.contains("cargo build --locked --package railgun-mock-backend"))
         XCTAssertTrue(runMockScript.contains("export RAILGUNX_BACKEND_MODE=mock"))
         XCTAssertTrue(runMockScript.contains("RAILGUNX_MOCK_SCENARIO:-ready-idle"))

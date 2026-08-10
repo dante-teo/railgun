@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
@@ -21,9 +23,40 @@ function stopAfterTest(context: TestContext, manager: BackendProcessManager): vo
   context.after(async () => manager.stop(100))
 }
 
+function temporaryDataLockDirectory(context: TestContext): string {
+  const directory = mkdtempSync(join(tmpdir(), 'railgun-backend-manager-lock-'))
+  context.after(() => rmSync(directory, { force: true, recursive: true }))
+  return directory
+}
+
 test('resolveBackendLaunch ignores the default bundled mode', (): void => {
   assert.equal(resolveBackendLaunch({}), undefined)
   assert.equal(resolveBackendLaunch({ RAILGUNX_BACKEND_MODE: 'bundled' }), undefined)
+})
+
+test('resolveBackendLaunch configures the production source backend', (): void => {
+  const sourceRoot = resolve('fixture-repository')
+  const home = resolve('fixture-home')
+
+  assert.deepEqual(
+    resolveBackendLaunch({
+      HOME: home,
+      RAILGUNX_BACKEND_MODE: ' source ',
+      RAILGUNX_SOURCE_ROOT: sourceRoot
+    }),
+    {
+      executablePath: join(sourceRoot, 'target', 'debug', 'railgun-backend'),
+      arguments: ['desktop'],
+      currentDirectory: sourceRoot,
+      dataLockDirectory: join(home, '.railgun'),
+      environment: {
+        HOME: home,
+        RAILGUNX_BACKEND_MODE: ' source ',
+        RAILGUNX_SOURCE_ROOT: sourceRoot,
+        RAILGUN_DESKTOP_RPC: '1'
+      }
+    }
+  )
 })
 
 test('resolveBackendLaunch configures the requested mock scenario', (): void => {
@@ -38,15 +71,34 @@ test('resolveBackendLaunch configures the requested mock scenario', (): void => 
     {
       executablePath: join(sourceRoot, 'target', 'debug', 'railgun-mock-backend'),
       arguments: ['approval'],
-      currentDirectory: sourceRoot
+      currentDirectory: sourceRoot,
+      environment: {
+        RAILGUNX_BACKEND_MODE: ' mock ',
+        RAILGUNX_MOCK_SCENARIO: ' approval ',
+        RAILGUNX_SOURCE_ROOT: sourceRoot,
+        RAILGUN_DESKTOP_RPC: '1'
+      }
     }
   )
 })
 
-test('resolveBackendLaunch requires a source root for mock mode', (): void => {
+test('resolveBackendLaunch requires a source root for source and mock modes', (): void => {
+  for (const mode of ['source', 'mock']) {
+    assert.throws(
+      () => resolveBackendLaunch({ RAILGUNX_BACKEND_MODE: mode }),
+      /RAILGUNX_SOURCE_ROOT is required/
+    )
+  }
+})
+
+test('resolveBackendLaunch requires a home for the production data lock', (): void => {
   assert.throws(
-    () => resolveBackendLaunch({ RAILGUNX_BACKEND_MODE: 'mock' }),
-    /RAILGUNX_SOURCE_ROOT is required/
+    () =>
+      resolveBackendLaunch({
+        RAILGUNX_BACKEND_MODE: 'source',
+        RAILGUNX_SOURCE_ROOT: resolve('fixture-repository')
+      }),
+    /HOME is required/
   )
 })
 
@@ -225,8 +277,9 @@ test('BackendProcessManager supports timeout-free mutation requests', async (con
 test('BackendProcessManager rejects pending requests when the process terminates', async (context): Promise<void> => {
   const manager = new BackendProcessManager()
   stopAfterTest(context, manager)
-  manager.start(
-    nodeLaunch(`
+  const dataLockDirectory = temporaryDataLockDirectory(context)
+  manager.start({
+    ...nodeLaunch(`
       let count = 0;
       process.stdin.on('data', (chunk) => {
         const request = JSON.parse(String(chunk).trim());
@@ -240,12 +293,14 @@ test('BackendProcessManager rejects pending requests when the process terminates
         }
       });
       process.stdin.resume();
-    `)
-  )
+    `),
+    dataLockDirectory
+  })
   await manager.waitUntilReady()
 
   await assert.rejects(manager.request('session_list'), /stopped unexpectedly with exit code 23/)
   assert.equal(manager.isRunning, false)
+  assert.equal(existsSync(join(dataLockDirectory, 'desktop-client.lock')), false)
 })
 
 test('BackendProcessManager rejects invalid correlated responses', async (context): Promise<void> => {
@@ -272,10 +327,11 @@ test('BackendProcessManager rejects invalid correlated responses', async (contex
   assert.equal(manager.isReady, false)
 })
 
-test('BackendProcessManager owns child startup and shutdown', async (): Promise<void> => {
+test('BackendProcessManager owns child startup, data lock, and shutdown', async (context): Promise<void> => {
   const manager = new BackendProcessManager()
-  const child = manager.start(
-    nodeLaunch(`
+  const dataLockDirectory = temporaryDataLockDirectory(context)
+  const child = manager.start({
+    ...nodeLaunch(`
       process.stdin.once('data', (chunk) => {
         const request = JSON.parse(String(chunk).trim());
         process.stdout.write(JSON.stringify({
@@ -284,15 +340,21 @@ test('BackendProcessManager owns child startup and shutdown', async (): Promise<
         }) + '\\n');
       });
       process.stdin.resume();
-    `)
-  )
+    `),
+    dataLockDirectory
+  })
 
   await once(child, 'spawn')
   await manager.waitUntilReady()
   assert.equal(manager.isRunning, true)
+  assert.equal(
+    JSON.parse(readFileSync(join(dataLockDirectory, 'desktop-client.lock'), 'utf8')).pid,
+    process.pid
+  )
 
   await manager.stop(100)
 
   assert.equal(manager.isRunning, false)
+  assert.equal(existsSync(join(dataLockDirectory, 'desktop-client.lock')), false)
   assert.notEqual(child.exitCode ?? child.signalCode, null)
 })

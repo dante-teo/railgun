@@ -35,6 +35,11 @@ Run the Electron app in development mode:
 scripts/run.sh
 ```
 
+The launcher builds `railgun-backend`, starts its production `desktop` RPC mode, and connects the
+Electron task interface to the existing `~/.railgun` data and Devin credential. It participates in
+the same shared desktop-client lock as native Railgun, so only one production interactive backend
+can use that data at a time.
+
 Run it with the deterministic mock backend configuration:
 
 ```sh
@@ -328,6 +333,7 @@ Railgun preserves the existing `~/.railgun` layout:
 ~/.railgun/config.json
 ~/.railgun/devin-token
 ~/.railgun/state.db
+~/.railgun/desktop-client.lock  # transient while a production desktop client owns the backend
 ~/.railgun/SOUL.md
 ~/.railgun/cron/jobs.json
 ~/.railgun/skills/

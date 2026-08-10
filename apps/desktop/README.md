@@ -27,6 +27,12 @@ From the repository root, start the Electron shell with:
 scripts/run.sh
 ```
 
+The default launcher builds `railgun-backend` and connects Electron to its production `desktop`
+RPC mode. It uses the existing `~/.railgun` data and either `DEVIN_TOKEN` or the saved
+`~/.railgun/devin-token` credential. Production Electron runs participate in the shared
+`~/.railgun/desktop-client.lock`, so native Railgun and multiple Electron instances cannot mutate
+the same data concurrently. Mock runs remain exempt.
+
 Start it with the deterministic Rust mock backend using:
 
 ```sh
@@ -49,12 +55,12 @@ automatically during initial state hydration with:
 RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
 ```
 
-`run-mock.sh` is the current end-to-end path for the connected task list. Production backend
-bundling is a separate packaging milestone; when Electron has no configured backend, the task list
-shows an unavailable state instead of static fallback data.
+`run-mock.sh` remains the deterministic fixture path. Production backend packaging is a separate
+packaging milestone; the development launcher uses the source-built executable at
+`target/debug/railgun-backend`.
 
-Both root launchers forward additional arguments to `pnpm dev`. To work directly in this
-directory without a configured backend, run:
+Both root launchers forward additional arguments to `pnpm dev`. To work directly in this directory
+without a configured backend, run:
 
 ```sh
 pnpm dev
@@ -132,7 +138,10 @@ oversized, or invalid correlated output fails the connection instead of remainin
 initialization and read requests time out after 10 seconds. Archive mutations deliberately do not
 use that client-side timeout: they remain pending until the backend responds or the process
 terminates, so a delayed successful commit cannot be mistaken for a rejection and rolled back in
-the task list.
+the task list. Before a production source launch, the manager acquires the native-compatible
+`~/.railgun/desktop-client.lock` with exclusive owner-only creation. It rejects live owners,
+recovers only valid records whose PIDs are demonstrably absent, preserves malformed records, and
+removes only its own exact record when the backend lifetime ends.
 
 ## Application Shell Contract
 
@@ -241,8 +250,9 @@ The locked workspace tests include the mock backend's process-level JSONL contra
 subagent streaming and cancellation, run-correlated advisor frames, and session listing coverage.
 The desktop suite covers correlated requests, exact session-load validation and selection rollback,
 activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
-coalesced streaming updates with immediate terminal publication, and the activity card's pointer and
-keyboard interactions.
+coalesced streaming updates with immediate terminal publication, native-compatible shared-lock
+creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
+and keyboard interactions.
 
 ## Packaging
 
