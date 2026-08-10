@@ -44,6 +44,10 @@ scripts/run-mock.sh
 RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
 ```
 
+The default fixture also includes a saved task beginning **Prepare a release-readiness brief**.
+Its 53-message transcript covers all 17 built-in tools across 23 reasoned calls, including success,
+failure, long-result, TODO-transition, and final-answer states.
+
 Both commands launch the GUI and forward extra arguments to `pnpm dev`; they are not verification
 commands. Direct `pnpm --dir apps/desktop dev` starts the shell without configuring a backend.
 
@@ -162,6 +166,8 @@ commit late remain pending until the backend responds or exits. Shell projection
 control sequences and bound command/output text. Raw thinking and non-shell tool payloads never
 cross into renderer snapshots.
 
-Local file tools canonicalize paths under the user's home directory. Web fetches reject local,
+Local file tools canonicalize paths under the user's home directory. `create_file` requires an
+existing parent and creates or replaces one regular file. `delete_file` permanently removes one
+regular file and requires fresh authorization outside Full access. Web fetches reject local,
 private, credential-bearing, and unsafe redirect targets. Shell execution hard-blocks destructive
 patterns regardless of the configured approval mode.

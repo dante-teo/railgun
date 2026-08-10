@@ -27,7 +27,8 @@ clarification requests without a second preload API surface.
 
 The model selector updates the active session through the backend and adopts a forked session when
 the model change creates one. The approval selector exposes Ask for approval, Approve for me, and
-Full access. Railgun's backend still blocks its hard destructive-command patterns in every mode.
+Full access. File deletion requires fresh authorization outside Full access. Railgun's backend
+still blocks its hard destructive-command patterns in every mode.
 
 The context ring reports the latest provider-measured input and output usage. The Activity surface
 shows the current Advisor note, TODO state, and bounded subagent exchanges. Tagged stale activity

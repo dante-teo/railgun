@@ -57,10 +57,12 @@ describe('tool use row', () => {
     expect(screen.queryByText('notes.txt')).not.toBeInTheDocument()
   })
 
-  it('maps every built-in tool to a readable label', () => {
+  it('maps every built-in tool to a readable label and icon', () => {
     const names = [
       ['read_file', 'Read File'],
+      ['create_file', 'Create File', 'lucide-file-plus'],
       ['write_file', 'Write File'],
+      ['delete_file', 'Delete File', 'lucide-trash-2'],
       ['list_directory', 'List Directory'],
       ['run_shell_command', 'Run Shell Command'],
       ['todo', 'Update Tasks'],
@@ -84,8 +86,12 @@ describe('tool use row', () => {
       </ol>
     )
 
-    for (const [, label] of names) {
-      expect(screen.getByRole('button', { name: `${label}. Show details` })).toBeInTheDocument()
+    for (const [, label, iconClass] of names) {
+      const trigger = screen.getByRole('button', { name: `${label}. Show details` })
+      expect(trigger).toBeInTheDocument()
+      if (iconClass) {
+        expect(trigger.querySelector('svg')).toHaveClass(iconClass)
+      }
     }
   })
 

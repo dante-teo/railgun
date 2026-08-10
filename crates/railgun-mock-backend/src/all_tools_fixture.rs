@@ -51,6 +51,8 @@ The highest residual risk is presentation quality across every tool state becaus
 Run the scheduled Thursday 09:00 local-time review, attach the full verification log, name the rollback owner, and record a final go/no-go decision before sending invitations.
 "#;
 
+const PRIVATE_BETA_DRAFT: &str = "# Railgun private-beta readiness brief\n\nDraft in progress.\n";
+
 fn all_tools_task_todos(status: &str) -> Vec<Value> {
     [
         ("beta-scope", "Confirm the beta audience and release bar"),
@@ -207,7 +209,33 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
         "There is no existing draft, so I need the complete documentation inventory to locate the canonical release guide and avoid guessing at filenames.",
         "list_directory",
         json!({"path":"/Users/dantea/Projects/railgun/docs"}),
-        "DATABASE_MIGRATIONS.md\nOPERATIONAL_DIAGNOSTICS.md\nPRODUCT.md\nRELEASING.md\nadr/\nbackend-test-traceability.md\ndesign/\ndesktop-client-lock.md",
+        ".private-beta-readiness.tmp\nDATABASE_MIGRATIONS.md\nOPERATIONAL_DIAGNOSTICS.md\nPRODUCT.md\nRELEASING.md\nadr/\nbackend-test-traceability.md\ndesign/\ndesktop-client-lock.md",
+        false,
+    );
+    push_reasoned_tool_use(
+        &mut messages,
+        "all-tools-022",
+        "The exact report path is available and its parent exists. Creating a small initial draft establishes the requested artifact before I replace it with the evidence-backed final brief.",
+        "create_file",
+        json!({
+            "path":"/Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
+            "content":PRIVATE_BETA_DRAFT
+        }),
+        format!(
+            "Created {} bytes to /Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
+            PRIVATE_BETA_DRAFT.len()
+        ),
+        false,
+    );
+    push_reasoned_tool_use(
+        &mut messages,
+        "all-tools-023",
+        "The directory inventory exposed a superseded hidden checkpoint beside the new canonical draft. Removing that one regular file prevents testers from mistaking stale evidence for the final brief.",
+        "delete_file",
+        json!({
+            "path":"/Users/dantea/Projects/railgun/docs/.private-beta-readiness.tmp"
+        }),
+        "Deleted /Users/dantea/Projects/railgun/docs/.private-beta-readiness.tmp",
         false,
     );
     push_reasoned_tool_use(
@@ -453,7 +481,8 @@ mod tests {
             }
         }
 
-        assert_eq!(calls.len(), 21);
+        assert_eq!(messages.len(), 53);
+        assert_eq!(calls.len(), 23);
         assert_eq!(results.len(), calls.len());
         assert!(calls.keys().all(|id| results.contains_key(id)));
         assert_eq!(
@@ -479,5 +508,29 @@ mod tests {
             .expect("report write call");
         assert_eq!(write["arguments"]["content"], PRIVATE_BETA_REPORT);
         assert_eq!(results["all-tools-018"]["content"], PRIVATE_BETA_REPORT);
+
+        let create = messages
+            .iter()
+            .flat_map(|message| message["content"].as_array().into_iter().flatten())
+            .find(|part| part["id"] == "all-tools-022")
+            .expect("report create call");
+        assert_eq!(create["arguments"]["content"], PRIVATE_BETA_DRAFT);
+        assert_eq!(
+            create["arguments"]["path"],
+            "/Users/dantea/Projects/railgun/docs/private-beta-readiness.md"
+        );
+        let delete = messages
+            .iter()
+            .flat_map(|message| message["content"].as_array().into_iter().flatten())
+            .find(|part| part["id"] == "all-tools-023")
+            .expect("checkpoint delete call");
+        assert_eq!(
+            delete["arguments"]["path"],
+            "/Users/dantea/Projects/railgun/docs/.private-beta-readiness.tmp"
+        );
+        assert_eq!(
+            results["all-tools-023"]["content"],
+            "Deleted /Users/dantea/Projects/railgun/docs/.private-beta-readiness.tmp"
+        );
     }
 }

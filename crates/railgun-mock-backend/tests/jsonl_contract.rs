@@ -178,7 +178,7 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
     );
     let session_summaries = sessions["data"]["sessions"].as_array().unwrap();
     for (id, message_count) in [
-        ("mock-session-all-tools", 49),
+        ("mock-session-all-tools", 53),
         ("mock-session-agent-activity", 2),
         ("mock-session-complex-task", 34),
         ("mock-session-paginated-history", 202),
@@ -239,7 +239,7 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
         .iter()
         .filter(|message| message["role"] == "tool")
         .collect::<Vec<_>>();
-    assert_eq!(tool_messages.len(), 21);
+    assert_eq!(tool_messages.len(), 23);
     assert!(tool_messages.iter().all(|message| {
         message["detail"]
             .as_str()
@@ -247,6 +247,17 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
             && message.get("arguments").is_none()
             && message.get("content").is_none()
     }));
+    for (name, target) in [
+        ("create_file", "private-beta-readiness.md"),
+        ("delete_file", ".private-beta-readiness.tmp"),
+    ] {
+        let message = tool_messages
+            .iter()
+            .find(|message| message["name"] == name)
+            .expect("file tool should be visible in the all-tools transcript");
+        assert_eq!(message["target"], target);
+        assert_eq!(message["detail"], target);
+    }
     let shell_messages = tool_messages
         .iter()
         .filter(|message| message["name"] == "run_shell_command")

@@ -340,12 +340,14 @@ describe('TaskComposer', () => {
 
     fireEvent.pointerDown(approval, { button: 0, ctrlKey: false })
 
-    expect(screen.getByRole('menuitemradio', { name: /Approve for me/ })).toHaveAttribute(
-      'data-state',
-      'checked'
+    const approveForMe = screen.getByRole('menuitemradio', { name: /Approve for me/ })
+    expect(approveForMe).toHaveAttribute('data-state', 'checked')
+    expect(approveForMe).toHaveTextContent('review protected actions')
+    expect(screen.getByRole('menuitemradio', { name: /Ask for approval/ })).toHaveTextContent(
+      'Confirm protected actions'
     )
-    expect(screen.getByRole('menuitemradio', { name: /Ask for approval/ })).toBeInTheDocument()
     const fullAccess = screen.getByRole('menuitemradio', { name: /Full access/ })
+    expect(fullAccess).toHaveTextContent('Run protected actions')
     fireEvent.click(fullAccess)
 
     await waitFor(() => expect(setMode).toHaveBeenCalledWith('off'))

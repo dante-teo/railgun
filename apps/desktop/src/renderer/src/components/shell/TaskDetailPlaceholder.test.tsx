@@ -308,7 +308,8 @@ describe('TaskDetailPlaceholder', () => {
     render(<TaskDetailPlaceholder task={task} />)
 
     const approval = await screen.findByRole('group', { name: 'Approval request' })
-    expect(within(approval).getByLabelText('Command preview')).toHaveTextContent(
+    expect(within(approval).getByText('Allow this protected action?')).toBeInTheDocument()
+    expect(within(approval).getByLabelText('Protected action preview')).toHaveTextContent(
       'sudo safe-command'
     )
     fireEvent.click(within(approval).getByRole('button', { name: 'Deny' }))

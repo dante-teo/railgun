@@ -336,6 +336,30 @@ test('live reduction batches text, normalizes tools, and hides private frames an
     toolName: 'read_file',
     result: { content: 'sensitive tool result', isError: true }
   })
+  for (const [id, name, path] of [
+    ['call-create', 'create_file', '/private/project/created.txt'],
+    ['call-delete', 'delete_file', '/private/project/deleted.txt']
+  ] as const) {
+    backend.emit({
+      type: 'message_update',
+      streamEvent: { type: 'toolcall_start', id, name }
+    })
+    backend.emit({
+      type: 'message_update',
+      streamEvent: {
+        type: 'toolcall_end',
+        id,
+        name,
+        arguments: { path, content: 'private file content' }
+      }
+    })
+    backend.emit({
+      type: 'tool_execution_end',
+      toolCallId: id,
+      toolName: name,
+      result: { content: 'private file result', isError: false }
+    })
+  }
   backend.emit({
     type: 'message_update',
     streamEvent: { type: 'toolcall_start', id: 'call-shell', name: 'run_shell_command' }
@@ -363,12 +387,14 @@ test('live reduction batches text, normalizes tools, and hides private frames an
   const encoded = JSON.stringify(service.getSnapshot())
   assert.match(encoded, /One two/)
   assert.match(encoded, /token\.txt/)
+  assert.match(encoded, /"name":"create_file"[^}]*"target":"created\.txt"/)
+  assert.match(encoded, /"name":"delete_file"[^}]*"target":"deleted\.txt"/)
   assert.match(encoded, /"failed":true/)
   assert.match(encoded, /"command":"pnpm test"/)
   assert.match(encoded, /"output":"21 tests passed"/)
   assert.doesNotMatch(
     encoded,
-    /private chain of thought|private arguments|raw-secret|sensitive tool result|\/private\//
+    /private chain of thought|private arguments|raw-secret|sensitive tool result|private file content|private file result|\/private\//
   )
 
   await service.abort('session-one')

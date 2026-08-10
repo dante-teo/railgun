@@ -132,16 +132,25 @@ function safeBasename(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined
   }
-  const target = value.replaceAll('\\', '/').split('/').filter(Boolean).at(-1)?.trim()
-  return target && target !== '.' && target !== '..'
-    ? bounded(target, maximumToolTargetLength)
-    : undefined
+  const target = strictRequiredText(
+    value.replaceAll('\\', '/').split('/').filter(Boolean).at(-1),
+    maximumToolTargetLength
+  )
+  return target && target !== '.' && target !== '..' ? target : undefined
+}
+
+function isFileTool(name: string): boolean {
+  return (
+    name === 'read_file' ||
+    name === 'create_file' ||
+    name === 'write_file' ||
+    name === 'delete_file' ||
+    name === 'list_directory'
+  )
 }
 
 function safeToolTarget(name: string, argumentsValue: unknown): string | undefined {
-  return ['read_file', 'write_file', 'list_directory'].includes(name)
-    ? safeBasename(asObject(argumentsValue)?.path)
-    : undefined
+  return isFileTool(name) ? safeBasename(asObject(argumentsValue)?.path) : undefined
 }
 
 function countLabel(value: unknown, singular: string, plural: string): string | undefined {
@@ -183,7 +192,9 @@ function safeToolDetail(name: string, argumentsValue: unknown): string | undefin
   const detail = (() => {
     switch (name) {
       case 'read_file':
+      case 'create_file':
       case 'write_file':
+      case 'delete_file':
       case 'list_directory':
         return safeBasename(fields?.path)
       case 'run_shell_command':

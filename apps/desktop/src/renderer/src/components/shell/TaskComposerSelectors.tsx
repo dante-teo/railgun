@@ -55,19 +55,19 @@ interface ModelSelectorProps {
 
 const approvalModeOptions: readonly ApprovalModeOption[] = [
   {
-    description: 'Confirm flagged commands before they run.',
+    description: 'Confirm protected actions before they run.',
     icon: HandIcon,
     label: 'Ask for approval',
     mode: 'manual'
   },
   {
-    description: 'Let the selected approval model review flagged commands.',
+    description: 'Let the selected approval model review protected actions.',
     icon: TerminalIcon,
     label: 'Approve for me',
     mode: 'smart'
   },
   {
-    description: 'Run flagged commands without asking.',
+    description: 'Run protected actions without asking.',
     icon: ShieldAlertIcon,
     label: 'Full access',
     mode: 'off'

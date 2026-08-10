@@ -55,12 +55,13 @@ automatically during initial state hydration with:
 RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
 ```
 
-The default list also includes the saved `mock-session-all-tools` release-readiness conversation.
-It contains all 15 built-in tool names across 21 reasoned calls, including complete mock arguments,
-results, thinking, one failed call, TODO transitions, and a final answer. Use it to inspect every
-tool-row presentation without running tools against the local machine. The renderer still receives
-only the safe projection described below; completeness is retained inside the backend fixture for
-contract testing.
+The default list also includes the saved `mock-session-all-tools` release-readiness conversation,
+with 23 reasoned calls covering all 17 built-in tools in one task for complete tool-row UI review.
+Its 53-message transcript includes complete mock arguments, results, thinking, one failed call,
+TODO transitions, and a final answer. Launch `scripts/run-mock.sh`, then select the task beginning
+**Prepare a release-readiness brief** to inspect every tool-row presentation without running tools
+against the local machine. The renderer still receives only the safe projection described below;
+completeness is retained inside the backend fixture for contract testing.
 
 The `ready-idle` fixture seeds deterministic context usage for the active task and every saved
 task, so the context ring is populated immediately after launch and remains populated while

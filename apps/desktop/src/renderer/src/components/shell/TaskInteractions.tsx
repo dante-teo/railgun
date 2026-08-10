@@ -86,11 +86,11 @@ function ApprovalRequest({
     >
       <CardHeader>
         <CardTitle>Approval required</CardTitle>
-        <CardDescription>Allow this command to run?</CardDescription>
+        <CardDescription>Allow this protected action?</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <pre
-          aria-label="Command preview"
+          aria-label="Protected action preview"
           className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-left font-mono text-xs"
         >
           {request.command}

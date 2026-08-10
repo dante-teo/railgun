@@ -184,21 +184,15 @@ fn transcript_tools(
                 "name": truncate_utf8(name, 128),
                 "failed": tool_results.get(id).is_some_and(|result| result.failed),
             });
-            if matches!(name, "read_file" | "write_file" | "list_directory") {
+            if is_file_tool(name) {
                 if let Some(path) = call
                     .get("arguments")
                     .and_then(Value::as_object)
                     .and_then(|arguments| arguments.get("path"))
                     .and_then(Value::as_str)
-                    .and_then(|path| {
-                        path.replace('\\', "/")
-                            .split('/')
-                            .next_back()
-                            .map(str::to_owned)
-                    })
-                    .filter(|target| !target.trim().is_empty())
+                    .and_then(safe_basename)
                 {
-                    result["target"] = Value::String(truncate_utf8(path.trim(), 256));
+                    result["target"] = Value::String(truncate_utf8(&path, 256));
                 }
             }
             if let Some(detail) = tool_detail(name, call.get("arguments")) {
@@ -271,7 +265,7 @@ fn tool_detail(name: &str, arguments: Option<&Value>) -> Option<String> {
             .map(|items| count_label(items.len(), singular, plural))
     };
     match name {
-        "read_file" | "write_file" | "list_directory" => arguments
+        name if is_file_tool(name) => arguments
             .and_then(|value| value.get("path"))
             .and_then(Value::as_str)
             .and_then(safe_basename),
@@ -322,6 +316,13 @@ fn tool_detail(name: &str, arguments: Option<&Value>) -> Option<String> {
         _ => None,
     }
     .map(|detail| truncate_utf8(&detail, TOOL_DETAIL_BUDGET))
+}
+
+fn is_file_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "read_file" | "create_file" | "write_file" | "delete_file" | "list_directory"
+    )
 }
 
 fn count_label(count: usize, singular: &str, plural: &str) -> String {
@@ -376,6 +377,48 @@ mod tests {
     }
 
     #[test]
+    fn file_tools_project_only_safe_basename_details_and_targets() {
+        let tool_names = [
+            "read_file",
+            "create_file",
+            "write_file",
+            "delete_file",
+            "list_directory",
+        ];
+        let calls = tool_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                json!({
+                    "type":"toolCall",
+                    "id":format!("tool-{index}"),
+                    "name":name,
+                    "arguments":{
+                        "path":format!("/Users/private/.hidden/{name}.txt"),
+                        "content":"private content"
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let result = page(
+            "s",
+            &[json!({"role":"assistant","content":calls})],
+            0,
+            100,
+            None,
+            false,
+        );
+
+        for message in result["messages"].as_array().unwrap() {
+            let expected = format!("{}.txt", message["name"].as_str().unwrap());
+            assert_eq!(message["target"], expected);
+            assert_eq!(message["detail"], expected);
+        }
+        assert!(!result.to_string().contains("/Users/private"));
+        assert!(!result.to_string().contains("private content"));
+    }
+
+    #[test]
     fn projects_turn_boundary_timestamps() {
         let history = vec![
             json!({"role":"user","at":1_000,"content":"Start"}),
@@ -422,7 +465,9 @@ mod tests {
 
         for name in crate::tools::TOOL_NAMES {
             let arguments = match *name {
-                "read_file" | "write_file" | "list_directory" => json!({"path":"notes.md"}),
+                "read_file" | "create_file" | "write_file" | "delete_file" | "list_directory" => {
+                    json!({"path":"notes.md"})
+                }
                 "memory_write" => json!({"category":"project"}),
                 "railgun_inspect" => json!({"area":"sessions"}),
                 "skill_view" => json!({"name":"desktop-testing"}),

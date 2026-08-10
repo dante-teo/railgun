@@ -2336,7 +2336,7 @@ mod tests {
             ]
         );
         for (id, message_count, todo_count) in [
-            ("mock-session-all-tools", 49, 6),
+            ("mock-session-all-tools", 53, 6),
             ("mock-session-agent-activity", 2, 2),
             ("mock-session-complex-task", 34, 4),
             ("mock-session-paginated-history", 202, 0),

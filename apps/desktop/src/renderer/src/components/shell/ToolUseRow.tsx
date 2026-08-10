@@ -9,6 +9,7 @@ import {
   CircleXIcon,
   CombineIcon,
   FilePenLineIcon,
+  FilePlusIcon,
   FileTextIcon,
   FolderOpenIcon,
   GlobeIcon,
@@ -17,6 +18,7 @@ import {
   ScanSearchIcon,
   SearchIcon,
   SquareTerminalIcon,
+  Trash2Icon,
   UsersIcon,
   WrenchIcon,
   type LucideIcon
@@ -36,10 +38,20 @@ interface ToolPresentation {
 
 const toolPresentations: Readonly<Record<string, ToolPresentation>> = {
   read_file: { label: 'Read File', description: 'Read a local text file', icon: FileTextIcon },
+  create_file: {
+    label: 'Create File',
+    description: 'Create or replace a local file',
+    icon: FilePlusIcon
+  },
   write_file: {
     label: 'Write File',
     description: 'Write content to a local file',
     icon: FilePenLineIcon
+  },
+  delete_file: {
+    label: 'Delete File',
+    description: 'Permanently delete a local file',
+    icon: Trash2Icon
   },
   list_directory: {
     label: 'List Directory',
