@@ -1,0 +1,89 @@
+.composer [data-slot='task-composer-glow'] {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-feedback) var(--ease-out);
+}
+
+.composer [data-slot='task-composer-spectrum'] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -100%;
+  width: 200%;
+  background: linear-gradient(
+      90deg,
+      var(--composer-glow-pink),
+      var(--composer-glow-purple),
+      var(--composer-glow-blue),
+      var(--composer-glow-cyan),
+      var(--composer-glow-yellow),
+      var(--composer-glow-orange),
+      var(--composer-glow-pink)
+    )
+    0 0 / 50% 100% repeat-x;
+  animation: spectrum-flow 8s linear infinite;
+  animation-play-state: paused;
+}
+
+.composer:focus-within [data-slot='task-composer-glow'] {
+  opacity: 0.7;
+}
+
+.composer:focus-within [data-slot='task-composer-spectrum'] {
+  animation-play-state: running;
+  will-change: transform;
+}
+
+.composer [data-slot='task-composer-selector-indicator'] {
+  transition: transform var(--duration-feedback) var(--ease-out);
+}
+
+.composer
+  [data-composer-selector][aria-expanded='true']
+  [data-slot='task-composer-selector-indicator'] {
+  transform: rotate(180deg);
+}
+
+.composer [data-slot='task-composer-send-glyph'] {
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+.composer
+  [data-composer-send][data-state='idle']
+  [data-slot='task-composer-send-glyph'][data-glyph='idle'],
+.composer
+  [data-composer-send][data-state='sending']
+  [data-slot='task-composer-send-glyph'][data-glyph='sending'] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@keyframes spectrum-flow {
+  to {
+    transform: translate3d(50%, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer [data-slot='task-composer-spectrum'] {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .composer [data-slot='task-composer-glow'] {
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+
+  .composer [data-slot='task-composer-selector-indicator'] {
+    transform: none !important;
+  }
+
+  .composer [data-slot='task-composer-send-glyph'] {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+}

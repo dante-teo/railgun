@@ -1,0 +1,30 @@
+.emptyGraphic [data-slot='transcript-empty-step'] {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+.emptyGraphic [data-slot='transcript-empty-step'][data-step='second'] {
+  transition-delay: calc(var(--duration-feedback) / 2);
+}
+
+.emptyGraphic [data-slot='transcript-empty-step'][data-step='third'] {
+  transition-delay: var(--duration-feedback);
+}
+
+@starting-style {
+  .emptyGraphic [data-slot='transcript-empty-step'] {
+    opacity: 0;
+    transform: translateY(var(--spacing));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emptyGraphic [data-slot='transcript-empty-step'] {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+    transition-delay: 0ms !important;
+  }
+}

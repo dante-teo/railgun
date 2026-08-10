@@ -204,6 +204,18 @@ and falls back to the session start when that branch has no messages. Navigation
 content, composer controls, inspector fields, and archived-task browsing remain placeholders or
 future work.
 
+When a task is selected, Detail anchors the composer placeholder below the scrollable transcript
+scaffolding. The composer fills the available width with `px-4` edge spacing and is centered at
+`max-w-180`. Its textarea starts at one line, grows with its content, and scrolls after ten lines.
+The attachment, approval mode, context usage, model, and send controls are intentionally inert at
+this milestone. They retain individual accessible names and live in a labeled group; the group does
+not claim toolbar semantics until it also implements the corresponding keyboard-navigation model.
+
+Focus anywhere inside the composer reveals its animated rainbow bloom. The spectrum pauses while
+the composer is idle, and reduced-motion mode keeps static opacity feedback without transform
+motion. Component-specific selectors and keyframes are scoped beside the owning components in CSS
+modules; only shared theme and motion tokens remain in `src/renderer/src/assets/main.css`.
+
 The Sidebar's bottom card is the app-global personal-agent activity surface. Advisor, subagent, and
 active-TODO previews use controlled Radix Popovers: pointer hover and keyboard focus reveal them,
 clicking pins them, and Escape dismisses them. Popovers prefer the card's right side, use collision
@@ -252,7 +264,8 @@ The desktop suite covers correlated requests, exact session-load validation and 
 activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
 coalesced streaming updates with immediate terminal publication, native-compatible shared-lock
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
-and keyboard interactions.
+and keyboard interactions. Renderer coverage also pins the composer textarea, labeled control group,
+context progress semantics, and selector/send state attributes used by its motion layer.
 
 ## Packaging
 

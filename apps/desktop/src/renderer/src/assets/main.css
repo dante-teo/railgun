@@ -110,6 +110,12 @@
   --surface-active: oklch(0.956 0.004 84);
   --subtle-foreground: oklch(0.69 0.014 254);
   --placeholder: oklch(0.944 0.004 84);
+  --composer-glow-pink: oklch(0.73 0.23 350 / 94%);
+  --composer-glow-purple: oklch(0.7 0.21 304 / 88%);
+  --composer-glow-blue: oklch(0.77 0.17 232 / 90%);
+  --composer-glow-cyan: oklch(0.82 0.16 190 / 88%);
+  --composer-glow-yellow: oklch(0.87 0.18 94 / 88%);
+  --composer-glow-orange: oklch(0.78 0.2 48 / 90%);
 }
 
 .dark {

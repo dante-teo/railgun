@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -178,7 +178,7 @@ describe('TasksPage', () => {
     expect(screen.getByRole('region', { name: 'Transcript for Second task' })).toBeInTheDocument()
   })
 
-  it('shows an empty transcript until a task is selected, then renders its placeholder', async () => {
+  it('shows an empty transcript until a task is selected, then renders its placeholder and composer controls', async () => {
     const open = vi.fn(async () => undefined)
     await renderPopulatedPage(async () => undefined, open)
     expect(screen.getByText('Select a task')).toBeInTheDocument()
@@ -188,6 +188,21 @@ describe('TasksPage', () => {
     expect(open).toHaveBeenCalledWith('first')
     expect(screen.getByRole('region', { name: 'Transcript for First task' })).toBeInTheDocument()
     expect(screen.getByText('Transcript preview')).toBeInTheDocument()
+    const composer = screen.getByRole('group', { name: 'Message composer' })
+    const composerQueries = within(composer)
+    expect(composer).toBeInTheDocument()
+    expect(composerQueries.getByRole('textbox', { name: 'Message' })).toHaveAttribute('rows', '1')
+    const controls = within(composerQueries.getByRole('group', { name: 'Composer controls' }))
+    expect(controls.getByRole('button', { name: 'Add attachment' })).toBeInTheDocument()
+    expect(
+      controls.getByRole('button', { name: 'Approval mode: Ask for approval' })
+    ).toBeInTheDocument()
+    expect(controls.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
+    expect(controls.getByRole('button', { name: 'Select model: GPT-5' })).toBeInTheDocument()
+    expect(controls.getByRole('button', { name: 'Send message' })).toBeInTheDocument()
   })
 
   it('reports a task-open failure without replacing a newer selection', async () => {
