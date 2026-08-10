@@ -1,9 +1,9 @@
 # Railgun Desktop
 
-A prototype Electron application shell built with TypeScript, React, React Router, Tailwind CSS,
-and shadcn/ui. Its Tasks interface reads saved conversation sessions from the configured JSONL
-backend and supports optimistic archiving. It is not yet a supported release surface or complete
-domain client.
+A prototype Electron application built with TypeScript, React, React Router, Tailwind CSS, and
+shadcn/ui. Its Tasks interface can load and resume saved conversation sessions from the configured
+JSONL backend, stream agent responses, handle in-turn interactions, and optimistically archive
+tasks. It is not yet a supported release surface or complete domain client.
 
 ## Requirements
 
@@ -94,10 +94,38 @@ The context-isolated preload exposes `window.railgun.tasks.list()`,
 `window.railgun.tasks.open(sessionId)`, and `window.railgun.tasks.archive(sessionId)`. List results
 contain the session ID, presentation title, and an ISO-8601 `lastMessageAt` timestamp; the main
 process validates every response before it crosses into the renderer and validates renderer-supplied
-session IDs before loading or archiving. Opening a task activates the backend session without
-returning transcript content through this summary-only boundary, verifies that `session_load`
-activated the requested session, then refreshes activity state. A failed load restores the previous
-visible selection unless the user has already selected something newer.
+session IDs before loading or archiving. Opening a task activates the requested backend session,
+hydrates its transcript through the separate transcript service, then refreshes activity and context
+usage. A failed load restores the previous visible selection unless the user has already selected
+something newer.
+
+#### Transcript boundary
+
+`window.railgun.transcript` exposes a narrow, revisioned API:
+
+- `getSnapshot()` and `subscribe(listener)` provide immutable snapshots with monotonic revisions.
+- `send(sessionId, submission)` and `abort(sessionId)` control the active turn.
+- `respondToApproval(...)` and `respondToClarification(...)` resolve backend interaction requests.
+
+The main process owns transcript state. It validates and collects every `session_transcript` page,
+optimistically appends an accepted user prompt, reduces validated live frames, and rehydrates after
+the timeout-free `prompt` request completes so persisted message IDs and final content remain
+authoritative. Send and interaction commands must match the loaded session; duplicate sends,
+duplicate stops, task loads during a run, and stale interaction responses are rejected. A model
+change can fork a saved session, so model selection returns the backend's active session ID and the
+main process adopts and rehydrates that session before the composer becomes available again.
+
+Only renderer-safe presentation data crosses this boundary. Assistant text deltas are coalesced to
+at most one IPC publication every 50 ms. Tool activity contains the bounded tool name, failure state,
+and—only for file tools—a safe basename. Raw thinking, tool arguments, tool results, and full tool
+paths are never copied into renderer snapshots. Approval requests expose the command that requires
+the user's decision; clarification requests expose only a bounded question and optional bounded
+choices. Failed interaction submissions remain visible and retryable.
+
+Assistant Markdown links retain Streamdown's confirmation step. The BrowserWindow still denies all
+renderer-created windows; after confirmation, the main process opens only bounded, credential-free
+HTTP or HTTPS URLs through Electron's external-shell API. Other schemes, malformed URLs, and URLs
+containing embedded credentials are ignored.
 
 The read-only activity boundary exposes `window.railgun.activity.getSnapshot()` and
 `window.railgun.activity.subscribe(listener)`. The main process consumes only validated advisor,
@@ -200,29 +228,55 @@ semantic Tailwind tokens in `src/renderer/src/assets/main.css`. Topbar icon acti
 remain consistent.
 
 The Tasks content column lists real saved sessions in backend order. Selecting a row activates that
-backend session and refreshes app-global activity, but still reveals only a visual transcript
-placeholder in this milestone; transcript loading and task resumption remain out of scope. Archive
-actions remove a task optimistically and restore it at its original position when the backend
-rejects the request. The displayed date comes from the latest message on the session's active branch
-and falls back to the session start when that branch has no messages. Navigation rows, transcript
-content, composer controls, inspector fields, and archived-task browsing remain placeholders or
-future work.
+backend session and opens its complete transcript. Archive actions remove a task optimistically and
+restore it at its original position when the backend rejects the request. The displayed date comes
+from the latest message on the session's active branch and falls back to the session start when that
+branch has no messages. Task selection and archiving are disabled while the selected task is
+running, which keeps its Stop control and live frame stream attached to the active backend session.
+After a prompt is saved, the Page refetches task summaries so a new title or latest-message timestamp
+appears without an application reload. Inspector fields and archived-task browsing remain future
+work in Electron.
 
-When a task is selected, Detail anchors the composer placeholder below the scrollable transcript
-scaffolding. The composer fills the available width with `px-4` edge spacing and is centered at
-`max-w-180`. Its textarea starts at one line, grows with its content, and scrolls after ten lines.
+The selected-task Detail is a full-height transcript and composer without a repeated title panel.
+The scroll viewport owns the panel-edge scrollbar, while transcript content and the separately
+inset composer share a centered 720 px reading column. User prompts are framed and right-aligned;
+tool activity is unframed, muted, and left-aligned; assistant responses occupy the full reading
+column. Streamdown renders only the active assistant row in streaming mode and completed or restored
+rows in static mode. HTML is skipped, no Shiki, math, or Mermaid plugin configuration is supplied,
+and no transcript-entry animation is applied.
+
+The transcript initially follows the latest content and keeps following routine streaming updates.
+Deliberately scrolling upward pauses that behavior and reveals **Jump to latest**. An explicit jump
+uses a critically damped scroll unless reduced motion is requested; submitting a new prompt resumes
+following immediately. A persistent **Agent is working…** status remains visible from prompt
+acceptance until the backend turn finishes, including periods before any assistant text arrives.
+Approval and clarification requests appear inline, keep the turn running while awaiting input, and
+default focus to the safe denial/answer control. Escape denies or declines the primary request.
+
+The controlled composer fills the available width with 16 px edge spacing. Its textarea starts at
+one line, grows with content, and scrolls after ten lines. Return sends, Shift+Return inserts a
+newline, and IME composition never submits. The idle Send button remains disabled until the draft
+contains non-whitespace text and the matching transcript is ready; the final projected prompt is
+limited to 100,000 characters. Accepted sends clear the draft and attachments. A rejected send
+restores both and reports the error inline. During a run the control becomes Stop, and attachment,
+approval, model, and editor changes are locked until the turn ends.
+
 The attachment control opens the operating system picker for multiple files or folders. Windows and
 Linux first ask which kind to attach because their native pickers cannot offer both kinds together.
 Selections appear once as removable file or folder chips, reset when switching tasks, and remain
-unchanged when the picker is cancelled. Picker failures surface inline. The approval selector loads
-and persists the native-equivalent Ask for approval, Approve for me, and Full access modes; auto
-approval remains unavailable until a reviewer model is configured and still present in the model
-catalog. The context ring restores the selected session's latest provider-reported usage and
-streams subsequent updates. It is read-only and keeps the same appearance on hover; hovering only
-opens its detail card with usage against the active model's context window. The model selector
-applies a choice to the active session and saves it as the default for future sessions. If the
-active-session change succeeds but saving the default fails, the active choice remains and the
-composer shows a warning. The message send action remains intentionally inert. The controls retain
+unchanged when the picker is cancelled. Picker failures surface inline. Attachments augment a text
+draft and are projected into the visible and submitted user prompt as absolute `file` or `folder`
+path lines under an `Attachments:` heading.
+
+The approval selector loads and persists the native-equivalent Ask for approval, Approve for me,
+and Full access modes; auto approval remains unavailable until a reviewer model is configured and
+still present in the model catalog. The context ring restores the selected session's latest
+provider-reported usage and streams subsequent updates. It is read-only and keeps the same
+appearance on hover; hovering only opens its detail card with usage against the active model's
+context window. The model selector applies a choice to the active session and saves it as the
+default for future sessions. If the backend forks the task for that model, the task list and
+transcript adopt the returned session ID. If the active-session change succeeds but saving the
+default fails, the active choice remains and the composer shows a warning. Composer controls retain
 individual accessible names and live in a labeled group; the group does not claim toolbar semantics
 until it also implements the corresponding keyboard-navigation model.
 
@@ -279,11 +333,12 @@ The desktop suite covers correlated requests, exact session-load validation and 
 activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
 coalesced streaming updates with immediate terminal publication, native-compatible shared-lock
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
-and keyboard interactions. Composer coverage includes platform-correct file and folder dialogs,
-attachment deduplication, approval reviewer availability, context hydration and streaming, and
-active/default model selection including partial-save warnings. Renderer coverage also pins the
-composer textarea, labeled control group, context progress semantics, and selector/send state
-attributes used by its motion layer.
+and keyboard interactions. Transcript coverage includes pagination, strict snapshot validation,
+immutable streaming reduction, safe tool normalization, private-frame rejection, prompt projection,
+send/abort lifecycle, approval and clarification responses, final rehydration, model-fork adoption,
+preload cleanup, and validated external links. Renderer coverage exercises role-specific Markdown,
+loading and error states, working and interaction indicators, controlled submission and restoration,
+task-summary refreshes, task-switch locking, and stick-to-bottom pause, jump, and resume behavior.
 
 ## Packaging
 

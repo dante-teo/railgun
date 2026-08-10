@@ -1,50 +1,33 @@
-import { useEffect, useState } from 'react'
-import {
-  ArrowUpIcon,
-  ChevronDownIcon,
-  FileIcon,
-  FolderIcon,
-  HandIcon,
-  PlusIcon,
-  ShieldAlertIcon,
-  SquareIcon,
-  TerminalIcon,
-  XIcon
-} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowUpIcon, FileIcon, FolderIcon, PlusIcon, SquareIcon, XIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
 import type { ComposerAttachment } from '@/lib/attachment-api'
 import type { ApprovalConfiguration, ApprovalMode } from '@/lib/approval-api'
 import { useContextUsage } from '@/hooks/use-context-usage'
 import { usePresence } from '@/hooks/use-presence'
 import type { ModelConfiguration } from '@/lib/model-api'
+import {
+  projectTranscriptPrompt,
+  type TranscriptSnapshot,
+  type TranscriptSubmission
+} from '@/lib/transcript-api'
 import { cn } from '@/lib/utils'
 
 import { ContextRing } from './ContextRing'
+import { ApprovalModeSelector, ModelSelector } from './TaskComposerSelectors'
 import styles from './TaskComposer.module.css'
 
 interface TaskComposerProps {
   approvalExpanded?: boolean
   modelExpanded?: boolean
+  onSessionChanged?: (sessionId: string) => void
+  onSubmissionAccepted?: () => void
+  onSubmissionCompleted?: () => void
+  sessionId?: string
   sending?: boolean
+  transcript?: TranscriptSnapshot
 }
-
-type ComposerSelectorProps = {
-  busy?: boolean
-  disabled?: boolean
-  expanded?: boolean
-  label: string
-  value: string
-} & Omit<React.ComponentProps<typeof Button>, 'children' | 'disabled'>
 
 type SendState = 'idle' | 'sending'
 
@@ -53,57 +36,47 @@ interface SendGlyphProps {
   state: SendState
 }
 
-interface ApprovalModeOption {
-  description: string
-  icon: typeof HandIcon
-  label: string
-  mode: ApprovalMode
-}
-
-const approvalModeOptions: readonly ApprovalModeOption[] = [
-  {
-    description: 'Confirm flagged commands before they run.',
-    icon: HandIcon,
-    label: 'Ask for approval',
-    mode: 'manual'
-  },
-  {
-    description: 'Let the selected approval model review flagged commands.',
-    icon: TerminalIcon,
-    label: 'Approve for me',
-    mode: 'smart'
-  },
-  {
-    description: 'Run flagged commands without asking.',
-    icon: ShieldAlertIcon,
-    label: 'Full access',
-    mode: 'off'
-  }
-]
-
-function approvalModeLabel(mode: ApprovalMode): string {
-  return approvalModeOptions.find((option) => option.mode === mode)?.label ?? mode
-}
-
 function mergeAttachments(
   current: readonly ComposerAttachment[],
   selected: readonly ComposerAttachment[]
 ): readonly ComposerAttachment[] {
-  const existingPaths = new Set(current.map(({ path }) => path))
-  return selected.reduce<readonly ComposerAttachment[]>(
-    (attachments, attachment) =>
-      existingPaths.has(attachment.path) ? attachments : [...attachments, attachment],
-    current
-  )
+  return [
+    ...new Map(
+      [...current, ...selected].map((attachment) => [attachment.path, attachment])
+    ).values()
+  ]
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
+function prepareSubmission(
+  draft: string,
+  attachments: readonly ComposerAttachment[]
+): { submission?: TranscriptSubmission; validationError?: string } {
+  if (draft.trim().length === 0) {
+    return {}
+  }
+
+  const submission = { text: draft, attachments }
+  try {
+    projectTranscriptPrompt(submission)
+    return { submission }
+  } catch (error) {
+    return { validationError: errorMessage(error, 'The message is invalid') }
+  }
 }
 
 function AttachmentChip({
   attachment,
+  disabled,
   onExited,
   onRemove,
   present
 }: {
   attachment: ComposerAttachment
+  disabled: boolean
   onExited: (path: string) => void
   onRemove: (path: string) => void
   present: boolean
@@ -127,6 +100,7 @@ function AttachmentChip({
       <Button
         aria-label={`Remove ${attachment.kind} ${attachment.name}`}
         className="w-full min-w-0"
+        disabled={disabled}
         onClick={() => onRemove(attachment.path)}
         size="sm"
         title={attachment.path}
@@ -172,129 +146,6 @@ function ComposerAlert({ message }: { message?: string }): React.JSX.Element | n
   )
 }
 
-function ComposerSelector({
-  busy,
-  disabled,
-  expanded,
-  label,
-  value,
-  ...triggerProps
-}: ComposerSelectorProps): React.JSX.Element {
-  return (
-    <Button
-      aria-label={`${label}: ${value}`}
-      aria-busy={busy || undefined}
-      data-composer-selector=""
-      disabled={disabled}
-      size="sm"
-      type="button"
-      variant="ghost"
-      {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
-      {...triggerProps}
-    >
-      {value}
-      <span aria-hidden="true" data-slot="task-composer-selector-indicator">
-        <ChevronDownIcon data-icon="inline-end" />
-      </span>
-    </Button>
-  )
-}
-
-function ApprovalModeSelector({
-  approval,
-  busy,
-  expanded,
-  onModeChange
-}: {
-  approval?: ApprovalConfiguration
-  busy: boolean
-  expanded?: boolean
-  onModeChange: (mode: string) => void
-}): React.JSX.Element {
-  const mode = approval?.mode ?? 'manual'
-
-  return (
-    <DropdownMenu open={expanded}>
-      <DropdownMenuTrigger asChild>
-        <ComposerSelector
-          busy={busy}
-          disabled={busy || !approval}
-          expanded={expanded}
-          label="Approval mode"
-          value={approvalModeLabel(mode)}
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72" side="top">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Approval mode</DropdownMenuLabel>
-          <DropdownMenuRadioGroup onValueChange={onModeChange} value={mode}>
-            {approvalModeOptions.map((option) => {
-              const ModeIcon = option.icon
-              return (
-                <DropdownMenuRadioItem
-                  className="items-start py-2"
-                  key={option.mode}
-                  value={option.mode}
-                >
-                  <ModeIcon className="mt-0.5 text-muted-foreground" />
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-medium">{option.label}</span>
-                    <span className="text-xs text-muted-foreground">{option.description}</span>
-                  </span>
-                </DropdownMenuRadioItem>
-              )
-            })}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function ModelSelector({
-  busy,
-  configuration,
-  expanded,
-  onModelChange
-}: {
-  busy: boolean
-  configuration?: ModelConfiguration
-  expanded?: boolean
-  onModelChange: (modelId: string) => void
-}): React.JSX.Element {
-  const activeModel = configuration?.models.find(({ id }) => id === configuration.activeModelId)
-  const value = activeModel?.name ?? 'Loading models…'
-
-  return (
-    <DropdownMenu open={expanded}>
-      <DropdownMenuTrigger asChild>
-        <ComposerSelector
-          busy={busy}
-          disabled={busy || !configuration || configuration.isRunning}
-          expanded={expanded}
-          label="Select model"
-          value={value}
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56" side="top">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Model</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            onValueChange={onModelChange}
-            value={configuration?.activeModelId}
-          >
-            {configuration?.models.map((model) => (
-              <DropdownMenuRadioItem key={model.id} value={model.id}>
-                {model.name}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 function SendGlyph({ children, state }: SendGlyphProps): React.JSX.Element {
   return (
     <span
@@ -310,7 +161,12 @@ function SendGlyph({ children, state }: SendGlyphProps): React.JSX.Element {
 export function TaskComposer({
   approvalExpanded,
   modelExpanded,
-  sending = false
+  onSessionChanged,
+  onSubmissionAccepted,
+  onSubmissionCompleted,
+  sessionId,
+  sending = false,
+  transcript
 }: TaskComposerProps = {}): React.JSX.Element {
   const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([])
   const [departingAttachmentPaths, setDepartingAttachmentPaths] = useState<ReadonlySet<string>>(
@@ -324,8 +180,21 @@ export function TaskComposer({
   const [modelBusy, setModelBusy] = useState(true)
   const [modelError, setModelError] = useState<string>()
   const [pickingAttachments, setPickingAttachments] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [sendPending, setSendPending] = useState(false)
+  const [sendError, setSendError] = useState<string>()
+  const [stopping, setStopping] = useState(false)
+  const composing = useRef(false)
   const contextUsage = useContextUsage()
-  const sendState: SendState = sending ? 'sending' : 'idle'
+  const transcriptMatches = Boolean(sessionId && transcript?.sessionId === sessionId)
+  const transcriptRunning = transcriptMatches && transcript?.status === 'running'
+  const isRunning = sending || transcriptRunning || sendPending
+  const transcriptReady = transcriptMatches && transcript?.status === 'ready'
+  const sendState: SendState = isRunning ? 'sending' : 'idle'
+  const activeAttachments = attachments.filter(({ path }) => !departingAttachmentPaths.has(path))
+  const stopBusy = stopping && isRunning
+  const { submission, validationError } = prepareSubmission(draft, activeAttachments)
+  const canSend = transcriptReady && submission !== undefined && !isRunning
 
   useEffect(() => {
     let cancelled = false
@@ -370,7 +239,7 @@ export function TaskComposer({
   }, [])
 
   const handleAddAttachment = async (): Promise<void> => {
-    if (pickingAttachments) {
+    if (pickingAttachments || isRunning) {
       return
     }
 
@@ -387,6 +256,9 @@ export function TaskComposer({
   }
 
   const handleRemoveAttachment = (path: string): void => {
+    if (isRunning) {
+      return
+    }
     setDepartingAttachmentPaths((current) =>
       current.has(path) ? current : new Set([...current, path])
     )
@@ -399,12 +271,11 @@ export function TaskComposer({
     )
   }
 
-  const handleApprovalModeChange = async (value: string): Promise<void> => {
-    const option = approvalModeOptions.find(({ mode }) => mode === value)
-    if (!approval || !option || approvalBusy || option.mode === approval.mode) {
+  const handleApprovalModeChange = async (mode: ApprovalMode): Promise<void> => {
+    if (!approval || approvalBusy || isRunning || mode === approval.mode) {
       return
     }
-    if (option.mode === 'smart' && approval.reviewerModelId === null) {
+    if (mode === 'smart' && approval.reviewerModelId === null) {
       setApprovalError('Choose an approval model before enabling auto approval.')
       return
     }
@@ -412,7 +283,7 @@ export function TaskComposer({
     setApprovalError(undefined)
     setApprovalBusy(true)
     try {
-      setApproval(await window.railgun.approval.setMode(option.mode))
+      setApproval(await window.railgun.approval.setMode(mode))
     } catch {
       setApprovalError('Could not update approval mode. Try again.')
     } finally {
@@ -422,20 +293,88 @@ export function TaskComposer({
 
   const handleModelChange = async (modelId: string): Promise<void> => {
     const selected = models?.models.find(({ id }) => id === modelId)
-    if (!models || !selected || modelBusy || models.isRunning || modelId === models.activeModelId) {
+    if (
+      !models ||
+      !selected ||
+      modelBusy ||
+      models.isRunning ||
+      isRunning ||
+      modelId === models.activeModelId
+    ) {
       return
     }
 
     setModelError(undefined)
     setModelBusy(true)
+    let changedSessionId: string | undefined
     try {
       const configuration = await window.railgun.models.select(selected.id)
       setModels(configuration)
       setModelError(configuration.warning ?? undefined)
+      if (sessionId && configuration.activeSessionId !== sessionId) {
+        changedSessionId = configuration.activeSessionId
+      }
     } catch {
       setModelError('Could not update the model. Try again.')
     } finally {
       setModelBusy(false)
+    }
+    if (changedSessionId) {
+      onSessionChanged?.(changedSessionId)
+    }
+  }
+
+  const handleSend = async (): Promise<void> => {
+    if (!sessionId || !submission || !canSend) {
+      return
+    }
+    const accepted = submission
+    setSendError(undefined)
+    setStopping(false)
+    setSendPending(true)
+    setDraft('')
+    setAttachments([])
+    setDepartingAttachmentPaths(new Set())
+    onSubmissionAccepted?.()
+    try {
+      await window.railgun.transcript.send(sessionId, accepted)
+    } catch (error) {
+      setDraft(accepted.text)
+      setAttachments(accepted.attachments)
+      setSendError(errorMessage(error, 'Could not send the message. Try again.'))
+      return
+    } finally {
+      setSendPending(false)
+    }
+    onSubmissionCompleted?.()
+  }
+
+  const handleAbort = async (): Promise<void> => {
+    if (!sessionId || stopping || !isRunning) {
+      return
+    }
+    setSendError(undefined)
+    setStopping(true)
+    try {
+      await window.railgun.transcript.abort(sessionId)
+    } catch (error) {
+      setStopping(false)
+      setSendError(errorMessage(error, 'Could not stop the response. Try again.'))
+    }
+  }
+
+  const handleMessageKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (
+      event.key !== 'Enter' ||
+      event.shiftKey ||
+      composing.current ||
+      event.nativeEvent.isComposing
+    ) {
+      return
+    }
+    event.preventDefault()
+    if (canSend) {
+      void handleSend()
     }
   }
 
@@ -460,14 +399,28 @@ export function TaskComposer({
         <textarea
           aria-label="Message"
           className="min-h-10 max-h-64 w-full resize-none overflow-y-auto bg-transparent px-2 py-2 text-sm leading-6 text-foreground outline-none field-sizing-content placeholder:text-muted-foreground"
+          disabled={isRunning}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            setSendError(undefined)
+          }}
+          onCompositionEnd={() => {
+            composing.current = false
+          }}
+          onCompositionStart={() => {
+            composing.current = true
+          }}
+          onKeyDown={handleMessageKeyDown}
           placeholder="Message"
           rows={1}
+          value={draft}
         />
         {attachments.length > 0 ? (
           <ul aria-label="Attachments" className="flex flex-wrap gap-1 px-1">
             {attachments.map((attachment) => (
               <AttachmentChip
                 attachment={attachment}
+                disabled={isRunning}
                 key={attachment.path}
                 onExited={handleAttachmentExited}
                 onRemove={handleRemoveAttachment}
@@ -479,6 +432,8 @@ export function TaskComposer({
         <ComposerAlert message={attachmentError} />
         <ComposerAlert message={approvalError} />
         <ComposerAlert message={modelError} />
+        <ComposerAlert message={validationError} />
+        <ComposerAlert message={sendError} />
         <div
           aria-label="Composer controls"
           className="flex items-center gap-1"
@@ -487,7 +442,7 @@ export function TaskComposer({
         >
           <Button
             aria-label="Add attachment"
-            disabled={pickingAttachments}
+            disabled={pickingAttachments || isRunning}
             onClick={() => void handleAddAttachment()}
             size="icon-sm"
             type="button"
@@ -498,6 +453,7 @@ export function TaskComposer({
           <ApprovalModeSelector
             approval={approval}
             busy={approvalBusy}
+            disabled={isRunning}
             expanded={approvalExpanded}
             onModeChange={(mode) => void handleApprovalModeChange(mode)}
           />
@@ -509,14 +465,18 @@ export function TaskComposer({
           <ModelSelector
             busy={modelBusy}
             configuration={models}
+            disabled={isRunning}
             expanded={modelExpanded}
             onModelChange={(modelId) => void handleModelChange(modelId)}
           />
           <Button
             aria-label={sendState === 'sending' ? 'Stop generation' : 'Send message'}
+            aria-busy={stopBusy || undefined}
             className="rounded-full"
             data-composer-send=""
             data-state={sendState}
+            disabled={sendState === 'sending' ? stopBusy : !canSend}
+            onClick={() => void (sendState === 'sending' ? handleAbort() : handleSend())}
             size="icon-sm"
             type="button"
           >

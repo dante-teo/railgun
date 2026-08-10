@@ -1,4 +1,5 @@
 import type { ModelConfiguration, ModelOption } from '../shared/model-api.ts'
+import { validateSessionId } from './tasks.mts'
 import { asObject } from './value-validation.mts'
 
 const maximumModels = 256
@@ -55,13 +56,44 @@ export function parseModelCatalog(value: unknown): readonly ModelOption[] {
   return models
 }
 
-function parseActiveState(value: unknown): { activeModelId: string; isRunning: boolean } {
+function parseActiveIdentity(value: unknown): Pick<
+  ModelConfiguration,
+  'activeModelId' | 'activeSessionId'
+> & {
+  readonly fields: Record<string, unknown>
+} {
   const state = asObject(value)
   const activeModelId = validModelId(state?.model)
-  if (!activeModelId || typeof state?.running !== 'boolean') {
+  let activeSessionId: string
+  try {
+    activeSessionId = validateSessionId(state?.sessionId)
+  } catch {
     throw new Error('The backend returned an invalid model configuration')
   }
-  return { activeModelId, isRunning: state.running }
+  if (!state || !activeModelId) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return { activeModelId, activeSessionId, fields: state }
+}
+
+function parseActiveState(
+  value: unknown
+): Pick<ModelConfiguration, 'activeModelId' | 'activeSessionId' | 'isRunning'> {
+  const { fields, ...identity } = parseActiveIdentity(value)
+  if (typeof fields.running !== 'boolean') {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return { ...identity, isRunning: fields.running }
+}
+
+function parseModelChange(
+  value: unknown
+): Pick<ModelConfiguration, 'activeModelId' | 'activeSessionId' | 'isRunning'> {
+  const { fields, ...identity } = parseActiveIdentity(value)
+  if (fields.running !== undefined && fields.running !== false) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  return { ...identity, isRunning: false }
 }
 
 function parseDefaultModelId(value: unknown): string | null {
@@ -116,8 +148,15 @@ export async function selectModel(
     throw new Error('Cannot change models while the task is running')
   }
 
-  await backend.request('set_model', { modelId }, { timeout: 'none' })
-  const activeConfiguration = { ...current, activeModelId: modelId }
+  const changedState = await backend.request('set_model', { modelId }, { timeout: 'none' })
+  const active =
+    changedState === undefined
+      ? parseActiveState(await backend.request('get_state'))
+      : parseModelChange(changedState)
+  if (active.activeModelId !== modelId || active.isRunning) {
+    throw new Error('The backend returned an invalid model configuration')
+  }
+  const activeConfiguration = { ...current, ...active }
   try {
     const updated = await backend.request(
       'config_update',

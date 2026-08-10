@@ -10,6 +10,7 @@ import { TaskDetailPlaceholder } from '@/components/shell/TaskDetailPlaceholder'
 import { TaskInspector } from '@/components/shell/TaskInspector'
 import { TaskList } from '@/components/shell/TaskList'
 import { useActivity } from '@/hooks/use-activity'
+import { useTranscript } from '@/hooks/use-transcript'
 import { transitionEndFallbackMilliseconds } from '@/lib/motion'
 import type { TaskSummary } from '@/lib/task-api'
 import { AppShellLayout } from '@/layouts/AppShellLayout'
@@ -52,6 +53,7 @@ function loadTasks(): Promise<TaskSummary[]> {
 
 export function TasksPage(): React.JSX.Element {
   const activity = useActivity()
+  const transcript = useTranscript()
   const [taskActionError, setTaskActionError] = useState<string>()
   const [archiveInFlight, setArchiveInFlight] = useState(false)
   const [archivingTaskId, setArchivingTaskId] = useState<string>()
@@ -63,6 +65,7 @@ export function TasksPage(): React.JSX.Element {
   const archiveLock = useRef(false)
   const archiveOperation = useRef<ArchiveOperation | undefined>(undefined)
   const selectionAttempt = useRef(0)
+  const transcriptRunning = transcript.status === 'running'
 
   useEffect(() => {
     let cancelled = false
@@ -108,7 +111,7 @@ export function TasksPage(): React.JSX.Element {
 
   const handleArchive = useCallback(
     async (sessionId: string): Promise<void> => {
-      if (archiveLock.current) {
+      if (archiveLock.current || transcriptRunning) {
         return
       }
 
@@ -179,29 +182,52 @@ export function TasksPage(): React.JSX.Element {
         }
       }
     },
-    [finishArchiveExit, selectedTaskId, tasks]
+    [finishArchiveExit, selectedTaskId, tasks, transcriptRunning]
   )
 
   const handleSelect = useCallback(
     (sessionId: string): void => {
+      if (transcriptRunning) {
+        return
+      }
       const task = tasks.find((candidate) => candidate.id === sessionId)
       if (!task) {
         return
       }
 
       const attempt = ++selectionAttempt.current
-      const previousSelectedTaskId = selectedTaskId
+      const previousSelection = selectedTaskId
       setSelectedTaskId(sessionId)
       setTaskActionError(undefined)
       void window.railgun.tasks.open(sessionId).catch(() => {
         if (selectionAttempt.current === attempt) {
-          setSelectedTaskId(previousSelectedTaskId)
+          setSelectedTaskId((current) => (current === sessionId ? previousSelection : current))
           setTaskActionError(`Could not open “${task.title}”. Try again.`)
         }
       })
     },
-    [selectedTaskId, tasks]
+    [selectedTaskId, tasks, transcriptRunning]
   )
+
+  const handleSessionChanged = useCallback((previousSessionId: string, sessionId: string): void => {
+    if (previousSessionId === sessionId) {
+      return
+    }
+    setTasks((current) =>
+      current.map((task) => (task.id === previousSessionId ? { ...task, id: sessionId } : task))
+    )
+    setSelectedTaskId((current) => (current === previousSessionId ? sessionId : current))
+  }, [])
+
+  const handleTaskSaved = useCallback((): void => {
+    void loadTasks().then(
+      (loadedTasks) => {
+        setTasks(loadedTasks)
+        setTaskActionError(undefined)
+      },
+      () => setTaskActionError('The task was saved, but the task list could not be refreshed.')
+    )
+  }, [])
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId)
 
@@ -210,7 +236,7 @@ export function TasksPage(): React.JSX.Element {
       content={
         <TaskList
           archivingTaskId={archivingTaskId}
-          archiveDisabled={archiveInFlight}
+          archiveDisabled={archiveInFlight || transcriptRunning}
           taskActionError={taskActionError}
           loadError={loadError}
           loading={loading}
@@ -218,11 +244,18 @@ export function TasksPage(): React.JSX.Element {
           onArchiveExit={handleArchiveExit}
           onSelect={handleSelect}
           restoredTaskId={restoredTaskId}
+          selectionDisabled={transcriptRunning}
           selectedTaskId={selectedTaskId}
           tasks={tasks}
         />
       }
-      detail={<TaskDetailPlaceholder task={selectedTask} />}
+      detail={
+        <TaskDetailPlaceholder
+          onSessionChanged={handleSessionChanged}
+          onTaskSaved={handleTaskSaved}
+          task={selectedTask}
+        />
+      }
       inspector={<TaskInspector />}
       inspectorTopBar={<InspectorTopBar />}
       sidebar={<SidebarNavigation activity={activity} />}

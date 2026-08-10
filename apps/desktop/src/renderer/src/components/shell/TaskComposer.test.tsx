@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TaskComposer } from '@/components/shell/TaskComposer'
@@ -7,6 +7,7 @@ import type { ComposerAttachment } from '@/lib/attachment-api'
 import type { ApprovalApi, ApprovalConfiguration } from '@/lib/approval-api'
 import { emptyContextUsageSnapshot } from '@/lib/context-usage-api'
 import type { ModelApi, ModelConfiguration } from '@/lib/model-api'
+import { emptyTranscriptSnapshot, type TranscriptSnapshot } from '@/lib/transcript-api'
 
 const manualApproval: ApprovalConfiguration = {
   mode: 'manual',
@@ -14,6 +15,7 @@ const manualApproval: ApprovalConfiguration = {
 }
 
 const defaultModelConfiguration: ModelConfiguration = {
+  activeSessionId: 'session-one',
   activeModelId: 'gpt-5',
   defaultModelId: 'gpt-5',
   isRunning: false,
@@ -24,10 +26,23 @@ const defaultModelConfiguration: ModelConfiguration = {
   warning: null
 }
 
+function deferred<Value>(): {
+  readonly promise: Promise<Value>
+  readonly resolve: (value: Value) => void
+} {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 function installComposerApi({
   getApproval = async () => manualApproval,
   getModels = async () => defaultModelConfiguration,
   pick = async () => [],
+  send = async () => undefined,
+  abort = async () => undefined,
   selectModel = async (modelId) => ({
     ...defaultModelConfiguration,
     activeModelId: modelId,
@@ -38,6 +53,11 @@ function installComposerApi({
   getApproval?: ApprovalApi['get']
   getModels?: ModelApi['get']
   pick?: () => Promise<readonly ComposerAttachment[]>
+  send?: (
+    sessionId: string,
+    submission: { text: string; attachments: readonly ComposerAttachment[] }
+  ) => Promise<void>
+  abort?: (sessionId: string) => Promise<void>
   selectModel?: ModelApi['select']
   setApprovalMode?: ApprovalApi['setMode']
 } = {}): void {
@@ -59,6 +79,12 @@ function installComposerApi({
         archive: async () => undefined,
         list: async () => [],
         open: async () => undefined
+      },
+      transcript: {
+        abort,
+        getSnapshot: async () => emptyTranscriptSnapshot(),
+        send,
+        subscribe: () => () => undefined
       }
     }
   })
@@ -89,6 +115,141 @@ describe('TaskComposer', () => {
     expect(model).toHaveAttribute('aria-expanded', 'true')
     expect(send).toHaveAccessibleName('Stop generation')
     expect(send).toHaveAttribute('data-state', 'sending')
+  })
+
+  it('submits on Return, keeps Shift+Return and IME composition as text input, and clears accepted drafts', async () => {
+    const request = deferred<void>()
+    const send = vi.fn(() => request.promise)
+    const onSubmissionCompleted = vi.fn()
+    installComposerApi({ send })
+    const transcript: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'session-one',
+      status: 'ready'
+    }
+    render(
+      <TaskComposer
+        onSubmissionCompleted={onSubmissionCompleted}
+        sessionId="session-one"
+        transcript={transcript}
+      />
+    )
+    const message = screen.getByRole('textbox', { name: 'Message' })
+
+    fireEvent.change(message, { target: { value: 'Hello' } })
+    fireEvent.keyDown(message, { key: 'Enter', shiftKey: true })
+    expect(send).not.toHaveBeenCalled()
+
+    fireEvent.compositionStart(message)
+    fireEvent.keyDown(message, { key: 'Enter' })
+    fireEvent.compositionEnd(message)
+    expect(send).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(message, { key: 'Enter' })
+    expect(send).toHaveBeenCalledWith('session-one', { text: 'Hello', attachments: [] })
+    expect(message).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Stop generation' })).toBeInTheDocument()
+
+    await act(async () => request.resolve())
+    expect(onSubmissionCompleted).toHaveBeenCalledOnce()
+  })
+
+  it('submits attachments with the draft and restores both when the send is rejected', async () => {
+    const attachment = {
+      kind: 'folder',
+      name: 'project',
+      path: '/tmp/project'
+    } as const
+    const send = vi.fn(async () => {
+      throw new Error('Could not send the message. Try again.')
+    })
+    installComposerApi({ pick: async () => [attachment], send })
+    const transcript: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'session-one',
+      status: 'ready'
+    }
+    render(<TaskComposer sessionId="session-one" transcript={transcript} />)
+    const message = screen.getByRole('textbox', { name: 'Message' })
+
+    fireEvent.change(message, { target: { value: '  Inspect  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    await screen.findByText('project')
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith('session-one', {
+        text: '  Inspect  ',
+        attachments: [attachment]
+      })
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not send the message')
+    expect(message).toHaveValue('  Inspect  ')
+    expect(screen.getByText('project')).toBeInTheDocument()
+  })
+
+  it('keeps attachment-only and oversized drafts disabled', async () => {
+    const attachment = { kind: 'file', name: 'notes.txt', path: '/tmp/notes.txt' } as const
+    const send = vi.fn(async () => undefined)
+    installComposerApi({ pick: async () => [attachment], send })
+    const transcript: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'session-one',
+      status: 'ready'
+    }
+    render(<TaskComposer sessionId="session-one" transcript={transcript} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    await screen.findByText('notes.txt')
+    const sendButton = screen.getByRole('button', { name: 'Send message' })
+    expect(sendButton).toBeDisabled()
+
+    const message = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.keyDown(message, { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+
+    fireEvent.change(message, { target: { value: 'Describe this' } })
+    expect(sendButton).toBeEnabled()
+    fireEvent.change(message, { target: { value: '   ' } })
+    expect(sendButton).toBeDisabled()
+
+    fireEvent.change(message, { target: { value: 'x'.repeat(100_001) } })
+    expect(screen.getByRole('alert')).toHaveTextContent('100,000 character limit')
+    expect(sendButton).toBeDisabled()
+  })
+
+  it('disables conflicting actions while running and sends Stop through the transcript API', async () => {
+    const abortRequest = deferred<void>()
+    const abort = vi.fn(() => abortRequest.promise)
+    installComposerApi({ abort })
+    const transcript: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 2,
+      sessionId: 'session-one',
+      status: 'running'
+    }
+    const view = render(<TaskComposer sessionId="session-one" transcript={transcript} />)
+
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add attachment' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Approval mode:/ })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: /Select model:/ })).toBeDisabled()
+    const stop = screen.getByRole('button', { name: 'Stop generation' })
+    fireEvent.click(stop)
+
+    await waitFor(() => expect(abort).toHaveBeenCalledWith('session-one'))
+    expect(stop).toHaveAttribute('aria-busy', 'true')
+
+    await act(async () => abortRequest.resolve())
+    expect(stop).toHaveAttribute('aria-busy', 'true')
+
+    view.rerender(
+      <TaskComposer sessionId="session-one" transcript={{ ...transcript, status: 'ready' }} />
+    )
+    expect(screen.getByRole('button', { name: 'Send message' })).not.toHaveAttribute('aria-busy')
   })
 
   it('attaches selected files and folders once and lets the user remove them', async () => {
@@ -221,13 +382,15 @@ describe('TaskComposer', () => {
   })
 
   it('loads the available models and applies a selection to this and future tasks', async () => {
+    const onSessionChanged = vi.fn()
     const select = vi.fn<ModelApi['select']>(async (modelId) => ({
       ...defaultModelConfiguration,
+      activeSessionId: 'fork-session-one',
       activeModelId: modelId,
       defaultModelId: modelId
     }))
     installComposerApi({ selectModel: select })
-    render(<TaskComposer />)
+    render(<TaskComposer onSessionChanged={onSessionChanged} sessionId="session-one" />)
     const trigger = await screen.findByRole('button', { name: 'Select model: GPT-5' })
 
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
@@ -239,6 +402,7 @@ describe('TaskComposer', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Claude Sonnet' }))
 
     await waitFor(() => expect(select).toHaveBeenCalledWith('claude-sonnet'))
+    expect(onSessionChanged).toHaveBeenCalledWith('fork-session-one')
     expect(screen.getByRole('button', { name: 'Select model: Claude Sonnet' })).toBeInTheDocument()
   })
 

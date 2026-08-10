@@ -112,6 +112,16 @@ describe('TaskList', () => {
     expect(onSelect).toHaveBeenCalledWith(task.id)
   })
 
+  it('disables task selection while a run owns the active session', () => {
+    const onSelect = vi.fn()
+    renderTaskList({ onSelect, selectionDisabled: true })
+
+    const select = screen.getByRole('button', { name: `Select ${task.title}` })
+    expect(select).toBeDisabled()
+    fireEvent.click(select)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
   it('reports an archived row only after its opacity transition completes', () => {
     const onArchiveExit = vi.fn()
     renderTaskList({ archivingTaskId: task.id, onArchiveExit })

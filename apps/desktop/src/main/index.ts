@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -13,19 +13,30 @@ import {
 import { getApprovalConfiguration, setApprovalMode } from './approval.mts'
 import { BackendProcessManager, resolveBackendLaunch } from './backend-process.mts'
 import { ContextUsageService } from './context-usage.mts'
+import { handleExternalWindowOpen } from './external-links.mts'
 import { getModelConfiguration, selectModel } from './models.mts'
 import { TaskService } from './tasks.mts'
+import { createTranscriptService } from './transcript.mts'
 import { activitySnapshotChannel, activityUpdateChannel } from '../shared/activity-api'
 import { attachmentsPickChannel } from '../shared/attachment-api'
 import { approvalGetChannel, approvalSetModeChannel } from '../shared/approval-api'
 import { contextUsageSnapshotChannel, contextUsageUpdateChannel } from '../shared/context-usage-api'
 import { modelsGetChannel, modelsSelectChannel } from '../shared/model-api'
 import { tasksArchiveChannel, tasksListChannel, tasksOpenChannel } from '../shared/task-api'
+import {
+  transcriptAbortChannel,
+  transcriptApprovalResponseChannel,
+  transcriptClarificationResponseChannel,
+  transcriptSendChannel,
+  transcriptSnapshotChannel,
+  transcriptUpdateChannel
+} from '../shared/transcript-api'
 
 const backendProcess = new BackendProcessManager()
 const activityService = new ActivityService(backendProcess)
 const contextUsageService = new ContextUsageService(backendProcess)
 const taskService = new TaskService(backendProcess)
+const transcriptService = createTranscriptService(backendProcess)
 let isQuitting = false
 let backendFailureReported = false
 
@@ -126,6 +137,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle(modelsGetChannel, () => getModelConfiguration(backendProcess))
   ipcMain.handle(modelsSelectChannel, async (_event, modelId: unknown) => {
     const configuration = await selectModel(backendProcess, modelId)
+    const loadedSessionId = transcriptService.getSnapshot().sessionId
+    if (loadedSessionId && loadedSessionId !== configuration.activeSessionId) {
+      await transcriptService
+        .adoptActiveSession(configuration.activeSessionId)
+        .catch(() => undefined)
+    }
     await refreshContextUsageBestEffort()
     return configuration
   })
@@ -134,9 +151,26 @@ function registerIpcHandlers(): void {
     taskService.archive(sessionId)
   )
   ipcMain.handle(tasksOpenChannel, async (_event, sessionId: unknown) => {
-    await taskService.open(sessionId)
+    await transcriptService.load(sessionId)
     await Promise.all([activityService.refresh(), contextUsageService.refresh()])
   })
+  ipcMain.handle(transcriptSnapshotChannel, () => transcriptService.getSnapshot())
+  ipcMain.handle(transcriptSendChannel, (_event, sessionId: unknown, submission: unknown) =>
+    transcriptService.send(sessionId, submission)
+  )
+  ipcMain.handle(transcriptAbortChannel, (_event, sessionId: unknown) =>
+    transcriptService.abort(sessionId)
+  )
+  ipcMain.handle(
+    transcriptApprovalResponseChannel,
+    (_event, sessionId: unknown, requestId: unknown, approved: unknown) =>
+      transcriptService.respondToApproval(sessionId, requestId, approved)
+  )
+  ipcMain.handle(
+    transcriptClarificationResponseChannel,
+    (_event, sessionId: unknown, requestId: unknown, answer: unknown) =>
+      transcriptService.respondToClarification(sessionId, requestId, answer)
+  )
 }
 
 activityService.subscribe((update) => {
@@ -145,6 +179,10 @@ activityService.subscribe((update) => {
 
 contextUsageService.subscribe((update) => {
   broadcastUpdate(contextUsageUpdateChannel, update)
+})
+
+transcriptService.subscribe((update) => {
+  broadcastUpdate(transcriptUpdateChannel, update)
 })
 
 function createWindow(): void {
@@ -174,7 +212,9 @@ function createWindow(): void {
     mainWindow.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    return handleExternalWindowOpen((externalUrl) => shell.openExternal(externalUrl), url)
+  })
 
   // Use electron-vite's renderer server in development and the bundled HTML in production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

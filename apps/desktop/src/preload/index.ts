@@ -5,6 +5,7 @@ import { createAttachmentApi } from './attachment-api.mts'
 import { createApprovalApi } from './approval-api.mts'
 import { createContextUsageApi } from './context-usage-api.mts'
 import { createModelApi } from './model-api.mts'
+import { createTranscriptApi } from './transcript-api.mts'
 import {
   tasksArchiveChannel,
   tasksListChannel,
@@ -27,7 +28,8 @@ const railgunApi: RailgunApi = {
     open: async (sessionId: string): Promise<void> => {
       await ipcRenderer.invoke(tasksOpenChannel, sessionId)
     }
-  }
+  },
+  transcript: createTranscriptApi(ipcRenderer)
 }
 
 contextBridge.exposeInMainWorld('railgun', Object.freeze(railgunApi))

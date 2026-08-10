@@ -40,6 +40,11 @@ Electron task interface to the existing `~/.railgun` data and Devin credential. 
 the same shared desktop-client lock as native Railgun, so only one production interactive backend
 can use that data at a time.
 
+The Electron Tasks route loads and resumes complete saved transcripts, streams Markdown responses,
+supports approval and clarification requests, and keeps task navigation attached to the active run.
+Its renderer, IPC, and security contracts are documented in
+[`apps/desktop/README.md`](./apps/desktop/README.md).
+
 Run it with the deterministic mock backend configuration:
 
 ```sh

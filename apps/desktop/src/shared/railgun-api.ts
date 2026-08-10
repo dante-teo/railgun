@@ -4,6 +4,7 @@ import type { ApprovalApi } from './approval-api'
 import type { ContextUsageApi } from './context-usage-api'
 import type { ModelApi } from './model-api'
 import type { TaskApi } from './task-api'
+import type { TranscriptApi } from './transcript-api'
 
 export interface RailgunApi {
   activity: ActivityApi
@@ -12,4 +13,5 @@ export interface RailgunApi {
   contextUsage: ContextUsageApi
   models: ModelApi
   tasks: TaskApi
+  transcript: TranscriptApi
 }

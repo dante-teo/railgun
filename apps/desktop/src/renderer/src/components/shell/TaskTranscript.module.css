@@ -1,0 +1,30 @@
+.jumpToLatest,
+.transcriptEmptyState {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+.jumpToLatest[data-present='false'] {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.25rem);
+}
+
+@starting-style {
+  .jumpToLatest,
+  .transcriptEmptyState {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jumpToLatest,
+  .transcriptEmptyState {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+}

@@ -7,6 +7,7 @@ export interface ModelOption {
 }
 
 export interface ModelConfiguration {
+  readonly activeSessionId: string
   readonly activeModelId: string
   readonly defaultModelId: string | null
   readonly isRunning: boolean

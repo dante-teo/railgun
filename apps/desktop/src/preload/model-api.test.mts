@@ -10,6 +10,7 @@ import { createModelApi } from './model-api.mts'
 
 test('model preload loads and selects through narrow IPC channels', async () => {
   const configuration: ModelConfiguration = {
+    activeSessionId: 'session-one',
     activeModelId: 'gpt-5',
     defaultModelId: 'gpt-5',
     isRunning: false,

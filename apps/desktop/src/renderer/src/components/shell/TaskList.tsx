@@ -18,6 +18,7 @@ export interface TaskListProps {
   onArchiveExit: (sessionId: string) => void
   onSelect: (sessionId: string) => void
   restoredTaskId?: string
+  selectionDisabled?: boolean
   selectedTaskId?: string
   taskActionError?: string
   tasks: readonly TaskSummary[]
@@ -31,6 +32,7 @@ interface TaskListRowProps {
   onSelect: (sessionId: string) => void
   restored: boolean
   selected: boolean
+  selectionDisabled: boolean
   task: TaskSummary
 }
 
@@ -46,6 +48,7 @@ function TaskListRow({
   onSelect,
   restored,
   selected,
+  selectionDisabled,
   task
 }: TaskListRowProps): React.JSX.Element {
   const archiveLabel = `Archive ${task.title}`
@@ -71,7 +74,7 @@ function TaskListRow({
         aria-label={`Select ${task.title}`}
         aria-pressed={selected}
         className="h-auto min-w-0 flex-1 justify-start px-3 py-2 text-left"
-        disabled={archiving}
+        disabled={archiving || selectionDisabled}
         onClick={() => onSelect(task.id)}
         type="button"
         variant="ghost"
@@ -149,6 +152,7 @@ export function TaskList({
   onArchiveExit,
   onSelect,
   restoredTaskId,
+  selectionDisabled = false,
   selectedTaskId,
   taskActionError,
   tasks
@@ -206,6 +210,7 @@ export function TaskList({
                     onSelect={onSelect}
                     restored={task.id === restoredTaskId}
                     selected={task.id === selectedTaskId}
+                    selectionDisabled={selectionDisabled}
                     task={task}
                   />
                 ))}

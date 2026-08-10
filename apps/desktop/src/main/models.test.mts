@@ -50,7 +50,7 @@ function stubModelBackend(responses: Record<string, StubResponse[]>): StubModelB
 function readableConfigurationResponses(): Record<string, StubResponse[]> {
   return {
     get_available_models: [{ value: catalog }],
-    get_state: [{ value: { model: 'gpt-5', running: false } }],
+    get_state: [{ value: { sessionId: 'session-one', model: 'gpt-5', running: false } }],
     config_get: [{ value: { config: { model: 'gpt-5' } } }]
   }
 }
@@ -59,6 +59,7 @@ test('model configuration loads the available, active, and default models concur
   const backend = stubModelBackend(readableConfigurationResponses())
 
   assert.deepEqual(await getModelConfiguration(backend), {
+    activeSessionId: 'session-one',
     activeModelId: 'gpt-5',
     defaultModelId: 'gpt-5',
     isRunning: false,
@@ -77,11 +78,19 @@ test('model configuration loads the available, active, and default models concur
 test('model selection changes the active task before saving the future default', async () => {
   const backend = stubModelBackend({
     ...readableConfigurationResponses(),
-    set_model: [{ value: { model: 'claude-sonnet' } }],
+    set_model: [
+      {
+        value: {
+          sessionId: 'fork-session-one',
+          model: 'claude-sonnet'
+        }
+      }
+    ],
     config_update: [{ value: { config: { model: 'claude-sonnet' } } }]
   })
 
   assert.deepEqual(await selectModel(backend, 'claude-sonnet'), {
+    activeSessionId: 'fork-session-one',
     activeModelId: 'claude-sonnet',
     defaultModelId: 'claude-sonnet',
     isRunning: false,
@@ -108,11 +117,16 @@ test('model selection changes the active task before saving the future default',
 test('model selection preserves an active-task change when saving the default fails', async () => {
   const backend = stubModelBackend({
     ...readableConfigurationResponses(),
+    get_state: [
+      { value: { sessionId: 'session-one', model: 'gpt-5', running: false } },
+      { value: { sessionId: 'fork-session-one', model: 'claude-sonnet', running: false } }
+    ],
     set_model: [{ value: undefined }],
     config_update: [{ error: new Error('disk full') }]
   })
 
   assert.deepEqual(await selectModel(backend, 'claude-sonnet'), {
+    activeSessionId: 'fork-session-one',
     activeModelId: 'claude-sonnet',
     defaultModelId: 'gpt-5',
     isRunning: false,
