@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { emptyActivitySnapshot } from '@/lib/activity-api'
 import type { TaskSummary } from '@/lib/task-api'
 import { TasksPage } from '@/pages/TasksPage'
 
@@ -29,11 +30,18 @@ const tasks: TaskSummary[] = [
 
 function installTaskApi(
   list: () => Promise<TaskSummary[]>,
-  archive: (sessionId: string) => Promise<void> = async () => undefined
+  archive: (sessionId: string) => Promise<void> = async () => undefined,
+  open: (sessionId: string) => Promise<void> = async () => undefined
 ): void {
   Object.defineProperty(window, 'railgun', {
     configurable: true,
-    value: { tasks: { archive, list } }
+    value: {
+      activity: {
+        getSnapshot: async () => emptyActivitySnapshot(),
+        subscribe: () => () => undefined
+      },
+      tasks: { archive, list, open }
+    }
   })
 }
 
@@ -45,8 +53,11 @@ function renderTasksPage(): ReturnType<typeof render> {
   )
 }
 
-async function renderPopulatedPage(archive: (sessionId: string) => Promise<void>): Promise<void> {
-  installTaskApi(async () => tasks, archive)
+async function renderPopulatedPage(
+  archive: (sessionId: string) => Promise<void>,
+  open: (sessionId: string) => Promise<void> = async () => undefined
+): Promise<void> {
+  installTaskApi(async () => tasks, archive, open)
   renderTasksPage()
   await screen.findByRole('button', { name: 'Select First task' })
 }
@@ -168,12 +179,58 @@ describe('TasksPage', () => {
   })
 
   it('shows an empty transcript until a task is selected, then renders its placeholder', async () => {
-    await renderPopulatedPage(async () => undefined)
+    const open = vi.fn(async () => undefined)
+    await renderPopulatedPage(async () => undefined, open)
     expect(screen.getByText('Select a task')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Select First task' }))
 
+    expect(open).toHaveBeenCalledWith('first')
     expect(screen.getByRole('region', { name: 'Transcript for First task' })).toBeInTheDocument()
     expect(screen.getByText('Transcript preview')).toBeInTheDocument()
+  })
+
+  it('reports a task-open failure without replacing a newer selection', async () => {
+    const firstOpen = deferred<void>()
+    const open = vi
+      .fn<(sessionId: string) => Promise<void>>()
+      .mockReturnValueOnce(firstOpen.promise)
+      .mockResolvedValueOnce(undefined)
+    await renderPopulatedPage(async () => undefined, open)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select First task' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select Second task' }))
+    await act(async () => firstOpen.reject(new Error('rejected')))
+
+    expect(screen.queryByText(/Could not open/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select Second task' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it('restores the previous selection when the latest task-open attempt fails', async () => {
+    const secondOpen = deferred<void>()
+    const open = vi
+      .fn<(sessionId: string) => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(secondOpen.promise)
+    await renderPopulatedPage(async () => undefined, open)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select First task' }))
+    await waitFor(() => expect(open).toHaveBeenCalledWith('first'))
+    fireEvent.click(screen.getByRole('button', { name: 'Select Second task' }))
+    await act(async () => secondOpen.reject(new Error('rejected')))
+
+    expect(screen.getByRole('button', { name: 'Select First task' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('button', { name: 'Select Second task' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(screen.getByRole('region', { name: 'Transcript for First task' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not open “Second task”. Try again.')
   })
 })

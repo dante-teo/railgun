@@ -40,6 +40,15 @@ The mock launcher builds `railgun-mock-backend`, sets `RAILGUNX_BACKEND_MODE=moc
 RAILGUNX_MOCK_SCENARIO=delayed-startup scripts/run-mock.sh
 ```
 
+The default task list includes **Inspect the personal agent activity card**. Selecting it plays a
+deterministic fixture with advisor notes, persisted TODOs, two subagents, streamed
+`subagent_update` text, and final authoritative subagent results. The fixture can also start
+automatically during initial state hydration with:
+
+```sh
+RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
+```
+
 `run-mock.sh` is the current end-to-end path for the connected task list. Production backend
 bundling is a separate packaging milestone; when Electron has no configured backend, the task list
 shows an unavailable state instead of static fallback data.
@@ -69,12 +78,53 @@ The renderer runs with context isolation and sandboxing enabled and without Node
 Keep privileged APIs behind the preload boundary rather than importing Node or Electron APIs into
 renderer code.
 
-### Task backend boundary
+### Backend boundaries
 
-The context-isolated preload exposes only `window.railgun.tasks.list()` and
-`window.railgun.tasks.archive(sessionId)`. List results contain the session ID, presentation title,
-and an ISO-8601 `lastMessageAt` timestamp; the main process validates every response before it
-crosses into the renderer and validates renderer-supplied session IDs before archiving.
+The context-isolated preload exposes `window.railgun.tasks.list()`,
+`window.railgun.tasks.open(sessionId)`, and `window.railgun.tasks.archive(sessionId)`. List results
+contain the session ID, presentation title, and an ISO-8601 `lastMessageAt` timestamp; the main
+process validates every response before it crosses into the renderer and validates renderer-supplied
+session IDs before loading or archiving. Opening a task activates the backend session without
+returning transcript content through this summary-only boundary, verifies that `session_load`
+activated the requested session, then refreshes activity state. A failed load restores the previous
+visible selection unless the user has already selected something newer.
+
+The read-only activity boundary exposes `window.railgun.activity.getSnapshot()` and
+`window.railgun.activity.subscribe(listener)`. The main process consumes only validated advisor,
+subagent, TODO, run-start, and run-end frames, bounds presentation text, hydrates persisted TODOs
+from `get_state`, and publishes normalized snapshots with monotonic revisions. Run-start, run-end,
+and advisor frames carry an additive `runId`; the main process rejects tagged advisor/end frames
+from an older run after a newer run begins. Token-level `subagent_update` deltas update the
+authoritative snapshot immediately but cross IPC at most once every 50 ms, while terminal results
+publish immediately. The renderer subscribes before loading its initial snapshot and ignores stale
+revisions, which prevents a live startup update from being overwritten by an older snapshot.
+Unsubscribing removes the preload IPC listener.
+
+Activity follows the backend's active session, including when saved task-list selection activates a
+different session. Advisor and subagent state resets at the next `agent_start`; completed subagent
+exchanges remain readable until that reset, and `agent_end` marks any unfinished subagent
+interrupted. TODO state persists across runs and appears in the card only while at least one item is
+pending or in progress.
+
+#### Activity frame contract
+
+Activity is derived from the existing JSONL event stream; it is not a second command surface. New
+backend producers must preserve these frame responsibilities:
+
+| Frame                                | Required activity fields                                         | Main-process effect                                                                        |
+| ------------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `agent_start`                        | `runId`                                                          | Starts a run and clears advisor and subagent state.                                        |
+| Advisor `message_start`              | matching `runId`; advisory severity and text in the user message | Replaces the latest advisor note only when it belongs to the current run.                  |
+| `subagent_start`                     | `index`, `count`, `goal`                                         | Creates the delegated user/assistant exchange in running state.                            |
+| `subagent_update`                    | `index`, non-empty `delta`                                       | Appends streamed assistant text; snapshot broadcasts are coalesced to the bounded cadence. |
+| `subagent_end`                       | `index`, `goal`, authoritative `result`                          | Replaces streamed assistant text with the final result and publishes immediately.          |
+| Successful TODO `tool_execution_end` | normalized `todos` in the tool result                            | Replaces the current persisted TODO snapshot.                                              |
+| `agent_end`                          | matching `runId`                                                 | Ends the run and interrupts any subagent that did not emit an end frame.                   |
+
+Production and mock prompt runs allocate one `runId` before emitting `agent_start`; detached advisor
+work retains that ID through its advisory frame. A newer `agent_start` makes later advisor or end
+frames from the older run stale. `subagent_end` remains authoritative even when streamed text has
+already reached the renderer.
 
 The Electron process manager initializes JSONL protocol version 1 before serving requests and
 correlates every response by request ID. Each stdout JSONL frame is limited to 8 MiB; malformed,
@@ -136,13 +186,21 @@ semantic Tailwind tokens in `src/renderer/src/assets/main.css`. Topbar icon acti
 `TopBarIconButton` contract so sizing, interaction states, drag behavior, and accessible labeling
 remain consistent.
 
-The Tasks content column lists real saved sessions in backend order. Selecting a row only reveals a
-visual transcript placeholder in this milestone; transcript loading and task resumption remain out
-of scope. Archive actions remove a task optimistically and restore it at its original position when
-the backend rejects the request. The displayed date comes from the latest message on the session's
-active branch and falls back to the session start when that branch has no messages. Navigation rows,
-transcript content, composer controls, inspector fields, and archived-task browsing remain
-placeholders or future work.
+The Tasks content column lists real saved sessions in backend order. Selecting a row activates that
+backend session and refreshes app-global activity, but still reveals only a visual transcript
+placeholder in this milestone; transcript loading and task resumption remain out of scope. Archive
+actions remove a task optimistically and restore it at its original position when the backend
+rejects the request. The displayed date comes from the latest message on the session's active branch
+and falls back to the session start when that branch has no messages. Navigation rows, transcript
+content, composer controls, inspector fields, and archived-task browsing remain placeholders or
+future work.
+
+The Sidebar's bottom card is the app-global personal-agent activity surface. Advisor, subagent, and
+active-TODO previews use controlled Radix Popovers: pointer hover and keyboard focus reveal them,
+clicking pins them, and Escape dismisses them. Popovers prefer the card's right side, use collision
+handling, and cap and scroll long conversations. Their motion is an origin-aware 160 ms opacity and
+`scale(0.97)` entrance with a faster exit; reduced-motion mode retains opacity feedback without
+transform motion.
 
 ## Electron Binary Repair
 
@@ -179,9 +237,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 ```
 
-The locked workspace tests include the mock backend's process-level JSONL contract suite and session
-listing coverage. The desktop test suite covers correlated list requests and timeout-free archive
-mutations through the Electron process manager.
+The locked workspace tests include the mock backend's process-level JSONL contract suite, ordered
+subagent streaming and cancellation, run-correlated advisor frames, and session listing coverage.
+The desktop suite covers correlated requests, exact session-load validation and selection rollback,
+activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
+coalesced streaming updates with immediate terminal publication, and the activity card's pointer and
+keyboard interactions.
 
 ## Packaging
 

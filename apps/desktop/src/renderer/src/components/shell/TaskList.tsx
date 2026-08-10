@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils'
 export interface TaskListProps {
   archivingTaskId?: string
   archiveDisabled: boolean
-  archiveError?: string
   loadError?: string
   loading: boolean
   onArchive: (sessionId: string) => void
@@ -20,6 +19,7 @@ export interface TaskListProps {
   onSelect: (sessionId: string) => void
   restoredTaskId?: string
   selectedTaskId?: string
+  taskActionError?: string
   tasks: readonly TaskSummary[]
 }
 
@@ -143,7 +143,6 @@ function TaskListEmpty({ loadError }: Pick<TaskListProps, 'loadError'>): React.J
 export function TaskList({
   archivingTaskId,
   archiveDisabled,
-  archiveError,
   loadError,
   loading,
   onArchive,
@@ -151,6 +150,7 @@ export function TaskList({
   onSelect,
   restoredTaskId,
   selectedTaskId,
+  taskActionError,
   tasks
 }: TaskListProps): React.JSX.Element {
   const [showLoadingSurface, setShowLoadingSurface] = useState(loading)
@@ -166,13 +166,13 @@ export function TaskList({
       aria-label="Task list"
       className="flex h-full min-w-0 flex-col overflow-hidden px-3 py-3"
     >
-      {archiveError ? (
+      {taskActionError ? (
         <p
           className="animate-in px-3 pb-2 text-xs leading-5 text-destructive fade-in-0 slide-in-from-top-1 duration-(--duration-feedback) ease-(--ease-out)"
           data-slot="task-list-error"
           role="alert"
         >
-          {archiveError}
+          {taskActionError}
         </p>
       ) : null}
       <div className="grid min-h-0 flex-1">

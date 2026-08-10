@@ -88,4 +88,17 @@ export class TaskService {
       { timeout: 'none' }
     )
   }
+
+  async open(sessionId: unknown): Promise<void> {
+    const validatedSessionId = validateSessionId(sessionId)
+    const data = asObject(
+      await this.backend.request('session_load', {
+        sessionId: validatedSessionId,
+        includeMessages: false
+      })
+    )
+    if (data?.sessionId !== validatedSessionId) {
+      throw new Error('The backend returned an invalid loaded task')
+    }
+  }
 }

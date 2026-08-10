@@ -1,4 +1,4 @@
-import type { RailgunApi } from '../shared/task-api'
+import type { RailgunApi } from '../shared/railgun-api'
 
 declare global {
   interface Window {

@@ -21,7 +21,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
-    "test": "node --test scripts/*.test.mjs src/main/*.test.mts && vitest run",
+    "test": "node --test scripts/*.test.mjs src/main/*.test.mts src/preload/*.test.mts && vitest run",
     "test:ui": "vitest run",
     "test:scripts": "node --test scripts/*.test.mjs",
     "ensure:electron": "node scripts/ensure-electron.mjs",

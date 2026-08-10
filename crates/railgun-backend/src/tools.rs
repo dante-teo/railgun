@@ -1098,15 +1098,9 @@ async fn delegate(arguments: &Value, context: &ToolContext) -> Result<String> {
         async move {
             let goal = goal?;
             let permit = slots.acquire_owned().await?;
-            let _ = updates
-                .send(json!({"type":"subagent_start","goal":goal,"index":index,"count":count}));
-            let result = child_turn(provider, model, &goal, cancellation).await;
+            let result =
+                child_turn(provider, model, &goal, index, count, cancellation, &updates).await;
             drop(permit);
-            let output = result
-                .as_ref()
-                .map_or_else(|error| format!("Error: {error}"), Clone::clone);
-            let _ = updates
-                .send(json!({"type":"subagent_end","goal":goal,"index":index,"result":output}));
             result
         }
     });
@@ -1121,30 +1115,92 @@ async fn child_turn(
     provider: DevinProvider,
     model: String,
     goal: &str,
+    index: usize,
+    count: usize,
     cancellation: CancellationToken,
+    updates: &mpsc::UnboundedSender<Value>,
 ) -> Result<String> {
     let request=DevinChatRequest { model, messages: vec![DevinMessage::User { content: vec![DevinContentPart::Text { text: goal.into() }] }], system_prompt: vec!["You are a bounded delegated subagent. Complete this independent goal concisely. Do not delegate further.".into()], ..Default::default() };
-    let mut stream = provider.stream_chat(request);
+    run_child_stream(
+        provider.stream_chat(request),
+        goal,
+        index,
+        count,
+        cancellation,
+        updates,
+    )
+    .await
+}
+
+async fn run_child_stream<S>(
+    stream: S,
+    goal: &str,
+    index: usize,
+    count: usize,
+    cancellation: CancellationToken,
+    updates: &mpsc::UnboundedSender<Value>,
+) -> Result<String>
+where
+    S: futures_util::Stream<Item = std::result::Result<DevinStreamEvent, widevin::DevinError>>,
+{
+    let _ = updates.send(json!({
+        "type":"subagent_start",
+        "goal":goal,
+        "index":index,
+        "count":count
+    }));
+    futures_util::pin_mut!(stream);
     let mut text = String::new();
     let mut turns = 0;
-    loop {
-        tokio::select! { _=cancellation.cancelled()=>bail!("[stopped by user]"), event=stream.next()=>match event { Some(event)=>match event? { DevinStreamEvent::TextDelta{delta}=>text.push_str(&delta), DevinStreamEvent::Done{..}=>break, _=>{} }, None=>break } }
+    let result = loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => break Err(anyhow::anyhow!("[stopped by user]")),
+            event = stream.next() => match event {
+                Some(Ok(DevinStreamEvent::TextDelta { delta })) => {
+                    text.push_str(&delta);
+                    let _ = updates.send(json!({"type":"subagent_update","index":index,"delta":delta}));
+                }
+                Some(Ok(DevinStreamEvent::Done { .. })) | None => break Ok(()),
+                Some(Ok(_)) => {}
+                Some(Err(error)) => break Err(error.into()),
+            }
+        }
         turns += 1;
         if turns > 10_000 {
-            bail!("child turn exceeded event budget")
+            break Err(anyhow::anyhow!("child turn exceeded event budget"));
         }
-    }
-    if text.trim().is_empty() {
-        bail!("delegated agent returned an empty result")
-    } else {
-        Ok(bounded(text, TEXT_LIMIT))
-    }
+    };
+    let result = result.and_then(|()| {
+        if text.trim().is_empty() {
+            Err(anyhow::anyhow!("delegated agent returned an empty result"))
+        } else {
+            Ok(bounded(text, TEXT_LIMIT))
+        }
+    });
+    let output = result
+        .as_ref()
+        .map_or_else(|error| format!("Error: {error}"), Clone::clone);
+    let _ = updates.send(json!({
+        "type":"subagent_end",
+        "goal":goal,
+        "index":index,
+        "result":output
+    }));
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use widevin::{DevinError, DevinStopReason};
+
+    fn frame_types(frames: &[Value]) -> Vec<&str> {
+        frames
+            .iter()
+            .map(|frame| frame["type"].as_str().unwrap())
+            .collect()
+    }
 
     #[test]
     fn registry_advertises_every_restored_schema() {
@@ -1430,6 +1486,74 @@ mod tests {
             bounded_with_truncation("abc".into(), 3),
             ("abc".into(), false)
         );
+    }
+
+    #[tokio::test]
+    async fn delegated_child_emits_stream_updates_between_start_and_authoritative_end() {
+        let (updates, mut frames) = mpsc::unbounded_channel();
+        let stream = futures_util::stream::iter([
+            Ok::<_, DevinError>(DevinStreamEvent::TextDelta {
+                delta: "First ".into(),
+            }),
+            Ok(DevinStreamEvent::TextDelta {
+                delta: "second".into(),
+            }),
+            Ok(DevinStreamEvent::Done {
+                reason: DevinStopReason::Stop,
+            }),
+        ]);
+
+        let result = run_child_stream(
+            stream,
+            "Inspect the activity path",
+            1,
+            2,
+            CancellationToken::new(),
+            &updates,
+        )
+        .await
+        .unwrap();
+        drop(updates);
+        let emitted = std::iter::from_fn(|| frames.try_recv().ok()).collect::<Vec<_>>();
+
+        assert_eq!(result, "First second");
+        assert_eq!(
+            frame_types(&emitted),
+            [
+                "subagent_start",
+                "subagent_update",
+                "subagent_update",
+                "subagent_end"
+            ]
+        );
+        assert_eq!(emitted[1]["delta"], "First ");
+        assert_eq!(emitted[2]["delta"], "second");
+        assert_eq!(emitted[3]["result"], "First second");
+    }
+
+    #[tokio::test]
+    async fn delegated_child_emits_an_end_without_text_updates_when_cancelled() {
+        let (updates, mut frames) = mpsc::unbounded_channel();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let stream =
+            futures_util::stream::pending::<std::result::Result<DevinStreamEvent, DevinError>>();
+
+        let result = run_child_stream(
+            stream,
+            "Wait for cancellation",
+            0,
+            1,
+            cancellation,
+            &updates,
+        )
+        .await;
+        drop(updates);
+        let emitted = std::iter::from_fn(|| frames.try_recv().ok()).collect::<Vec<_>>();
+
+        assert!(result.is_err());
+        assert_eq!(frame_types(&emitted), ["subagent_start", "subagent_end"]);
+        assert_eq!(emitted[1]["result"], "Error: [stopped by user]");
     }
 
     #[tokio::test]

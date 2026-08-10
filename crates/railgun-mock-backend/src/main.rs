@@ -18,6 +18,8 @@ mod scenario;
 
 use scenario::Scenario;
 
+const ACTIVITY_DEMO_SESSION_ID: &str = "mock-session-agent-activity";
+
 #[derive(Clone)]
 struct MockSession {
     id: String,
@@ -45,6 +47,7 @@ struct Mock {
     next_cron: i64,
     next_memory: i64,
     next_prompt_token: u64,
+    activity_demo_triggered: bool,
     compacted_message_count: Option<usize>,
     pending_prompt: Option<ActivePrompt>,
     interaction: Option<ActiveInteraction>,
@@ -63,6 +66,8 @@ struct OutputFrame {
 struct ActivePrompt {
     token: u64,
     id: Option<String>,
+    run_id: String,
+    checkpoint_on_finish: bool,
     steering: Vec<String>,
     follow_up: Vec<String>,
 }
@@ -278,6 +283,7 @@ impl Mock {
             next_cron: 1,
             next_memory: 6,
             next_prompt_token: 1,
+            activity_demo_triggered: false,
             compacted_message_count: None,
             pending_prompt: None,
             interaction: None,
@@ -372,6 +378,14 @@ impl Mock {
                     state["checkpointError"] = Value::String(error.clone());
                 }
                 self.respond(&kind, id.as_deref(), Some(state));
+                if (self.scenario == Scenario::AgentActivity
+                    || self.active.id == ACTIVITY_DEMO_SESSION_ID)
+                    && !self.activity_demo_triggered
+                    && self.pending_prompt.is_none()
+                {
+                    let checkpoint_on_finish = self.active.id != ACTIVITY_DEMO_SESSION_ID;
+                    self.start_agent_activity_demo(checkpoint_on_finish);
+                }
                 if self.scenario == Scenario::DisconnectAfterReady {
                     tokio::time::sleep(Duration::from_millis(80)).await;
                     return Ok(Some(23));
@@ -493,6 +507,9 @@ impl Mock {
                 };
                 self.active = session;
                 self.compacted_message_count = None;
+                if session_id == ACTIVITY_DEMO_SESSION_ID {
+                    self.activity_demo_triggered = false;
+                }
                 let mut data = json!({"sessionId":session_id});
                 if command.get("includeMessages").and_then(Value::as_bool) != Some(false) {
                     data["messages"] = Value::Array(self.active.messages.clone());
@@ -1390,9 +1407,13 @@ impl Mock {
                         .insert(prompt.token);
                     self.interaction = None;
                     self.send(json!({"type":"queue_update","steering":[],"followUp":[]}));
-                    self.send(json!({"type":"agent_end","messages":[]}));
-                    self.checkpoint_mock_turn("The mock request was stopped.");
-                    self.respond("prompt", prompt.id.as_deref(), None);
+                    self.send(json!({"type":"agent_end","runId":prompt.run_id,"messages":[]}));
+                    if prompt.checkpoint_on_finish {
+                        self.checkpoint_mock_turn("The mock request was stopped.");
+                    }
+                    if let Some(prompt_id) = prompt.id.as_deref() {
+                        self.respond("prompt", Some(prompt_id), None);
+                    }
                 }
                 self.respond(&kind, id.as_deref(), None);
             }
@@ -1426,6 +1447,7 @@ impl Mock {
         }
         let token = self.next_prompt_token;
         self.next_prompt_token += 1;
+        let run_id = format!("mock-run-{token}");
         self.active
             .messages
             .push(json!({"role":"user","content":message}));
@@ -1437,10 +1459,12 @@ impl Mock {
         self.pending_prompt = Some(ActivePrompt {
             token,
             id: id.clone(),
+            run_id: run_id.clone(),
+            checkpoint_on_finish: true,
             steering: Vec::new(),
             follow_up: Vec::new(),
         });
-        self.send_prompt(token, json!({"type":"agent_start"}));
+        self.send_prompt(token, json!({"type":"agent_start","runId":run_id}));
         match self.scenario {
             Scenario::Approval => {
                 self.interaction = Some(ActiveInteraction {
@@ -1475,9 +1499,40 @@ impl Mock {
                     "choices":["Use the fast path","Use the safe path"]
                 }));
             }
-            Scenario::AgentActivity => self.schedule_agent_activity(token),
+            Scenario::AgentActivity => {
+                self.activity_demo_triggered = true;
+                self.schedule_agent_activity(token);
+            }
             _ => self.schedule_standard_prompt(token, message),
         }
+    }
+
+    fn start_agent_activity_demo(&mut self, checkpoint_on_finish: bool) {
+        let token = self.next_prompt_token;
+        self.next_prompt_token += 1;
+        let run_id = format!("mock-run-{token}");
+        self.activity_demo_triggered = true;
+        if checkpoint_on_finish {
+            self.active.messages.push(json!({
+                "role":"user",
+                "content":"Show the personal agent activity card"
+            }));
+            self.active.message_ids.push(self.next_message_id);
+            self.next_message_id += 1;
+            self.active.persistence = "unsaved";
+            self.active.checkpoint_error = None;
+            self.compacted_message_count = None;
+        }
+        self.pending_prompt = Some(ActivePrompt {
+            token,
+            id: None,
+            run_id: run_id.clone(),
+            checkpoint_on_finish,
+            steering: Vec::new(),
+            follow_up: Vec::new(),
+        });
+        self.send_prompt(token, json!({"type":"agent_start","runId":run_id}));
+        self.schedule_agent_activity(token);
     }
 
     fn resolve_interaction(
@@ -1511,7 +1566,10 @@ impl Mock {
             );
             return;
         }
-        self.pending_prompt = None;
+        let Some(prompt) = self.pending_prompt.take() else {
+            self.respond_error(kind, id.as_deref(), "agent is not running");
+            return;
+        };
         let denied = kind == "approval_response"
             && command.get("approved").and_then(Value::as_bool) != Some(true);
         self.checkpoint_mock_turn(if denied {
@@ -1520,7 +1578,7 @@ impl Mock {
             "The mock interaction was resolved."
         });
         self.respond(kind, id.as_deref(), None);
-        self.send(json!({"type":"agent_end","messages":[]}));
+        self.send(json!({"type":"agent_end","runId":prompt.run_id,"messages":[]}));
         if denied {
             self.respond_error(
                 "prompt",
@@ -1540,8 +1598,12 @@ impl Mock {
             self.pending_prompt = Some(prompt);
             return;
         }
-        self.checkpoint_mock_turn(text);
-        self.respond("prompt", prompt.id.as_deref(), None);
+        if prompt.checkpoint_on_finish {
+            self.checkpoint_mock_turn(text);
+        }
+        if let Some(id) = prompt.id.as_deref() {
+            self.respond("prompt", Some(id), None);
+        }
     }
 
     fn checkpoint_mock_turn(&mut self, text: &str) {
@@ -1622,6 +1684,7 @@ impl Mock {
     }
 
     fn schedule_standard_prompt(&self, token: u64, message: &str) {
+        let run_id = format!("mock-run-{token}");
         for (delay, frame) in [
             (
                 10,
@@ -1644,7 +1707,7 @@ impl Mock {
             self.schedule_action(
                 Scheduled::Emit {
                     token,
-                    frame: json!({"type":"agent_end","messages":[]}),
+                    frame: json!({"type":"agent_end","runId":run_id,"messages":[]}),
                 },
                 120,
             );
@@ -1663,10 +1726,8 @@ impl Mock {
     }
 
     fn schedule_agent_activity(&mut self, token: u64) {
-        let todos = vec![
-            json!({"id":"inspect","content":"Inspect activity","status":"completed"}),
-            json!({"id":"verify","content":"Verify UI","status":"in_progress"}),
-        ];
+        let run_id = format!("mock-run-{token}");
+        let todos = activity_demo_todos();
         self.active.todos = todos.clone();
         let events = vec![
             json!({"type":"tool_execution_start","toolCallId":"todo-1","toolName":"todo","args":{"todos":[]}}),
@@ -1680,15 +1741,19 @@ impl Mock {
             json!({"type":"tool_execution_end","toolCallId":"todo-1","toolName":"todo","result":{"toolCallId":"todo-1","content":serde_json::to_string(&json!({"todos":todos})).unwrap(),"isError":false}}),
             json!({"type":"moa_reference_end","index":0,"model":"mock-reference","text":"Use accessible disclosure controls."}),
             json!({"type":"moa_aggregating","aggregator":"mock-aggregator","refCount":1}),
-            json!({"type":"message_start","message":{"role":"user","content":"<advisory severity=\"nit\">Keep status text visible.</advisory>"}}),
+            json!({"type":"message_start","runId":run_id,"message":{"role":"user","content":"<advisory severity=\"nit\">Keep status text visible.</advisory>"}}),
+            json!({"type":"subagent_update","index":0,"delta":"Activity path "}),
+            json!({"type":"subagent_update","index":0,"delta":"inspected."}),
             json!({"type":"subagent_end","goal":"Inspect the desktop activity path","index":0,"result":"Activity path inspected."}),
-            json!({"type":"message_start","message":{"role":"user","content":"<advisory severity=\"concern\">Keep the detail popover keyboard accessible.</advisory>"}}),
+            json!({"type":"message_start","runId":run_id,"message":{"role":"user","content":"<advisory severity=\"concern\">Keep the detail popover keyboard accessible.</advisory>"}}),
+            json!({"type":"subagent_update","index":1,"delta":"Dashboard interaction "}),
+            json!({"type":"subagent_update","index":1,"delta":"states verified."}),
             json!({"type":"subagent_end","goal":"Verify the dashboard interaction states","index":1,"result":"Dashboard interaction states verified."}),
-            json!({"type":"message_start","message":{"role":"user","content":"<advisory severity=\"blocker\">Do not render advisor notes in the transcript.</advisory>"}}),
+            json!({"type":"message_start","runId":run_id,"message":{"role":"user","content":"<advisory severity=\"blocker\">Do not render advisor notes in the transcript.</advisory>"}}),
             json!({"type":"message_update","streamEvent":{"type":"text_delta","delta":"Activity sequence complete."}}),
             json!({"type":"message_end","message":{"role":"assistant","content":"Activity sequence complete."}}),
             json!({"type":"turn_end","message":{"role":"assistant","content":[]},"toolResults":[],"usage":{"inputTokens":1200,"outputTokens":300}}),
-            json!({"type":"agent_end","messages":[]}),
+            json!({"type":"agent_end","runId":run_id,"messages":[]}),
         ];
         for (index, frame) in events.into_iter().enumerate() {
             self.schedule_action(Scheduled::Emit { token, frame }, 10 + index as u64 * 10);
@@ -1698,7 +1763,7 @@ impl Mock {
                 token,
                 text: "Activity sequence complete.".into(),
             },
-            240,
+            290,
         );
     }
 
@@ -1740,6 +1805,13 @@ impl Mock {
             Scheduled::Finish { token, text } => self.finish_prompt(token, &text),
         }
     }
+}
+
+fn activity_demo_todos() -> Vec<Value> {
+    vec![
+        json!({"id":"inspect","content":"Inspect activity","status":"completed"}),
+        json!({"id":"verify","content":"Verify UI","status":"in_progress"}),
+    ]
 }
 
 fn saved_sessions() -> Vec<MockSession> {
@@ -1791,8 +1863,23 @@ fn saved_sessions() -> Vec<MockSession> {
         json!({"role":"user","content":"Audit keyboard navigation"}),
         json!({"role":"assistant","content":[{"type":"text","text":"Keyboard navigation is covered."}]}),
     ];
+    let activity = vec![
+        json!({"role":"user","content":"Inspect the personal agent activity card"}),
+        json!({"role":"assistant","content":[{"type":"text","text":"Select this task to play the Advisor, Subagents, and Tasks activity fixture."}]}),
+    ];
 
     vec![
+        MockSession {
+            id: ACTIVITY_DEMO_SESSION_ID.into(),
+            model: "mock-model".into(),
+            started_at: "2026-07-14T10:15:00.000Z".into(),
+            started_at_local: "7/14/2026, 6:15:00 PM".into(),
+            message_ids: assign_ids(activity.len()),
+            messages: activity,
+            todos: activity_demo_todos(),
+            persistence: "saved",
+            checkpoint_error: None,
+        },
         MockSession {
             id: "mock-session-complex-task".into(),
             model: "mock-model".into(),
@@ -2186,7 +2273,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_fixture_corpus_matches_the_retired_mock() {
+    fn saved_fixture_corpus_includes_desktop_qa_sessions() {
         let sessions = saved_sessions();
         assert_eq!(
             sessions
@@ -2194,6 +2281,7 @@ mod tests {
                 .map(|session| session.id.as_str())
                 .collect::<Vec<_>>(),
             [
+                "mock-session-agent-activity",
                 "mock-session-complex-task",
                 "mock-session-paginated-history",
                 "mock-session-rich-history",
@@ -2201,15 +2289,17 @@ mod tests {
                 "mock-session-older",
             ]
         );
-        assert_eq!(sessions[0].messages.len(), 34);
-        assert_eq!(sessions[1].messages.len(), 202);
-        assert_eq!(sessions[2].messages.len(), 10);
-        assert_eq!(sessions[3].messages.len(), 3);
-        assert_eq!(sessions[4].messages.len(), 2);
-        assert_eq!(sessions[0].todos.len(), 4);
-        assert_eq!(sessions[2].todos.len(), 4);
+        assert_eq!(sessions[0].messages.len(), 2);
+        assert_eq!(sessions[1].messages.len(), 34);
+        assert_eq!(sessions[2].messages.len(), 202);
+        assert_eq!(sessions[3].messages.len(), 10);
+        assert_eq!(sessions[4].messages.len(), 3);
+        assert_eq!(sessions[5].messages.len(), 2);
+        assert_eq!(sessions[0].todos.len(), 2);
+        assert_eq!(sessions[1].todos.len(), 4);
+        assert_eq!(sessions[3].todos.len(), 4);
         assert_eq!(
-            sessions[2].messages[3]["content"][0]["arguments"]["token"],
+            sessions[3].messages[3]["content"][0]["arguments"]["token"],
             "must-not-cross-boundary"
         );
     }
@@ -2235,7 +2325,7 @@ mod tests {
 
         let default_sessions = saved_sessions();
         assert_eq!(
-            session_summary(&default_sessions[0])["lastMessageAt"],
+            session_summary(&default_sessions[1])["lastMessageAt"],
             "2026-07-19T21:20:21.000Z"
         );
     }

@@ -66,6 +66,7 @@ pub async fn run_backend(mode: BackendMode) -> Result<()> {
 
 struct ActiveRun {
     id: Option<String>,
+    run_id: String,
     cancellation: CancellationToken,
 }
 
@@ -73,6 +74,7 @@ enum RunUpdate {
     Frame(Value),
     Complete {
         id: Option<String>,
+        run_id: String,
         messages: Vec<Value>,
         todos: Vec<Value>,
         result: Result<(), String>,
@@ -653,10 +655,13 @@ impl Coordinator {
             .unwrap_or_else(|| message.clone());
         let available_skills = skills::available_skills_prompt(&discovered_skills);
         let cancellation = CancellationToken::new();
+        let run_id = uuid::Uuid::new_v4().to_string();
         self.run = Some(ActiveRun {
             id: id.clone(),
+            run_id: run_id.clone(),
             cancellation: cancellation.clone(),
         });
+        self.send(json!({"type":"agent_start","runId":run_id}));
         let provider = self.authenticated.provider.clone();
         let model = self.active.model.clone();
         let mut messages = self.active.messages.clone();
@@ -679,6 +684,7 @@ impl Coordinator {
             provider: Some(provider.clone()),
             model: Some(model.clone()),
         };
+        let provider_run_id = run_id.clone();
         tokio::spawn(async move {
             let result = provider_turn(
                 provider,
@@ -687,6 +693,7 @@ impl Coordinator {
                 AgentRunPrompt {
                     user: prompt,
                     available_skills: available_skills_for_run,
+                    run_id: provider_run_id.clone(),
                 },
                 context,
                 cancellation,
@@ -695,6 +702,7 @@ impl Coordinator {
             .await;
             let _ = updates.send(RunUpdate::Complete {
                 id,
+                run_id: provider_run_id,
                 messages,
                 todos: todos.lock().await.clone(),
                 result: result.map_err(|error| redact_error(&error.to_string())),
@@ -710,8 +718,16 @@ impl Coordinator {
             let provider = self.authenticated.provider.clone();
             let updates = self.updates.clone();
             let advisor_model = advisor_model.to_owned();
+            let advisor_run_id = run_id.clone();
             tokio::spawn(async move {
-                advisor_review(provider, advisor_model, advisor_message, updates).await;
+                advisor_review(
+                    provider,
+                    advisor_model,
+                    advisor_message,
+                    advisor_run_id,
+                    updates,
+                )
+                .await;
             });
         }
         Ok(())
@@ -767,11 +783,15 @@ impl Coordinator {
             },
             RunUpdate::Complete {
                 id,
+                run_id,
                 messages,
                 todos,
                 result,
             } => {
-                let active_id_matches = self.run.as_ref().is_some_and(|run| run.id == id);
+                let active_id_matches = self
+                    .run
+                    .as_ref()
+                    .is_some_and(|run| run.id == id && run.run_id == run_id);
                 if !active_id_matches {
                     return;
                 }
@@ -1158,6 +1178,7 @@ impl Coordinator {
 struct AgentRunPrompt {
     user: String,
     available_skills: String,
+    run_id: String,
 }
 
 async fn provider_turn(
@@ -1169,9 +1190,9 @@ async fn provider_turn(
     cancellation: CancellationToken,
     updates: &mpsc::UnboundedSender<RunUpdate>,
 ) -> Result<()> {
+    let run_id = prompt.run_id.clone();
     let user = json!({"role":"user","content":prompt.user});
     messages.push(user.clone());
-    send_update(updates, json!({"type":"agent_start"}));
     send_update(updates, json!({"type":"turn_start"}));
     let mut latest_usage = None;
 
@@ -1280,7 +1301,7 @@ async fn provider_turn(
     );
     send_update(
         updates,
-        json!({"type":"agent_end","messages":messages.clone()}),
+        json!({"type":"agent_end","runId":run_id,"messages":messages.clone()}),
     );
     send_update(updates, json!({"type":"agent_settled"}));
     Ok(())
@@ -1290,6 +1311,7 @@ async fn advisor_review(
     provider: widevin::DevinProvider,
     model: String,
     message: String,
+    run_id: String,
     updates: mpsc::UnboundedSender<RunUpdate>,
 ) {
     let request = DevinChatRequest {
@@ -1320,7 +1342,7 @@ async fn advisor_review(
                 .replace('>', "&gt;");
             send_update(
                 &updates,
-                json!({"type":"message_start","message":{"role":"user","content":format!("<advisory severity=\"{severity}\">{text}</advisory>")}}),
+                json!({"type":"message_start","runId":run_id,"message":{"role":"user","content":format!("<advisory severity=\"{severity}\">{text}</advisory>")}}),
             );
             return;
         }
@@ -1913,6 +1935,7 @@ async fn run_scheduled_job(
         AgentRunPrompt {
             user: prompt.to_owned(),
             available_skills,
+            run_id: format!("cron-run-{}", uuid::Uuid::new_v4()),
         },
         context,
         cancellation,

@@ -1,7 +1,8 @@
-import { CalendarDays, CheckSquare2, EllipsisVertical, Monitor, Settings } from 'lucide-react'
+import { CalendarDays, CheckSquare2, Settings } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { PersonalAgentActivityCard } from '@/components/shell/PersonalAgentActivityCard'
+import type { ActivitySnapshot } from '@/lib/activity-api'
 import { cn } from '@/lib/utils'
 
 interface NavigationRowProps {
@@ -33,29 +34,7 @@ function NavigationRow({
   )
 }
 
-function SidecarStatus(): React.JSX.Element {
-  return (
-    <section className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-minimal">
-      <Monitor
-        aria-hidden="true"
-        className="size-5 shrink-0 text-muted-foreground"
-        strokeWidth={1.6}
-      />
-      <div className="min-w-0 flex-1">
-        <h2 className="truncate text-[14px] font-medium">Sidecar</h2>
-        <p className="mt-0.5 flex items-center gap-2 text-[12px] text-muted-foreground">
-          Connected
-          <span aria-label="Online" className="size-2 rounded-full bg-primary" role="img" />
-        </p>
-      </div>
-      <Button aria-label="Sidecar actions" size="icon-sm" type="button" variant="ghost">
-        <EllipsisVertical aria-hidden="true" data-icon="inline-start" strokeWidth={1.8} />
-      </Button>
-    </section>
-  )
-}
-
-export function SidebarNavigation(): React.JSX.Element {
+export function SidebarNavigation({ activity }: { activity: ActivitySnapshot }): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col px-3 pb-3 pt-4">
       <nav aria-label="Primary" className="flex flex-col gap-1">
@@ -63,8 +42,8 @@ export function SidebarNavigation(): React.JSX.Element {
         <NavigationRow icon={CalendarDays} label="Scheduled" />
         <NavigationRow icon={Settings} label="Settings" />
       </nav>
-      <div className="mt-auto border-t pt-4">
-        <SidecarStatus />
+      <div className="mt-auto pt-4">
+        <PersonalAgentActivityCard snapshot={activity} />
       </div>
     </div>
   )

@@ -90,6 +90,37 @@ test('BackendProcessManager initializes from fragmented JSONL and correlates con
   assert.deepEqual(await first, { marker: 'first' })
 })
 
+test('BackendProcessManager publishes non-response frames and cleans up subscriptions', async (context): Promise<void> => {
+  const manager = new BackendProcessManager()
+  stopAfterTest(context, manager)
+  const frames: Array<Record<string, unknown>> = []
+  const unsubscribe = manager.subscribeFrames((frame) => frames.push(frame))
+  manager.start(
+    nodeLaunch(`
+      let count = 0;
+      process.stdin.on('data', (chunk) => {
+        const request = JSON.parse(String(chunk).trim());
+        process.stdout.write(JSON.stringify({
+          type: 'response', id: request.id, command: request.type, success: true,
+          data: { version: 1, capabilities: [] }
+        }) + '\\n');
+        if (count++ === 0) {
+          process.stdout.write(JSON.stringify({ type: 'agent_start' }) + '\\n');
+          setTimeout(() => process.stdout.write(JSON.stringify({ type: 'agent_end' }) + '\\n'), 5);
+        }
+      });
+      process.stdin.resume();
+    `)
+  )
+
+  await manager.waitUntilReady()
+  await new Promise((resolveWait) => setTimeout(resolveWait, 20))
+  unsubscribe()
+  await manager.request('get_state')
+
+  assert.deepEqual(frames, [{ type: 'agent_start' }, { type: 'agent_end' }])
+})
+
 test('BackendProcessManager rejects initialization failures', async (context): Promise<void> => {
   const manager = new BackendProcessManager()
   stopAfterTest(context, manager)

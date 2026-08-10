@@ -93,6 +93,7 @@ export class BackendProcessManager {
   private readonly requestTimeoutMilliseconds: number
   private child: ChildProcessWithoutNullStreams | undefined
   private connectionFailure: Error | undefined
+  private readonly frameListeners = new Set<(frame: Record<string, unknown>) => void>()
   private isStopping = false
   private nextRequest = 1
   private pending = new Map<string, PendingRequest>()
@@ -190,6 +191,11 @@ export class BackendProcessManager {
     )
   }
 
+  subscribeFrames(listener: (frame: Record<string, unknown>) => void): () => void {
+    this.frameListeners.add(listener)
+    return () => this.frameListeners.delete(listener)
+  }
+
   async stop(gracePeriodMilliseconds = 2_000): Promise<void> {
     const child = this.child
     if (!child || hasExited(child)) {
@@ -282,6 +288,9 @@ export class BackendProcessManager {
       return
     }
     if (frame.type !== 'response') {
+      for (const listener of this.frameListeners) {
+        listener(frame)
+      }
       return
     }
 

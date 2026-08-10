@@ -44,6 +44,10 @@ scripts/run-mock.sh
 The mock launcher builds `railgun-mock-backend`, selects the `ready-idle`
 scenario by default, and then starts Electron. Both scripts forward additional
 arguments to `pnpm dev`. They are launch commands, not verification commands.
+The default mock task list includes **Inspect the personal agent activity
+card**. Select it to play the deterministic Advisor, Subagents, and Tasks
+fixture. `RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh` remains
+available when an automatically starting activity run is useful.
 
 Electron development and preview commands validate the downloaded Electron
 binary before startup. If a package installation was interrupted after the npm

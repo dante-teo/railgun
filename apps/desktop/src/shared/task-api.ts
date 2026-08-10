@@ -1,5 +1,6 @@
 export const tasksListChannel = 'railgun:tasks:list'
 export const tasksArchiveChannel = 'railgun:tasks:archive'
+export const tasksOpenChannel = 'railgun:tasks:open'
 
 export interface TaskSummary {
   id: string
@@ -7,9 +8,8 @@ export interface TaskSummary {
   lastMessageAt: string
 }
 
-export interface RailgunApi {
-  tasks: {
-    list: () => Promise<TaskSummary[]>
-    archive: (sessionId: string) => Promise<void>
-  }
+export interface TaskApi {
+  list: () => Promise<TaskSummary[]>
+  archive: (sessionId: string) => Promise<void>
+  open: (sessionId: string) => Promise<void>
 }

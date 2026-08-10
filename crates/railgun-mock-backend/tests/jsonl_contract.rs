@@ -120,6 +120,7 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
             .map(|session| session["id"].as_str().unwrap())
             .collect::<Vec<_>>(),
         [
+            "mock-session-agent-activity",
             "mock-session-complex-task",
             "mock-session-paginated-history",
             "mock-session-rich-history",
@@ -127,8 +128,9 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
             "mock-session-older",
         ]
     );
-    assert_eq!(sessions["data"]["sessions"][0]["messageCount"], 34);
-    assert_eq!(sessions["data"]["sessions"][1]["messageCount"], 202);
+    assert_eq!(sessions["data"]["sessions"][0]["messageCount"], 2);
+    assert_eq!(sessions["data"]["sessions"][1]["messageCount"], 34);
+    assert_eq!(sessions["data"]["sessions"][2]["messageCount"], 202);
     assert!(
         sessions["data"]["sessions"]
             .as_array()
@@ -157,7 +159,7 @@ async fn saved_sessions_pagination_and_private_projection_match_the_jsonl_contra
     let page = mock.response("page").await;
     assert_eq!(page["data"]["messages"].as_array().unwrap().len(), 100);
     assert_eq!(page["data"]["nextCursor"], 100);
-    assert_eq!(page["data"]["messages"][0]["messageId"], 1034);
+    assert_eq!(page["data"]["messages"][0]["messageId"], 1036);
 
     mock.send(json!({
         "id":"load-rich",
@@ -503,17 +505,24 @@ async fn every_remaining_scenario_exercises_its_distinct_process_contract() {
 }
 
 #[tokio::test]
-async fn agent_activity_emits_the_complete_ordered_twenty_event_timeline() {
+async fn agent_activity_emits_streamed_subagent_updates_in_the_complete_ordered_timeline() {
     let mut mock = MockProcess::start("agent-activity").await;
     mock.send(json!({"id":"prompt","type":"prompt","message":"Show activity"}))
         .await;
-    assert_eq!(mock.next().await["type"], "agent_start");
+    let start = mock.next().await;
+    assert_eq!(start["type"], "agent_start");
+    let run_id = start["runId"].as_str().unwrap().to_owned();
 
     let mut event_types = Vec::new();
     loop {
         let frame = mock.next().await;
         if frame["type"] == "response" && frame["id"] == "prompt" {
             break;
+        }
+        if (frame["type"] == "message_start" && frame["message"]["role"] == "user")
+            || frame["type"] == "agent_end"
+        {
+            assert_eq!(frame["runId"], run_id);
         }
         event_types.push(frame["type"].as_str().unwrap().to_owned());
     }
@@ -532,8 +541,12 @@ async fn agent_activity_emits_the_complete_ordered_twenty_event_timeline() {
             "moa_reference_end",
             "moa_aggregating",
             "message_start",
+            "subagent_update",
+            "subagent_update",
             "subagent_end",
             "message_start",
+            "subagent_update",
+            "subagent_update",
             "subagent_end",
             "message_start",
             "message_update",
@@ -550,6 +563,81 @@ async fn agent_activity_emits_the_complete_ordered_twenty_event_timeline() {
             .len(),
         2
     );
+    assert!(mock.stop().await.success());
+}
+
+#[tokio::test]
+async fn agent_activity_starts_automatically_during_initial_state_hydration() {
+    let mut mock = MockProcess::start("agent-activity").await;
+    mock.send(json!({"id":"state","type":"get_state"})).await;
+
+    let state = mock.next().await;
+    assert_eq!(state["type"], "response");
+    assert_eq!(state["id"], "state");
+    assert_eq!(state["data"]["running"], false);
+    let start = mock.next().await;
+    assert_eq!(start["type"], "agent_start");
+    assert!(start["runId"].as_str().is_some());
+
+    let mut event_types = Vec::new();
+    loop {
+        let frame = mock.next().await;
+        let event_type = frame["type"].as_str().unwrap();
+        event_types.push(event_type.to_owned());
+        if event_type == "agent_end" {
+            break;
+        }
+    }
+    assert!(event_types.contains(&"subagent_update".to_owned()));
+    assert_eq!(event_types.last().map(String::as_str), Some("agent_end"));
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    mock.send(json!({"id":"settled","type":"get_state"})).await;
+    let settled = mock.response("settled").await;
+    assert_eq!(settled["data"]["running"], false);
+    assert_eq!(settled["data"]["todos"].as_array().unwrap().len(), 2);
+    assert!(mock.stop().await.success());
+}
+
+#[tokio::test]
+async fn ready_idle_activity_demo_task_plays_when_loaded_and_hydrated() {
+    let mut mock = MockProcess::start("ready-idle").await;
+    mock.send(json!({
+        "id":"open",
+        "type":"session_load",
+        "sessionId":"mock-session-agent-activity",
+        "includeMessages":false
+    }))
+    .await;
+    assert_eq!(mock.response("open").await["success"], true);
+
+    mock.send(json!({"id":"state","type":"get_state"})).await;
+    let state = mock.next().await;
+    assert_eq!(state["id"], "state");
+    assert_eq!(state["data"]["todos"].as_array().unwrap().len(), 2);
+    let start = mock.next().await;
+    assert_eq!(start["type"], "agent_start");
+    let run_id = start["runId"].as_str().unwrap().to_owned();
+
+    let mut saw_advisor = false;
+    let mut streamed_subagent_updates = 0;
+    loop {
+        let frame = mock.next().await;
+        match frame["type"].as_str().unwrap() {
+            "message_start" if frame["message"]["role"] == "user" => {
+                assert_eq!(frame["runId"], run_id);
+                saw_advisor = true;
+            }
+            "subagent_update" => streamed_subagent_updates += 1,
+            "agent_end" => {
+                assert_eq!(frame["runId"], run_id);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_advisor);
+    assert_eq!(streamed_subagent_updates, 4);
     assert!(mock.stop().await.success());
 }
 

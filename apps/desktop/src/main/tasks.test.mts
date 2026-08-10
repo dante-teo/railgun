@@ -98,6 +98,28 @@ test('TaskService validates renderer session IDs before archiving', async (): Pr
   assert.throws(() => validateSessionId('task\n123'), /Invalid task identifier/)
 })
 
+test('TaskService opens a validated task without crossing transcript content into the renderer', async (): Promise<void> => {
+  const backend = new StubBackend({ sessionId: 'task-123' })
+  const service = new TaskService(backend)
+
+  await service.open('task-123')
+  assert.deepEqual(backend.calls, [
+    {
+      command: 'session_load',
+      fields: { sessionId: 'task-123', includeMessages: false },
+      options: undefined
+    }
+  ])
+  await assert.rejects(service.open(' task-123'), /Invalid task identifier/)
+  assert.equal(backend.calls.length, 1)
+})
+
+test('TaskService rejects malformed or mismatched loaded task responses', async (): Promise<void> => {
+  for (const response of [undefined, {}, { sessionId: 'another-task' }]) {
+    await assert.rejects(new TaskService(new StubBackend(response)).open('task-123'), /invalid/i)
+  }
+})
+
 test('TaskService preserves archive failures for the IPC caller', async (): Promise<void> => {
   const service = new TaskService(
     new StubBackend(undefined, new Error('active session task-123 not found'))

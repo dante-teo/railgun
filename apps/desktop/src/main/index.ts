@@ -2,11 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { ActivityService } from './activity.mts'
 import { BackendProcessManager, resolveBackendLaunch } from './backend-process.mts'
 import { TaskService } from './tasks.mts'
-import { tasksArchiveChannel, tasksListChannel } from '../shared/task-api'
+import { activitySnapshotChannel, activityUpdateChannel } from '../shared/activity-api'
+import { tasksArchiveChannel, tasksListChannel, tasksOpenChannel } from '../shared/task-api'
 
 const backendProcess = new BackendProcessManager()
+const activityService = new ActivityService(backendProcess)
 const taskService = new TaskService(backendProcess)
 let isQuitting = false
 let backendFailureReported = false
@@ -30,7 +33,10 @@ function startConfiguredBackend(): void {
   }
 
   const child = backendProcess.start(launch)
-  void backendProcess.waitUntilReady().catch(reportBackendFailure)
+  void backendProcess
+    .waitUntilReady()
+    .then(() => activityService.hydrate())
+    .catch(reportBackendFailure)
   child.once('error', reportBackendFailure)
   child.once('exit', (code, signal) => {
     if (!isQuitting) {
@@ -40,12 +46,25 @@ function startConfiguredBackend(): void {
   })
 }
 
-function registerTaskHandlers(): void {
+function registerIpcHandlers(): void {
+  ipcMain.handle(activitySnapshotChannel, () => activityService.getSnapshot())
   ipcMain.handle(tasksListChannel, () => taskService.list())
   ipcMain.handle(tasksArchiveChannel, (_event, sessionId: unknown) =>
     taskService.archive(sessionId)
   )
+  ipcMain.handle(tasksOpenChannel, async (_event, sessionId: unknown) => {
+    await taskService.open(sessionId)
+    await activityService.refresh()
+  })
 }
+
+activityService.subscribe((update) => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(activityUpdateChannel, update)
+    }
+  }
+})
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -99,7 +118,7 @@ app.whenReady().then(() => {
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.railgun.desktop')
-  registerTaskHandlers()
+  registerIpcHandlers()
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

@@ -94,8 +94,8 @@ describe('TaskList', () => {
     expect(onArchive).toHaveBeenCalledWith(task.id)
   })
 
-  it('shows archive errors alongside populated rows', () => {
-    renderTaskList({ archiveError: 'Could not archive the task.' })
+  it('shows task action errors alongside populated rows', () => {
+    renderTaskList({ taskActionError: 'Could not archive the task.' })
 
     expect(screen.getByRole('alert')).toHaveTextContent('Could not archive the task.')
     expect(screen.getByText(task.title)).toBeInTheDocument()

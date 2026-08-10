@@ -9,11 +9,12 @@ import {
 import { TaskDetailPlaceholder } from '@/components/shell/TaskDetailPlaceholder'
 import { TaskInspector } from '@/components/shell/TaskInspector'
 import { TaskList } from '@/components/shell/TaskList'
+import { useActivity } from '@/hooks/use-activity'
+import { transitionEndFallbackMilliseconds } from '@/lib/motion'
 import type { TaskSummary } from '@/lib/task-api'
 import { AppShellLayout } from '@/layouts/AppShellLayout'
 
 const taskLoadError = 'Could not load tasks. Check the backend and try again.'
-const archiveExitFallbackMilliseconds = 200
 let pendingTaskList: Promise<TaskSummary[]> | undefined
 
 interface ArchiveOperation {
@@ -50,7 +51,8 @@ function loadTasks(): Promise<TaskSummary[]> {
 }
 
 export function TasksPage(): React.JSX.Element {
-  const [archiveError, setArchiveError] = useState<string>()
+  const activity = useActivity()
+  const [taskActionError, setTaskActionError] = useState<string>()
   const [archiveInFlight, setArchiveInFlight] = useState(false)
   const [archivingTaskId, setArchivingTaskId] = useState<string>()
   const [loadError, setLoadError] = useState<string>()
@@ -60,6 +62,7 @@ export function TasksPage(): React.JSX.Element {
   const [tasks, setTasks] = useState<TaskSummary[]>([])
   const archiveLock = useRef(false)
   const archiveOperation = useRef<ArchiveOperation | undefined>(undefined)
+  const selectionAttempt = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -132,7 +135,7 @@ export function TasksPage(): React.JSX.Element {
       archiveLock.current = true
       archiveOperation.current = operation
       setArchiveInFlight(true)
-      setArchiveError(undefined)
+      setTaskActionError(undefined)
       setArchivingTaskId(sessionId)
       setRestoredTaskId(undefined)
       if (operation.wasSelected) {
@@ -140,7 +143,7 @@ export function TasksPage(): React.JSX.Element {
       }
       operation.exitFallback = setTimeout(
         () => finishArchiveExit(operation),
-        archiveExitFallbackMilliseconds
+        transitionEndFallbackMilliseconds
       )
 
       try {
@@ -164,7 +167,7 @@ export function TasksPage(): React.JSX.Element {
         if (operation.wasSelected) {
           setSelectedTaskId((current) => current ?? sessionId)
         }
-        setArchiveError(`Could not archive “${operation.task.title}”. Try again.`)
+        setTaskActionError(`Could not archive “${operation.task.title}”. Try again.`)
       } finally {
         clearArchiveExitFallback(operation)
         operation.resolveExit()
@@ -179,6 +182,27 @@ export function TasksPage(): React.JSX.Element {
     [finishArchiveExit, selectedTaskId, tasks]
   )
 
+  const handleSelect = useCallback(
+    (sessionId: string): void => {
+      const task = tasks.find((candidate) => candidate.id === sessionId)
+      if (!task) {
+        return
+      }
+
+      const attempt = ++selectionAttempt.current
+      const previousSelectedTaskId = selectedTaskId
+      setSelectedTaskId(sessionId)
+      setTaskActionError(undefined)
+      void window.railgun.tasks.open(sessionId).catch(() => {
+        if (selectionAttempt.current === attempt) {
+          setSelectedTaskId(previousSelectedTaskId)
+          setTaskActionError(`Could not open “${task.title}”. Try again.`)
+        }
+      })
+    },
+    [selectedTaskId, tasks]
+  )
+
   const selectedTask = tasks.find((task) => task.id === selectedTaskId)
 
   return (
@@ -187,12 +211,12 @@ export function TasksPage(): React.JSX.Element {
         <TaskList
           archivingTaskId={archivingTaskId}
           archiveDisabled={archiveInFlight}
-          archiveError={archiveError}
+          taskActionError={taskActionError}
           loadError={loadError}
           loading={loading}
           onArchive={(sessionId) => void handleArchive(sessionId)}
           onArchiveExit={handleArchiveExit}
-          onSelect={setSelectedTaskId}
+          onSelect={handleSelect}
           restoredTaskId={restoredTaskId}
           selectedTaskId={selectedTaskId}
           tasks={tasks}
@@ -201,7 +225,7 @@ export function TasksPage(): React.JSX.Element {
       detail={<TaskDetailPlaceholder task={selectedTask} />}
       inspector={<TaskInspector />}
       inspectorTopBar={<InspectorTopBar />}
-      sidebar={<SidebarNavigation />}
+      sidebar={<SidebarNavigation activity={activity} />}
       sidebarTopBar={<SidebarTopBar />}
       workspaceTopBar={<TasksWorkspaceTopBar />}
     />
