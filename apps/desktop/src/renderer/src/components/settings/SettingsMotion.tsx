@@ -153,13 +153,14 @@ export function SettingsAnimatedList({
       const delta = previousTop === undefined ? 0 : previousTop - nextTop
       return delta === 0 ? [] : [{ delta, element }]
     })
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const timing = feedbackTiming(listElement)
     const shouldAnimate = previousMotionRevision.current !== motionRevision
     previousPositions.current = nextPositions
     previousMotionRevision.current = motionRevision
 
-    if (reduceMotion || !shouldAnimate) return
+    if (!shouldAnimate || movements.length === 0) return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduceMotion) return
+    const timing = feedbackTiming(listElement)
     movements.forEach(({ delta, element }) => {
       if (typeof element.animate === 'function') {
         element.animate(

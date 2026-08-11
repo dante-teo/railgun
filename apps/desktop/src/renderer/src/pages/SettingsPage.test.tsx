@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -220,10 +220,13 @@ describe('Settings routes', () => {
     })
     renderApp('/settings/archived-tasks')
     const title = await screen.findByText('Archived task')
-    const row = title.closest('[data-slot="settings-list-item"]')!
+    const row = title.closest<HTMLElement>('[data-slot="settings-list-item"]')!
 
-    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete Archived task' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Permanently delete Archived task' }))
+    const confirmation = screen
+      .getByText('Permanently delete “Archived task”?')
+      .closest<HTMLElement>('[role="alertdialog"]')!
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => expect(deleteArchived).toHaveBeenCalledWith('task-archived'))
     await waitFor(() => expect(row).toHaveAttribute('data-motion', 'exiting'))
@@ -260,16 +263,22 @@ describe('Settings routes', () => {
     fireEvent.change(search, { target: { value: 'Visible' } })
     await waitFor(() => expect(screen.queryByText('Hidden task')).not.toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete All' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete All' }))
+    const deleteAllButton = screen.getByRole('button', { name: 'Delete All' })
+    fireEvent.click(deleteAllButton)
+    const confirmation = screen
+      .getByText('Delete all 2 archived tasks?')
+      .closest<HTMLElement>('[role="alertdialog"]')!
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Delete All' }))
 
     await waitFor(() => expect(deleteAllArchived).toHaveBeenCalledOnce())
-    const visibleRow = screen.getByText('Visible task').closest('[data-slot="settings-list-item"]')!
+    const visibleRow = screen
+      .getByText('Visible task')
+      .closest<HTMLElement>('[data-slot="settings-list-item"]')!
     await waitFor(() => expect(visibleRow).toHaveAttribute('data-motion', 'exiting'))
     fireEvent.transitionEnd(visibleRow, { propertyName: 'opacity' })
 
     expect(search).not.toBeDisabled()
     expect(screen.queryByText('Visible task')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete All' })).toBeDisabled()
+    expect(deleteAllButton).toBeDisabled()
   })
 })

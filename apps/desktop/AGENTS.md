@@ -68,6 +68,9 @@ them; a feature is not a synonym for a routed screen.
   unmount it on its own opacity transition. A new active state must remain usable while it enters.
 - Reduced-motion behavior keeps short opacity feedback while removing translation, scaling,
   scrolling, and other spatial motion.
+- For FLIP/WAAPI list motion, keep position bookkeeping current, but read computed timing styles and
+  start animations only when an explicit mutation revision produces actual row movement. Filtering,
+  dialog state changes, and zero-delta mutations must not perform animation timing work.
 
 ## Dependency direction
 

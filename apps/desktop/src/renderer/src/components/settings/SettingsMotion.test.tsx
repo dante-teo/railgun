@@ -4,6 +4,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsAnimatedList, SettingsCrossfade, SettingsListItem } from './SettingsMotion'
 
+function mockSettingsListPositions(positions: ReadonlyMap<string, number>): void {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement
+  ) {
+    const top = positions.get(this.dataset.settingsListKey ?? '') ?? 0
+    return {
+      bottom: top + 40,
+      height: 40,
+      left: 0,
+      right: 100,
+      top,
+      width: 100,
+      x: 0,
+      y: top,
+      toJSON: () => undefined
+    }
+  })
+}
+
 describe('Settings motion', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -75,22 +94,7 @@ describe('Settings motion', () => {
       ['one', 0],
       ['two', 48]
     ])
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
-      this: HTMLElement
-    ) {
-      const top = positions.get(this.dataset.settingsListKey ?? '') ?? 0
-      return {
-        bottom: top + 40,
-        height: 40,
-        left: 0,
-        right: 100,
-        top,
-        width: 100,
-        x: 0,
-        y: top,
-        toJSON: () => undefined
-      }
-    })
+    mockSettingsListPositions(positions)
 
     function ListFixture(): React.JSX.Element {
       const [items, setItems] = useState(['one', 'two'])
@@ -127,8 +131,33 @@ describe('Settings motion', () => {
     )
   })
 
+  it('skips animation timing work when a mutation revision does not move a row', () => {
+    const animate = vi.fn()
+    const getComputedStyle = vi.spyOn(window, 'getComputedStyle')
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: animate
+    })
+    mockSettingsListPositions(new Map([['one', 0]]))
+
+    const { rerender } = render(
+      <SettingsAnimatedList ariaLabel="Rows" motionRevision={0}>
+        <SettingsListItem itemKey="one">before</SettingsListItem>
+      </SettingsAnimatedList>
+    )
+    rerender(
+      <SettingsAnimatedList ariaLabel="Rows" motionRevision={1}>
+        <SettingsListItem itemKey="one">after</SettingsListItem>
+      </SettingsAnimatedList>
+    )
+
+    expect(animate).not.toHaveBeenCalled()
+    expect(getComputedStyle).not.toHaveBeenCalled()
+  })
+
   it('keeps keyboard-driven list filtering immediate without a mutation revision', () => {
     const animate = vi.fn()
+    const getComputedStyle = vi.spyOn(window, 'getComputedStyle')
     Object.defineProperty(HTMLElement.prototype, 'animate', {
       configurable: true,
       value: animate
@@ -137,22 +166,7 @@ describe('Settings motion', () => {
       ['one', 0],
       ['two', 48]
     ])
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
-      this: HTMLElement
-    ) {
-      const top = positions.get(this.dataset.settingsListKey ?? '') ?? 0
-      return {
-        bottom: top + 40,
-        height: 40,
-        left: 0,
-        right: 100,
-        top,
-        width: 100,
-        x: 0,
-        y: top,
-        toJSON: () => undefined
-      }
-    })
+    mockSettingsListPositions(positions)
 
     const { rerender } = render(
       <SettingsAnimatedList ariaLabel="Rows" motionRevision={0}>
@@ -168,5 +182,6 @@ describe('Settings motion', () => {
     )
 
     expect(animate).not.toHaveBeenCalled()
+    expect(getComputedStyle).not.toHaveBeenCalled()
   })
 })
