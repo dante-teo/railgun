@@ -24,10 +24,11 @@ import { TurnWorkRow } from './TurnWorkRow'
 import styles from './TaskTranscript.module.css'
 
 interface TaskTranscriptProps {
+  composerDisabled?: boolean
   onSessionChanged?: (previousSessionId: string, sessionId: string) => void
-  onTaskSaved?: () => void
+  onTaskSaved?: (sessionId: string) => void
   snapshot: TranscriptSnapshot
-  task: TaskSummary
+  task: Pick<TaskSummary, 'id' | 'title'>
 }
 
 const linkSafety = { enabled: true } as const
@@ -366,6 +367,7 @@ function TranscriptContent({
 }
 
 export function TaskTranscript({
+  composerDisabled = false,
   onSessionChanged,
   onTaskSaved,
   snapshot,
@@ -401,9 +403,10 @@ export function TaskTranscript({
       <div className="w-full shrink-0 px-4 pb-4 pt-2">
         <div className="mx-auto w-full max-w-180">
           <TaskComposer
+            disabled={composerDisabled}
             onSessionChanged={(sessionId) => onSessionChanged?.(task.id, sessionId)}
             onSubmissionAccepted={resumeFollowing}
-            onSubmissionCompleted={onTaskSaved}
+            onSubmissionCompleted={() => onTaskSaved?.(task.id)}
             sessionId={task.id}
             transcript={snapshot}
           />

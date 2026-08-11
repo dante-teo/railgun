@@ -111,6 +111,16 @@ function parseDefaultModelId(value: unknown): string | null {
   return modelId
 }
 
+export async function getConfiguredDefaultModelId(backend: ModelBackend): Promise<string | null> {
+  const [config, catalog] = await Promise.all([
+    backend.request('config_get'),
+    backend.request('get_available_models')
+  ])
+  const modelId = parseDefaultModelId(config)
+  const models = parseModelCatalog(catalog)
+  return modelId && models.some(({ id }) => id === modelId) ? modelId : null
+}
+
 export async function getModelConfiguration(backend: ModelBackend): Promise<ModelConfiguration> {
   const [catalog, state, config] = await Promise.all([
     backend.request('get_available_models'),

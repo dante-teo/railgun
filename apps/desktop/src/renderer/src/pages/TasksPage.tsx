@@ -59,25 +59,32 @@ export function TasksPage(): React.JSX.Element {
   const [archivingTaskId, setArchivingTaskId] = useState<string>()
   const [loadError, setLoadError] = useState<string>()
   const [loading, setLoading] = useState(true)
+  const [createInFlight, setCreateInFlight] = useState(false)
+  const [newlyPersistedTaskId, setNewlyPersistedTaskId] = useState<string>()
   const [restoredTaskId, setRestoredTaskId] = useState<string>()
   const [selectedTaskId, setSelectedTaskId] = useState<string>()
   const [tasks, setTasks] = useState<TaskSummary[]>([])
+  const [unsavedTask, setUnsavedTask] = useState<Pick<TaskSummary, 'id' | 'title'>>()
+  const activeDetailSessionId = useRef<string | undefined>(undefined)
   const archiveLock = useRef(false)
   const archiveOperation = useRef<ArchiveOperation | undefined>(undefined)
+  const createLock = useRef(false)
   const selectionAttempt = useRef(0)
+  const taskListRequestSequence = useRef(0)
   const transcriptRunning = transcript.status === 'running'
 
   useEffect(() => {
     let cancelled = false
+    const requestSequence = ++taskListRequestSequence.current
     void loadTasks().then(
       (loadedTasks) => {
-        if (!cancelled) {
+        if (!cancelled && requestSequence === taskListRequestSequence.current) {
           setTasks(loadedTasks)
           setLoading(false)
         }
       },
       () => {
-        if (!cancelled) {
+        if (!cancelled && requestSequence === taskListRequestSequence.current) {
           setLoadError(taskLoadError)
           setLoading(false)
         }
@@ -87,6 +94,29 @@ export function TasksPage(): React.JSX.Element {
       cancelled = true
     }
   }, [])
+
+  const handleCreate = useCallback(async (): Promise<void> => {
+    if (createLock.current || archiveLock.current || transcriptRunning) {
+      return
+    }
+
+    createLock.current = true
+    setCreateInFlight(true)
+    setNewlyPersistedTaskId(undefined)
+    setTaskActionError(undefined)
+    try {
+      const sessionId = await window.railgun.tasks.create()
+      selectionAttempt.current += 1
+      activeDetailSessionId.current = sessionId
+      setSelectedTaskId(undefined)
+      setUnsavedTask({ id: sessionId, title: 'New Task' })
+    } catch {
+      setTaskActionError('Could not create a new task. Try again.')
+    } finally {
+      createLock.current = false
+      setCreateInFlight(false)
+    }
+  }, [transcriptRunning])
 
   const finishArchiveExit = useCallback((operation: ArchiveOperation): void => {
     if (archiveOperation.current !== operation || operation.exitCompleted) {
@@ -109,9 +139,13 @@ export function TasksPage(): React.JSX.Element {
     [finishArchiveExit]
   )
 
+  const handleNewlyPersistedEntranceComplete = useCallback((sessionId: string): void => {
+    setNewlyPersistedTaskId((current) => (current === sessionId ? undefined : current))
+  }, [])
+
   const handleArchive = useCallback(
     async (sessionId: string): Promise<void> => {
-      if (archiveLock.current || transcriptRunning) {
+      if (archiveLock.current || createLock.current || transcriptRunning) {
         return
       }
 
@@ -140,8 +174,10 @@ export function TasksPage(): React.JSX.Element {
       setArchiveInFlight(true)
       setTaskActionError(undefined)
       setArchivingTaskId(sessionId)
+      setNewlyPersistedTaskId((current) => (current === sessionId ? undefined : current))
       setRestoredTaskId(undefined)
       if (operation.wasSelected) {
+        activeDetailSessionId.current = undefined
         setSelectedTaskId(undefined)
       }
       operation.exitFallback = setTimeout(
@@ -168,6 +204,7 @@ export function TasksPage(): React.JSX.Element {
           setRestoredTaskId(sessionId)
         }
         if (operation.wasSelected) {
+          activeDetailSessionId.current = sessionId
           setSelectedTaskId((current) => current ?? sessionId)
         }
         setTaskActionError(`Could not archive “${operation.task.title}”. Try again.`)
@@ -187,7 +224,7 @@ export function TasksPage(): React.JSX.Element {
 
   const handleSelect = useCallback(
     (sessionId: string): void => {
-      if (transcriptRunning) {
+      if (createLock.current || transcriptRunning) {
         return
       }
       const task = tasks.find((candidate) => candidate.id === sessionId)
@@ -196,71 +233,117 @@ export function TasksPage(): React.JSX.Element {
       }
 
       const attempt = ++selectionAttempt.current
+      const previousDetailSessionId = activeDetailSessionId.current
       const previousSelection = selectedTaskId
+      const previousUnsavedTask = unsavedTask
+      activeDetailSessionId.current = sessionId
       setSelectedTaskId(sessionId)
+      setUnsavedTask(undefined)
       setTaskActionError(undefined)
       void window.railgun.tasks.open(sessionId).catch(() => {
         if (selectionAttempt.current === attempt) {
+          activeDetailSessionId.current = previousDetailSessionId
           setSelectedTaskId((current) => (current === sessionId ? previousSelection : current))
+          setUnsavedTask(previousUnsavedTask)
           setTaskActionError(`Could not open “${task.title}”. Try again.`)
         }
       })
     },
-    [selectedTaskId, tasks, transcriptRunning]
+    [selectedTaskId, tasks, transcriptRunning, unsavedTask]
   )
 
   const handleSessionChanged = useCallback((previousSessionId: string, sessionId: string): void => {
     if (previousSessionId === sessionId) {
       return
     }
+    if (activeDetailSessionId.current === previousSessionId) {
+      activeDetailSessionId.current = sessionId
+    }
+    setUnsavedTask((current) =>
+      current?.id === previousSessionId ? { ...current, id: sessionId } : current
+    )
     setTasks((current) =>
       current.map((task) => (task.id === previousSessionId ? { ...task, id: sessionId } : task))
     )
     setSelectedTaskId((current) => (current === previousSessionId ? sessionId : current))
   }, [])
 
-  const handleTaskSaved = useCallback((): void => {
-    void loadTasks().then(
-      (loadedTasks) => {
-        setTasks(loadedTasks)
-        setTaskActionError(undefined)
-      },
-      () => setTaskActionError('The task was saved, but the task list could not be refreshed.')
-    )
-  }, [])
+  const handleTaskSaved = useCallback(
+    (sessionId: string): void => {
+      const requestSequence = ++taskListRequestSequence.current
+      const reconcileUnsavedTask = unsavedTask?.id === sessionId
+      void window.railgun.tasks.list().then(
+        (loadedTasks) => {
+          if (requestSequence !== taskListRequestSequence.current) {
+            return
+          }
+          setTasks(loadedTasks)
+          setLoading(false)
+          if (reconcileUnsavedTask && activeDetailSessionId.current === sessionId) {
+            const savedTask = loadedTasks.find((task) => task.id === sessionId)
+            if (!savedTask) {
+              setTaskActionError('The task was saved, but the task list could not be refreshed.')
+              return
+            }
+            setUnsavedTask((current) => (current?.id === sessionId ? undefined : current))
+            setNewlyPersistedTaskId(savedTask.id)
+            setSelectedTaskId(savedTask.id)
+          }
+          setTaskActionError(undefined)
+        },
+        () => {
+          if (requestSequence === taskListRequestSequence.current) {
+            setLoading(false)
+            setTaskActionError('The task was saved, but the task list could not be refreshed.')
+          }
+        }
+      )
+    },
+    [unsavedTask]
+  )
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId)
+  const detailTask = unsavedTask ?? selectedTask
 
   return (
     <AppShellLayout
       content={
         <TaskList
           archivingTaskId={archivingTaskId}
-          archiveDisabled={archiveInFlight || transcriptRunning}
+          archiveDisabled={archiveInFlight || createInFlight || transcriptRunning}
           taskActionError={taskActionError}
           loadError={loadError}
           loading={loading}
+          newlyPersistedTaskId={newlyPersistedTaskId}
           onArchive={(sessionId) => void handleArchive(sessionId)}
           onArchiveExit={handleArchiveExit}
+          onNewlyPersistedEntranceComplete={handleNewlyPersistedEntranceComplete}
           onSelect={handleSelect}
           restoredTaskId={restoredTaskId}
-          selectionDisabled={transcriptRunning}
+          selectionDisabled={createInFlight || transcriptRunning}
           selectedTaskId={selectedTaskId}
           tasks={tasks}
         />
       }
       detail={
         <TaskDetailPlaceholder
+          disabled={createInFlight}
           onSessionChanged={handleSessionChanged}
           onTaskSaved={handleTaskSaved}
-          task={selectedTask}
+          task={detailTask}
         />
       }
       inspector={<TaskInspector />}
       inspectorTopBar={<InspectorTopBar />}
       sidebar={<SidebarNavigation activity={activity} />}
       sidebarTopBar={<SidebarTopBar />}
-      workspaceTopBar={<TasksWorkspaceTopBar />}
+      workspaceTopBar={
+        <TasksWorkspaceTopBar
+          createDisabled={archiveInFlight || transcriptRunning}
+          creating={createInFlight}
+          onCreateTask={() => void handleCreate()}
+        />
+      }
     />
   )
 }

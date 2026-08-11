@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { InspectorTopBar, TasksWorkspaceTopBar } from '@/components/shell/ShellTopBars'
 
@@ -37,5 +37,28 @@ describe('ShellTopBars', () => {
     expect(workspaceTopBar).toHaveTextContent('')
     expect(workspaceTopBar?.children).toHaveLength(1)
     expect(workspaceTopBar?.firstElementChild).toBe(createTaskButton)
+  })
+
+  it('forwards create-task activation and exposes its creating state', () => {
+    const onCreateTask = vi.fn()
+    const { rerender } = render(<TasksWorkspaceTopBar onCreateTask={onCreateTask} />)
+    const createTaskButton = screen.getByRole('button', { name: 'Create task' })
+
+    createTaskButton.click()
+    expect(onCreateTask).toHaveBeenCalledOnce()
+
+    rerender(<TasksWorkspaceTopBar creating onCreateTask={onCreateTask} />)
+    expect(createTaskButton).toBeDisabled()
+    expect(createTaskButton).toHaveAttribute('aria-busy', 'true')
+    expect(createTaskButton).toHaveAttribute('data-creating', 'true')
+    expect(createTaskButton.querySelector('[data-slot="create-task-idle-glyph"]')).not.toBeNull()
+    expect(createTaskButton.querySelector('[data-slot="create-task-busy-glyph"]')).not.toBeNull()
+
+    rerender(<TasksWorkspaceTopBar createDisabled onCreateTask={onCreateTask} />)
+    expect(createTaskButton).toBeDisabled()
+    expect(createTaskButton).not.toHaveAttribute('aria-busy')
+    expect(createTaskButton).not.toHaveAttribute('data-creating')
+    createTaskButton.click()
+    expect(onCreateTask).toHaveBeenCalledOnce()
   })
 })

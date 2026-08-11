@@ -10,7 +10,8 @@ import type { TaskSummary } from '@/lib/task-api'
 import {
   emptyTranscriptSnapshot,
   type TranscriptApi,
-  type TranscriptSnapshot
+  type TranscriptSnapshot,
+  type TranscriptUpdate
 } from '@/lib/transcript-api'
 import { TasksPage } from '@/pages/TasksPage'
 
@@ -53,7 +54,13 @@ function installTaskApi(
   archive: (sessionId: string) => Promise<void> = async () => undefined,
   open: (sessionId: string) => Promise<void> = async () => undefined,
   pickAttachments: () => Promise<readonly ComposerAttachment[]> = async () => [],
-  transcriptApi: Partial<TranscriptApi> = {}
+  transcriptApi: Partial<TranscriptApi> = {},
+  create: () => Promise<string> = async () => 'new-session',
+  selectModel: (modelId: string) => Promise<ModelConfiguration> = async (modelId) => ({
+    ...modelConfiguration,
+    activeModelId: modelId,
+    defaultModelId: modelId
+  })
 ): void {
   Object.defineProperty(window, 'railgun', {
     configurable: true,
@@ -76,13 +83,9 @@ function installTaskApi(
       },
       models: {
         get: async () => modelConfiguration,
-        select: async (modelId: string) => ({
-          ...modelConfiguration,
-          activeModelId: modelId,
-          defaultModelId: modelId
-        })
+        select: selectModel
       },
-      tasks: { archive, list, open },
+      tasks: { archive, create, list, open },
       transcript: {
         abort: async () => undefined,
         getSnapshot: async () => emptyTranscriptSnapshot(),
@@ -126,9 +129,14 @@ describe('TasksPage', () => {
     installTaskApi(() => list.promise)
     const view = renderTasksPage()
     expect(screen.getByRole('status', { name: 'Task list is loading' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
+    expect(
+      await screen.findByRole('region', { name: 'Transcript for New Task' })
+    ).toBeInTheDocument()
 
     await act(async () => list.resolve([]))
     expect(screen.getByText('No tasks yet')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Transcript for New Task' })).toBeInTheDocument()
 
     view.unmount()
     installTaskApi(async () => {
@@ -149,6 +157,7 @@ describe('TasksPage', () => {
     expect(screen.queryByRole('button', { name: 'Select First task' })).not.toBeInTheDocument()
     const secondArchive = screen.getByRole('button', { name: 'Archive Second task' })
     expect(secondArchive).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled()
     fireEvent.click(secondArchive)
     expect(archive).toHaveBeenCalledTimes(1)
     expect(archive).toHaveBeenCalledWith('first')
@@ -158,6 +167,7 @@ describe('TasksPage', () => {
     fireEvent.transitionEnd(firstRow!, { propertyName: 'opacity' })
     expect(screen.queryByRole('button', { name: 'Select First task' })).not.toBeInTheDocument()
     await waitFor(() => expect(secondArchive).not.toBeDisabled())
+    expect(screen.getByRole('button', { name: 'Create task' })).not.toBeDisabled()
   })
 
   it('restores a failed archive at its exact index and remains retry-safe', async () => {
@@ -343,6 +353,267 @@ describe('TasksPage', () => {
     await waitFor(() => expect(first).toBeDisabled())
     expect(screen.getByRole('button', { name: 'Select Second task' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Archive First task' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled()
+  })
+
+  it('creates one unsaved task and shows its empty transcript without adding a saved row', async () => {
+    const create = vi.fn(async () => 'new-session')
+    const ready: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'new-session',
+      status: 'ready'
+    }
+    installTaskApi(
+      async () => tasks,
+      async () => undefined,
+      async () => undefined,
+      async () => [],
+      { getSnapshot: async () => ready },
+      create
+    )
+    renderTasksPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create task' }))
+
+    expect(
+      await screen.findByRole('region', { name: 'Transcript for New Task' })
+    ).toBeInTheDocument()
+    expect(screen.getByText('No messages yet')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Message composer' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Select New Task' })).not.toBeInTheDocument()
+    expect(create).toHaveBeenCalledOnce()
+    for (const task of tasks) {
+      expect(screen.getByRole('button', { name: `Select ${task.title}` })).toHaveAttribute(
+        'aria-pressed',
+        'false'
+      )
+    }
+  })
+
+  it('serializes task creation and disables conflicting task actions while it is pending', async () => {
+    const createRequest = deferred<string>()
+    const create = vi.fn(() => createRequest.promise)
+    installTaskApi(
+      async () => tasks,
+      async () => undefined,
+      async () => undefined,
+      async () => [],
+      {},
+      create
+    )
+    renderTasksPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select First task' }))
+    const message = await screen.findByRole('textbox', { name: 'Message' })
+    const createButton = await screen.findByRole('button', { name: 'Create task' })
+    fireEvent.click(createButton)
+
+    expect(createButton).toBeDisabled()
+    expect(createButton).toHaveAttribute('aria-busy', 'true')
+    expect(createButton).toHaveAttribute('data-creating', 'true')
+    expect(message).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Select First task' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Archive First task' })).toBeDisabled()
+    fireEvent.click(createButton)
+    expect(create).toHaveBeenCalledOnce()
+
+    await act(async () => createRequest.resolve('new-session'))
+    expect(createButton).not.toBeDisabled()
+    expect(createButton).not.toHaveAttribute('aria-busy')
+    expect(createButton).not.toHaveAttribute('data-creating')
+  })
+
+  it('preserves the selected task and remains retryable when creation fails', async () => {
+    const create = vi.fn(async () => {
+      throw new Error('backend detail')
+    })
+    const ready: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'first',
+      status: 'ready'
+    }
+    installTaskApi(
+      async () => tasks,
+      async () => undefined,
+      async () => undefined,
+      async () => [],
+      { getSnapshot: async () => ready },
+      create
+    )
+    renderTasksPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select First task' }))
+    expect(
+      await screen.findByRole('region', { name: 'Transcript for First task' })
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not create a new task. Try again.'
+    )
+    expect(screen.getByRole('region', { name: 'Transcript for First task' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select First task' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+  })
+
+  it('sends the first prompt through the unsaved session and selects its persisted summary', async () => {
+    const persistedTask: TaskSummary = {
+      id: 'new-session',
+      title: 'Generated task title',
+      lastMessageAt: '2026-08-11T02:00:00.000Z'
+    }
+    const list = vi.fn<() => Promise<TaskSummary[]>>()
+    list.mockResolvedValueOnce(tasks).mockResolvedValueOnce([persistedTask, ...tasks])
+    const send = vi.fn(async () => undefined)
+    const ready: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'new-session',
+      status: 'ready'
+    }
+    installTaskApi(
+      list,
+      async () => undefined,
+      async () => undefined,
+      async () => [],
+      { getSnapshot: async () => ready, send },
+      async () => 'new-session'
+    )
+    renderTasksPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create task' }))
+    const message = await screen.findByRole('textbox', { name: 'Message' })
+    fireEvent.change(message, { target: { value: 'Build the report' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith('new-session', {
+        text: 'Build the report',
+        attachments: []
+      })
+    )
+    const persistedRow = await screen.findByRole('button', {
+      name: 'Select Generated task title'
+    })
+    expect(persistedRow).toHaveAttribute('aria-pressed', 'true')
+    expect(persistedRow.closest('li')).toHaveAttribute('data-newly-persisted', 'true')
+    fireEvent.transitionEnd(persistedRow.closest('li')!, { propertyName: 'opacity' })
+    await waitFor(() =>
+      expect(persistedRow.closest('li')).not.toHaveAttribute('data-newly-persisted')
+    )
+    expect(persistedRow.closest('li')?.querySelector('time')).toHaveAttribute(
+      'datetime',
+      persistedTask.lastMessageAt
+    )
+    expect(
+      screen.getByRole('region', { name: 'Transcript for Generated task title' })
+    ).toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps an unsaved detail attached to a model-forked session ID', async () => {
+    const transcriptListeners = new Set<(update: TranscriptUpdate) => void>()
+    const send = vi.fn(async () => undefined)
+    const ready: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'new-session',
+      status: 'ready'
+    }
+    installTaskApi(
+      async () => tasks,
+      async () => undefined,
+      async () => undefined,
+      async () => [],
+      {
+        getSnapshot: async () => ready,
+        send,
+        subscribe: (listener) => {
+          transcriptListeners.add(listener)
+          return () => transcriptListeners.delete(listener)
+        }
+      },
+      async () => 'new-session',
+      async (modelId) => {
+        const update = {
+          revision: 2,
+          snapshot: { ...ready, revision: 2, sessionId: 'forked-new-session' }
+        }
+        transcriptListeners.forEach((listener) => listener(update))
+        return {
+          ...modelConfiguration,
+          activeModelId: modelId,
+          activeSessionId: 'forked-new-session',
+          defaultModelId: modelId
+        }
+      }
+    )
+    renderTasksPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create task' }))
+    const originalComposer = await screen.findByRole('group', { name: 'Message composer' })
+    const model = await screen.findByRole('button', { name: 'Select model: Mock Model' })
+    await waitFor(() => expect(model).toBeEnabled())
+    fireEvent.keyDown(model, { code: 'Enter', key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Mock Reference' }))
+
+    await waitFor(() => expect(originalComposer).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Transcript for New Task' })).toBeInTheDocument()
+    )
+    expect(await screen.findByText('No messages yet')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled())
+    const message = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.change(message, { target: { value: 'Use the new model' } })
+    const sendButton = screen.getByRole('button', { name: 'Send message' })
+    await waitFor(() => expect(sendButton).toBeEnabled())
+    fireEvent.click(sendButton)
+
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith('forked-new-session', {
+        text: 'Use the new model',
+        attachments: []
+      })
+    )
+    expect(screen.queryByRole('button', { name: 'Select New Task' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the unsaved detail visible when its post-save list refresh fails', async () => {
+    const list = vi.fn<() => Promise<TaskSummary[]>>()
+    list.mockResolvedValueOnce(tasks).mockRejectedValueOnce(new Error('offline'))
+    const ready: TranscriptSnapshot = {
+      ...emptyTranscriptSnapshot(),
+      revision: 1,
+      sessionId: 'new-session',
+      status: 'ready'
+    }
+    installTaskApi(
+      list,
+      async () => undefined,
+      async () => undefined,
+      async () => [],
+      { getSnapshot: async () => ready, send: async () => undefined },
+      async () => 'new-session'
+    )
+    renderTasksPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create task' }))
+    const message = await screen.findByRole('textbox', { name: 'Message' })
+    fireEvent.change(message, { target: { value: 'Persist me' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The task was saved, but the task list could not be refreshed.'
+    )
+    expect(screen.getByRole('region', { name: 'Transcript for New Task' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Select New Task' })).not.toBeInTheDocument()
   })
 
   it('refreshes page-owned task summaries after a prompt is saved', async () => {

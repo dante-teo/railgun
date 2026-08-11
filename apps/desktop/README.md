@@ -99,13 +99,31 @@ renderer code.
 ### Backend boundaries
 
 The context-isolated preload exposes `window.railgun.tasks.list()`,
-`window.railgun.tasks.open(sessionId)`, and `window.railgun.tasks.archive(sessionId)`. List results
-contain the session ID, presentation title, and an ISO-8601 `lastMessageAt` timestamp; the main
-process validates every response before it crosses into the renderer and validates renderer-supplied
-session IDs before loading or archiving. Opening a task activates the requested backend session,
-hydrates its transcript through the separate transcript service, then refreshes activity and context
-usage. A failed load restores the previous visible selection unless the user has already selected
-something newer.
+`window.railgun.tasks.create()`, `window.railgun.tasks.open(sessionId)`, and
+`window.railgun.tasks.archive(sessionId)`. List results contain the session ID, presentation title,
+and an ISO-8601 `lastMessageAt` timestamp; the main process validates every response before it
+crosses into the renderer and validates renderer-supplied session IDs before loading or archiving.
+Opening a task activates the requested backend session, hydrates its transcript through the
+separate transcript service, then refreshes activity and context usage. A failed load restores the
+previous visible selection unless the user has already selected something newer.
+
+Creating a task reads the configured default model and the live model catalog, passes the default
+only when it is still available, requests a new backend session, validates its ID, and publishes an
+empty, ready transcript before returning that ID. If the configured default is stale, the request
+omits it so the backend can use its valid active fallback. Activity and context usage are refreshed
+for the new active session. The renderer presents this session immediately as “New Task” in the
+detail column, but deliberately keeps it out of the saved task list and clears any persisted-row
+selection. The backend's automatic first-prompt checkpoint remains the persistence boundary: after
+that prompt completes, the renderer makes a fresh list request, replaces the temporary detail with
+the matching backend summary, and selects its generated title and timestamp. If the refresh fails
+or does not contain the new session yet, the unsaved detail remains usable and the list refresh can
+be retried by sending another prompt. Starting another new task replaces an untouched temporary
+task without an additional confirmation.
+
+Task opening, task creation, and model selection share one main-process FIFO because each can
+replace the backend's single active session. An operation completes its transcript load or adopts
+any model fork before the next begins, preventing late work from replacing a newer task. A rejected
+operation does not block later mutations.
 
 #### Transcript boundary
 
@@ -116,12 +134,14 @@ something newer.
 - `respondToApproval(...)` and `respondToClarification(...)` resolve backend interaction requests.
 
 The main process owns transcript state. It validates and collects every `session_transcript` page,
-optimistically appends an accepted user prompt, reduces validated live frames, and rehydrates after
-the timeout-free `prompt` request completes so persisted message IDs and final content remain
-authoritative. Send and interaction commands must match the loaded session; duplicate sends,
-duplicate stops, task loads during a run, and stale interaction responses are rejected. A model
-change can fork a saved session, so model selection returns the backend's active session ID and the
-main process adopts and rehydrates that session before the composer becomes available again.
+publishes a validated empty snapshot for a newly created session, optimistically appends an accepted
+user prompt, reduces validated live frames, and rehydrates after the timeout-free `prompt` request
+completes so persisted message IDs and final content remain authoritative. Send and interaction
+commands must match the loaded session; duplicate sends, duplicate stops, task creation or loads
+during a run, and stale interaction responses are rejected. A model change can fork a session, so
+model selection returns the backend's active session ID and the main process adopts and rehydrates
+that session before the composer becomes available again. The renderer also applies that forked ID
+to a temporary “New Task” detail without prematurely adding it to the saved list.
 
 Only renderer-safe presentation data crosses this boundary. Assistant text deltas are coalesced to
 at most one IPC publication every 50 ms. Tool activity contains the bounded tool name, live/failure

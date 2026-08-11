@@ -1,0 +1,45 @@
+.createTaskGlyph {
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+.createTaskIdleGlyph {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.createTaskButton .createTaskSpinner {
+  animation-play-state: paused;
+}
+
+.createTaskButton[data-creating='true'] .createTaskGlyph {
+  transition-delay: var(--duration-feedback);
+}
+
+.createTaskButton[data-creating='true'] .createTaskIdleGlyph {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+.createTaskButton[data-creating='true'] .createTaskBusyGlyph {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.createTaskButton[data-creating='true'] .createTaskSpinner {
+  animation-play-state: running;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .createTaskGlyph {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+
+  .createTaskSpinner {
+    animation: none !important;
+  }
+}

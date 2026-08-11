@@ -15,8 +15,10 @@ export interface TaskListProps {
   archiveDisabled: boolean
   loadError?: string
   loading: boolean
+  newlyPersistedTaskId?: string
   onArchive: (sessionId: string) => void
   onArchiveExit: (sessionId: string) => void
+  onNewlyPersistedEntranceComplete?: (sessionId: string) => void
   onSelect: (sessionId: string) => void
   restoredTaskId?: string
   selectionDisabled?: boolean
@@ -28,8 +30,10 @@ export interface TaskListProps {
 interface TaskListRowProps {
   archiving: boolean
   archiveDisabled: boolean
+  newlyPersisted: boolean
   onArchive: (sessionId: string) => void
   onArchiveExit: (sessionId: string) => void
+  onNewlyPersistedEntranceComplete?: (sessionId: string) => void
   onSelect: (sessionId: string) => void
   restored: boolean
   selected: boolean
@@ -44,8 +48,10 @@ function isOwnOpacityTransition(event: React.TransitionEvent<HTMLElement>): bool
 function TaskListRow({
   archiving,
   archiveDisabled,
+  newlyPersisted,
   onArchive,
   onArchiveExit,
+  onNewlyPersistedEntranceComplete,
   onSelect,
   restored,
   selected,
@@ -53,9 +59,15 @@ function TaskListRow({
   task
 }: TaskListRowProps): React.JSX.Element {
   const archiveLabel = `Archive ${task.title}`
-  const finishArchiveTransition = (event: React.TransitionEvent<HTMLLIElement>): void => {
-    if (archiving && isOwnOpacityTransition(event)) {
+  const finishRowTransition = (event: React.TransitionEvent<HTMLLIElement>): void => {
+    if (!isOwnOpacityTransition(event)) {
+      return
+    }
+    if (archiving) {
       onArchiveExit(task.id)
+    }
+    if (newlyPersisted) {
+      onNewlyPersistedEntranceComplete?.(task.id)
     }
   }
 
@@ -63,13 +75,14 @@ function TaskListRow({
     <li
       aria-hidden={archiving || undefined}
       className={cn(
-        'group flex min-h-15 items-center gap-2 rounded-md pr-2 transition-[background-color,opacity,transform] duration-(--duration-feedback) ease-(--ease-out) hover:bg-muted focus-within:bg-muted data-[archiving=true]:pointer-events-none data-[archiving=true]:translate-x-1 data-[archiving=true]:opacity-0 data-[restored=true]:animate-in data-[restored=true]:fade-in-0 data-[restored=true]:slide-in-from-right-1 data-[restored=true]:duration-(--duration-feedback)',
+        'group flex min-h-15 items-center gap-2 rounded-md pr-2 transition-[background-color,opacity,transform] duration-(--duration-feedback) ease-(--ease-out) starting:data-[newly-persisted=true]:translate-x-1 starting:data-[newly-persisted=true]:opacity-0 motion-reduce:translate-x-0! hover:bg-muted focus-within:bg-muted data-[archiving=true]:pointer-events-none data-[archiving=true]:translate-x-1 data-[archiving=true]:opacity-0 data-[restored=true]:animate-in data-[restored=true]:fade-in-0 data-[restored=true]:slide-in-from-right-1 data-[restored=true]:duration-(--duration-feedback)',
         selected && 'bg-muted'
       )}
       data-archiving={archiving || undefined}
+      data-newly-persisted={newlyPersisted || undefined}
       data-restored={restored || undefined}
       data-slot="task-list-row"
-      onTransitionEnd={finishArchiveTransition}
+      onTransitionEnd={finishRowTransition}
     >
       <Button
         aria-label={`Select ${task.title}`}
@@ -176,8 +189,10 @@ export function TaskList({
   archiveDisabled,
   loadError,
   loading,
+  newlyPersistedTaskId,
   onArchive,
   onArchiveExit,
+  onNewlyPersistedEntranceComplete,
   onSelect,
   restoredTaskId,
   selectionDisabled = false,
@@ -225,8 +240,10 @@ export function TaskList({
                     archiving={task.id === archivingTaskId}
                     archiveDisabled={archiveDisabled}
                     key={task.id}
+                    newlyPersisted={task.id === newlyPersistedTaskId}
                     onArchive={onArchive}
                     onArchiveExit={onArchiveExit}
+                    onNewlyPersistedEntranceComplete={onNewlyPersistedEntranceComplete}
                     onSelect={onSelect}
                     restored={task.id === restoredTaskId}
                     selected={task.id === selectedTaskId}

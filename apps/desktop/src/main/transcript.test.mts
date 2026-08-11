@@ -390,6 +390,120 @@ test('adopting a model-forked active session rehydrates without loading a saved 
   service.dispose()
 })
 
+test('creating a transcript uses the configured model and publishes an empty ready snapshot', async () => {
+  const backend = stubTranscriptBackend(async ({ command, fields }) => {
+    if (command === 'config_get') {
+      return { config: { model: 'gpt-5' } }
+    }
+    if (command === 'get_available_models') {
+      return { models: [{ id: 'gpt-5', name: 'GPT-5' }] }
+    }
+    if (command === 'session_new') {
+      assert.deepEqual(fields, { modelId: 'gpt-5' })
+      return { sessionId: 'new-session' }
+    }
+    throw new Error(`Unexpected request: ${command}`)
+  })
+  const service = createTranscriptService(backend)
+  const updates: TranscriptUpdate[] = []
+  service.subscribe((update) => updates.push(update))
+
+  assert.equal(await service.create(), 'new-session')
+  assert.deepEqual(service.getSnapshot(), {
+    revision: 1,
+    sessionId: 'new-session',
+    status: 'ready',
+    messages: [],
+    interactions: [],
+    error: null
+  })
+  assert.deepEqual(updates, [{ revision: 1, snapshot: service.getSnapshot() }])
+  assert.deepEqual(
+    backend.requests.map(({ command }) => command),
+    ['config_get', 'get_available_models', 'session_new']
+  )
+  service.dispose()
+})
+
+test('creating a transcript omits a configured model that is absent from the catalog', async () => {
+  const backend = stubTranscriptBackend(async ({ command, fields }) => {
+    if (command === 'config_get') {
+      return { config: { model: 'removed-model' } }
+    }
+    if (command === 'get_available_models') {
+      return { models: [{ id: 'gpt-5', name: 'GPT-5' }] }
+    }
+    if (command === 'session_new') {
+      assert.deepEqual(fields, {})
+      return { sessionId: 'new-session' }
+    }
+    throw new Error(`Unexpected request: ${command}`)
+  })
+  const service = createTranscriptService(backend)
+
+  assert.equal(await service.create(), 'new-session')
+  assert.equal(service.getSnapshot().sessionId, 'new-session')
+  service.dispose()
+})
+
+test('creating a transcript rejects malformed IDs and preserves the prior snapshot on failure', async () => {
+  const backend = stubTranscriptBackend(async ({ command }) => {
+    if (command === 'session_load') {
+      return { sessionId: 'saved-session' }
+    }
+    if (command === 'session_transcript') {
+      return {
+        sessionId: 'saved-session',
+        messages: [{ role: 'user', messageId: 7, text: 'Keep this visible' }]
+      }
+    }
+    if (command === 'config_get') {
+      return { config: { model: 'gpt-5' } }
+    }
+    if (command === 'get_available_models') {
+      return { models: [{ id: 'gpt-5', name: 'GPT-5' }] }
+    }
+    if (command === 'session_new') {
+      return { sessionId: ' invalid-session ' }
+    }
+    throw new Error(`Unexpected request: ${command}`)
+  })
+  const service = createTranscriptService(backend)
+  await service.load('saved-session')
+  const previous = service.getSnapshot()
+
+  await assert.rejects(service.create(), /Could not create a new task/)
+  assert.deepEqual(service.getSnapshot(), previous)
+  service.dispose()
+})
+
+test('creating a transcript is rejected without backend requests while an agent is running', async () => {
+  const prompt = deferred<unknown>()
+  const backend = stubTranscriptBackend(async ({ command }) => {
+    if (command === 'session_load') {
+      return { sessionId: 'saved-session' }
+    }
+    if (command === 'session_transcript') {
+      return { sessionId: 'saved-session', messages: [] }
+    }
+    if (command === 'prompt') {
+      return prompt.promise
+    }
+    throw new Error(`Unexpected request: ${command}`)
+  })
+  const service = createTranscriptService(backend)
+  await service.load('saved-session')
+  const sending = service.send('saved-session', { text: 'Keep running', attachments: [] })
+  const requestCount = backend.requests.length
+
+  await assert.rejects(service.create(), /running/i)
+  assert.equal(backend.requests.length, requestCount)
+
+  prompt.resolve(undefined)
+  await sending
+  service.dispose()
+})
+
 test('live reduction batches text, normalizes tools, and hides private frames and payloads', async () => {
   const prompt = deferred<unknown>()
   let transcriptReads = 0

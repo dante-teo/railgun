@@ -20,6 +20,7 @@ import styles from './TaskComposer.module.css'
 
 interface TaskComposerProps {
   approvalExpanded?: boolean
+  disabled?: boolean
   modelExpanded?: boolean
   onSessionChanged?: (sessionId: string) => void
   onSubmissionAccepted?: () => void
@@ -160,6 +161,7 @@ function SendGlyph({ children, state }: SendGlyphProps): React.JSX.Element {
 
 export function TaskComposer({
   approvalExpanded,
+  disabled = false,
   modelExpanded,
   onSessionChanged,
   onSubmissionAccepted,
@@ -194,7 +196,8 @@ export function TaskComposer({
   const activeAttachments = attachments.filter(({ path }) => !departingAttachmentPaths.has(path))
   const stopBusy = stopping && isRunning
   const { submission, validationError } = prepareSubmission(draft, activeAttachments)
-  const canSend = transcriptReady && submission !== undefined && !isRunning
+  const canSend = !disabled && transcriptReady && submission !== undefined && !isRunning
+  const controlsDisabled = disabled || isRunning
 
   useEffect(() => {
     let cancelled = false
@@ -239,7 +242,7 @@ export function TaskComposer({
   }, [])
 
   const handleAddAttachment = async (): Promise<void> => {
-    if (pickingAttachments || isRunning) {
+    if (pickingAttachments || controlsDisabled) {
       return
     }
 
@@ -256,7 +259,7 @@ export function TaskComposer({
   }
 
   const handleRemoveAttachment = (path: string): void => {
-    if (isRunning) {
+    if (controlsDisabled) {
       return
     }
     setDepartingAttachmentPaths((current) =>
@@ -272,7 +275,7 @@ export function TaskComposer({
   }
 
   const handleApprovalModeChange = async (mode: ApprovalMode): Promise<void> => {
-    if (!approval || approvalBusy || isRunning || mode === approval.mode) {
+    if (disabled || !approval || approvalBusy || isRunning || mode === approval.mode) {
       return
     }
     if (mode === 'smart' && approval.reviewerModelId === null) {
@@ -294,6 +297,7 @@ export function TaskComposer({
   const handleModelChange = async (modelId: string): Promise<void> => {
     const selected = models?.models.find(({ id }) => id === modelId)
     if (
+      disabled ||
       !models ||
       !selected ||
       modelBusy ||
@@ -399,7 +403,7 @@ export function TaskComposer({
         <textarea
           aria-label="Message"
           className="min-h-10 max-h-64 w-full resize-none overflow-y-auto bg-transparent px-2 py-2 text-sm leading-6 text-foreground outline-none field-sizing-content placeholder:text-muted-foreground"
-          disabled={isRunning}
+          disabled={controlsDisabled}
           onChange={(event) => {
             setDraft(event.target.value)
             setSendError(undefined)
@@ -420,7 +424,7 @@ export function TaskComposer({
             {attachments.map((attachment) => (
               <AttachmentChip
                 attachment={attachment}
-                disabled={isRunning}
+                disabled={controlsDisabled}
                 key={attachment.path}
                 onExited={handleAttachmentExited}
                 onRemove={handleRemoveAttachment}
@@ -442,7 +446,7 @@ export function TaskComposer({
         >
           <Button
             aria-label="Add attachment"
-            disabled={pickingAttachments || isRunning}
+            disabled={pickingAttachments || controlsDisabled}
             onClick={() => void handleAddAttachment()}
             size="icon-sm"
             type="button"
@@ -453,7 +457,7 @@ export function TaskComposer({
           <ApprovalModeSelector
             approval={approval}
             busy={approvalBusy}
-            disabled={isRunning}
+            disabled={controlsDisabled}
             expanded={approvalExpanded}
             onModeChange={(mode) => void handleApprovalModeChange(mode)}
           />
@@ -465,7 +469,7 @@ export function TaskComposer({
           <ModelSelector
             busy={modelBusy}
             configuration={models}
-            disabled={isRunning}
+            disabled={controlsDisabled}
             expanded={modelExpanded}
             onModelChange={(modelId) => void handleModelChange(modelId)}
           />

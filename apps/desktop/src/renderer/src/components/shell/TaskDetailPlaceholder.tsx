@@ -9,9 +9,10 @@ import { TaskTranscript } from './TaskTranscript'
 import styles from './TaskDetailPlaceholder.module.css'
 
 interface TaskDetailPlaceholderProps {
+  disabled?: boolean
   onSessionChanged?: (previousSessionId: string, sessionId: string) => void
-  onTaskSaved?: () => void
-  task?: TaskSummary
+  onTaskSaved?: (sessionId: string) => void
+  task?: Pick<TaskSummary, 'id' | 'title'>
 }
 
 function TranscriptEmptyGraphic(): React.JSX.Element {
@@ -49,6 +50,7 @@ function TranscriptEmptyGraphic(): React.JSX.Element {
 }
 
 export function TaskDetailPlaceholder({
+  disabled = false,
   onSessionChanged,
   onTaskSaved,
   task
@@ -72,6 +74,7 @@ export function TaskDetailPlaceholder({
 
   return (
     <TaskTranscript
+      composerDisabled={disabled}
       key={task.id}
       onSessionChanged={onSessionChanged}
       onTaskSaved={onTaskSaved}

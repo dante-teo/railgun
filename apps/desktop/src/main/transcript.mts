@@ -16,6 +16,7 @@ import {
   type NormalizedLiveFrame,
   type TranscriptAction
 } from './transcript-state.mts'
+import { getConfiguredDefaultModelId } from './models.mts'
 import { validateSessionId } from './tasks.mts'
 import { asObject } from './value-validation.mts'
 
@@ -40,6 +41,7 @@ export interface TranscriptServiceOptions {
 
 export interface TranscriptService {
   readonly getSnapshot: () => TranscriptSnapshot
+  readonly create: () => Promise<string>
   readonly load: (sessionId: unknown) => Promise<void>
   readonly send: (sessionId: unknown, submission: unknown) => Promise<void>
   readonly abort: (sessionId: unknown) => Promise<void>
@@ -70,6 +72,7 @@ export function createTranscriptService(
   let activeAssistantId: string | undefined
   let activeRunId: string | undefined
   let broadcastTimer: ReturnType<typeof setTimeout> | undefined
+  let createPending = false
   let loadSequence = 0
   let messageSequence = 0
   let sendSequence = 0
@@ -244,6 +247,33 @@ export function createTranscriptService(
 
   const isCurrentSend = (sequence: number, sessionId: string): boolean =>
     sequence === sendSequence && snapshot.sessionId === sessionId
+
+  const create = async (): Promise<string> => {
+    if (snapshot.status === 'running') {
+      throw new Error('Cannot create a new task while the agent is running')
+    }
+    if (createPending) {
+      throw new Error('A new task is already being created')
+    }
+
+    createPending = true
+    try {
+      const modelId = await getConfiguredDefaultModelId(backend)
+      const response = asObject(
+        await backend.request('session_new', modelId ? { modelId } : {}, { timeout: 'none' })
+      )
+      const sessionId = validateSessionId(response?.sessionId)
+      loadSequence += 1
+      sendSequence += 1
+      resetLiveState()
+      commit({ type: 'loaded', sessionId, messages: [] })
+      return sessionId
+    } catch {
+      throw new Error('Could not create a new task. Try again.')
+    } finally {
+      createPending = false
+    }
+  }
 
   const load = async (sessionIdValue: unknown): Promise<void> => {
     const sessionId = validateSessionId(sessionIdValue)
@@ -425,6 +455,7 @@ export function createTranscriptService(
 
   return {
     getSnapshot,
+    create,
     load,
     adoptActiveSession,
     send,

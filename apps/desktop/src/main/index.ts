@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import electronUpdater from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
+import { createActiveSessionMutationQueue } from './active-session-mutations.mts'
 import { ActivityService } from './activity.mts'
 import { startAutomaticUpdates } from './automatic-updates.mts'
 import {
@@ -24,7 +25,12 @@ import { attachmentsPickChannel } from '../shared/attachment-api'
 import { approvalGetChannel, approvalSetModeChannel } from '../shared/approval-api'
 import { contextUsageSnapshotChannel, contextUsageUpdateChannel } from '../shared/context-usage-api'
 import { modelsGetChannel, modelsSelectChannel } from '../shared/model-api'
-import { tasksArchiveChannel, tasksListChannel, tasksOpenChannel } from '../shared/task-api'
+import {
+  tasksArchiveChannel,
+  tasksCreateChannel,
+  tasksListChannel,
+  tasksOpenChannel
+} from '../shared/task-api'
 import {
   transcriptAbortChannel,
   transcriptApprovalResponseChannel,
@@ -39,6 +45,7 @@ const activityService = new ActivityService(backendProcess)
 const contextUsageService = new ContextUsageService(backendProcess)
 const taskService = new TaskService(backendProcess)
 const transcriptService = createTranscriptService(backendProcess)
+const activeSessionMutations = createActiveSessionMutationQueue()
 let isQuitting = false
 let backendFailureReported = false
 
@@ -146,25 +153,39 @@ function registerIpcHandlers(): void {
     setApprovalMode(backendProcess, mode)
   )
   ipcMain.handle(modelsGetChannel, () => getModelConfiguration(backendProcess))
-  ipcMain.handle(modelsSelectChannel, async (_event, modelId: unknown) => {
-    const configuration = await selectModel(backendProcess, modelId)
-    const loadedSessionId = transcriptService.getSnapshot().sessionId
-    if (loadedSessionId && loadedSessionId !== configuration.activeSessionId) {
-      await transcriptService
-        .adoptActiveSession(configuration.activeSessionId)
-        .catch(() => undefined)
-    }
-    await refreshContextUsageBestEffort()
-    return configuration
-  })
+  ipcMain.handle(modelsSelectChannel, (_event, modelId: unknown) =>
+    activeSessionMutations.run(async () => {
+      const configuration = await selectModel(backendProcess, modelId)
+      const loadedSessionId = transcriptService.getSnapshot().sessionId
+      if (loadedSessionId && loadedSessionId !== configuration.activeSessionId) {
+        await transcriptService
+          .adoptActiveSession(configuration.activeSessionId)
+          .catch(() => undefined)
+      }
+      await refreshContextUsageBestEffort()
+      return configuration
+    })
+  )
   ipcMain.handle(tasksListChannel, () => taskService.list())
+  ipcMain.handle(tasksCreateChannel, () =>
+    activeSessionMutations.run(async () => {
+      const sessionId = await transcriptService.create()
+      await Promise.all([
+        activityService.refresh().catch(() => undefined),
+        contextUsageService.refresh().catch(() => undefined)
+      ])
+      return sessionId
+    })
+  )
   ipcMain.handle(tasksArchiveChannel, (_event, sessionId: unknown) =>
     taskService.archive(sessionId)
   )
-  ipcMain.handle(tasksOpenChannel, async (_event, sessionId: unknown) => {
-    await transcriptService.load(sessionId)
-    await Promise.all([activityService.refresh(), contextUsageService.refresh()])
-  })
+  ipcMain.handle(tasksOpenChannel, (_event, sessionId: unknown) =>
+    activeSessionMutations.run(async () => {
+      await transcriptService.load(sessionId)
+      await Promise.all([activityService.refresh(), contextUsageService.refresh()])
+    })
+  )
   ipcMain.handle(transcriptSnapshotChannel, () => transcriptService.getSnapshot())
   ipcMain.handle(transcriptSendChannel, (_event, sessionId: unknown, submission: unknown) =>
     transcriptService.send(sessionId, submission)

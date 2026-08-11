@@ -139,6 +139,34 @@ describe('TaskList', () => {
     expect(onSelect).toHaveBeenCalledWith(task.id)
   })
 
+  it('marks only the newly persisted task for its spatial entrance', () => {
+    const previousTask = { ...task, id: 'task-previous', title: 'Previous task' }
+    const onNewlyPersistedEntranceComplete = vi.fn()
+    renderTaskList({
+      newlyPersistedTaskId: task.id,
+      onNewlyPersistedEntranceComplete,
+      tasks: [task, previousTask]
+    })
+
+    const persistedRow = screen.getByRole('button', { name: `Select ${task.title}` }).closest('li')
+    const previousRow = screen
+      .getByRole('button', { name: `Select ${previousTask.title}` })
+      .closest('li')
+
+    expect(persistedRow).toHaveAttribute('data-newly-persisted', 'true')
+    expect(persistedRow).toHaveClass(
+      'starting:data-[newly-persisted=true]:translate-x-1',
+      'starting:data-[newly-persisted=true]:opacity-0',
+      'motion-reduce:translate-x-0!'
+    )
+    expect(previousRow).not.toHaveAttribute('data-newly-persisted')
+
+    fireEvent.transitionEnd(persistedRow!, { propertyName: 'transform' })
+    expect(onNewlyPersistedEntranceComplete).not.toHaveBeenCalled()
+    fireEvent.transitionEnd(persistedRow!, { propertyName: 'opacity' })
+    expect(onNewlyPersistedEntranceComplete).toHaveBeenCalledWith(task.id)
+  })
+
   it('disables task selection while a run owns the active session', () => {
     const onSelect = vi.fn()
     renderTaskList({ onSelect, selectionDisabled: true })
