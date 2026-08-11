@@ -44,17 +44,10 @@ struct LegalComponent {
 
 fn legal(write: bool) -> Result<()> {
     let root = repository_root()?;
-    let legal = root.join("apps/macos/Resources/Legal");
+    let legal = root.join("legal");
     let manifest_path = legal.join("LegalNoticeManifest.json");
     let notices_path = legal.join("ThirdPartyNotices.md");
-    let old: Value = serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
-    let mut components = old["components"]
-        .as_array()
-        .context("legal manifest has no components")?
-        .iter()
-        .filter(|component| !matches!(component["kind"].as_str(), Some("rust-crate")))
-        .map(|record| static_legal_component(&root, &legal, record.clone()))
-        .collect::<Result<Vec<_>>>()?;
+    let mut components = static_legal_components(&root, &legal)?;
     components.extend(backend_crate_components(&root, &legal)?);
     let notices = render_notices(&components);
     let component_records = components
@@ -71,7 +64,7 @@ fn legal(write: bool) -> Result<()> {
     if write {
         std::fs::write(&manifest_path, manifest_text)?;
         std::fs::write(&notices_path, notices)?;
-        println!("updated Rust and native legal notices");
+        println!("updated Railgun desktop legal notices");
         return Ok(());
     }
     if std::fs::read_to_string(&manifest_path)? != manifest_text
@@ -92,27 +85,77 @@ fn normalize_notice(raw: &str) -> String {
     format!("{}\n", normalized.trim_end())
 }
 
-fn static_legal_component(root: &Path, legal: &Path, mut record: Value) -> Result<LegalComponent> {
+fn static_legal_components(root: &Path, legal: &Path) -> Result<Vec<LegalComponent>> {
+    [
+        json!({
+            "identifier": "railgun",
+            "kind": "first-party-software",
+            "name": "Railgun",
+            "version": "source checkout",
+            "revision": null,
+            "archive": null,
+            "copyright": "© 2026 Dante Teo",
+            "license": "MIT",
+            "sourceLocation": "LICENSE",
+            "licenseSource": "LICENSE",
+        }),
+        json!({
+            "identifier": "railgun-icon-artwork",
+            "kind": "first-party-artwork",
+            "name": "Railgun icon artwork",
+            "version": "2026",
+            "revision": null,
+            "archive": null,
+            "copyright": "© 2026 Dante Teo",
+            "license": "MIT",
+            "sourceLocation": "apps/desktop/build/source",
+            "licenseSource": "LICENSE",
+        }),
+        json!({
+            "identifier": "barlow",
+            "kind": "font",
+            "name": "Barlow",
+            "version": "variable webfont",
+            "revision": null,
+            "archive": null,
+            "copyright": null,
+            "license": "OFL-1.1",
+            "sourceLocation": "apps/desktop/src/renderer/public/fonts/barlow",
+            "licenseSource": "apps/desktop/src/renderer/public/fonts/barlow/OFL.txt",
+        }),
+        json!({
+            "identifier": "departure-mono-nerd-font",
+            "kind": "font",
+            "name": "Departure Mono Nerd Font",
+            "version": "regular",
+            "revision": null,
+            "archive": null,
+            "copyright": null,
+            "license": "OFL-1.1",
+            "sourceLocation": "apps/desktop/src/renderer/public/fonts/departure-mono-nerd-font",
+            "licenseSource": "apps/desktop/src/renderer/public/fonts/departure-mono-nerd-font/OFL.txt",
+        }),
+    ]
+    .into_iter()
+    .map(|record| static_legal_component(root, legal, record))
+    .collect()
+}
+
+fn static_legal_component(root: &Path, _legal: &Path, mut record: Value) -> Result<LegalComponent> {
     let identifier = record["identifier"]
         .as_str()
         .context("legal component has no identifier")?;
     let notice = match identifier {
-        "swift-markdown" => read_notice(&legal.join("Sources/Apache-2.0.txt"))?,
-        "swift-cmark" => read_notice(&legal.join("Sources/Swift-CMark-COPYING.txt"))?,
-        "swift-streaming-markdown" => {
-            read_notice(&legal.join("Sources/SwiftStreamingMarkdown-LICENSE.txt"))?
-        }
-        "highlight-swift" => read_notice(&legal.join("Sources/HighlightSwift-LICENSE.txt"))?,
-        "iosmath" => read_notice(&legal.join("Sources/iosMath-LICENSE.txt"))?,
-        "latin-modern-math" => {
-            read_notice(&legal.join("Sources/Latin-Modern-Math-GUST-FONT-LICENSE.txt"))?
-        }
-        "swiftui-shimmer" => read_notice(&legal.join("Sources/SwiftUI-Shimmer-LICENSE.txt"))?,
-        "sparkle" => read_notice(&legal.join("Sources/Sparkle-LICENSE.txt"))?,
         "railgun-icon-artwork" => normalize_notice(
             "© 2026 Dante Teo. Railgun icon artwork is first-party material and is distributed under the Railgun MIT License.",
         ),
         "railgun" => read_notice(&root.join("LICENSE"))?,
+        "barlow" => {
+            read_notice(&root.join("apps/desktop/src/renderer/public/fonts/barlow/OFL.txt"))?
+        }
+        "departure-mono-nerd-font" => read_notice(
+            &root.join("apps/desktop/src/renderer/public/fonts/departure-mono-nerd-font/OFL.txt"),
+        )?,
         other => bail!("no bundled notice source is configured for {other}"),
     };
     record["noticeContentSHA256"] = Value::String(hash(notice.as_bytes()));
@@ -250,7 +293,7 @@ fn crate_legal_component(package: &Value, legal: &Path) -> Result<LegalComponent
         normalize_notice(&sections.join("\n\n"))
     };
     let license_source = if files.is_empty() {
-        format!("apps/macos/Resources/Legal/Sources; https://crates.io/crates/{name}/{version}")
+        format!("legal/Sources; https://crates.io/crates/{name}/{version}")
     } else {
         let file_names = files
             .iter()
@@ -346,7 +389,7 @@ fn read_notice(path: &Path) -> Result<String> {
 
 fn render_notices(components: &[LegalComponent]) -> String {
     let mut output = String::from(
-        "# Railgun legal notices\n\nThis catalog is generated from Cargo.lock and the pinned Swift, font, and artwork inputs.\n\n",
+        "# Railgun legal notices\n\nThis catalog is generated from Cargo.lock and the pinned desktop font and artwork inputs. Electron and Chromium runtime notices are bundled by electron-builder.\n\n",
     );
     for component in components {
         let record = &component.record;

@@ -3,7 +3,6 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-project_file="$repository_root/apps/macos/project.yml"
 desktop_package_file="$repository_root/apps/desktop/package.json"
 
 fail() {
@@ -32,19 +31,12 @@ worktree="$(git -C "$repository_root" rev-parse --show-toplevel 2>/dev/null)" \
 [[ "$worktree" == "$repository_root" ]] \
   || fail "release versioning must run from the repository root checkout."
 
-macos_current="$(awk '/^[[:space:]]*MARKETING_VERSION:/ { print $2; exit }' "$project_file")"
-[[ "$macos_current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]] \
-  || fail "missing or invalid MARKETING_VERSION in apps/macos/project.yml."
+current="$(awk -F '"' '/^[[:space:]]*"version":[[:space:]]*/ { print $4; exit }' "$desktop_package_file")"
+[[ "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]] \
+  || fail "missing or invalid version in apps/desktop/package.json."
 major="${BASH_REMATCH[1]}"
 minor="${BASH_REMATCH[2]}"
 patch="${BASH_REMATCH[3]}"
-desktop_current="$(awk -F '"' '/^[[:space:]]*"version":[[:space:]]*/ { print $4; exit }' "$desktop_package_file")"
-[[ "$desktop_current" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
-  || fail "missing or invalid version in apps/desktop/package.json."
-[[ "$macos_current" == "$desktop_current" ]] \
-  || fail "app versions are not aligned: macOS is $macos_current, Electron is $desktop_current."
-
-current="$macos_current"
 
 case "$specifier" in
   major) version="$((major + 1)).0.0" ;;
@@ -59,33 +51,20 @@ esac
 [[ "$version" != "$current" ]] || fail "version is already $version."
 tag="v$version"
 
-candidate_project="$(mktemp "${TMPDIR:-/tmp}/railgun-release-version.XXXXXX")"
-candidate_desktop_package="$(mktemp "${TMPDIR:-/tmp}/railgun-desktop-release-version.XXXXXX")"
-cleanup() {
-  rm -f "$candidate_project" "$candidate_desktop_package"
-}
+candidate="$(mktemp "${TMPDIR:-/tmp}/railgun-release-version.XXXXXX")"
+cleanup() { rm -f "$candidate"; }
 trap cleanup EXIT
 
 RAILGUN_RELEASE_CURRENT_VERSION="$current" \
 RAILGUN_RELEASE_NEXT_VERSION="$version" \
   perl -0pe \
-    's/^([ \t]*MARKETING_VERSION:[ \t]*)\Q$ENV{RAILGUN_RELEASE_CURRENT_VERSION}\E([ \t]*)$/${1}$ENV{RAILGUN_RELEASE_NEXT_VERSION}${2}/m' \
-    "$project_file" > "$candidate_project"
-candidate_version="$(awk '/^[[:space:]]*MARKETING_VERSION:/ { print $2 }' "$candidate_project")"
-[[ "$candidate_version" == "$version" ]] \
-  || fail "could not safely update MARKETING_VERSION in apps/macos/project.yml."
-
-RAILGUN_RELEASE_CURRENT_VERSION="$current" \
-RAILGUN_RELEASE_NEXT_VERSION="$version" \
-  perl -0pe \
     's/^(\s*"version"\s*:\s*")\Q$ENV{RAILGUN_RELEASE_CURRENT_VERSION}\E("\s*,?\s*)$/${1}$ENV{RAILGUN_RELEASE_NEXT_VERSION}${2}/m' \
-    "$desktop_package_file" > "$candidate_desktop_package"
-candidate_desktop_version="$(awk -F '"' '/^[[:space:]]*"version":[[:space:]]*/ { print $4; exit }' "$candidate_desktop_package")"
-[[ "$candidate_desktop_version" == "$version" ]] \
+    "$desktop_package_file" > "$candidate"
+candidate_version="$(awk -F '"' '/^[[:space:]]*"version":[[:space:]]*/ { print $4; exit }' "$candidate")"
+[[ "$candidate_version" == "$version" ]] \
   || fail "could not safely update version in apps/desktop/package.json."
 
 if [[ "$dry_run" -eq 1 ]]; then
-  printf 'Would update apps/macos/project.yml: %s -> %s\n' "$current" "$version"
   printf 'Would update apps/desktop/package.json: %s -> %s\n' "$current" "$version"
   printf 'Would create commit "%s" and tag %s.\n' "$version" "$tag"
   exit 0
@@ -97,9 +76,8 @@ if git -C "$repository_root" rev-parse --verify --quiet "refs/tags/$tag" >/dev/n
   fail "tag $tag already exists."
 fi
 
-cp "$candidate_project" "$project_file"
-cp "$candidate_desktop_package" "$desktop_package_file"
-git -C "$repository_root" add apps/macos/project.yml apps/desktop/package.json
+cp "$candidate" "$desktop_package_file"
+git -C "$repository_root" add apps/desktop/package.json
 git -C "$repository_root" commit -m "$version"
 git -C "$repository_root" tag -a "$tag" -m "$tag"
 printf 'Created release commit and tag %s. Push with: git push origin main --tags\n' "$tag"

@@ -1,3 +1,0 @@
-import RailgunCore
-
-enum RailgunTransportModule {}

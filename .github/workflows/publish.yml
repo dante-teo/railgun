@@ -14,12 +14,27 @@ concurrency:
 
 jobs:
   build-railgun:
-    name: Railgun (arm64)
-    runs-on: macos-26
+    name: Electron (arm64)
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Read desktop tool versions
+        id: desktop-toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm_version="$(jq -r '.packageManager | split("@")[1]' apps/desktop/package.json)"
+          node_version="$(jq -r '.devEngines.runtime.version | ltrimstr("^")' apps/desktop/package.json)"
+          [[ "$pnpm_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$node_version" =~ ^24\.[0-9]+\.[0-9]+$ ]]
+          echo "pnpm=$pnpm_version" >> "$GITHUB_OUTPUT"
+          echo "node=$node_version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify arm64 runner
+        run: test "$(uname -m)" = arm64
 
       - name: Install pinned Rust toolchain
         run: rustup show
@@ -27,88 +42,121 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
-      - name: Build locked arm64 Rust backend
-        run: cargo build --locked --release --package railgun-backend
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ steps.desktop-toolchain.outputs.pnpm }}
 
-      - name: Install pinned XcodeGen
-        uses: ./.github/actions/install-xcodegen
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ steps.desktop-toolchain.outputs.node }}
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
 
-      - name: Verify macOS 26 SDK for Liquid Glass
-        run: |
-          set -euo pipefail
-          xcodebuild -version
-          xcodebuild -showsdks
-          xcodebuild -showsdks | grep -q 'macOS 26'
+      - name: Install desktop dependencies
+        run: pnpm --dir apps/desktop install --frozen-lockfile
+
+      - name: Install pinned Sparkle tools
+        uses: ./.github/actions/install-sparkle-tools
 
       - name: Prepare release metadata
         id: metadata
         shell: bash
         run: |
+          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./apps/desktop/package.json').version")"
+          if [[ "$version" != "$package_version" ]]; then
+            printf 'Tag %s does not match package version %s.\n' "$GITHUB_REF_NAME" "$package_version" >&2
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Import Developer ID certificate
-        id: keychain
-        shell: bash
+      - name: Read previous release build number
+        id: previous
         env:
-          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          keychain="$RUNNER_TEMP/railgun-release.keychain-db"
-          keychain_password="$(openssl rand -hex 32)"
-          certificate="$RUNNER_TEMP/railgun-release.p12"
-          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
-          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
-          security find-identity -v -p codesigning "$keychain" | grep 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)'
-          echo "path=$keychain" >> "$GITHUB_OUTPUT"
+          previous_tag="$(gh release view --json tagName --jq .tagName)"
+          previous="$RUNNER_TEMP/previous-release"
+          mkdir -p "$previous"
+          gh release download "$previous_tag" \
+            --pattern 'Railgun-*-darwin-arm64.zip' \
+            --dir "$previous"
+          archive="$(find "$previous" -maxdepth 1 -name '*.zip' -print -quit)"
+          /usr/bin/ditto -x -k "$archive" "$previous/unpacked"
+          previous_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$previous/unpacked/Railgun.app/Contents/Info.plist")"
+          [[ "$previous_build" =~ ^[0-9]+$ ]]
+          echo "build=$previous_build" >> "$GITHUB_OUTPUT"
+          echo "tag=$previous_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Archive, sign, notarize, and staple Railgun
+      - name: Build locked arm64 Rust backend
+        run: cargo build --locked --release --package railgun-backend
+
+      - name: Build, sign, notarize, and staple Electron application
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          GH_TOKEN: ${{ github.token }}
           RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY }}
         run: |
-          apps/macos/scripts/archive-release.sh \
-            --architecture arm64 \
-            --version "${{ steps.metadata.outputs.version }}" \
-            --build "$GITHUB_RUN_NUMBER" \
-            --identity 'Developer ID Application: Chen Pei Teo (GUKP6SNV36)' \
-            --keychain "${{ steps.keychain.outputs.path }}" \
-            --output "$RUNNER_TEMP/railgun" \
-            --source-packages-output "$RUNNER_TEMP/railgun-source-packages"
+          set -euo pipefail
+          apps/desktop/scripts/release/validate-build-number.sh \
+            --candidate "$GITHUB_RUN_NUMBER" \
+            --previous '${{ steps.previous.outputs.build }}' \
+            --previous-tag '${{ steps.previous.outputs.tag }}' \
+            --current-tag "$GITHUB_REF_NAME"
+          pnpm --dir apps/desktop build
+          pnpm --dir apps/desktop exec electron-builder \
+            --mac --arm64 --publish never \
+            --config.buildVersion="$GITHUB_RUN_NUMBER"
 
-      - name: Generate signed Sparkle appcast
+      - name: Generate signed native-to-Electron appcast
         env:
           RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY }}
+          RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY }}
         run: |
-          apps/macos/scripts/generate-appcast.sh \
-            --archive "$RUNNER_TEMP/railgun/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
-            --output "$RUNNER_TEMP/railgun/Railgun-appcast-arm64.xml" \
-            --download-url-prefix "https://github.com/dante-teo/railgun/releases/download/${GITHUB_REF_NAME}/" \
-            --source-packages "$RUNNER_TEMP/railgun-source-packages"
+          apps/desktop/scripts/release/generate-appcast.sh \
+            --archive "apps/desktop/dist/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+            --output apps/desktop/dist/Railgun-appcast-arm64.xml \
+            --download-url-prefix "https://github.com/dante-teo/railgun/releases/download/${GITHUB_REF_NAME}/"
 
       - name: Smoke-check packaged Railgun
+        env:
+          RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PRIVATE_EDDSA_KEY }}
+          RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY: ${{ secrets.RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY }}
+        shell: bash
         run: |
-          apps/macos/scripts/validate-release-artifact.sh \
-            --app "$RUNNER_TEMP/railgun/Railgun.app" \
-            --archive "$RUNNER_TEMP/railgun/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+          set -euo pipefail
+          metadata="$(find apps/desktop/dist -maxdepth 1 -name '*-mac.yml' -print -quit)"
+          test -n "$metadata"
+          apps/desktop/scripts/release/validate-release-artifact.sh \
+            --app apps/desktop/dist/mac-arm64/Railgun.app \
+            --archive "apps/desktop/dist/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.zip" \
+            --dmg "apps/desktop/dist/Railgun-${{ steps.metadata.outputs.version }}-darwin-arm64.dmg" \
+            --metadata "$metadata" \
             --architecture arm64 \
-            --appcast "$RUNNER_TEMP/railgun/Railgun-appcast-arm64.xml"
+            --appcast apps/desktop/dist/Railgun-appcast-arm64.xml \
+            --version "${{ steps.metadata.outputs.version }}" \
+            --build "$GITHUB_RUN_NUMBER"
 
-      - name: Upload Railgun artifacts
+      - name: Upload Electron release artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: railgun-native-arm64
+          name: railgun-electron-arm64
           path: |
-            ${{ runner.temp }}/railgun/Railgun-*.zip
-            ${{ runner.temp }}/railgun/Railgun-appcast-*.xml
+            apps/desktop/dist/Railgun-*.dmg
+            apps/desktop/dist/Railgun-*.dmg.blockmap
+            apps/desktop/dist/Railgun-*.zip
+            apps/desktop/dist/Railgun-*.zip.blockmap
+            apps/desktop/dist/*-mac.yml
+            apps/desktop/dist/Railgun-appcast-arm64.xml
           if-no-files-found: error
           retention-days: 7
 
@@ -123,10 +171,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Download Railgun artifacts
+      - name: Download Electron artifacts
         uses: actions/download-artifact@v8
         with:
-          name: railgun-native-arm64
+          name: railgun-electron-arm64
           path: dist
 
       - name: Publish GitHub release

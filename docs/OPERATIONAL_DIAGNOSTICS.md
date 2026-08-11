@@ -63,10 +63,10 @@ repair those assets manually only after confirming they are no longer needed.
 The file-backed Devin credential is stored at `~/.railgun/devin-token`.
 `DEVIN_TOKEN`, when present in the environment that launches Railgun, takes
 precedence and is never changed by the app. The standalone backend `login` and
-`logout` modes manage the file-backed credential; the macOS app invokes the
-same browser-backed flow automatically when the file credential is missing or
-rejected. Settings → General → Devin exposes Log in, Log out, and Log in again
-for that file-backed flow.
+`logout` modes manage the file-backed credential. If neither credential is
+usable, the packaged backend reports `authentication_required` and the desktop
+startup fails. Run the backend login flow before relaunching Railgun; the
+current Electron renderer does not expose credential-management controls.
 
 Model discovery uses the provider library's compatible default client identity,
 while Devin login and chat requests identify as Devin Local. Keep those paths
@@ -74,12 +74,11 @@ separate: using the Local identity for discovery can return an empty model
 catalog and prevent backend startup, while omitting it from chat requests can
 reject Local-only models.
 
-After a successful browser helper operation, Railgun must establish a fresh
-RPC backend generation before returning to the task shell. If that reconnect
-fails, the app reports **Backend Unavailable** and keeps **Retry** available;
-it does not present the old task shell as ready or replay a failed task. Never
-include the contents of `~/.railgun/devin-token` or `DEVIN_TOKEN` in diagnostic
-output.
+After a successful browser helper operation, relaunching Railgun establishes a
+fresh RPC backend generation. A launch or initialization failure terminates the
+desktop application with a backend-failure diagnostic instead of presenting a
+task shell backed by a dead process. Never include the contents of
+`~/.railgun/devin-token` or `DEVIN_TOKEN` in diagnostic output.
 
 The renderer-facing configuration RPC is a security boundary: `config_get` and
 `config_update` never return the stored `mcpServers` object. MCP commands expose

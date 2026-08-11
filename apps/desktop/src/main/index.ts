@@ -2,8 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import electronUpdater from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { ActivityService } from './activity.mts'
+import { startAutomaticUpdates } from './automatic-updates.mts'
 import {
   attachmentDialogProperties,
   pickAttachments,
@@ -53,7 +55,11 @@ function reportBackendFailure(error: unknown): void {
 }
 
 function startConfiguredBackend(): void {
-  const launch = resolveBackendLaunch()
+  const launch = resolveBackendLaunch(
+    process.env,
+    process.platform,
+    app.isPackaged ? process.resourcesPath : undefined
+  )
   if (!launch) {
     return
   }
@@ -70,6 +76,11 @@ function startConfiguredBackend(): void {
       reportBackendFailure(new Error(`The backend stopped unexpectedly with ${reason}`))
     }
   })
+}
+
+function reportUpdateFailure(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  process.stderr.write(`Update check failed: ${message}\n`)
 }
 
 async function refreshContextUsageBestEffort(): Promise<void> {
@@ -238,7 +249,7 @@ app.whenReady().then(() => {
   }
 
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.railgun.desktop')
+  electronApp.setAppUserModelId('io.anvia.railgun')
   registerIpcHandlers()
 
   // Default open or close DevTools by F12 in development
@@ -249,6 +260,13 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  const { autoUpdater } = electronUpdater
+  startAutomaticUpdates({
+    isPackaged: app.isPackaged,
+    reportError: reportUpdateFailure,
+    updater: autoUpdater,
+    version: app.getVersion()
+  })
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

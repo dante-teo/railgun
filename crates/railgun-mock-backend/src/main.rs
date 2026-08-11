@@ -272,7 +272,7 @@ impl Mock {
                     "category":"preference",
                     "createdAt":1_720_000_005
                 }),
-                json!({"id":"memory-2","content":"Railgun is a native macOS app","category":"fact","createdAt":1_720_000_004}),
+                json!({"id":"memory-2","content":"Railgun ships as an Electron macOS app","category":"fact","createdAt":1_720_000_004}),
                 json!({"id":"memory-3","content":"Use pnpm for JavaScript projects","category":"preference","createdAt":1_720_000_003}),
                 json!({"id":"memory-4","content":"Knowledge imports Markdown and text notes","category":"fact","createdAt":1_720_000_002}),
                 json!({"id":"memory-5","content":"Keep renderer filesystem access restricted","category":"fact","createdAt":1_720_000_001}),
@@ -1990,29 +1990,29 @@ fn complex_task_messages() -> Vec<Value> {
         &mut messages,
         "complex-tool-001",
         "list_directory",
-        json!({"path":"apps/macos/Sources"}),
-        "RailgunCore/\nRailgunServices/\nRailgunUI/\nRailgunX/\n",
+        json!({"path":"apps/desktop/src/main"}),
+        "backend-process.mts\nbackend-process.test.mts\ntasks.mts\ntranscript.mts\n",
     );
     push_tool_use(
         &mut messages,
         "complex-tool-002",
         "read_file",
-        json!({"path":"apps/macos/Sources/RailgunServices/BackgroundAutomation.swift"}),
+        json!({"path":"apps/desktop/src/main/backend-process.mts"}),
         "The retry loop has no maximum attempt count.",
     );
     push_tool_use(
         &mut messages,
         "complex-tool-003",
         "write_file",
-        json!({"path":"apps/macos/Sources/RailgunServices/BackgroundAutomation.swift","patch":"cap retries at three with exponential backoff"}),
-        "Updated the background automation service.",
+        json!({"path":"apps/desktop/src/main/backend-process.mts","patch":"cap retries at three with exponential backoff"}),
+        "Updated the Electron backend process manager.",
     );
     push_tool_use(
         &mut messages,
         "complex-tool-004",
         "write_file",
-        json!({"path":"apps/macos/Tests/RailgunXTests/BackgroundAutomationTests.swift","patch":"cover exhausted retries"}),
-        "Added native regression coverage.",
+        json!({"path":"apps/desktop/src/main/backend-process.test.mts","patch":"cover exhausted retries"}),
+        "Added desktop regression coverage.",
     );
     messages.push(json!({"role":"assistant","at":1_784_496_021_000_i64,"content":[{"type":"text","text":"The retry loop has no terminal state, so I added bounded, retry-aware polling and an explicit paused state. The second read confirmed the obsolete module is gone; the replacement path is now covered."}]}));
     messages.push(json!({"role":"user","content":"Keep the retry responsive, but don’t let one broken connection spin forever or hide the error."}));
@@ -2020,8 +2020,8 @@ fn complex_task_messages() -> Vec<Value> {
         &mut messages,
         "complex-tool-012",
         "read_file",
-        json!({"path":"apps/macos/Sources/RailgunUI/TaskShell.swift"}),
-        "The native task shell shows the retry state and recovery action.",
+        json!({"path":"apps/desktop/src/renderer/src/pages/TasksPage.tsx"}),
+        "The Electron task shell shows the retry state and recovery action.",
     );
     messages.push(json!({"role":"assistant","content":[{"type":"text","text":"Retries now stop after the configured limit, preserve the error detail, and offer a single manual recovery action instead of silently scheduling another attempt."}]}));
     messages.push(json!({"role":"user","content":"Before you run everything, check whether the timeout cleanup can leak when the user closes the window mid-retry."}));
@@ -2029,22 +2029,22 @@ fn complex_task_messages() -> Vec<Value> {
         &mut messages,
         "complex-tool-018",
         "read_file",
-        json!({"path":"apps/macos/Sources/RailgunServices/BackgroundAutomation.swift"}),
+        json!({"path":"apps/desktop/src/main/backend-process.mts"}),
         "The scheduled retry needs cancellation-safe cleanup.",
     );
     push_tool_use(
         &mut messages,
         "complex-tool-019",
         "write_file",
-        json!({"path":"apps/macos/Sources/RailgunServices/BackgroundAutomation.swift","patch":"clear scheduled retry on cancellation"}),
-        "Updated the native service.",
+        json!({"path":"apps/desktop/src/main/backend-process.mts","patch":"clear scheduled retry on cancellation"}),
+        "Updated the Electron main-process service.",
     );
     push_tool_use(
         &mut messages,
         "complex-tool-020",
         "run_shell_command",
-        json!({"command":"./apps/macos/scripts/validate-project.sh"}),
-        "PASS native validation",
+        json!({"command":"pnpm --dir apps/desktop test"}),
+        "PASS desktop validation",
     );
     messages.push(json!({"role":"assistant","content":[{"type":"text","text":"Good catch. The retry timer outlived the panel’s unsubscribe path, so I tightened the cancellation guard and added a regression test for disposal during the backoff window."}]}));
     messages.push(json!({"role":"user","content":"Check the surrounding contracts too. I don’t want the new status to break preload validation or session restoration."}));
@@ -2068,14 +2068,14 @@ fn complex_task_messages() -> Vec<Value> {
         &mut messages,
         "complex-tool-029",
         "run_shell_command",
-        json!({"command":"./apps/macos/scripts/validate-project.sh"}),
-        "PASS native test suite",
+        json!({"command":"pnpm --dir apps/desktop test"}),
+        "PASS desktop test suite",
     );
     messages.push(json!({"role":"assistant","content":[{"type":"text","text":"Yes. The panel now says “Sync paused after 3 attempts” and offers a single manual Retry action. It preserves the last error in the detail text without exposing transport internals."}]}));
     messages.push(
         json!({"role":"user","content":"Summarize the task and call out any remaining risk."}),
     );
-    messages.push(json!({"role":"assistant","content":[{"type":"text","text":"Implemented bounded, retry-aware polling for background automation with cancellation-safe backoff and focused native coverage."}]}));
+    messages.push(json!({"role":"assistant","content":[{"type":"text","text":"Implemented bounded, retry-aware polling for background automation with cancellation-safe backoff and focused Electron coverage."}]}));
     messages
 }
 

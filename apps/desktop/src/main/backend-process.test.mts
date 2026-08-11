@@ -29,9 +29,35 @@ function temporaryDataLockDirectory(context: TestContext): string {
   return directory
 }
 
-test('resolveBackendLaunch ignores the default bundled mode', (): void => {
+test('resolveBackendLaunch leaves an ordinary development launch unconfigured', (): void => {
   assert.equal(resolveBackendLaunch({}), undefined)
-  assert.equal(resolveBackendLaunch({ RAILGUNX_BACKEND_MODE: 'bundled' }), undefined)
+})
+
+test('resolveBackendLaunch configures the bundled production backend', (): void => {
+  const home = resolve('fixture-home')
+  const resources = resolve('fixture-resources')
+
+  assert.deepEqual(resolveBackendLaunch({ HOME: home }, 'darwin', resources), {
+    executablePath: join(resources, 'backend', 'railgun-backend'),
+    arguments: ['desktop'],
+    currentDirectory: join(resources, 'backend'),
+    dataLockDirectory: join(home, '.railgun'),
+    environment: { HOME: home, RAILGUN_DESKTOP_RPC: '1' }
+  })
+})
+
+test('resolveBackendLaunch requires packaged resources for an explicit bundled launch', (): void => {
+  assert.throws(
+    () => resolveBackendLaunch({ HOME: resolve('fixture-home'), RAILGUNX_BACKEND_MODE: 'bundled' }),
+    /Packaged resources are required/
+  )
+})
+
+test('resolveBackendLaunch requires a home for the bundled production data lock', (): void => {
+  assert.throws(
+    () => resolveBackendLaunch({}, 'darwin', resolve('fixture-resources')),
+    /HOME is required/
+  )
 })
 
 test('resolveBackendLaunch configures the production source backend', (): void => {
@@ -39,11 +65,15 @@ test('resolveBackendLaunch configures the production source backend', (): void =
   const home = resolve('fixture-home')
 
   assert.deepEqual(
-    resolveBackendLaunch({
-      HOME: home,
-      RAILGUNX_BACKEND_MODE: ' source ',
-      RAILGUNX_SOURCE_ROOT: sourceRoot
-    }),
+    resolveBackendLaunch(
+      {
+        HOME: home,
+        RAILGUNX_BACKEND_MODE: ' source ',
+        RAILGUNX_SOURCE_ROOT: sourceRoot
+      },
+      'darwin',
+      resolve('packaged-resources-must-not-win')
+    ),
     {
       executablePath: join(sourceRoot, 'target', 'debug', 'railgun-backend'),
       arguments: ['desktop'],
@@ -63,11 +93,15 @@ test('resolveBackendLaunch configures the requested mock scenario', (): void => 
   const sourceRoot = resolve('fixture-repository')
 
   assert.deepEqual(
-    resolveBackendLaunch({
-      RAILGUNX_BACKEND_MODE: ' mock ',
-      RAILGUNX_MOCK_SCENARIO: ' approval ',
-      RAILGUNX_SOURCE_ROOT: sourceRoot
-    }),
+    resolveBackendLaunch(
+      {
+        RAILGUNX_BACKEND_MODE: ' mock ',
+        RAILGUNX_MOCK_SCENARIO: ' approval ',
+        RAILGUNX_SOURCE_ROOT: sourceRoot
+      },
+      'darwin',
+      resolve('packaged-resources-must-not-win')
+    ),
     {
       executablePath: join(sourceRoot, 'target', 'debug', 'railgun-mock-backend'),
       arguments: ['approval'],

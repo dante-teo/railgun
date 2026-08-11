@@ -1,0 +1,20 @@
+name: Install pinned Sparkle tools
+description: Download and verify Sparkle's generate_appcast release tool.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/Sparkle-2.9.4.tar.xz"
+        destination="$RUNNER_TEMP/Sparkle-2.9.4"
+        curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
+          --output "$archive" \
+          https://github.com/sparkle-project/Sparkle/releases/download/2.9.4/Sparkle-2.9.4.tar.xz
+        echo 'ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9  '"$archive" | shasum -a 256 -c -
+        mkdir -p "$destination"
+        tar -xJf "$archive" -C "$destination" --strip-components=1
+        test -x "$destination/bin/generate_appcast"
+        test -x "$destination/bin/sign_update"
+        echo "$destination/bin" >> "$GITHUB_PATH"

@@ -49,13 +49,28 @@ jobs:
       - name: Check dependency licenses and advisories
         uses: EmbarkStudios/cargo-deny-action@v2
 
-  native:
-    name: Railgun (arm64)
+  desktop:
+    name: Electron (arm64)
     runs-on: macos-15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Read desktop tool versions
+        id: desktop-toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm_version="$(jq -r '.packageManager | split("@")[1]' apps/desktop/package.json)"
+          node_version="$(jq -r '.devEngines.runtime.version | ltrimstr("^")' apps/desktop/package.json)"
+          [[ "$pnpm_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$node_version" =~ ^24\.[0-9]+\.[0-9]+$ ]]
+          echo "pnpm=$pnpm_version" >> "$GITHUB_OUTPUT"
+          echo "node=$node_version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify arm64 runner
+        run: test "$(uname -m)" = arm64
 
       - name: Install pinned Rust toolchain
         run: rustup show
@@ -63,8 +78,48 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
-      - name: Install pinned XcodeGen
-        uses: ./.github/actions/install-xcodegen
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ steps.desktop-toolchain.outputs.pnpm }}
 
-      - name: Generate, resolve, build, test, and validate Railgun
-        run: apps/macos/scripts/validate-project.sh
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ steps.desktop-toolchain.outputs.node }}
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install desktop dependencies
+        run: pnpm --dir apps/desktop install --frozen-lockfile
+
+      - name: Check Electron source
+        run: |
+          pnpm --dir apps/desktop test
+          pnpm --dir apps/desktop lint
+          pnpm --dir apps/desktop typecheck
+          pnpm --dir apps/desktop exec prettier --check .
+          pnpm --dir apps/desktop build
+
+      - name: Build locked release backend
+        run: cargo build --locked --release --package railgun-backend
+
+      - name: Package unsigned Electron application
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY: ci-public-ed-key
+        run: |
+          pnpm --dir apps/desktop exec electron-builder \
+            --dir --mac --arm64 \
+            --config.forceCodeSigning=false \
+            --config.mac.identity=null \
+            --config.mac.hardenedRuntime=false \
+            --config.mac.notarize=false
+
+      - name: Validate packaged Electron application
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          apps/desktop/scripts/release/validate-packaged-app.sh \
+            --app apps/desktop/dist/mac-arm64/Railgun.app \
+            --architecture arm64 \
+            --version "$version"

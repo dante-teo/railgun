@@ -49,11 +49,31 @@ function configuredValue(environment: NodeJS.ProcessEnv, key: string): string | 
 
 export function resolveBackendLaunch(
   environment: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  packagedResourcesPath?: string
 ): BackendLaunch | undefined {
   const mode = configuredValue(environment, 'RAILGUNX_BACKEND_MODE')
   if (!mode || mode === 'bundled') {
-    return undefined
+    if (!packagedResourcesPath) {
+      if (mode === 'bundled') {
+        throw new Error('Packaged resources are required when the bundled backend is enabled')
+      }
+      return undefined
+    }
+
+    const home = configuredValue(environment, 'HOME')
+    if (!home) {
+      throw new Error('HOME is required when the bundled backend is enabled')
+    }
+    const backendDirectory = join(resolve(packagedResourcesPath), 'backend')
+    const executableName = platform === 'win32' ? 'railgun-backend.exe' : 'railgun-backend'
+    return {
+      executablePath: join(backendDirectory, executableName),
+      arguments: ['desktop'],
+      currentDirectory: backendDirectory,
+      dataLockDirectory: join(resolve(home), '.railgun'),
+      environment: { ...environment, RAILGUN_DESKTOP_RPC: '1' }
+    }
   }
 
   if (mode !== 'source' && mode !== 'mock') {

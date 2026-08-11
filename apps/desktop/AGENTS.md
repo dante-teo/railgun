@@ -42,7 +42,7 @@ them; a feature is not a synonym for a routed screen.
   colors.
 - Prefer `gap-*` over `space-x-*` or `space-y-*`, and `size-*` when width and height match.
 - Use the Tailwind spacing scale for margins, padding, and gaps. Reserve arbitrary spacing values
-  for fixed product or native-window constraints that cannot use the shared scale.
+  for fixed product or platform-window constraints that cannot use the shared scale.
 - Keep shell and topbar controls in normal flex or grid flow. Do not use absolute positioning
   unless a platform constraint cannot be represented correctly in normal flow.
 - Keep global CSS limited to Tailwind imports, theme tokens, resets, and genuinely reusable

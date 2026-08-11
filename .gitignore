@@ -3,4 +3,3 @@ dist/
 .pnpm-store/
 /target/
 ..worktrees
-apps/macos/*.xcodeproj/

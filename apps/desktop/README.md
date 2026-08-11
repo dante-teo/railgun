@@ -1,14 +1,14 @@
 # Railgun Desktop
 
-A prototype Electron application built with TypeScript, React, React Router, Tailwind CSS, and
-shadcn/ui. Its Tasks interface can load and resume saved conversation sessions from the configured
-JSONL backend, stream agent responses, handle in-turn interactions, and optimistically archive
-tasks. It is not yet a supported release surface or complete domain client.
+The production Electron application, built with TypeScript, React, React Router, Tailwind CSS, and
+shadcn/ui. Its Tasks interface loads and resumes saved conversation sessions from the configured
+JSONL backend, streams agent responses, handles in-turn interactions, and optimistically archives
+tasks. It is Railgun's sole desktop and release surface.
 
 ## Requirements
 
 - pnpm 11.20.0, as pinned by `packageManager`
-- Node.js 20.19 or newer
+- Node.js 24.12 or newer within the Node 24 release line
 
 pnpm uses the Node 24 runtime declared in `devEngines` for project scripts when its managed
 runtime support is available.
@@ -30,8 +30,8 @@ scripts/run.sh
 The default launcher builds `railgun-backend` and connects Electron to its production `desktop`
 RPC mode. It uses the existing `~/.railgun` data and either `DEVIN_TOKEN` or the saved
 `~/.railgun/devin-token` credential. Production Electron runs participate in the shared
-`~/.railgun/desktop-client.lock`, so native Railgun and multiple Electron instances cannot mutate
-the same data concurrently. Mock runs remain exempt.
+`~/.railgun/desktop-client.lock`, so multiple Railgun instances cannot mutate the same data
+concurrently. Mock runs remain exempt.
 
 Start it with the deterministic Rust mock backend using:
 
@@ -66,9 +66,9 @@ The `ready-idle` fixture seeds deterministic context usage for the active task a
 task, so the context ring is populated immediately after launch and remains populated while
 switching between mock tasks.
 
-`run-mock.sh` remains the deterministic fixture path. Production backend packaging is a separate
-packaging milestone; the development launcher uses the source-built executable at
-`target/debug/railgun-backend`.
+`run-mock.sh` remains the deterministic fixture path. The development launcher uses the
+source-built executable at `target/debug/railgun-backend`; packaged applications use the embedded
+release executable under `Contents/Resources/backend`.
 
 Both root launchers forward additional arguments to `pnpm dev`. To work directly in this directory
 without a configured backend, run:
@@ -183,7 +183,7 @@ oversized, or invalid correlated output fails the connection instead of remainin
 initialization and read requests time out after 10 seconds. Archive mutations deliberately do not
 use that client-side timeout: they remain pending until the backend responds or the process
 terminates, so a delayed successful commit cannot be mistaken for a rejection and rolled back in
-the task list. Before a production source launch, the manager acquires the native-compatible
+the task list. Before a production source launch, the manager acquires the shared
 `~/.railgun/desktop-client.lock` with exclusive owner-only creation. It rejects live owners,
 recovers only valid records whose PIDs are demonstrably absent, preserves malformed records, and
 removes only its own exact record when the backend lifetime ends.
@@ -291,14 +291,13 @@ limited to 100,000 characters. Accepted sends clear the draft and attachments. A
 restores both and reports the error inline. During a run the control becomes Stop, and attachment,
 approval, model, and editor changes are locked until the turn ends.
 
-The attachment control opens the operating system picker for multiple files or folders. Windows and
-Linux first ask which kind to attach because their native pickers cannot offer both kinds together.
+The attachment control opens the macOS picker for multiple files or folders.
 Selections appear once as removable file or folder chips, reset when switching tasks, and remain
 unchanged when the picker is cancelled. Picker failures surface inline. Attachments augment a text
 draft and are projected into the visible and submitted user prompt as absolute `file` or `folder`
 path lines under an `Attachments:` heading.
 
-The approval selector loads and persists the native-equivalent Ask for approval, Approve for me,
+The approval selector loads and persists the Ask for approval, Approve for me,
 and Full access modes; auto approval remains unavailable until a reviewer model is configured and
 still present in the model catalog. The context ring restores the selected session's latest
 provider-reported usage and streams subsequent updates. It is read-only and keeps the same
@@ -362,7 +361,7 @@ The locked workspace tests include the mock backend's process-level JSONL contra
 subagent streaming and cancellation, run-correlated advisor frames, and session listing coverage.
 The desktop suite covers correlated requests, exact session-load validation and selection rollback,
 activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
-coalesced streaming updates with immediate terminal publication, native-compatible shared-lock
+coalesced streaming updates with immediate terminal publication, shared-lock
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
 and keyboard interactions. Transcript coverage includes pagination, strict snapshot validation,
 immutable streaming reduction, safe tool normalization, private-frame rejection, prompt projection,
@@ -375,30 +374,51 @@ and stick-to-bottom pause, jump, and resume behavior.
 
 ## Packaging
 
-Create an unpacked application for local inspection without using a signing identity:
+Create an unpacked arm64 application for local inspection without using a signing identity. This
+builds the locked release backend and embeds it with the generated legal notices:
 
 ```sh
-CSC_IDENTITY_AUTO_DISCOVERY=false pnpm build:unpack
+CSC_IDENTITY_AUTO_DISCOVERY=false \
+RAILGUNX_SPARKLE_PUBLIC_EDDSA_KEY=local-validation-key \
+pnpm build:unpack
 ```
 
-Build platform artifacts with:
+Build arm64 macOS artifacts with:
 
 ```sh
 pnpm build:mac
-pnpm build:win
-pnpm build:linux
 ```
 
-Electron Builder may automatically use a matching macOS signing identity from the keychain;
-timestamped signing also requires access to Apple's timestamp service. The current tagged GitHub
-release workflow publishes only the native arm64 macOS application, not Electron artifacts. These
-Electron commands do not currently bundle the production Rust backend.
+The production bundle identity is `io.anvia.railgun`, the product name is `Railgun`, and the minimum
+system version is macOS 15. The only production architecture is arm64. Electron Builder includes
+`railgun-backend` at `Contents/Resources/backend/railgun-backend`, treats it as an additional signed
+binary, and copies the Railgun/Rust notices under `Contents/Resources/legal`. Electron's own license
+and Chromium notice remain in `Contents/Resources`.
 
-App versions are kept aligned by the repository-level release command:
+Tagged GitHub releases use the existing Developer ID and Apple notarization secrets to sign,
+notarize, and staple the app before producing `Railgun-<version>-darwin-arm64.dmg` and `.zip`.
+Electron Builder also creates public GitHub update metadata and blockmaps. Packaged stable clients
+ignore prereleases, downloaded updates install on quit, and updater failures do not terminate the
+application.
+
+Each release also includes `Railgun-appcast-arm64.xml`, signed with the existing Sparkle EdDSA key,
+so installations of the retired pre-Electron application can replace themselves with the same
+signed Electron ZIP. Appcast generation verifies that the public release secret exactly matches
+the ZIP application's injected `SUPublicEDKey` and requires Sparkle to produce a signature from the
+matching private key. Electron does not bundle or execute Sparkle.
+
+The repository-level release command updates this package version, creates the version commit, and
+adds the annotated tag:
 
 ```sh
 scripts/release-version.sh patch --dry-run
 ```
+
+Release validation scripts live in `scripts/release`. They verify the embedded backend lifecycle,
+arm64-only binaries, package metadata, legal/runtime notices, signatures, hardened runtime,
+Gatekeeper, stapling, archive layout, update metadata, and the compatibility appcast. Signed
+release validation runs the application checks against the staging bundle and the exact
+`Railgun.app` copies extracted from the ZIP and mounted from the DMG.
 
 ## Recommended IDE Setup
 

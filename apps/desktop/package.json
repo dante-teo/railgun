@@ -2,11 +2,16 @@
   "name": "railgun-desktop",
   "version": "0.10.17",
   "description": "Railgun desktop application",
+  "author": "Dante Teo",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dante-teo/railgun.git"
+  },
   "main": "./out/main/index.js",
   "packageManager": "pnpm@11.20.0",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.12.0 <25"
   },
   "devEngines": {
     "runtime": {
@@ -29,15 +34,15 @@
     "start": "electron-vite preview",
     "predev": "node scripts/ensure-electron.mjs",
     "dev": "electron-vite dev",
+    "build:backend": "cargo build --locked --release --package railgun-backend --manifest-path ../../Cargo.toml",
     "build": "pnpm run typecheck && electron-vite build",
     "postinstall": "node scripts/ensure-electron.mjs && electron-builder install-app-deps",
-    "build:unpack": "pnpm run build && electron-builder --dir",
-    "build:win": "pnpm run build && electron-builder --win",
-    "build:mac": "pnpm run build && electron-builder --mac",
-    "build:linux": "pnpm run build && electron-builder --linux"
+    "build:unpack": "pnpm run build:backend && pnpm run build && electron-builder --dir --mac --arm64 --config.forceCodeSigning=false --config.mac.identity=null --config.mac.hardenedRuntime=false --config.mac.notarize=false",
+    "build:mac": "pnpm run build:backend && pnpm run build && electron-builder --mac --arm64 --publish never"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
+    "electron-updater": "6.8.9",
     "radix-ui": "^1.6.7",
     "react-resizable-panels": "^4.12.2",
     "streamdown": "^2.5.0",

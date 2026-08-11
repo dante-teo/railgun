@@ -1,12 +1,30 @@
-# Xcode project generation
+# Electron desktop packaging
 
-- Never manually create, edit, repair, or rely on `apps/macos/RailgunX.xcodeproj` or any other generated `.xcodeproj` directory.
-- Treat `apps/macos/project.yml` as the only source of truth for the RailgunX Xcode project. Make project, target, build-setting, package, scheme, and source-inclusion changes there.
-- Generate disposable Xcode projects with `apps/macos/scripts/generate-project.sh` before invoking Xcode directly. Root `scripts/run.sh` and `scripts/run-mock.sh` launch the Electron app, not the native app.
-- Do not repair generated project files. Regenerate them from `project.yml` instead.
-
-# Native verification
-
-- After changing Swift data-model APIs, initializers, target source inclusion, or cross-file native interfaces, generate the disposable project and run an app-target `xcodebuild build` before declaring completion. Unit tests or package-only builds do not replace this check.
-- Never infer an Xcode build passed from partial, silent, truncated, or asynchronous tool output. Capture the full build log when needed and confirm an explicit `** BUILD SUCCEEDED **` marker or a reliable zero exit status before reporting success.
-- Do not run `scripts/run.sh` or `scripts/run-mock.sh` merely to verify a change: they launch the Electron GUI on the user's machine. Run them only when the user explicitly asks to launch the app.
+- `apps/desktop` is Railgun's only desktop application and release surface.
+- Production packages support macOS 15 or newer on arm64 only and retain the
+  `io.anvia.railgun` bundle identifier and `Railgun` product name.
+- Keep privileged operations in the Electron main process or behind the
+  context-isolated preload boundary. Do not expose packaging or update APIs to
+  the renderer.
+- Packaged builds must include the locked release `railgun-backend` at
+  `Contents/Resources/backend/railgun-backend` and the generated legal notices
+  under `Contents/Resources/legal`.
+- Preserve source and mock backend environment contracts. Packaged builds must
+  resolve their backend from Electron's resources path without an environment
+  override.
+- `scripts/run.sh` and `scripts/run-mock.sh` launch the Electron GUI. Run them
+  only when the user explicitly asks to launch the app; use non-GUI checks for
+  verification.
+- Tagged releases are signed, notarized, stapled, and published by
+  `.github/workflows/publish.yml`. Keep the Sparkle appcast as a compatibility
+  artifact only; do not add Sparkle to the Electron runtime.
+- Release validation must inspect the staged application and the exact
+  `Railgun.app` copies extracted from the ZIP and mounted from the DMG. Preserve
+  signature, hardened-runtime, stapling, metadata, legal-notice, embedded
+  backend, and backend-lifecycle checks for all three copies.
+- Keep the Sparkle bridge fail-closed: the configured public key must match the
+  ZIP application's `SUPublicEDKey`, and Sparkle must emit an EdDSA signature
+  from the configured private key before the appcast can be published.
+- A new release tag must use a build number greater than the latest published
+  release. A rerun of the currently published tag may reuse that tag's build
+  number so its release assets can be repaired or replaced.

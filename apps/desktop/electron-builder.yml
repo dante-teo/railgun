@@ -1,7 +1,10 @@
-appId: com.railgun.desktop
+appId: io.anvia.railgun
 productName: Railgun
+forceCodeSigning: true
+afterPack: scripts/inject-sparkle-key.mjs
 directories:
   buildResources: build
+  output: dist
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -11,28 +14,34 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
-win:
-  executableName: railgun
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+extraResources:
+  - from: ../../target/release/railgun-backend
+    to: backend/railgun-backend
+  - from: ../../legal/LegalNoticeManifest.json
+    to: legal/LegalNoticeManifest.json
+  - from: ../../legal/ThirdPartyNotices.md
+    to: legal/ThirdPartyNotices.md
+  - from: node_modules/electron/dist/LICENSE
+    to: LICENSE.electron.txt
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: LICENSES.chromium.html
+  - from: resources/app-update.yml
+    to: app-update.yml
 mac:
+  artifactName: Railgun-${version}-darwin-${arch}.${ext}
+  binaries:
+    - Contents/Resources/backend/railgun-backend
+  category: public.app-category.developer-tools
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}.${ext}
-linux:
+  hardenedRuntime: true
+  minimumSystemVersion: '15.0'
+  notarize: true
   target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
-  category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
+    - dmg
+    - zip
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: dante-teo
+  repo: railgun

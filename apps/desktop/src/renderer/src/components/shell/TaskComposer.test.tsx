@@ -319,7 +319,7 @@ describe('TaskComposer', () => {
     expect(alert).not.toBeInTheDocument()
   })
 
-  it('loads, presents, and persists the native approval modes', async () => {
+  it('loads, presents, and persists the desktop approval modes', async () => {
     const configuredApproval: ApprovalConfiguration = {
       mode: 'smart',
       reviewerModelId: 'reviewer'

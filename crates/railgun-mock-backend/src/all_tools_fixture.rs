@@ -10,7 +10,7 @@ Decision: GO WITH GATES
 
 ## Scope
 
-This brief covers the native macOS app, its bundled arm64 backend, and the Electron desktop client's regression surface. It does not authorize a public beta, Homebrew distribution, or production rollout.
+This brief covers the Electron macOS app, its bundled arm64 backend, and the complete desktop regression surface. It does not authorize a public beta, Homebrew distribution, or stable production rollout.
 
 ## Evidence reviewed
 
@@ -23,14 +23,14 @@ This brief covers the native macOS app, its bundled arm64 backend, and the Elect
 ## Release gates
 
 1. Run every command in `docs/RELEASING.md` from a clean `main` checkout.
-2. Archive, sign, notarize, staple, and validate the Apple-silicon native app and bundled backend.
+2. Package, sign, notarize, staple, and validate the Apple-silicon Electron app and bundled backend.
 3. Confirm VoiceOver names, keyboard traversal, focus restoration, and reduced-motion behavior for the task transcript and interaction rows.
 4. Verify that restored transcripts never expose thinking signatures, tool arguments, or raw tool-result payloads.
 5. Confirm the invitation and rollback owner before distributing the first build.
 
 ## Independent review findings
 
-The accessibility review found no release-blocking issue in the documented flow, but requires a manual VoiceOver pass on approval, clarification, failed-tool, and long-result states. The release-safety review confirmed that the existing workflow covers Developer ID signing, notarization, stapling, Gatekeeper assessment, archive layout, and appcast validation. Electron shares the release tag but is not packaged by the native release workflow.
+The accessibility review found no release-blocking issue in the documented flow, but requires a manual VoiceOver pass on approval, clarification, failed-tool, and long-result states. The release-safety review confirmed that the Electron workflow covers Developer ID signing, notarization, stapling, Gatekeeper assessment, archive layout, update metadata, and compatibility-appcast validation.
 
 ## External distribution guidance
 
@@ -108,7 +108,7 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
         "The user explicitly asked me to apply saved preferences, so I need the narrow release-related memories before choosing language or gates.",
         "memory_search",
         json!({"query":"Railgun private beta release verification and reporting preferences","limit":10}),
-        "- [preference] Keep private-beta reports concise, evidence-first, and explicit about unresolved risk.\n- [project] Use the native macOS app as the behavioral reference when desktop behavior is ambiguous.\n- [preference] Accessibility regressions block beta distribution.\n- [preference] Keep private-beta reports concise and evidence-first.",
+        "- [preference] Keep private-beta reports concise, evidence-first, and explicit about unresolved risk.\n- [project] Use the Electron desktop contracts as the behavioral reference when desktop behavior is ambiguous.\n- [preference] Accessibility regressions block beta distribution.\n- [preference] Keep private-beta reports concise and evidence-first.",
         false,
     );
     push_reasoned_tool_use(
@@ -121,7 +121,7 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
             {"id":"memory-21","content":"Keep private-beta reports concise, evidence-first, and explicit about unresolved risk.","category":"preference","createdAt":1_785_700_100_000_i64},
             {"id":"memory-22","content":"Keep private-beta reports concise and evidence-first.","category":"preference","createdAt":1_785_700_000_000_i64},
             {"id":"memory-14","content":"Accessibility regressions block beta distribution.","category":"preference","createdAt":1_784_900_000_000_i64},
-            {"id":"memory-8","content":"Use the native macOS app as the behavioral reference when desktop behavior is ambiguous.","category":"project","createdAt":1_783_000_000_000_i64}
+            {"id":"memory-8","content":"Use the Electron desktop contracts as the behavioral reference when desktop behavior is ambiguous.","category":"project","createdAt":1_783_000_000_000_i64}
         ]}))
         .expect("mock memory inspection should serialize"),
         false,
@@ -188,10 +188,10 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
             {"goal":"Audit the Railgun private-beta plan for accessibility release blockers. Focus on VoiceOver, keyboard traversal, focus restoration, reduced motion, and approval or clarification interactions. Return findings only; do not edit files."},
             {"goal":"Audit the Railgun release documentation for signing, notarization, artifact validation, rollback, and distribution risks relevant to invited external testers. Return findings only; do not edit files."}
         ]}),
-        "Accessibility review\n- Treat missing accessible names, unreachable controls, broken focus restoration, or motion that ignores reduced-motion settings as blockers.\n- Manually cover approval, clarification, failed-tool, long-result, and restored-transcript states with VoiceOver and keyboard-only navigation.\n- Cosmetic spacing differences are non-blocking when state, hierarchy, and feedback remain understandable.\n\nRelease-safety review\n- The documented native workflow signs with Developer ID, submits for notarization, staples the ticket, validates Gatekeeper and code signatures, checks the bundled backend, and verifies archive and appcast layout.\n- Name a rollback owner and retain the prior signed artifact before inviting external testers.\n- Electron shares the version tag but is not packaged by the native release workflow; do not imply that it ships in this beta.",
+        "Accessibility review\n- Treat missing accessible names, unreachable controls, broken focus restoration, or motion that ignores reduced-motion settings as blockers.\n- Manually cover approval, clarification, failed-tool, long-result, and restored-transcript states with VoiceOver and keyboard-only navigation.\n- Cosmetic spacing differences are non-blocking when state, hierarchy, and feedback remain understandable.\n\nRelease-safety review\n- The documented Electron workflow signs with Developer ID, submits for notarization, staples the ticket, validates Gatekeeper and code signatures, checks the bundled backend, and verifies DMG, ZIP, update-metadata, and appcast layout.\n- Name a rollback owner and retain the prior signed artifact before inviting external testers.\n- Validate migration from the preserved prior release before promoting the beta candidate to stable.",
         false,
     );
-    messages.push(json!({"role":"assistant","content":[{"type":"text","text":"The independent reviews agree on the release boundary: accessibility and interaction feedback are gates; minor visual polish is not. The native signed artifact is in scope, while Electron packaging is explicitly not."}]}));
+    messages.push(json!({"role":"assistant","content":[{"type":"text","text":"The independent reviews agree on the release boundary: accessibility and interaction feedback are gates; minor visual polish is not. The signed Electron artifact and its bundled backend are both in scope."}]}));
     push_reasoned_tool_use(
         &mut messages,
         "all-tools-009",
@@ -207,7 +207,7 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
         "There is no existing draft, so I need the complete documentation inventory to locate the canonical release guide and avoid guessing at filenames.",
         "list_directory",
         json!({"path":"/Users/dantea/Projects/railgun/docs"}),
-        "DATABASE_MIGRATIONS.md\nOPERATIONAL_DIAGNOSTICS.md\nPRODUCT.md\nRELEASING.md\nadr/\nbackend-test-traceability.md\ndesign/\ndesktop-client-lock.md\nnative-ui-policy.md",
+        "DATABASE_MIGRATIONS.md\nOPERATIONAL_DIAGNOSTICS.md\nPRODUCT.md\nRELEASING.md\nadr/\nbackend-test-traceability.md\ndesign/\ndesktop-client-lock.md",
         false,
     );
     push_reasoned_tool_use(

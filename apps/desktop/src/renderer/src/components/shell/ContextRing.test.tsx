@@ -42,7 +42,7 @@ describe('ContextRing', () => {
     expect(indicator).toHaveAttribute('stroke-dashoffset', '25')
   })
 
-  it('opens native-style context details from the keyboard trigger', () => {
+  it('opens system-style context details from the keyboard trigger', () => {
     render(<ContextRing contextWindow={200_000} usedTokens={150_000} />)
 
     fireEvent.focus(
