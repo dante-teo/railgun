@@ -1,5 +1,6 @@
 import {
   approvalGetChannel,
+  approvalSetChannel,
   approvalSetModeChannel,
   type ApprovalApi,
   type ApprovalConfiguration,
@@ -13,6 +14,8 @@ export interface ApprovalIpcRenderer {
 export function createApprovalApi(ipcRenderer: ApprovalIpcRenderer): ApprovalApi {
   return {
     get: () => ipcRenderer.invoke(approvalGetChannel) as Promise<ApprovalConfiguration>,
+    set: (configuration: ApprovalConfiguration) =>
+      ipcRenderer.invoke(approvalSetChannel, configuration) as Promise<ApprovalConfiguration>,
     setMode: (mode: ApprovalMode) =>
       ipcRenderer.invoke(approvalSetModeChannel, mode) as Promise<ApprovalConfiguration>
   }

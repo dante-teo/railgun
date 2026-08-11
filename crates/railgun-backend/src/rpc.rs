@@ -466,6 +466,27 @@ impl Coordinator {
                     })),
                 );
             }
+            "session_delete_archived" => {
+                self.require_idle("permanently delete an archived session")?;
+                let deleted_session_id = self
+                    .store
+                    .delete_archived(command.string("sessionId")?)
+                    .await?;
+                self.respond(
+                    "session_delete_archived",
+                    id,
+                    Some(json!({"deletedSessionId": deleted_session_id})),
+                );
+            }
+            "session_delete_all_archived" => {
+                self.require_idle("permanently delete archived sessions")?;
+                let deleted_count = self.store.delete_all_archived().await?;
+                self.respond(
+                    "session_delete_all_archived",
+                    id,
+                    Some(json!({"deletedCount": deleted_count})),
+                );
+            }
             "session_branch" => {
                 self.require_idle("branch a session")?;
                 if self.active.persistence != "saved" {
@@ -1548,6 +1569,8 @@ fn v1_only(kind: &str) -> bool {
             | "session_list_archived"
             | "session_load"
             | "session_archive"
+            | "session_delete_archived"
+            | "session_delete_all_archived"
             | "session_unarchive"
             | "session_save"
             | "refresh_model_catalog"

@@ -19,16 +19,20 @@ const validStoredLayout: ShellLayoutRecord = {
   inspectorVisible: true
 }
 
-function renderShell({ includeDetail = true }: { includeDetail?: boolean } = {}): ReturnType<
-  typeof render
-> {
+function renderShell({
+  includeDetail = true,
+  includeInspector = true
+}: {
+  includeDetail?: boolean
+  includeInspector?: boolean
+} = {}): ReturnType<typeof render> {
   return render(
     <TooltipProvider>
       <AppShellLayout
         content={<div>Content</div>}
         detail={includeDetail ? <div>Detail</div> : undefined}
-        inspector={<div>Inspector body</div>}
-        inspectorTopBar={<div>Inspector topbar</div>}
+        inspector={includeInspector ? <div>Inspector body</div> : undefined}
+        inspectorTopBar={includeInspector ? <div>Inspector topbar</div> : undefined}
         sidebar={<div>Sidebar body</div>}
         sidebarTopBar={<div>Sidebar topbar</div>}
         workspaceTopBar={<div>Workspace topbar</div>}
@@ -230,5 +234,21 @@ describe('AppShellLayout', () => {
     expect(paneBodies.every((body) => body.getAttribute('data-pane-body-start') === '52')).toBe(
       true
     )
+  })
+
+  it('makes Inspector structurally unavailable without changing its persisted preference', () => {
+    window.localStorage.setItem(SHELL_LAYOUT_STORAGE_KEY, JSON.stringify(validStoredLayout))
+    const settingsShell = renderShell({ includeInspector: false })
+
+    expect(document.querySelector('#inspector-panel')).toBeNull()
+    expect(document.querySelector('#shell-inspector')).toBeNull()
+    expect(document.querySelector('#shell-inspector-handle')).toBeNull()
+    expect(document.querySelector('[data-shell-topbar="inspector"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: /inspector/i })).toBeNull()
+    expect(readShellLayout(window.localStorage).inspectorVisible).toBe(true)
+
+    settingsShell.unmount()
+    renderShell()
+    expect(screen.getByRole('button', { name: 'Hide inspector' })).toBeInTheDocument()
   })
 })

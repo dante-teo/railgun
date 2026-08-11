@@ -13,23 +13,56 @@ import {
   type AttachmentDialogKind,
   type SeparateAttachmentDialogKind
 } from './attachment-picker.mts'
-import { getApprovalConfiguration, setApprovalMode } from './approval.mts'
+import { getApprovalConfiguration, setApprovalConfiguration, setApprovalMode } from './approval.mts'
+import { getAdvisorConfiguration, setAdvisorConfiguration } from './advisor.mts'
 import { BackendProcessManager, resolveBackendLaunch } from './backend-process.mts'
 import { ContextUsageService } from './context-usage.mts'
 import { handleExternalWindowOpen } from './external-links.mts'
-import { getModelConfiguration, selectModel } from './models.mts'
+import { getModelConfiguration, selectModel, setDefaultModel } from './models.mts'
+import { PersonalizationService } from './personalization.mts'
+import { SchedulerService, type SchedulerTarget } from './scheduler.mts'
+import { SkillService } from './skills.mts'
 import { TaskService } from './tasks.mts'
 import { createTranscriptService } from './transcript.mts'
 import { activitySnapshotChannel, activityUpdateChannel } from '../shared/activity-api'
+import { advisorGetChannel, advisorSetChannel } from '../shared/advisor-api'
 import { attachmentsPickChannel } from '../shared/attachment-api'
-import { approvalGetChannel, approvalSetModeChannel } from '../shared/approval-api'
+import {
+  approvalGetChannel,
+  approvalSetChannel,
+  approvalSetModeChannel
+} from '../shared/approval-api'
 import { contextUsageSnapshotChannel, contextUsageUpdateChannel } from '../shared/context-usage-api'
-import { modelsGetChannel, modelsSelectChannel } from '../shared/model-api'
+import { modelsGetChannel, modelsSelectChannel, modelsSetDefaultChannel } from '../shared/model-api'
+import {
+  memoriesCreateChannel,
+  memoriesDeleteChannel,
+  memoriesListChannel,
+  memoriesUpdateChannel,
+  soulGetChannel,
+  soulSetChannel
+} from '../shared/personalization-api'
+import {
+  schedulerGetStatusChannel,
+  schedulerInstallChannel,
+  schedulerUninstallChannel
+} from '../shared/scheduler-api'
+import {
+  skillsCreateChannel,
+  skillsDeleteChannel,
+  skillsGetChannel,
+  skillsListChannel,
+  skillsUpdateChannel
+} from '../shared/skill-api'
 import {
   tasksArchiveChannel,
   tasksCreateChannel,
+  tasksDeleteAllArchivedChannel,
+  tasksDeleteArchivedChannel,
+  tasksListArchivedChannel,
   tasksListChannel,
-  tasksOpenChannel
+  tasksOpenChannel,
+  tasksUnarchiveChannel
 } from '../shared/task-api'
 import {
   transcriptAbortChannel,
@@ -44,8 +77,11 @@ const backendProcess = new BackendProcessManager()
 const activityService = new ActivityService(backendProcess)
 const contextUsageService = new ContextUsageService(backendProcess)
 const taskService = new TaskService(backendProcess)
+const personalizationService = new PersonalizationService(backendProcess)
+const skillService = new SkillService(backendProcess)
 const transcriptService = createTranscriptService(backendProcess)
 const activeSessionMutations = createActiveSessionMutationQueue()
+let schedulerService = new SchedulerService({})
 let isQuitting = false
 let backendFailureReported = false
 
@@ -68,13 +104,30 @@ function startConfiguredBackend(): void {
     app.isPackaged ? process.resourcesPath : undefined
   )
   if (!launch) {
+    schedulerService = new SchedulerService({})
     return
   }
+
+  const mode = process.env['RAILGUNX_BACKEND_MODE']?.trim()
+  const schedulerTarget: SchedulerTarget | undefined =
+    mode === 'mock'
+      ? undefined
+      : launch.environment?.HOME
+        ? {
+            bundled: !mode || mode === 'bundled',
+            executablePath: launch.executablePath,
+            homeDirectory: launch.environment.HOME,
+            version: app.getVersion(),
+            workingDirectory: launch.currentDirectory
+          }
+        : undefined
+  schedulerService = new SchedulerService({ target: schedulerTarget })
 
   const child = backendProcess.start(launch)
   void backendProcess
     .waitUntilReady()
     .then(() => Promise.all([activityService.hydrate(), contextUsageService.hydrate()]))
+    .then(() => schedulerService.repairStaleBundledInstallation())
     .catch(reportBackendFailure)
   child.once('error', reportBackendFailure)
   child.once('exit', (code, signal) => {
@@ -149,10 +202,20 @@ function registerIpcHandlers(): void {
     })
   })
   ipcMain.handle(approvalGetChannel, () => getApprovalConfiguration(backendProcess))
+  ipcMain.handle(approvalSetChannel, (_event, configuration: unknown) =>
+    activeSessionMutations.run(() => setApprovalConfiguration(backendProcess, configuration))
+  )
   ipcMain.handle(approvalSetModeChannel, (_event, mode: unknown) =>
     setApprovalMode(backendProcess, mode)
   )
   ipcMain.handle(modelsGetChannel, () => getModelConfiguration(backendProcess))
+  ipcMain.handle(modelsSetDefaultChannel, (_event, modelId: unknown) =>
+    activeSessionMutations.run(() => setDefaultModel(backendProcess, modelId))
+  )
+  ipcMain.handle(advisorGetChannel, () => getAdvisorConfiguration(backendProcess))
+  ipcMain.handle(advisorSetChannel, (_event, configuration: unknown) =>
+    activeSessionMutations.run(() => setAdvisorConfiguration(backendProcess, configuration))
+  )
   ipcMain.handle(modelsSelectChannel, (_event, modelId: unknown) =>
     activeSessionMutations.run(async () => {
       const configuration = await selectModel(backendProcess, modelId)
@@ -167,6 +230,7 @@ function registerIpcHandlers(): void {
     })
   )
   ipcMain.handle(tasksListChannel, () => taskService.list())
+  ipcMain.handle(tasksListArchivedChannel, () => taskService.listArchived())
   ipcMain.handle(tasksCreateChannel, () =>
     activeSessionMutations.run(async () => {
       const sessionId = await transcriptService.create()
@@ -180,6 +244,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle(tasksArchiveChannel, (_event, sessionId: unknown) =>
     taskService.archive(sessionId)
   )
+  ipcMain.handle(tasksUnarchiveChannel, (_event, sessionId: unknown) =>
+    taskService.unarchive(sessionId)
+  )
+  ipcMain.handle(tasksDeleteArchivedChannel, (_event, sessionId: unknown) =>
+    taskService.deleteArchived(sessionId)
+  )
+  ipcMain.handle(tasksDeleteAllArchivedChannel, () => taskService.deleteAllArchived())
   ipcMain.handle(tasksOpenChannel, (_event, sessionId: unknown) =>
     activeSessionMutations.run(async () => {
       await transcriptService.load(sessionId)
@@ -187,6 +258,32 @@ function registerIpcHandlers(): void {
     })
   )
   ipcMain.handle(transcriptSnapshotChannel, () => transcriptService.getSnapshot())
+  ipcMain.handle(soulGetChannel, () => personalizationService.getSoul())
+  ipcMain.handle(soulSetChannel, (_event, content: unknown) =>
+    personalizationService.setSoul(content)
+  )
+  ipcMain.handle(memoriesListChannel, (_event, query: unknown) =>
+    personalizationService.listMemories(query)
+  )
+  ipcMain.handle(memoriesCreateChannel, (_event, input: unknown) =>
+    personalizationService.createMemory(input)
+  )
+  ipcMain.handle(memoriesUpdateChannel, (_event, memoryId: unknown, input: unknown) =>
+    personalizationService.updateMemory(memoryId, input)
+  )
+  ipcMain.handle(memoriesDeleteChannel, (_event, memoryId: unknown) =>
+    personalizationService.deleteMemory(memoryId)
+  )
+  ipcMain.handle(skillsListChannel, () => skillService.list())
+  ipcMain.handle(skillsGetChannel, (_event, name: unknown) => skillService.get(name))
+  ipcMain.handle(skillsCreateChannel, (_event, input: unknown) => skillService.create(input))
+  ipcMain.handle(skillsUpdateChannel, (_event, name: unknown, input: unknown) =>
+    skillService.update(name, input)
+  )
+  ipcMain.handle(skillsDeleteChannel, (_event, name: unknown) => skillService.delete(name))
+  ipcMain.handle(schedulerGetStatusChannel, () => schedulerService.getStatus())
+  ipcMain.handle(schedulerInstallChannel, () => schedulerService.install())
+  ipcMain.handle(schedulerUninstallChannel, () => schedulerService.uninstall())
   ipcMain.handle(transcriptSendChannel, (_event, sessionId: unknown, submission: unknown) =>
     transcriptService.send(sessionId, submission)
   )

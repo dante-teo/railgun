@@ -342,6 +342,26 @@ impl Store {
         Ok(())
     }
 
+    pub async fn delete_archived(&self, id: &str) -> Result<String> {
+        let result = sqlx::query("DELETE FROM sessions WHERE id = ? AND archived_at IS NOT NULL")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() != 1 {
+            bail!("archived session {id} not found");
+        }
+        Ok(id.to_owned())
+    }
+
+    pub async fn delete_all_archived(&self) -> Result<u64> {
+        Ok(
+            sqlx::query("DELETE FROM sessions WHERE archived_at IS NOT NULL")
+                .execute(&self.pool)
+                .await?
+                .rows_affected(),
+        )
+    }
+
     pub async fn branch(&self, session_id: &str, message_id: i64) -> Result<()> {
         let rows = sqlx::query(
             "WITH RECURSIVE branch(id, parent_id) AS (
@@ -1589,6 +1609,65 @@ mod tests {
             store.list_sessions(false).await.unwrap()[0]["delivery"]["jobId"],
             "daily"
         );
+    }
+
+    #[tokio::test]
+    async fn archived_deletion_is_scoped_and_cascades_related_rows() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("archived-deletion.db"))
+            .await
+            .unwrap();
+        for id in ["active", "archived-one", "archived-two"] {
+            let mut session = Session {
+                id: id.into(),
+                model: "model".into(),
+                started_at: "2026-01-01T00:00:00.000Z".into(),
+                messages: vec![
+                    json!({"role":"user","content":id}),
+                    json!({"role":"assistant","content":[{"type":"text","text":"done"}]}),
+                ],
+                message_ids: Vec::new(),
+                todos: Vec::new(),
+                latest_usage: None,
+                persistence: "unsaved",
+            };
+            store.save_session(&mut session).await.unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO session_deliveries (session_id, job_id, title, run_status, delivered_at)
+             VALUES ('archived-one', 'job', 'Archived', 'completed', '2026-01-01T00:01:00.000Z')",
+        )
+        .execute(&store.pool)
+        .await
+        .unwrap();
+        store.archive("archived-one", true).await.unwrap();
+        store.archive("archived-two", true).await.unwrap();
+
+        assert!(store.delete_archived("active").await.is_err());
+        assert_eq!(
+            store.delete_archived("archived-one").await.unwrap(),
+            "archived-one"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM messages WHERE session_id = 'archived-one'",
+            )
+            .fetch_one(&store.pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM session_deliveries WHERE session_id = 'archived-one'",
+            )
+            .fetch_one(&store.pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(store.delete_all_archived().await.unwrap(), 1);
+        assert_eq!(store.list_sessions(false).await.unwrap().len(), 1);
     }
 
     #[test]

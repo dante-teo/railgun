@@ -1,5 +1,5 @@
 import type { ApprovalConfiguration, ApprovalMode } from '../shared/approval-api.ts'
-import { parseModelCatalog } from './models.mts'
+import { ensureConfigurationIsMutable, parseModelCatalog } from './models.mts'
 import { asObject } from './value-validation.mts'
 
 const approvalModes: readonly ApprovalMode[] = ['manual', 'smart', 'off']
@@ -77,6 +77,50 @@ export async function setApprovalMode(
     await backend.request('config_update', { patch: { approvalMode: value } }, { timeout: 'none' })
   )
   if (updated.mode !== value) {
+    throw new Error('The backend returned an invalid approval configuration')
+  }
+  return updated
+}
+
+function parseApprovalInput(value: unknown): ApprovalConfiguration {
+  const configuration = asObject(value)
+  const mode = configuration?.mode
+  const reviewerModelId = parseReviewerModelId(configuration?.reviewerModelId)
+  if (!isApprovalMode(mode) || reviewerModelId === undefined) {
+    throw new Error('Invalid approval configuration')
+  }
+  return { mode, reviewerModelId }
+}
+
+export async function setApprovalConfiguration(
+  backend: ApprovalBackend,
+  value: unknown
+): Promise<ApprovalConfiguration> {
+  const requested = parseApprovalInput(value)
+  await ensureConfigurationIsMutable(backend)
+  if (requested.mode === 'smart' && requested.reviewerModelId === null) {
+    throw new Error('Choose an approval model before enabling auto approval')
+  }
+  if (requested.mode === 'smart' && requested.reviewerModelId !== null) {
+    const models = parseModelCatalog(await backend.request('get_available_models'))
+    if (!models.some(({ id }) => id === requested.reviewerModelId)) {
+      throw new Error('Choose an available approval model')
+    }
+  }
+
+  const updated = parseApprovalConfiguration(
+    await backend.request(
+      'config_update',
+      {
+        patch: {
+          approvalMode: requested.mode,
+          reviewerModel: requested.reviewerModelId
+        }
+      },
+      { timeout: 'none' }
+    )
+  )
+  if (updated.mode !== requested.mode || updated.reviewerModelId !== requested.reviewerModelId) {
     throw new Error('The backend returned an invalid approval configuration')
   }
   return updated

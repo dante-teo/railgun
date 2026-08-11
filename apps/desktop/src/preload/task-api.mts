@@ -1,8 +1,13 @@
 import {
   tasksArchiveChannel,
   tasksCreateChannel,
+  tasksDeleteAllArchivedChannel,
+  tasksDeleteArchivedChannel,
+  tasksListArchivedChannel,
   tasksListChannel,
   tasksOpenChannel,
+  tasksUnarchiveChannel,
+  type ArchivedTaskSummary,
   type TaskApi,
   type TaskSummary
 } from '../shared/task-api.ts'
@@ -18,8 +23,17 @@ export function createTaskApi(ipcRenderer: TaskIpcRenderer): TaskApi {
     archive: async (sessionId: string): Promise<void> => {
       await ipcRenderer.invoke(tasksArchiveChannel, sessionId)
     },
+    deleteAllArchived: () => ipcRenderer.invoke(tasksDeleteAllArchivedChannel) as Promise<number>,
+    deleteArchived: async (sessionId: string): Promise<void> => {
+      await ipcRenderer.invoke(tasksDeleteArchivedChannel, sessionId)
+    },
     open: async (sessionId: string): Promise<void> => {
       await ipcRenderer.invoke(tasksOpenChannel, sessionId)
+    },
+    listArchived: () =>
+      ipcRenderer.invoke(tasksListArchivedChannel) as Promise<ArchivedTaskSummary[]>,
+    unarchive: async (sessionId: string): Promise<void> => {
+      await ipcRenderer.invoke(tasksUnarchiveChannel, sessionId)
     }
   }
 }

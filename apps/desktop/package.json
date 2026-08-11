@@ -43,6 +43,7 @@
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
     "electron-updater": "6.8.9",
+    "plist": "^5.0.0",
     "radix-ui": "^1.6.7",
     "react-resizable-panels": "^4.12.2",
     "streamdown": "^2.5.0",

@@ -450,6 +450,37 @@ async fn skills_list_get_create_update_and_delete_match_the_jsonl_contract() {
 }
 
 #[tokio::test]
+async fn archived_deletion_only_removes_archived_sessions_and_returns_counts() {
+    let mut mock = MockProcess::start("ready-idle").await;
+    mock.send(json!({"id":"archive","type":"session_archive","sessionId":"mock-session-older"}))
+        .await;
+    assert_eq!(mock.response("archive").await["success"], true);
+
+    mock.send(json!({"id":"active-delete","type":"session_delete_archived","sessionId":"mock-session-recent"}))
+        .await;
+    assert_eq!(mock.response("active-delete").await["success"], false);
+
+    mock.send(
+        json!({"id":"delete","type":"session_delete_archived","sessionId":"mock-session-older"}),
+    )
+    .await;
+    assert_eq!(
+        mock.response("delete").await["data"]["deletedSessionId"],
+        "mock-session-older"
+    );
+
+    mock.send(
+        json!({"id":"archive-two","type":"session_archive","sessionId":"mock-session-recent"}),
+    )
+    .await;
+    mock.response("archive-two").await;
+    mock.send(json!({"id":"delete-all","type":"session_delete_all_archived"}))
+        .await;
+    assert_eq!(mock.response("delete-all").await["data"]["deletedCount"], 1);
+    assert!(mock.stop().await.success());
+}
+
+#[tokio::test]
 async fn interactions_validate_correlation_and_settle_the_original_prompt() {
     let mut mock = MockProcess::start("approval").await;
     mock.send(json!({"id":"prompt","type":"prompt","message":"Run it"}))

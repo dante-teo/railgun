@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   getModelConfiguration,
   selectModel,
+  setDefaultModel,
   type ModelBackend,
   type ModelBackendRequestOptions
 } from './models.mts'
@@ -157,4 +158,23 @@ test('model configuration rejects malformed catalogs and unknown selections', as
   const unknown = stubModelBackend(readableConfigurationResponses())
   await assert.rejects(selectModel(unknown, 'missing'), /Invalid model selection/)
   assert.equal(unknown.calls.length, 3)
+})
+
+test('default model updates only future tasks and validates against the catalog', async () => {
+  const backend = stubModelBackend({
+    ...readableConfigurationResponses(),
+    config_update: [{ value: { config: { model: 'claude-sonnet' } } }]
+  })
+
+  const result = await setDefaultModel(backend, 'claude-sonnet')
+  assert.equal(result.defaultModelId, 'claude-sonnet')
+  assert.equal(result.activeModelId, 'gpt-5')
+  assert.equal(result.activeSessionId, 'session-one')
+  assert.deepEqual(backend.calls.slice(3), [
+    {
+      command: 'config_update',
+      fields: { patch: { model: 'claude-sonnet' } },
+      options: { timeout: 'none' }
+    }
+  ])
 })

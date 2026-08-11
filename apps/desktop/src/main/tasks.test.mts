@@ -122,3 +122,34 @@ test('TaskService preserves archive failures for the IPC caller', async (): Prom
 
   await assert.rejects(service.archive('task-123'), /active session task-123 not found/)
 })
+
+test('TaskService validates archived summaries and deletion acknowledgements', async () => {
+  const responses = [
+    {
+      sessions: [
+        {
+          id: 'archived',
+          firstUserPreview: 'Archived task',
+          lastMessageAt: '2026-08-09T02:00:00.000Z',
+          archivedAt: '2026-08-10T02:00:00.000Z',
+          model: 'gpt-5',
+          messageCount: 4
+        }
+      ]
+    },
+    { deletedSessionId: 'archived' },
+    { deletedCount: 3 }
+  ]
+  const calls: StubBackend['calls'] = []
+  const backend: StubBackend = {
+    calls,
+    request: async (command, fields, options) => {
+      calls.push({ command, fields, options })
+      return responses.shift()
+    }
+  }
+  const service = new TaskService(backend)
+  assert.equal((await service.listArchived())[0].messageCount, 4)
+  await service.deleteArchived('archived')
+  assert.equal(await service.deleteAllArchived(), 3)
+})

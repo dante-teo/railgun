@@ -12,7 +12,9 @@ Detail pane, and collapsible Inspector. Pane dimensions and collapsed state pers
 The task list loads conversation sessions from `~/.railgun`, shows each title and last-message
 date, resumes complete active-branch transcripts, and keeps selection attached to the backend's
 active session. Archiving removes a task optimistically and restores it if the backend rejects the
-mutation. Browsing or restoring already archived tasks is not implemented.
+mutation. Archived Tasks in Settings can search archived rows, restore them, permanently delete one,
+or purge the complete archive after confirmation. Archive mutations remain locked while task-run
+state is active or unavailable.
 
 The transcript renders user prompts, streaming and persisted assistant Markdown, bounded tool
 activity, approvals, and clarifications. Raw thinking, provider arguments, and non-shell result
@@ -34,9 +36,19 @@ The context ring reports the latest provider-measured input and output usage. Th
 shows the current Advisor note, TODO state, and bounded subagent exchanges. Tagged stale activity
 frames are rejected after a newer run starts.
 
-Scheduled and Settings labels are present in navigation but their application routes are not
-implemented. Inspector content is currently static presentation data. Retirement of the previous
-desktop implementation does not imply that these remaining surfaces will be ported.
+Settings is available at `/settings/general`, `/settings/appearance`,
+`/settings/personalization`, `/settings/skills`, and `/settings/archived-tasks`; `/settings`
+redirects to General. It reuses the primary Sidebar and the persisted Content/Detail split, but the
+Inspector and its controls are structurally absent on every Settings route. Returning to Tasks
+restores the prior Inspector preference.
+
+General manages the future-task default model, Advisor, approval behavior, and the macOS background
+scheduler. Appearance applies Auto, Light, or Dark immediately and persists the choice locally.
+Personalization edits `~/.railgun/SOUL.md` and saved memories. Skills manages private Markdown skill
+files under `~/.railgun/skills`. Valid editor drafts save before in-app navigation; invalid or failed
+saves keep the user on the current route. The Scheduled navigation label remains non-routed because
+background scheduler management lives in General. Inspector content on Tasks remains static
+presentation data.
 
 ## Production lifecycle
 

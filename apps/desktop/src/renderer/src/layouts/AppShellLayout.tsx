@@ -19,8 +19,8 @@ export interface AppShellLayoutProps {
   content: ReactNode
   detail?: ReactNode
   workspaceTopBar: ReactNode
-  inspector: ReactNode
-  inspectorTopBar: ReactNode
+  inspector?: ReactNode
+  inspectorTopBar?: ReactNode
 }
 
 function getBrowserStorage(): Storage | undefined {
@@ -44,6 +44,7 @@ export function AppShellLayout({
   const contentPanelRef = usePanelRef()
   const inspectorPanelRef = usePanelRef()
   const hasDetail = detail !== undefined
+  const hasInspector = inspector !== undefined && inspectorTopBar !== undefined
 
   const updateLayout = useCallback(
     (updater: (current: ShellLayoutRecord) => ShellLayoutRecord, persist = false): void => {
@@ -61,7 +62,7 @@ export function AppShellLayout({
   const persistCurrentPanelWidths = useCallback((): void => {
     updateLayout((current) => {
       const sidebarPanel = sidebarPanelRef.current
-      const inspectorPanel = inspectorPanelRef.current
+      const inspectorPanel = hasInspector ? inspectorPanelRef.current : undefined
       return commitOuterPanelLayout(
         current,
         {
@@ -74,7 +75,7 @@ export function AppShellLayout({
         }
       )
     }, true)
-  }, [inspectorPanelRef, sidebarPanelRef, updateLayout])
+  }, [hasInspector, inspectorPanelRef, sidebarPanelRef, updateLayout])
 
   const persistContentWidth = useCallback((): void => {
     updateLayout((current) => {
@@ -229,7 +230,7 @@ export function AppShellLayout({
                 </div>
               ) : null}
               <div className="min-w-0 flex-1 self-stretch">{workspaceTopBar}</div>
-              {!layout.inspectorVisible ? (
+              {hasInspector && !layout.inspectorVisible ? (
                 <div className="ml-3 mr-4 shrink-0">
                   <PaneToggle
                     controls="shell-inspector"
@@ -297,52 +298,56 @@ export function AppShellLayout({
           </section>
         </ResizablePanel>
 
-        {layout.inspectorVisible ? <ResizableHandle id="shell-inspector-handle" /> : null}
+        {hasInspector && layout.inspectorVisible ? (
+          <ResizableHandle id="shell-inspector-handle" />
+        ) : null}
 
-        <ResizablePanel
-          collapsedSize={0}
-          collapsible
-          data-default-width={layout.inspectorWidth}
-          data-min-width={SHELL_LAYOUT_CONSTRAINTS.inspector.min}
-          defaultSize={layout.inspectorVisible ? layout.inspectorWidth : 0}
-          groupResizeBehavior="preserve-pixel-size"
-          id="inspector-panel"
-          maxSize={SHELL_LAYOUT_CONSTRAINTS.inspector.max}
-          minSize={SHELL_LAYOUT_CONSTRAINTS.inspector.min}
-          panelRef={inspectorPanelRef}
-        >
-          <aside
-            aria-hidden={!layout.inspectorVisible}
-            className={cn(
-              'flex h-full min-w-0 flex-col bg-background',
-              !layout.inspectorVisible && 'invisible'
-            )}
-            id="shell-inspector"
+        {hasInspector ? (
+          <ResizablePanel
+            collapsedSize={0}
+            collapsible
+            data-default-width={layout.inspectorWidth}
+            data-min-width={SHELL_LAYOUT_CONSTRAINTS.inspector.min}
+            defaultSize={layout.inspectorVisible ? layout.inspectorWidth : 0}
+            groupResizeBehavior="preserve-pixel-size"
+            id="inspector-panel"
+            maxSize={SHELL_LAYOUT_CONSTRAINTS.inspector.max}
+            minSize={SHELL_LAYOUT_CONSTRAINTS.inspector.min}
+            panelRef={inspectorPanelRef}
           >
-            <header
-              className="window-drag-region flex h-[52px] shrink-0 items-center"
-              data-integrated-with-body="true"
-              data-shell-topbar="inspector"
-              data-toggle-layout="flow"
+            <aside
+              aria-hidden={!layout.inspectorVisible}
+              className={cn(
+                'flex h-full min-w-0 flex-col bg-background',
+                !layout.inspectorVisible && 'invisible'
+              )}
+              id="shell-inspector"
             >
-              <div className="min-w-0 flex-1 self-stretch">{inspectorTopBar}</div>
-              {layout.inspectorVisible ? (
-                <div className="ml-2 mr-4 shrink-0">
-                  <PaneToggle
-                    controls="shell-inspector"
-                    expanded
-                    icon={PanelRight}
-                    label="Hide inspector"
-                    onToggle={toggleInspector}
-                  />
-                </div>
-              ) : null}
-            </header>
-            <div className="min-h-0 flex-1" data-pane-body data-pane-body-start="52">
-              {inspector}
-            </div>
-          </aside>
-        </ResizablePanel>
+              <header
+                className="window-drag-region flex h-[52px] shrink-0 items-center"
+                data-integrated-with-body="true"
+                data-shell-topbar="inspector"
+                data-toggle-layout="flow"
+              >
+                <div className="min-w-0 flex-1 self-stretch">{inspectorTopBar}</div>
+                {layout.inspectorVisible ? (
+                  <div className="ml-2 mr-4 shrink-0">
+                    <PaneToggle
+                      controls="shell-inspector"
+                      expanded
+                      icon={PanelRight}
+                      label="Hide inspector"
+                      onToggle={toggleInspector}
+                    />
+                  </div>
+                ) : null}
+              </header>
+              <div className="min-h-0 flex-1" data-pane-body data-pane-body-start="52">
+                {inspector}
+              </div>
+            </aside>
+          </ResizablePanel>
+        ) : null}
       </ResizablePanelGroup>
     </main>
   )

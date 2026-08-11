@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   approvalGetChannel,
+  approvalSetChannel,
   approvalSetModeChannel,
   type ApprovalConfiguration
 } from '../shared/approval-api.ts'
@@ -22,9 +23,11 @@ test('approval preload gets and updates the mode through narrow IPC channels', a
   })
 
   assert.deepEqual(await api.get(), configuration)
+  assert.deepEqual(await api.set(configuration), configuration)
   assert.deepEqual(await api.setMode('off'), configuration)
   assert.deepEqual(calls, [
     { arguments: [], channel: approvalGetChannel },
+    { arguments: [configuration], channel: approvalSetChannel },
     { arguments: ['off'], channel: approvalSetModeChannel }
   ])
 })

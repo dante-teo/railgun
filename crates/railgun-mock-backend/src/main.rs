@@ -593,6 +593,47 @@ impl Mock {
                     self.respond_error(&kind, id.as_deref(), &format!("archived session {session_id} not found"));
                 }
             }
+            "session_delete_archived" => {
+                if !self.require_idle(
+                    &kind,
+                    id.as_deref(),
+                    "cannot permanently delete an archived session while agent is running",
+                ) {
+                    return Ok(None);
+                }
+                let session_id = command["sessionId"].as_str().unwrap_or_default();
+                let before = self.archived.len();
+                self.archived.retain(|(session, _)| session.id != session_id);
+                if self.archived.len() == before {
+                    self.respond_error(
+                        &kind,
+                        id.as_deref(),
+                        &format!("archived session {session_id} not found"),
+                    );
+                } else {
+                    self.respond(
+                        &kind,
+                        id.as_deref(),
+                        Some(json!({"deletedSessionId":session_id})),
+                    );
+                }
+            }
+            "session_delete_all_archived" => {
+                if !self.require_idle(
+                    &kind,
+                    id.as_deref(),
+                    "cannot permanently delete archived sessions while agent is running",
+                ) {
+                    return Ok(None);
+                }
+                let deleted_count = self.archived.len();
+                self.archived.clear();
+                self.respond(
+                    &kind,
+                    id.as_deref(),
+                    Some(json!({"deletedCount":deleted_count})),
+                );
+            }
             "session_transcript" => {
                 if command.get("sessionId").and_then(Value::as_str)
                     != Some(self.active.id.as_str())
@@ -810,7 +851,9 @@ impl Mock {
                 };
                 let config = self.config.as_object_mut().unwrap();
                 for (key, value) in patch {
-                    if key == "activeMoaPreset" && value.is_null() {
+                    if matches!(key.as_str(), "activeMoaPreset" | "reviewerModel")
+                        && value.is_null()
+                    {
                         config.remove(key);
                     } else {
                         config.insert(key.clone(), value.clone());

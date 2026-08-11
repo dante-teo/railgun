@@ -3,7 +3,8 @@
 The production Electron application, built with TypeScript, React, React Router, Tailwind CSS, and
 shadcn/ui. Its Tasks interface loads and resumes saved conversation sessions from the configured
 JSONL backend, streams agent responses, handles in-turn interactions, and optimistically archives
-tasks. It is Railgun's sole desktop and release surface.
+tasks. Its Settings interface owns user configuration, personalization, skills, scheduler
+management, and archived-task lifecycle. It is Railgun's sole desktop and release surface.
 
 ## Requirements
 
@@ -99,13 +100,15 @@ renderer code.
 ### Backend boundaries
 
 The context-isolated preload exposes `window.railgun.tasks.list()`,
-`window.railgun.tasks.create()`, `window.railgun.tasks.open(sessionId)`, and
-`window.railgun.tasks.archive(sessionId)`. List results contain the session ID, presentation title,
-and an ISO-8601 `lastMessageAt` timestamp; the main process validates every response before it
-crosses into the renderer and validates renderer-supplied session IDs before loading or archiving.
-Opening a task activates the requested backend session, hydrates its transcript through the
-separate transcript service, then refreshes activity and context usage. A failed load restores the
-previous visible selection unless the user has already selected something newer.
+`window.railgun.tasks.create()`, `window.railgun.tasks.open(sessionId)`,
+`window.railgun.tasks.archive(sessionId)`, and narrow archived-task list, restore, individual
+deletion, and bulk-deletion methods. Active list results contain the session ID, presentation title,
+and an ISO-8601 `lastMessageAt` timestamp; archived summaries add model, message count, and archived
+time. The main process validates every response before it crosses into the renderer and validates
+renderer-supplied session IDs before loading or mutating a task. Opening a task activates the
+requested backend session, hydrates its transcript through the separate transcript service, then
+refreshes activity and context usage. A failed load restores the previous visible selection unless
+the user has already selected something newer.
 
 Creating a task reads the configured default model and the live model catalog, passes the default
 only when it is still available, requests a new backend session, validates its ID, and publishes an
@@ -124,6 +127,14 @@ Task opening, task creation, and model selection share one main-process FIFO bec
 replace the backend's single active session. An operation completes its transcript load or adopts
 any model fork before the next begins, preventing late work from replacing a newer task. A rejected
 operation does not block later mutations.
+
+Settings uses separate narrow preload APIs for models, Advisor, approval configuration,
+personalization, managed skills, and scheduler status/install/uninstall. The main process validates
+selected models against the live catalog when the setting requires an available model, preserves
+unknown backend configuration fields, and keeps unavailable stored model IDs visible without
+silently rewriting them. Model, Advisor, and approval mutations require an idle backend; scheduler
+management remains independent of task-run state. Personalization and skill services validate and
+bound renderer inputs and backend responses before filesystem-backed data reaches the renderer.
 
 #### Transcript boundary
 
@@ -278,6 +289,34 @@ assistive technology immediately, and unmount when their opacity transition fini
 motion removes spatial movement but retains short opacity feedback. High-frequency navigation,
 keyboard flows, transcript streaming, disclosure height, and pane geometry remain immediate.
 
+### Settings route contract
+
+`/settings` redirects to `/settings/general`. The category routes are General, Appearance,
+Personalization, Skills, and Archived Tasks. Settings preserves the primary Sidebar and replaces the
+Tasks Content/Detail panes with category navigation and the selected category. It reuses the stored
+Content width and resizable separator. Inspector content, its topbar, separator, and reveal control
+are omitted on every Settings route; the persisted Inspector preference is unchanged and is restored
+when the user returns to Tasks.
+
+General changes the default model for future tasks without switching the current task, configures
+Advisor and approval behavior, and manages Background Scheduling. Advisor and Approve for me require
+available models. A retired reviewer ID may remain stored and visible while Manual or Full access is
+selected because those modes do not invoke it. Model, Advisor, and approval controls are locked while
+run state is unknown or active; scheduler controls remain available.
+
+Appearance stores `auto`, `light`, or `dark` under `railgun.theme.v1`, applies it to the document
+immediately, and follows live system color-scheme changes in Auto. Personalization edits
+`~/.railgun/SOUL.md` and searches or manages up to 100 Preference, Fact, and Project memories. Skills
+searches and manages private Markdown skills; names match `[a-z0-9-]{1,64}` and cannot change after
+creation. SOUL and dialog editors retain explicit Save/Cancel or Save/Revert controls. Valid dirty
+drafts save before in-app navigation, while invalid or failed saves cancel navigation and remain
+visible.
+
+Archived Tasks searches title, model, or ID and shows model, message count, and archived time.
+Restore, permanent deletion, and Delete All require confirmation and are disabled while run state is
+unknown or active. Confirmed list mutations animate only the affected rows and surviving-row
+position changes; filtering and category navigation remain immediate.
+
 The Tasks content column lists real saved sessions in backend order. Selecting a row activates that
 backend session and opens its complete transcript. Archive actions remove a task optimistically and
 restore it at its original position when the backend rejects the request. The displayed date comes
@@ -285,8 +324,8 @@ from the latest message on the session's active branch and falls back to the ses
 branch has no messages. Task selection and archiving are disabled while the selected task is
 running, which keeps its Stop control and live frame stream attached to the active backend session.
 After a prompt is saved, the Page refetches task summaries so a new title or latest-message timestamp
-appears without an application reload. Inspector fields and archived-task browsing remain future
-work in Electron.
+appears without an application reload. Inspector fields remain static presentation data; archived
+task browsing and lifecycle actions live under Settings rather than the Tasks list.
 
 The selected-task Detail is a full-height transcript and composer without a repeated title panel.
 The scroll viewport owns the panel-edge scrollbar, while transcript content and the separately
@@ -423,7 +462,9 @@ final rehydration, model-fork adoption, preload cleanup, and validated external 
 coverage exercises role-specific Markdown, loading and error states, working and interaction
 indicators, optimistic-to-persisted completion handoff, chronological exploration grouping,
 file-diff presentation, tool disclosure and failure states, controlled submission and restoration,
-task-summary refreshes, task-switch locking, and stick-to-bottom pause, jump, and resume behavior.
+task-summary refreshes, task-switch locking, stick-to-bottom pause, jump and resume behavior,
+Settings routing and Inspector exclusion, theme persistence, navigation autosave, configuration
+locking, and archived-row mutation transitions.
 
 ## Packaging
 

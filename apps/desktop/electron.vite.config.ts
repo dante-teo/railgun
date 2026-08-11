@@ -4,7 +4,13 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      // plist 5 is ESM-only. Bundle it into Electron's CommonJS main output instead of
+      // externalizing it into a runtime require(), which its export map intentionally rejects.
+      externalizeDeps: { exclude: ['plist'] }
+    }
+  },
   preload: {},
   renderer: {
     resolve: {

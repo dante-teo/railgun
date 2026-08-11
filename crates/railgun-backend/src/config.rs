@@ -262,7 +262,7 @@ pub async fn update(
 ) -> Result<Value> {
     let mut next = current.as_object().cloned().unwrap_or_default();
     for (key, value) in patch {
-        if key == "activeMoaPreset" && value.is_null() {
+        if matches!(key.as_str(), "activeMoaPreset" | "reviewerModel") && value.is_null() {
             next.remove(key);
         } else {
             next.insert(key.clone(), value.clone());

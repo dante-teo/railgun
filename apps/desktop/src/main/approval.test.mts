@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   getApprovalConfiguration,
+  setApprovalConfiguration,
   setApprovalMode,
   type ApprovalBackend,
   type ApprovalBackendRequestOptions
@@ -103,4 +104,67 @@ test('approval configuration rejects malformed backend data', async () => {
       /invalid approval configuration/i
     )
   }
+})
+
+test('full approval updates save the reviewer and remove it with null', async () => {
+  const selected = stubApprovalBackend(
+    { running: false },
+    { models: [{ id: 'reviewer', name: 'Reviewer' }] },
+    { config: { approvalMode: 'smart', reviewerModel: 'reviewer', future: true } }
+  )
+  assert.deepEqual(
+    await setApprovalConfiguration(selected, { mode: 'smart', reviewerModelId: 'reviewer' }),
+    { mode: 'smart', reviewerModelId: 'reviewer' }
+  )
+  assert.deepEqual(selected.calls[2], {
+    command: 'config_update',
+    fields: { patch: { approvalMode: 'smart', reviewerModel: 'reviewer' } },
+    options: { timeout: 'none' }
+  })
+
+  const removed = stubApprovalBackend(
+    { running: false },
+    { config: { approvalMode: 'manual', future: true } }
+  )
+  assert.deepEqual(
+    await setApprovalConfiguration(removed, { mode: 'manual', reviewerModelId: null }),
+    { mode: 'manual', reviewerModelId: null }
+  )
+  assert.deepEqual(removed.calls[1], {
+    command: 'config_update',
+    fields: { patch: { approvalMode: 'manual', reviewerModel: null } },
+    options: { timeout: 'none' }
+  })
+})
+
+test('non-smart approval preserves a retired reviewer without requiring it in the catalog', async () => {
+  const backend = stubApprovalBackend(
+    { running: false },
+    { config: { approvalMode: 'manual', reviewerModel: 'retired-reviewer' } }
+  )
+
+  assert.deepEqual(
+    await setApprovalConfiguration(backend, {
+      mode: 'manual',
+      reviewerModelId: 'retired-reviewer'
+    }),
+    { mode: 'manual', reviewerModelId: 'retired-reviewer' }
+  )
+  assert.deepEqual(
+    backend.calls.map(({ command }) => command),
+    ['get_state', 'config_update']
+  )
+})
+
+test('full approval updates are rejected while a task is running', async () => {
+  const backend = stubApprovalBackend({ running: true })
+
+  await assert.rejects(
+    setApprovalConfiguration(backend, { mode: 'manual', reviewerModelId: null }),
+    /while a task is running/
+  )
+  assert.deepEqual(
+    backend.calls.map(({ command }) => command),
+    ['get_state']
+  )
 })

@@ -153,6 +153,10 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --canvas: oklch(0.165 0 0);
+  --surface-active: oklch(0.269 0 0);
+  --subtle-foreground: oklch(0.556 0 0);
+  --placeholder: oklch(0.24 0 0);
 }
 
 @layer base {
@@ -239,6 +243,47 @@
   }
 }
 
+[data-slot='settings-crossfade-layer'] {
+  opacity: 1;
+  transition: opacity var(--duration-feedback) var(--ease-out);
+}
+
+[data-slot='settings-crossfade-layer'][data-motion='entering'],
+[data-slot='settings-crossfade-layer'][data-motion='exiting'],
+[data-slot='settings-list-item'][data-motion='exiting'] {
+  will-change: opacity, transform;
+}
+
+[data-slot='settings-crossfade-layer'][data-motion='exiting'] {
+  pointer-events: none;
+  opacity: 0;
+}
+
+[data-slot='settings-list-item'] {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity var(--duration-feedback) var(--ease-out),
+    transform var(--duration-feedback) var(--ease-out);
+}
+
+[data-slot='settings-list-item'][data-motion='exiting'] {
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+@starting-style {
+  [data-slot='settings-crossfade-layer'][data-motion='entering'] {
+    opacity: 0;
+  }
+
+  [data-slot='settings-list-item'][data-motion='entering'] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -267,5 +312,23 @@
   [data-slot='task-list-row'],
   [data-slot='task-list-state'] {
     animation-duration: var(--duration-feedback) !important;
+  }
+
+  [data-slot='settings-crossfade-layer'],
+  [data-slot='settings-list-item'] {
+    transform: none !important;
+    transition: opacity var(--duration-feedback) var(--ease-out) !important;
+  }
+
+  [data-slot='settings-crossfade-layer'][data-motion='exiting'],
+  [data-slot='settings-list-item'][data-motion='exiting'] {
+    opacity: 0.92;
+  }
+
+  @starting-style {
+    [data-slot='settings-crossfade-layer'][data-motion='entering'],
+    [data-slot='settings-list-item'][data-motion='entering'] {
+      opacity: 0.92;
+    }
   }
 }

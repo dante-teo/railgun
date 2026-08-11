@@ -57,9 +57,11 @@ starting the backend. Mock launches are exempt. The packaged application resolve
 initialization failure as fatal.
 
 The current desktop implements the task list, persisted transcripts, streaming Markdown,
-attachments, model and approval selection, context usage, in-turn approval and clarification, and
-the Activity surface. Scheduled and Settings navigation, the Inspector data, and archived-task
-browsing are intentionally not part of the current Electron product surface.
+attachments, model and approval selection, context usage, in-turn approval and clarification, the
+Activity surface, and route-addressable Settings for General, Appearance, Personalization, Skills,
+and Archived Tasks. The Scheduled navigation label remains non-routed, and Inspector data remains
+static presentation data on Tasks; Settings intentionally omits the Inspector while preserving its
+stored Tasks preference.
 
 The detailed renderer, preload, RPC, and process contracts live in
 [`apps/desktop/README.md`](./apps/desktop/README.md).

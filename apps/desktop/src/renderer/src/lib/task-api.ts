@@ -1,1 +1,1 @@
-export type { TaskSummary } from '../../../shared/task-api'
+export type { ArchivedTaskSummary, TaskSummary } from '../../../shared/task-api'

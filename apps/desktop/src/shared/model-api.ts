@@ -1,5 +1,6 @@
 export const modelsGetChannel = 'railgun:models:get'
 export const modelsSelectChannel = 'railgun:models:select'
+export const modelsSetDefaultChannel = 'railgun:models:set-default'
 
 export interface ModelOption {
   readonly id: string
@@ -18,4 +19,5 @@ export interface ModelConfiguration {
 export interface ModelApi {
   get: () => Promise<ModelConfiguration>
   select: (modelId: string) => Promise<ModelConfiguration>
+  setDefault: (modelId: string | null) => Promise<ModelConfiguration>
 }

@@ -56,6 +56,20 @@ export function parseModelCatalog(value: unknown): readonly ModelOption[] {
   return models
 }
 
+export function parseConfigurationRunState(value: unknown): boolean {
+  const running = asObject(value)?.running
+  if (typeof running !== 'boolean') {
+    throw new Error('The task run state is unavailable')
+  }
+  return running
+}
+
+export async function ensureConfigurationIsMutable(backend: ModelBackend): Promise<void> {
+  if (parseConfigurationRunState(await backend.request('get_state'))) {
+    throw new Error('Cannot change configuration while a task is running')
+  }
+}
+
 function parseActiveIdentity(value: unknown): Pick<
   ModelConfiguration,
   'activeModelId' | 'activeSessionId'
@@ -183,4 +197,32 @@ export async function selectModel(
       warning: `This task changed to ${selected.name}, but the default was not saved.`
     }
   }
+}
+
+export async function setDefaultModel(
+  backend: ModelBackend,
+  value: unknown
+): Promise<ModelConfiguration> {
+  const modelId = value === null ? null : validModelId(value)
+  if (value !== null && !modelId) {
+    throw new Error('Invalid default model selection')
+  }
+
+  const current = await getModelConfiguration(backend)
+  if (current.isRunning) {
+    throw new Error('Cannot change the default model while the task is running')
+  }
+  if (modelId && !current.models.some(({ id }) => id === modelId)) {
+    throw new Error('Invalid default model selection')
+  }
+
+  const updated = await backend.request(
+    'config_update',
+    { patch: { model: modelId } },
+    { timeout: 'none' }
+  )
+  if (parseDefaultModelId(updated) !== modelId) {
+    throw new Error('The backend did not save the default model')
+  }
+  return { ...current, defaultModelId: modelId, warning: null }
 }

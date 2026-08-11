@@ -36,6 +36,27 @@ Skills are the exception to the startup-capture rule: Railgun discovers
 Settings list performs its own discovery. A valid filesystem edit therefore
 becomes available on the next run without restarting the backend.
 
+## Background scheduler LaunchAgent
+
+General Settings manages the per-user LaunchAgent at
+`~/Library/LaunchAgents/sh.railgun.cron.plist`. Production source and packaged backend launches can
+manage it; mock and unconfigured Electron launches report Background Scheduling as unavailable. An
+installed plist is a private regular file with mode `0600`, runs the configured backend in
+`scheduler` mode, and writes standard output and error to `~/.railgun/logs/scheduler.log`.
+
+Settings reports Not installed, Running, Stopped, Repair needed, or Unavailable. Executable path,
+hash, app version, working directory, permissions, malformed plist data, or the retired
+`sh.railgun.dream.plist` can make an installation require repair. A packaged application may
+best-effort repair an existing stale installation after an update, but it never installs one for a
+user who previously uninstalled it.
+
+Install and Repair unload current and legacy labels before replacing the plist, then use
+`launchctl bootstrap` and `kickstart`. Uninstall does not delete either plist until `launchctl print`
+confirms that both labels are absent; an already-unloaded result is safe, while an unverifiable or
+still-loaded label leaves the plist files in place and surfaces an error. Use the Settings action
+first. Inspect the plist metadata and `scheduler.log` only when status remains stopped or repair
+fails, and never copy credentials or unrestricted configuration into a diagnostic report.
+
 ## Skill discovery and repair
 
 Discovery accepts root-level Markdown files and nested directories containing

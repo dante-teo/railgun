@@ -166,7 +166,9 @@ fn validate(kind: &str, fields: &Map<String, Value>) -> Result<()> {
             require_string(fields, "sessionId")?;
             optional_bool(fields, "includeMessages")?;
         }
-        "session_archive" | "session_unarchive" => require_string(fields, "sessionId")?,
+        "session_archive" | "session_unarchive" | "session_delete_archived" => {
+            require_string(fields, "sessionId")?
+        }
         "session_branch" => {
             if fields
                 .get("messageId")
@@ -280,6 +282,7 @@ fn validate(kind: &str, fields: &Map<String, Value>) -> Result<()> {
         | "compact"
         | "session_list"
         | "session_list_archived"
+        | "session_delete_all_archived"
         | "session_save"
         | "session_delivery_cursor"
         | "config_get"
@@ -354,5 +357,15 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn validates_archived_deletion_commands() {
+        assert!(
+            Command::parse(json!({"type":"session_delete_archived","sessionId":"archived"}))
+                .is_ok()
+        );
+        assert!(Command::parse(json!({"type":"session_delete_all_archived"})).is_ok());
+        assert!(Command::parse(json!({"type":"session_delete_archived"})).is_err());
     }
 }
