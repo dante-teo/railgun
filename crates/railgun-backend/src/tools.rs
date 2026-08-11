@@ -2,12 +2,16 @@ use crate::{paths::RailgunPaths, skills, storage::Store};
 use anyhow::{Context, Result, bail};
 use futures_util::{StreamExt, future::join_all};
 use reqwest::redirect::Policy;
+use serde::Serialize;
 use serde_json::{Value, json};
+use similar::TextDiff;
 use std::{
     collections::HashSet,
+    fmt,
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 use tokio::{
     io::AsyncReadExt,
@@ -45,8 +49,34 @@ pub const ADVISOR_TOOL_NAMES: &[&str] = &["advise"];
 const TEXT_LIMIT: usize = 200_000;
 const WEB_LIMIT: usize = 50_000;
 const READ_FILE_BYTES: u64 = TEXT_LIMIT as u64 + 4;
+const FILE_DIFF_BUDGET: usize = 16_384;
+const FILE_DIFF_PRIOR_LIMIT: usize = 200_000;
+const FILE_DIFF_TIMEOUT: Duration = Duration::from_millis(50);
 pub(crate) const INTERNAL_DREAM_JOB_ID: &str = "railgun.internal.dream";
 const INTERNAL_DREAM_SCHEDULE: &str = "0 0 * * *";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub(crate) enum FileChange {
+    Changed { diff: String, truncated: bool },
+    Unchanged,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ToolExecution {
+    pub content: String,
+    pub file_change: Option<FileChange>,
+}
+
+impl ToolExecution {
+    fn text(content: String) -> Self {
+        Self {
+            content,
+            file_change: None,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ToolContext {
@@ -279,13 +309,23 @@ fn schema(name: &str) -> DevinTool {
 }
 
 pub async fn execute(name: &str, arguments: &Value, context: &ToolContext) -> Result<String> {
+    Ok(execute_with_metadata(name, arguments, context)
+        .await?
+        .content)
+}
+
+pub(crate) async fn execute_with_metadata(
+    name: &str,
+    arguments: &Value,
+    context: &ToolContext,
+) -> Result<ToolExecution> {
     if context.cancellation.is_cancelled() {
         bail!("[stopped by user]");
     }
-    match name {
+    let content = match name {
+        "create_file" => return create_file(arguments, context).await,
+        "write_file" => return write_file(arguments, context).await,
         "read_file" => read_file(arguments, context).await,
-        "create_file" => create_file(arguments, context).await,
-        "write_file" => write_file(arguments, context).await,
         "delete_file" => delete_file(arguments, context).await,
         "list_directory" => list_directory(arguments, context).await,
         "run_shell_command" => run_shell(arguments, context).await,
@@ -302,7 +342,8 @@ pub async fn execute(name: &str, arguments: &Value, context: &ToolContext) -> Re
         "delegate_task" => delegate(arguments, context).await,
         "advise" => advise(arguments),
         _ => bail!("Error: unknown tool \"{name}\""),
-    }
+    }?;
+    Ok(ToolExecution::text(content))
 }
 
 pub fn advisory(arguments: &Value) -> Result<(String, String)> {
@@ -432,27 +473,146 @@ async fn write_contents(
     arguments: &Value,
     context: &ToolContext,
     completed_verb: &str,
-) -> Result<String> {
+) -> Result<ToolExecution> {
     let root = agent_file_root(&context.paths)?;
     let path = writable_file_path(string(arguments, "path")?, &root).await?;
     let content = arguments
         .get("content")
         .and_then(Value::as_str)
         .context("content must be a string")?;
+    let prior = prior_file_content(&path).await;
     tokio::fs::write(&path, content).await?;
-    Ok(format!(
-        "{completed_verb} {} bytes to {}",
-        content.len(),
-        path.display()
-    ))
+    Ok(ToolExecution {
+        content: format!(
+            "{completed_verb} {} bytes to {}",
+            content.len(),
+            path.display()
+        ),
+        file_change: Some(file_change(prior, content, &path)),
+    })
 }
 
-async fn create_file(arguments: &Value, context: &ToolContext) -> Result<String> {
+async fn create_file(arguments: &Value, context: &ToolContext) -> Result<ToolExecution> {
     write_contents(arguments, context, "Created").await
 }
 
-async fn write_file(arguments: &Value, context: &ToolContext) -> Result<String> {
+async fn write_file(arguments: &Value, context: &ToolContext) -> Result<ToolExecution> {
     write_contents(arguments, context, "Wrote").await
+}
+
+enum PriorFileContent {
+    Missing,
+    Text(String),
+    Unavailable,
+}
+
+async fn prior_file_content(path: &Path) -> PriorFileContent {
+    match tokio::fs::metadata(path).await {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => PriorFileContent::Missing,
+        Ok(metadata) if metadata.len() > FILE_DIFF_PRIOR_LIMIT as u64 => {
+            PriorFileContent::Unavailable
+        }
+        Ok(_) => tokio::fs::read(path)
+            .await
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .map_or(PriorFileContent::Unavailable, PriorFileContent::Text),
+        Err(_) => PriorFileContent::Unavailable,
+    }
+}
+
+fn file_change(prior: PriorFileContent, content: &str, path: &Path) -> FileChange {
+    match prior {
+        PriorFileContent::Unavailable => FileChange::Unavailable,
+        PriorFileContent::Text(previous) if previous == content => FileChange::Unchanged,
+        PriorFileContent::Missing if content.is_empty() => FileChange::Changed {
+            diff: String::new(),
+            truncated: false,
+        },
+        PriorFileContent::Missing => unified_file_diff("", content, path),
+        PriorFileContent::Text(previous) => unified_file_diff(&previous, content, path),
+    }
+}
+
+fn diff_header_basename(path: &Path) -> String {
+    // Keep this token compatible with Electron's basename-only diff-header validation.
+    let sanitized = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file")
+        .chars()
+        .map(|character| {
+            if character == '/'
+                || character == '\\'
+                || character.is_control()
+                || character.is_whitespace()
+                || character == '\u{feff}'
+            {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() || matches!(sanitized.as_str(), "." | "..") {
+        "file".into()
+    } else {
+        sanitized
+    }
+}
+
+fn unified_file_diff(previous: &str, content: &str, path: &Path) -> FileChange {
+    let basename = diff_header_basename(path);
+    let diff = TextDiff::configure()
+        .timeout(FILE_DIFF_TIMEOUT)
+        .diff_lines(previous, content);
+    let mut unified = diff.unified_diff();
+    unified.context_radius(3).header(&basename, &basename);
+    let mut writer = BoundedDiffWriter::default();
+    let formatted = fmt::write(&mut writer, format_args!("{unified}"));
+    if formatted.is_err() && !writer.truncated {
+        return FileChange::Unavailable;
+    }
+    let (diff, truncated) = writer.finish();
+    FileChange::Changed { diff, truncated }
+}
+
+#[derive(Default)]
+struct BoundedDiffWriter {
+    output: String,
+    truncated: bool,
+}
+
+impl BoundedDiffWriter {
+    fn finish(mut self) -> (String, bool) {
+        if self.truncated {
+            let allowed = FILE_DIFF_BUDGET.saturating_sub('…'.len_utf8());
+            let mut boundary = allowed.min(self.output.len());
+            while !self.output.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            self.output.truncate(boundary);
+            self.output.push('…');
+        }
+        (self.output, self.truncated)
+    }
+}
+
+impl fmt::Write for BoundedDiffWriter {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        let remaining = FILE_DIFF_BUDGET.saturating_sub(self.output.len());
+        if value.len() <= remaining {
+            self.output.push_str(value);
+            return Ok(());
+        }
+        let mut boundary = remaining.min(value.len());
+        while !value.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        self.output.push_str(&value[..boundary]);
+        self.truncated = true;
+        Err(fmt::Error)
+    }
 }
 
 async fn delete_file(arguments: &Value, context: &ToolContext) -> Result<String> {
@@ -1461,6 +1621,179 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tokio::fs::metadata(path).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn file_writes_report_bounded_unified_diffs_and_no_op_changes() {
+        let home = tempdir().unwrap();
+        let (context, _events) = tool_context(home.path(), ApprovalMode::Manual, None).await;
+        let path = home.path().join("notes.txt");
+
+        let created = execute_with_metadata(
+            "create_file",
+            &json!({"path":path,"content":"first\nsecond\n"}),
+            &context,
+        )
+        .await
+        .unwrap();
+        let Some(FileChange::Changed {
+            diff,
+            truncated: false,
+        }) = created.file_change
+        else {
+            panic!("new file should have an addition diff");
+        };
+        assert!(diff.starts_with("--- notes.txt\n+++ notes.txt\n"));
+        assert!(diff.contains("+first\n+second\n"));
+        assert!(!diff.contains(home.path().to_string_lossy().as_ref()));
+
+        let replaced = execute_with_metadata(
+            "write_file",
+            &json!({"path":path,"content":"first\nreplacement\n"}),
+            &context,
+        )
+        .await
+        .unwrap();
+        let Some(FileChange::Changed {
+            diff,
+            truncated: false,
+        }) = replaced.file_change
+        else {
+            panic!("replacement should have a diff");
+        };
+        assert!(diff.contains("-second\n+replacement\n"));
+
+        let unchanged = execute_with_metadata(
+            "write_file",
+            &json!({"path":path,"content":"first\nreplacement\n"}),
+            &context,
+        )
+        .await
+        .unwrap();
+        assert_eq!(unchanged.file_change, Some(FileChange::Unchanged));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_diffs_sanitize_legal_posix_basenames_for_renderer_headers() {
+        let home = tempdir().unwrap();
+        let (context, _events) = tool_context(home.path(), ApprovalMode::Manual, None).await;
+
+        for (basename, expected_header) in [
+            ("back\\slash.txt", "back_slash.txt"),
+            ("trailing-space.txt ", "trailing-space.txt_"),
+            ("line\nbreak.txt", "line_break.txt"),
+        ] {
+            let path = home.path().join(basename);
+            let created = execute_with_metadata(
+                "create_file",
+                &json!({"path":path,"content":"value\n"}),
+                &context,
+            )
+            .await
+            .unwrap();
+            let Some(FileChange::Changed {
+                diff,
+                truncated: false,
+            }) = created.file_change
+            else {
+                panic!("new file should have an addition diff");
+            };
+
+            assert!(
+                diff.starts_with(&format!("--- {expected_header}\n+++ {expected_header}\n")),
+                "unexpected diff headers: {diff:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_new_files_are_changed_without_a_synthetic_diff() {
+        let home = tempdir().unwrap();
+        let (context, _events) = tool_context(home.path(), ApprovalMode::Manual, None).await;
+        let path = home.path().join("empty.txt");
+
+        let created =
+            execute_with_metadata("create_file", &json!({"path":path,"content":""}), &context)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            created.file_change,
+            Some(FileChange::Changed {
+                diff: String::new(),
+                truncated: false,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn file_diffs_truncate_at_the_utf8_budget() {
+        let home = tempdir().unwrap();
+        let (context, _events) = tool_context(home.path(), ApprovalMode::Manual, None).await;
+        let path = home.path().join("large-diff.txt");
+        let content = (0..4_000)
+            .map(|index| format!("line {index}: 🙂\n"))
+            .collect::<String>();
+
+        let result = execute_with_metadata(
+            "create_file",
+            &json!({"path":path,"content":content}),
+            &context,
+        )
+        .await
+        .unwrap();
+        let Some(FileChange::Changed { diff, truncated }) = result.file_change else {
+            panic!("large new file should have a changed result");
+        };
+
+        assert!(truncated);
+        assert!(diff.len() <= FILE_DIFF_BUDGET);
+        assert!(diff.ends_with('…'));
+        assert!(std::str::from_utf8(diff.as_bytes()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_utf8_and_oversized_prior_files_make_diffs_unavailable() {
+        let home = tempdir().unwrap();
+        let (context, _events) = tool_context(home.path(), ApprovalMode::Manual, None).await;
+        let binary = home.path().join("binary.txt");
+        let oversized = home.path().join("oversized.txt");
+        tokio::fs::write(&binary, [0xff, 0xfe]).await.unwrap();
+        tokio::fs::write(&oversized, vec![b'x'; FILE_DIFF_PRIOR_LIMIT + 1])
+            .await
+            .unwrap();
+
+        for path in [binary, oversized] {
+            let result = execute_with_metadata(
+                "write_file",
+                &json!({"path":path,"content":"replacement"}),
+                &context,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.file_change, Some(FileChange::Unavailable));
+            assert_eq!(
+                tokio::fs::read_to_string(path).await.unwrap(),
+                "replacement"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_file_writes_do_not_produce_file_change_metadata() {
+        let home = tempdir().unwrap();
+        let (context, _events) = tool_context(home.path(), ApprovalMode::Manual, None).await;
+
+        assert!(
+            execute_with_metadata(
+                "write_file",
+                &json!({"path":home.path().join("missing/notes.txt"),"content":"value"}),
+                &context,
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[tokio::test]

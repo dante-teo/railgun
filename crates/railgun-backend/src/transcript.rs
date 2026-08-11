@@ -1,5 +1,5 @@
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub const PAGE_LIMIT: usize = 100;
 const DATA_BUDGET: usize = 48 * 1024;
@@ -7,9 +7,11 @@ const TEXT_BUDGET: usize = 24 * 1024;
 const TOOL_DETAIL_BUDGET: usize = 256;
 const SHELL_COMMAND_BUDGET: usize = 4 * 1024;
 const SHELL_OUTPUT_BUDGET: usize = 12 * 1024;
+const FILE_DIFF_BUDGET: usize = 16 * 1024;
 
 struct TranscriptToolResult {
     output: Option<String>,
+    file_change: Option<Value>,
     failed: bool,
 }
 
@@ -128,27 +130,31 @@ fn text_content(content: Option<&Value>) -> String {
 }
 
 fn transcript_tool_results(history: &[Value]) -> HashMap<String, TranscriptToolResult> {
-    let shell_tool_call_ids = history
+    let tool_names = history
         .iter()
         .filter(|message| message["role"] == "assistant")
         .filter_map(|message| message.get("content").and_then(Value::as_array))
         .flatten()
-        .filter(|part| part["type"] == "toolCall" && part["name"] == "run_shell_command")
-        .filter_map(|part| part.get("id").and_then(Value::as_str))
-        .collect::<HashSet<_>>();
+        .filter(|part| part["type"] == "toolCall")
+        .filter_map(|part| Some((part.get("id")?.as_str()?, part.get("name")?.as_str()?)))
+        .collect::<HashMap<_, _>>();
     history
         .iter()
         .filter(|message| message["role"] == "tool")
         .filter_map(|message| {
             let id = message.get("toolCallId")?.as_str()?;
+            let failed = message.get("isError").and_then(Value::as_bool) == Some(true);
+            let name = tool_names.get(id).copied();
             Some((
                 id.to_owned(),
                 TranscriptToolResult {
-                    output: shell_tool_call_ids
-                        .contains(id)
+                    output: (name == Some("run_shell_command"))
                         .then(|| tool_result_text(message.get("content")))
                         .flatten(),
-                    failed: message.get("isError").and_then(Value::as_bool) == Some(true),
+                    file_change: (!failed && matches!(name, Some("create_file" | "write_file")))
+                        .then(|| tool_result_file_change(message.get("content")))
+                        .flatten(),
+                    failed,
                 },
             ))
         })
@@ -216,6 +222,12 @@ fn transcript_tools(
                     result["output"] = Value::String(output);
                 }
             }
+            if let Some(file_change) = tool_results
+                .get(id)
+                .and_then(|tool_result| tool_result.file_change.as_ref())
+            {
+                result["fileChange"] = file_change.clone();
+            }
             Some(result)
         })
         .collect()
@@ -224,6 +236,32 @@ fn transcript_tools(
 fn tool_result_text(content: Option<&Value>) -> Option<String> {
     let text = text_content(content);
     (!text.is_empty()).then_some(text)
+}
+
+fn tool_result_file_change(content: Option<&Value>) -> Option<Value> {
+    let mut parts = content?
+        .as_array()?
+        .iter()
+        .filter(|part| part["type"] == "fileChange");
+    let part = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    match part.get("status")?.as_str()? {
+        "changed" => {
+            let diff = part.get("diff")?.as_str()?;
+            let truncated = part.get("truncated")?.as_bool()?;
+            (diff.len() <= FILE_DIFF_BUDGET)
+                .then(|| json!({"status":"changed","diff":diff,"truncated":truncated}))
+        }
+        "unchanged" if part.get("diff").is_none() && part.get("truncated").is_none() => {
+            Some(json!({"status":"unchanged"}))
+        }
+        "unavailable" if part.get("diff").is_none() && part.get("truncated").is_none() => {
+            Some(json!({"status":"unavailable"}))
+        }
+        _ => None,
+    }
 }
 
 fn safe_terminal_text(value: &str, budget: usize) -> Option<String> {
@@ -515,5 +553,48 @@ mod tests {
             safe_terminal_text("first\r\nsecond\rthird", 100),
             Some("first\nsecond\nthird".into())
         );
+    }
+
+    #[test]
+    fn projects_only_valid_successful_file_change_metadata() {
+        let history = vec![
+            json!({"role":"assistant","content":[
+                {"type":"toolCall","id":"create","name":"create_file","arguments":{"path":"/private/notes.txt","content":"secret"}},
+                {"type":"toolCall","id":"write","name":"write_file","arguments":{"path":"/private/failed.txt","content":"secret"}},
+                {"type":"toolCall","id":"delete","name":"delete_file","arguments":{"path":"/private/removed.txt"}},
+                {"type":"toolCall","id":"malformed","name":"write_file","arguments":{"path":"/private/malformed.txt","content":"secret"}}
+            ]}),
+            json!({"role":"tool","toolCallId":"create","content":[
+                {"type":"text","text":"Created"},
+                {"type":"fileChange","status":"changed","diff":"--- notes.txt\n+++ notes.txt\n@@ -0,0 +1 @@\n+hello\n","truncated":false}
+            ],"isError":false}),
+            json!({"role":"tool","toolCallId":"malformed","content":[
+                {"type":"text","text":"Wrote"},
+                {"type":"fileChange","status":"unchanged","diff":"unexpected"}
+            ],"isError":false}),
+            json!({"role":"tool","toolCallId":"write","content":[
+                {"type":"text","text":"Failed"},
+                {"type":"fileChange","status":"unchanged"}
+            ],"isError":true}),
+            json!({"role":"tool","toolCallId":"delete","content":[
+                {"type":"text","text":"Deleted"},
+                {"type":"fileChange","status":"unavailable"}
+            ],"isError":false}),
+        ];
+
+        let result = page("s", &history, 0, 100, None, false);
+        let messages = result["messages"].as_array().unwrap();
+        assert_eq!(
+            messages[0]["fileChange"],
+            json!({
+                "status":"changed",
+                "diff":"--- notes.txt\n+++ notes.txt\n@@ -0,0 +1 @@\n+hello\n",
+                "truncated":false
+            })
+        );
+        assert!(messages[1].get("fileChange").is_none());
+        assert!(messages[2].get("fileChange").is_none());
+        assert!(messages[3].get("fileChange").is_none());
+        assert!(!result.to_string().contains("/private/"));
     }
 }

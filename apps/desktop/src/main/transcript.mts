@@ -146,6 +146,10 @@ export function createTranscriptService(
     }
     const existingId = toolMessageIds.get(toolCallId)
     if (existingId) {
+      const existingMessage = snapshot.messages.find((message) => message.id === existingId)
+      if (existingMessage?.role !== 'tool' || existingMessage.name !== name) {
+        return
+      }
       commit(
         {
           type: 'tool-updated',
@@ -205,14 +209,16 @@ export function createTranscriptService(
         return
       case 'tool-ended': {
         const id = toolMessageIds.get(normalized.toolCallId)
-        if (id) {
+        const message = snapshot.messages.find((candidate) => candidate.id === id)
+        if (id && message?.role === 'tool' && message.name === normalized.name) {
           commit(
             {
               type: 'tool-updated',
               id,
               failed: normalized.failed,
               running: false,
-              ...(normalized.output ? { output: normalized.output } : {})
+              ...(normalized.output ? { output: normalized.output } : {}),
+              ...(normalized.fileChange ? { fileChange: normalized.fileChange } : {})
             },
             true
           )

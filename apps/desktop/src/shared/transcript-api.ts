@@ -28,6 +28,11 @@ export interface TranscriptAssistantMessage {
   readonly completedAt?: number
 }
 
+export type TranscriptFileChange =
+  | { readonly status: 'changed'; readonly diff: string; readonly truncated: boolean }
+  | { readonly status: 'unchanged' }
+  | { readonly status: 'unavailable' }
+
 export interface TranscriptToolMessage {
   readonly id: string
   readonly role: 'tool'
@@ -36,6 +41,7 @@ export interface TranscriptToolMessage {
   readonly detail?: string
   readonly command?: string
   readonly output?: string
+  readonly fileChange?: TranscriptFileChange
   readonly failed: boolean
   readonly running?: boolean
 }

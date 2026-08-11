@@ -1,5 +1,5 @@
 {
-  "backendLockfileSHA256": "d9443cafee8a052fca765f31a3a97351703d19a485f0da413fa9c6fbd9346630",
+  "backendLockfileSHA256": "e64eea901862e2c291453cb5671c527a91d15e4cd9ed7ddee4664987b7834480",
   "components": [
     {
       "archive": null,
@@ -2210,6 +2210,19 @@
       "revision": null,
       "sourceLocation": "Cargo.lock",
       "version": "0.3.10"
+    },
+    {
+      "archive": null,
+      "copyright": null,
+      "identifier": "crate:similar@3.1.2",
+      "kind": "rust-crate",
+      "license": "Apache-2.0",
+      "licenseSource": "bundled crate files: LICENSE",
+      "name": "similar",
+      "noticeContentSHA256": "3b1798e95386356e98e78f315ec3a6cf553eda29b224645a19fd5297168893fa",
+      "revision": null,
+      "sourceLocation": "Cargo.lock",
+      "version": "3.1.2"
     },
     {
       "archive": null,

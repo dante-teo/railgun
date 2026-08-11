@@ -58,7 +58,7 @@ RAILGUNX_MOCK_SCENARIO=agent-activity scripts/run-mock.sh
 The default list also includes the saved `mock-session-all-tools` release-readiness conversation,
 with 23 reasoned calls covering all 17 built-in tools in one task for complete tool-row UI review.
 Its 53-message transcript includes complete mock arguments, results, thinking, one failed call,
-TODO transitions, and a final answer. Launch `scripts/run-mock.sh`, then select the task beginning
+persisted create/write diffs, TODO transitions, and a final answer. Launch `scripts/run-mock.sh`, then select the task beginning
 **Prepare a release-readiness brief** to inspect every tool-row presentation without running tools
 against the local machine. The renderer still receives only the safe projection described below;
 completeness is retained inside the backend fixture for contract testing.
@@ -126,9 +126,17 @@ main process adopts and rehydrates that session before the composer becomes avai
 Only renderer-safe presentation data crosses this boundary. Assistant text deltas are coalesced to
 at most one IPC publication every 50 ms. Tool activity contains the bounded tool name, live/failure
 state, and a simplified tool-specific detail such as a file basename or item count. Shell commands
-are the sole raw-payload exception: bounded command and output text is stripped of terminal control
-sequences before it enters a renderer snapshot. Raw thinking, non-shell arguments and results, and
-full tool paths never cross the boundary. User and final assistant rows may also carry additive
+carry bounded command and output text stripped of terminal control sequences. Successful file
+creates and writes deliberately expand this presentation boundary with a second exception: a
+validated, bounded unified diff or an unchanged/unavailable status. The backend stores this as a
+dedicated tool-content metadata part so restored and live projections agree, while provider-message
+conversion filters it out. The main process validates and bounds the metadata again before copying
+it into a renderer snapshot. Nested file-change metadata is cloned when it enters reducer state and
+again whenever a snapshot is published, so mutating a returned object cannot modify state owned by
+the transcript service. Tool labels expose safe basenames. Diff headers use basename-only tokens
+whose separators, whitespace, control characters, and byte-order marks are replaced with `_`; an
+unusable basename falls back to `file`. Full tool paths never cross the boundary. Raw thinking and
+all other arguments and results remain private. User and final assistant rows may also carry additive
 millisecond turn-boundary timestamps sourced from the persisted message `event_at` column. That
 column is intentionally nullable: legacy checkpoint `created_at` values are not interpreted as
 turn boundaries, so restored legacy rows use the untimed fallback instead of a fabricated duration.
@@ -268,13 +276,22 @@ The completion handoff follows the turn's transcript position rather than its us
 because successful prompt rehydration intentionally replaces `optimistic-user-*` IDs with persisted
 `message-*` IDs.
 
-Every tool row keeps the compact **icon → readable name → chevron** order, with the chevron directly
-after the name rather than pinned to the far edge. Completed rows start collapsed; active rows
-replace the chevron with a loading indicator, stay expanded, and cannot be collapsed. Failed rows
-remain destructive-colored and replace the leading tool glyph with a visible circled X, providing a
-non-color cue without adding a **Failed** label. Expanded non-shell details are one unframed,
-single-line summary with no label/value grid. `run_shell_command` is the only framed detail: it uses
-a compact terminal treatment with the command followed by bounded output.
+Tool activity is derived immutably in transcript order. Adjacent file reads, directory listings, web
+research, memory searches, and Railgun inspections collapse into a single **Explored** row; visible
+messages and every consequential tool end the group. A singleton exploration still uses the
+category row, while mutations, commands, tasks, clarification, memory changes, schedules, skills,
+and delegation remain individually auditable. Every row keeps the compact **icon → readable action
+→ chevron** order, with the chevron directly after the name rather than pinned to the far edge.
+Completed rows start collapsed; active rows replace the chevron with a loading indicator, stay
+expanded, and cannot be collapsed. Failed exploration groups retain their category icon and identify
+the failed child in the expanded list; other failed rows use a destructive circled X. Expansion is
+immediate and content height does not animate. The trigger keeps its 150 ms press and chevron
+feedback. A newly appended live exploration child alone receives a 120 ms fade with a 2 px rise; a
+failure indicator that changes during live execution crossfades from 96% scale. Historical rows mount
+directly in their final state, and reduced motion keeps only the short opacity feedback. Shell
+command/output and all ordinary details are compact, monospace where appropriate, and unframed. Only
+an actual changed-file diff receives a bordered, muted, scrollable frame; unchanged, empty-create,
+and unavailable states remain plain text.
 
 The transcript initially follows the latest content and keeps following routine streaming updates.
 Deliberately scrolling upward pauses that behavior and reveals **Jump to latest**. An explicit jump
@@ -355,6 +372,8 @@ From the repository root, the corresponding backend and JSONL contract checks ar
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
+cargo deny check
+cargo xtask legal --check
 cargo xtask migration check
 ```
 
@@ -366,12 +385,13 @@ coalesced streaming updates with immediate terminal publication, shared-lock
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
 and keyboard interactions. Transcript coverage includes pagination, strict snapshot validation,
 immutable streaming reduction, safe tool normalization, private-frame rejection, prompt projection,
-shell-only output projection, legacy timestamp fallback, send/abort lifecycle, approval and
-clarification responses, final rehydration, model-fork adoption, preload cleanup, and validated
-external links. Renderer coverage exercises role-specific Markdown, loading and error states,
-working and interaction indicators, optimistic-to-persisted completion handoff, tool disclosure and
-failure states, controlled submission and restoration, task-summary refreshes, task-switch locking,
-and stick-to-bottom pause, jump, and resume behavior.
+bounded file-change and shell-output projection, safe diff-header generation, nested snapshot
+isolation, legacy timestamp fallback, send/abort lifecycle, approval and clarification responses,
+final rehydration, model-fork adoption, preload cleanup, and validated external links. Renderer
+coverage exercises role-specific Markdown, loading and error states, working and interaction
+indicators, optimistic-to-persisted completion handoff, chronological exploration grouping,
+file-diff presentation, tool disclosure and failure states, controlled submission and restoration,
+task-summary refreshes, task-switch locking, and stick-to-bottom pause, jump, and resume behavior.
 
 ## Packaging
 

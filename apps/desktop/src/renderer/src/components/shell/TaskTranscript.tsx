@@ -18,7 +18,8 @@ import type {
 
 import { TaskComposer } from './TaskComposer'
 import { TaskInteractionRows } from './TaskInteractions'
-import { ToolUseRow } from './ToolUseRow'
+import { transcriptDisplayRows } from './tool-activity'
+import { ExplorationGroupRow, ToolUseRow } from './ToolUseRow'
 import { TurnWorkRow } from './TurnWorkRow'
 import styles from './TaskTranscript.module.css'
 
@@ -330,9 +331,13 @@ function TranscriptContent({
                 key={`${section.user.id}-${section.active ? 'active' : 'complete'}`}
                 startedAt={section.user.startedAt}
               >
-                {section.work.map((message) => (
-                  <TranscriptRow key={message.id} message={message} />
-                ))}
+                {transcriptDisplayRows(section.work).map((row) =>
+                  row.kind === 'exploration' ? (
+                    <ExplorationGroupRow key={row.id} messages={row.messages} />
+                  ) : (
+                    <TranscriptRow key={row.id} message={row.message} />
+                  )
+                )}
                 {section.active ? (
                   <>
                     <TaskInteractionRows requests={snapshot.interactions} sessionId={sessionId} />

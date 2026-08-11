@@ -15,4 +15,5 @@ chrono.workspace = true
 croner.workspace = true
 railgun-backend = { version = "0.9.0", path = "../railgun-backend" }
 serde_json.workspace = true
+similar.workspace = true
 tokio.workspace = true

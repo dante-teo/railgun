@@ -1374,7 +1374,10 @@ mod tests {
                 {"type":"toolCall","id":"call-b","name":"read_file","arguments":{"path":"b"}}
             ],"responseId":"response-1"}),
             json!({"role":"tool","at":3_000,"toolCallId":"call-b","content":[{"type":"text","text":"B"}]}),
-            json!({"role":"tool","at":4_000,"toolCallId":"call-a","content":"A","isError":false}),
+            json!({"role":"tool","at":4_000,"toolCallId":"call-a","content":[
+                {"type":"text","text":"A"},
+                {"type":"fileChange","status":"changed","diff":"--- a\n+++ a\n@@ -0,0 +1 @@\n+A\n","truncated":false}
+            ],"isError":false}),
             json!({"role":"assistant","at":208_000,"content":[{"type":"text","text":"Done."}]}),
         ];
         let mut session = Session {

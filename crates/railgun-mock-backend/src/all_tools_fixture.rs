@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use similar::TextDiff;
 
 pub(super) const ALL_TOOLS_DEMO_SESSION_ID: &str = "mock-session-all-tools";
 
@@ -52,6 +53,20 @@ Run the scheduled Thursday 09:00 local-time review, attach the full verification
 "#;
 
 const PRIVATE_BETA_DRAFT: &str = "# Railgun private-beta readiness brief\n\nDraft in progress.\n";
+const PRIVATE_BETA_BASENAME: &str = "private-beta-readiness.md";
+
+fn changed_file_result(message: String, previous: &str, next: &str) -> Value {
+    let diff = TextDiff::from_lines(previous, next)
+        .unified_diff()
+        .context_radius(3)
+        .header(PRIVATE_BETA_BASENAME, PRIVATE_BETA_BASENAME)
+        .to_string();
+
+    json!([
+        {"type":"text","text":message},
+        {"type":"fileChange","status":"changed","diff":diff,"truncated":false}
+    ])
+}
 
 fn all_tools_task_todos(status: &str) -> Vec<Value> {
     [
@@ -221,9 +236,13 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
             "path":"/Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
             "content":PRIVATE_BETA_DRAFT
         }),
-        format!(
-            "Created {} bytes to /Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
-            PRIVATE_BETA_DRAFT.len()
+        changed_file_result(
+            format!(
+                "Created {} bytes to /Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
+                PRIVATE_BETA_DRAFT.len()
+            ),
+            "",
+            PRIVATE_BETA_DRAFT,
         ),
         false,
     );
@@ -324,9 +343,13 @@ pub(super) fn all_tools_task_messages() -> Vec<Value> {
             "path":"/Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
             "content":PRIVATE_BETA_REPORT
         }),
-        format!(
-            "Wrote {} bytes to /Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
-            PRIVATE_BETA_REPORT.len()
+        changed_file_result(
+            format!(
+                "Wrote {} bytes to /Users/dantea/Projects/railgun/docs/private-beta-readiness.md",
+                PRIVATE_BETA_REPORT.len()
+            ),
+            PRIVATE_BETA_DRAFT,
+            PRIVATE_BETA_REPORT,
         ),
         false,
     );
@@ -407,7 +430,7 @@ fn push_reasoned_tool_use(
     thinking: &str,
     name: &str,
     arguments: Value,
-    result: impl Into<String>,
+    result: impl Into<Value>,
     is_error: bool,
 ) {
     messages.push(json!({"role":"assistant","content":[
@@ -426,6 +449,23 @@ fn push_reasoned_tool_use(
 mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
+
+    fn result_text(content: &Value) -> Option<&str> {
+        content.as_str().or_else(|| {
+            content.as_array().and_then(|parts| {
+                parts
+                    .iter()
+                    .find(|part| part["type"] == "text")
+                    .and_then(|part| part["text"].as_str())
+            })
+        })
+    }
+
+    fn file_change(content: &Value) -> Option<&Value> {
+        content
+            .as_array()
+            .and_then(|parts| parts.iter().find(|part| part["type"] == "fileChange"))
+    }
 
     #[test]
     fn all_tools_fixture_preserves_complete_calls_results_and_thinking() {
@@ -469,9 +509,7 @@ mod tests {
                     let id = message["toolCallId"].as_str().expect("tool result id");
                     assert!(message.get("content").is_some());
                     assert!(
-                        message["content"]
-                            .as_str()
-                            .is_some_and(|content| !content.is_empty()),
+                        result_text(&message["content"]).is_some_and(|content| !content.is_empty()),
                         "{id} should retain its complete result payload"
                     );
                     assert!(message["isError"].is_boolean());
@@ -508,6 +546,15 @@ mod tests {
             .expect("report write call");
         assert_eq!(write["arguments"]["content"], PRIVATE_BETA_REPORT);
         assert_eq!(results["all-tools-018"]["content"], PRIVATE_BETA_REPORT);
+        let write_change = file_change(&results["all-tools-017"]["content"])
+            .expect("report write should retain file-change metadata");
+        assert_eq!(write_change["status"], "changed");
+        assert_eq!(write_change["truncated"], false);
+        assert!(
+            write_change["diff"]
+                .as_str()
+                .is_some_and(|diff| diff.contains("-Draft in progress.") && diff.contains("+Date:"))
+        );
 
         let create = messages
             .iter()
@@ -515,6 +562,13 @@ mod tests {
             .find(|part| part["id"] == "all-tools-022")
             .expect("report create call");
         assert_eq!(create["arguments"]["content"], PRIVATE_BETA_DRAFT);
+        let create_change = file_change(&results["all-tools-022"]["content"])
+            .expect("report create should retain file-change metadata");
+        assert_eq!(create_change["status"], "changed");
+        assert_eq!(create_change["truncated"], false);
+        assert!(create_change["diff"].as_str().is_some_and(|diff| {
+            diff.starts_with("--- private-beta-readiness.md\n+++ private-beta-readiness.md\n")
+        }));
         assert_eq!(
             create["arguments"]["path"],
             "/Users/dantea/Projects/railgun/docs/private-beta-readiness.md"

@@ -1,4 +1,5 @@
 import type {
+  TranscriptFileChange,
   TranscriptInteractionRequest,
   TranscriptMessage,
   TranscriptSnapshot,
@@ -16,6 +17,7 @@ const maximumToolTargetLength = 256
 const maximumToolDetailLength = 256
 const maximumShellCommandLength = 4_096
 const maximumShellOutputLength = 12_288
+const maximumFileDiffBytes = 16_384
 const maximumInteractionIdLength = 128
 const maximumInteractionTextLength = 8_000
 const maximumInteractionChoiceLength = 500
@@ -45,6 +47,7 @@ export type TranscriptAction =
       readonly detail?: string
       readonly command?: string
       readonly output?: string
+      readonly fileChange?: TranscriptFileChange
       readonly failed?: boolean
       readonly running?: boolean
     }
@@ -71,8 +74,10 @@ export type NormalizedLiveFrame =
   | {
       readonly type: 'tool-ended'
       readonly toolCallId: string
+      readonly name: string
       readonly failed: boolean
       readonly output?: string
+      readonly fileChange?: TranscriptFileChange
     }
   | { readonly type: 'interaction-requested'; readonly request: TranscriptInteractionRequest }
 
@@ -91,6 +96,27 @@ function bounded(value: string, limit: number): string {
 
 function boundedText(value: unknown, limit: number): string | undefined {
   return typeof value === 'string' ? bounded(value, limit) : undefined
+}
+
+function boundedUtf8(
+  value: string,
+  limit: number
+): { readonly text: string; readonly truncated: boolean } {
+  const encoder = new TextEncoder()
+  const encoded = encoder.encode(value)
+  if (encoded.length <= limit) {
+    return { text: value, truncated: false }
+  }
+  const budget = Math.max(0, limit - encoder.encode('…').length)
+  const firstExcludedByte = encoded[budget]
+  const boundary =
+    firstExcludedByte !== undefined && (firstExcludedByte & 0b1100_0000) === 0b1000_0000
+      ? Array.from(encoded.subarray(0, budget)).findLastIndex(
+          (byte) => (byte & 0b1100_0000) !== 0b1000_0000
+        )
+      : budget
+  const prefix = new TextDecoder().decode(encoded.subarray(0, Math.max(0, boundary)))
+  return { text: `${prefix}…`, truncated: true }
 }
 
 function containsControlCharacter(value: string): boolean {
@@ -257,6 +283,55 @@ function safeShellCommand(name: string, argumentsValue: unknown): string | undef
     : undefined
 }
 
+function hasBasenameOnlyDiffHeaders(diff: string): boolean {
+  if (!diff) {
+    return true
+  }
+  const [beforeHeader, afterHeader] = diff.split('\n', 3)
+  const before = beforeHeader?.startsWith('--- ') ? beforeHeader.slice(4) : undefined
+  const after = afterHeader?.startsWith('+++ ') ? afterHeader.slice(4) : undefined
+  return Boolean(before && before === after && safeBasename(before) === before)
+}
+
+function safeFileChange(
+  value: unknown,
+  name: string,
+  failed: boolean
+): TranscriptFileChange | undefined {
+  if (failed || (name !== 'create_file' && name !== 'write_file')) {
+    return undefined
+  }
+  const fields = asObject(value)
+  if (fields?.status === 'changed') {
+    if (
+      typeof fields.diff !== 'string' ||
+      typeof fields.truncated !== 'boolean' ||
+      (fields.diff === '' && name !== 'create_file') ||
+      !hasBasenameOnlyDiffHeaders(fields.diff)
+    ) {
+      return undefined
+    }
+    const diff = boundedUtf8(fields.diff, maximumFileDiffBytes)
+    return {
+      status: 'changed',
+      diff: diff.text,
+      truncated: fields.truncated || diff.truncated
+    }
+  }
+  if (
+    (fields?.status === 'unchanged' || fields?.status === 'unavailable') &&
+    fields.diff === undefined &&
+    fields.truncated === undefined
+  ) {
+    return { status: fields.status }
+  }
+  return undefined
+}
+
+function copyFileChange(fileChange: TranscriptFileChange): TranscriptFileChange {
+  return { ...fileChange }
+}
+
 function normalizedToolStartedFrame(
   toolCallId: string,
   name: string,
@@ -276,7 +351,9 @@ function normalizedToolStartedFrame(
 }
 
 function copyMessage(message: TranscriptMessage): TranscriptMessage {
-  return { ...message }
+  return message.role === 'tool' && message.fileChange
+    ? { ...message, fileChange: copyFileChange(message.fileChange) }
+    : { ...message }
 }
 
 function copyInteraction(request: TranscriptInteractionRequest): TranscriptInteractionRequest {
@@ -349,6 +426,10 @@ function parseToolMessage(fields: Record<string, unknown>): TranscriptToolMessag
     fields.output === undefined
       ? undefined
       : safeTerminalText(fields.output, maximumShellOutputLength)
+  const fileChange =
+    fields.fileChange === undefined
+      ? undefined
+      : safeFileChange(fields.fileChange, name ?? '', fields.failed === true)
   if (
     !id ||
     !name ||
@@ -357,6 +438,7 @@ function parseToolMessage(fields: Record<string, unknown>): TranscriptToolMessag
     (fields.detail !== undefined && !detail) ||
     (fields.command !== undefined && !command) ||
     (fields.output !== undefined && !output) ||
+    (fields.fileChange !== undefined && !fileChange) ||
     (name !== 'run_shell_command' && (command !== undefined || output !== undefined))
   ) {
     return undefined
@@ -369,6 +451,7 @@ function parseToolMessage(fields: Record<string, unknown>): TranscriptToolMessag
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
     ...(output ? { output } : {}),
+    ...(fileChange ? { fileChange } : {}),
     failed: fields.failed
   }
 }
@@ -458,13 +541,26 @@ function normalizeToolExecutionFrame(
   }
   const result = asObject(frame.result)
   const name = requiredText(frame.toolName, maximumToolNameLength)
+  const failed = result?.isError
+  if (!name || typeof failed !== 'boolean') {
+    return undefined
+  }
   const output =
     name === 'run_shell_command'
       ? safeTerminalText(result?.content, maximumShellOutputLength)
       : undefined
-  return typeof result?.isError === 'boolean'
-    ? { type: 'tool-ended', toolCallId, failed: result.isError, ...(output ? { output } : {}) }
-    : undefined
+  const fileChange =
+    result?.fileChange === undefined ? undefined : safeFileChange(result.fileChange, name, failed)
+  return result?.fileChange !== undefined && !fileChange
+    ? undefined
+    : {
+        type: 'tool-ended',
+        toolCallId,
+        name,
+        failed,
+        ...(output ? { output } : {}),
+        ...(fileChange ? { fileChange } : {})
+      }
 }
 
 function normalizeMessageUpdate(frame: Record<string, unknown>): NormalizedLiveFrame | undefined {
@@ -662,6 +758,7 @@ export function reduceTranscriptSnapshot(
                 ...(action.detail ? { detail: action.detail } : {}),
                 ...(action.command ? { command: action.command } : {}),
                 ...(action.output ? { output: action.output } : {}),
+                ...(action.fileChange ? { fileChange: copyFileChange(action.fileChange) } : {}),
                 ...(action.failed === undefined ? {} : { failed: action.failed }),
                 ...(action.running === undefined ? {} : { running: action.running })
               }

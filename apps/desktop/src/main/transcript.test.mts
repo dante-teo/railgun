@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { projectTranscriptPrompt, type TranscriptUpdate } from '../shared/transcript-api.ts'
+import {
+  emptyTranscriptSnapshot,
+  projectTranscriptPrompt,
+  type TranscriptUpdate
+} from '../shared/transcript-api.ts'
 import { createTranscriptService, type TranscriptBackend } from './transcript.mts'
+import {
+  copyTranscriptSnapshot,
+  normalizeTranscriptFrame,
+  reduceTranscriptSnapshot
+} from './transcript-state.mts'
 
 interface PendingRequest {
   readonly command: string
@@ -113,12 +122,25 @@ test('transcript hydration validates and collects every page into an immutable s
             command: 'pnpm test',
             output: '21 tests passed',
             failed: false
+          },
+          {
+            role: 'tool',
+            id: 'restored-tool-3',
+            name: 'write_file',
+            target: '/private/project/notes.txt',
+            detail: 'notes.txt',
+            fileChange: {
+              status: 'changed',
+              diff: '--- notes.txt\n+++ notes.txt\n@@ -1 +1 @@\n-old\n+new\n',
+              truncated: false
+            },
+            failed: false
           }
         ],
-        nextCursor: 3
+        nextCursor: 4
       }
     }
-    if (command === 'session_transcript' && fields.cursor === 3) {
+    if (command === 'session_transcript' && fields.cursor === 4) {
       return {
         sessionId: 'session-one',
         messages: [
@@ -164,6 +186,19 @@ test('transcript hydration validates and collects every page into an immutable s
         failed: false
       },
       {
+        id: 'restored-tool-3',
+        role: 'tool',
+        name: 'write_file',
+        target: 'notes.txt',
+        detail: 'notes.txt',
+        fileChange: {
+          status: 'changed',
+          diff: '--- notes.txt\n+++ notes.txt\n@@ -1 +1 @@\n-old\n+new\n',
+          truncated: false
+        },
+        failed: false
+      },
+      {
         id: 'message-12',
         role: 'assistant',
         text: 'Answer',
@@ -177,7 +212,7 @@ test('transcript hydration validates and collects every page into an immutable s
     [
       ['session_load', undefined],
       ['session_transcript', 0],
-      ['session_transcript', 3]
+      ['session_transcript', 4]
     ]
   )
   assert.ok(updates.every((update) => update.revision === update.snapshot.revision))
@@ -213,6 +248,95 @@ test('transcript loading rejects malformed pages without exposing backend detail
     error: 'Could not load this transcript. Try reopening the task.'
   })
   service.dispose()
+})
+
+test('file-change payloads are bounded and rejected for malformed or inappropriate tools', async () => {
+  const oversized = `--- notes.txt\n+++ notes.txt\n@@ -1 +1,5000 @@\n-old\n${'+🙂\n'.repeat(5_000)}`
+  const normalized = normalizeTranscriptFrame({
+    type: 'tool_execution_end',
+    toolCallId: 'write-one',
+    toolName: 'write_file',
+    result: {
+      content: 'Wrote',
+      isError: false,
+      fileChange: { status: 'changed', diff: oversized, truncated: false }
+    }
+  })
+  assert.ok(normalized && normalized.type === 'tool-ended')
+  assert.equal(normalized.name, 'write_file')
+  assert.equal(normalized.fileChange?.status, 'changed')
+  if (normalized.fileChange?.status === 'changed') {
+    assert.equal(normalized.fileChange.truncated, true)
+    assert.ok(new TextEncoder().encode(normalized.fileChange.diff).length <= 16_384)
+    assert.match(normalized.fileChange.diff, /^--- notes\.txt\n\+\+\+ notes\.txt\n/)
+    assert.match(normalized.fileChange.diff, /…$/)
+  }
+
+  for (const [toolName, isError, fileChange] of [
+    ['delete_file', false, { status: 'unchanged' }],
+    ['write_file', true, { status: 'unavailable' }],
+    ['create_file', false, { status: 'changed', diff: 'missing flag' }],
+    [
+      'write_file',
+      false,
+      {
+        status: 'changed',
+        diff: '--- /private/notes.txt\n+++ /private/notes.txt\n',
+        truncated: false
+      }
+    ]
+  ] as const) {
+    assert.equal(
+      normalizeTranscriptFrame({
+        type: 'tool_execution_end',
+        toolCallId: `invalid-${toolName}`,
+        toolName,
+        result: { content: 'result', isError, fileChange }
+      }),
+      undefined
+    )
+  }
+})
+
+test('file-change metadata is copied at reducer and snapshot boundaries', () => {
+  const originalDiff = '--- notes.txt\n+++ notes.txt\n@@ -1 +1 @@\n-old\n+new\n'
+  const actionFileChange = {
+    status: 'changed' as const,
+    diff: originalDiff,
+    truncated: false
+  }
+  const started = reduceTranscriptSnapshot(emptyTranscriptSnapshot(), {
+    type: 'tool-started',
+    message: {
+      id: 'write-one',
+      role: 'tool',
+      name: 'write_file',
+      failed: false,
+      running: true
+    }
+  })
+  const reduced = reduceTranscriptSnapshot(started, {
+    type: 'tool-updated',
+    id: 'write-one',
+    fileChange: actionFileChange,
+    failed: false,
+    running: false
+  })
+  const storedMessage = reduced.messages[0]
+  assert.ok(storedMessage?.role === 'tool' && storedMessage.fileChange?.status === 'changed')
+  assert.notEqual(storedMessage.fileChange, actionFileChange)
+
+  actionFileChange.diff = 'mutated action payload'
+  assert.equal(storedMessage.fileChange.diff, originalDiff)
+
+  const copied = copyTranscriptSnapshot(reduced)
+  const copiedMessage = copied.messages[0]
+  assert.ok(copiedMessage?.role === 'tool' && copiedMessage.fileChange?.status === 'changed')
+  assert.notEqual(copiedMessage.fileChange, storedMessage.fileChange)
+
+  const mutableCopiedFileChange = copiedMessage.fileChange as { diff: string }
+  mutableCopiedFileChange.diff = 'mutated renderer snapshot'
+  assert.equal(storedMessage.fileChange.diff, originalDiff)
 })
 
 test('transcript hydration accepts legacy messages without IDs and rejects empty continuations', async () => {
@@ -357,9 +481,48 @@ test('live reduction batches text, normalizes tools, and hides private frames an
       type: 'tool_execution_end',
       toolCallId: id,
       toolName: name,
-      result: { content: 'private file result', isError: false }
+      result: {
+        content: 'private file result',
+        isError: false,
+        ...(name === 'create_file'
+          ? {
+              fileChange: {
+                status: 'changed',
+                diff: '--- created.txt\n+++ created.txt\n@@ -0,0 +1 @@\n+created\n',
+                truncated: false
+              }
+            }
+          : {})
+      }
     })
   }
+  backend.emit({
+    type: 'message_update',
+    streamEvent: { type: 'toolcall_start', id: 'call-mismatched', name: 'read_file' }
+  })
+  backend.emit({
+    type: 'message_update',
+    streamEvent: {
+      type: 'toolcall_end',
+      id: 'call-mismatched',
+      name: 'write_file',
+      arguments: { path: '/private/project/mismatch.txt', content: 'private mismatch' }
+    }
+  })
+  backend.emit({
+    type: 'tool_execution_end',
+    toolCallId: 'call-mismatched',
+    toolName: 'write_file',
+    result: {
+      content: 'private mismatched result',
+      isError: false,
+      fileChange: {
+        status: 'changed',
+        diff: '--- mismatch.txt\n+++ mismatch.txt\n@@ -0,0 +1 @@\n+must-not-attach\n',
+        truncated: false
+      }
+    }
+  })
   backend.emit({
     type: 'message_update',
     streamEvent: { type: 'toolcall_start', id: 'call-shell', name: 'run_shell_command' }
@@ -388,13 +551,14 @@ test('live reduction batches text, normalizes tools, and hides private frames an
   assert.match(encoded, /One two/)
   assert.match(encoded, /token\.txt/)
   assert.match(encoded, /"name":"create_file"[^}]*"target":"created\.txt"/)
+  assert.match(encoded, /"fileChange":\{"status":"changed","diff":"--- created\.txt/)
   assert.match(encoded, /"name":"delete_file"[^}]*"target":"deleted\.txt"/)
   assert.match(encoded, /"failed":true/)
   assert.match(encoded, /"command":"pnpm test"/)
   assert.match(encoded, /"output":"21 tests passed"/)
   assert.doesNotMatch(
     encoded,
-    /private chain of thought|private arguments|raw-secret|sensitive tool result|private file content|private file result|\/private\//
+    /private chain of thought|private arguments|raw-secret|sensitive tool result|private file content|private file result|private mismatched result|must-not-attach|\/private\//
   )
 
   await service.abort('session-one')

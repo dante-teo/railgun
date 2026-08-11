@@ -1289,22 +1289,42 @@ async fn provider_turn(
                 updates,
                 json!({"type":"tool_execution_start","toolCallId":id,"toolName":name,"args":arguments}),
             );
-            let result = tools::execute(&name, &arguments, &tool_context).await;
-            let (content, is_error) = match result {
-                Ok(content) => (content, false),
-                Err(error) => (redact_error(&error.to_string()), true),
+            let result = tools::execute_with_metadata(&name, &arguments, &tool_context).await;
+            let (content, is_error, file_change) = match result {
+                Ok(execution) => (
+                    execution.content,
+                    false,
+                    execution.file_change.map(|change| {
+                        serde_json::to_value(change).expect("file change serializes")
+                    }),
+                ),
+                Err(error) => (redact_error(&error.to_string()), true, None),
             };
+            let stored_content = file_change.as_ref().map_or_else(
+                || Value::String(content.clone()),
+                |file_change| {
+                    let mut metadata = file_change.clone();
+                    metadata["type"] = Value::String("fileChange".into());
+                    json!([{"type":"text","text":content}, metadata])
+                },
+            );
             messages.push(json!({
                 "role":"tool",
                 "at":now_millis(),
                 "toolCallId":id,
-                "content":content,
+                "content":stored_content,
                 "isError":is_error
             }));
-            send_update(
-                updates,
-                json!({"type":"tool_execution_end","toolCallId":id,"toolName":name,"result":{"content":content,"isError":is_error}}),
-            );
+            let mut completion = json!({
+                "type":"tool_execution_end",
+                "toolCallId":id,
+                "toolName":name,
+                "result":{"content":content,"isError":is_error}
+            });
+            if let Some(file_change) = file_change {
+                completion["result"]["fileChange"] = file_change;
+            }
+            send_update(updates, completion);
         }
     }
 
@@ -1427,7 +1447,7 @@ fn json_messages_to_widevin(messages: &[Value]) -> Result<Vec<DevinMessage>> {
                 }
                 "tool" => Ok(DevinMessage::Tool {
                     tool_call_id: message["toolCallId"].as_str().unwrap_or_default().into(),
-                    content: content_parts(content)?,
+                    content: tool_content_parts(content)?,
                     is_error: message
                         .get("isError")
                         .and_then(Value::as_bool)
@@ -1458,6 +1478,19 @@ fn content_parts(value: &Value) -> Result<Vec<DevinContentPart>> {
             _ => bail!("invalid user/tool content part"),
         })
         .collect()
+}
+
+fn tool_content_parts(value: &Value) -> Result<Vec<DevinContentPart>> {
+    match value {
+        Value::Array(parts) => content_parts(&Value::Array(
+            parts
+                .iter()
+                .filter(|part| part["type"] != "fileChange")
+                .cloned()
+                .collect(),
+        )),
+        _ => content_parts(value),
+    }
 }
 
 fn model_value(model: &widevin::DevinModel) -> Value {
@@ -2102,6 +2135,31 @@ mod tests {
                 .map(|tool| tool.name)
                 .collect::<Vec<_>>(),
             tools::TOOL_NAMES,
+        );
+    }
+
+    #[test]
+    fn provider_conversion_excludes_file_change_metadata() {
+        let converted = json_messages_to_widevin(&[json!({
+            "role":"tool",
+            "toolCallId":"write-1",
+            "content":[
+                {"type":"text","text":"Wrote 5 bytes"},
+                {"type":"fileChange","status":"changed","diff":"--- notes.txt\n+++ notes.txt\n","truncated":false}
+            ],
+            "isError":false
+        })])
+        .unwrap();
+
+        assert_eq!(
+            converted,
+            vec![DevinMessage::Tool {
+                tool_call_id: "write-1".into(),
+                content: vec![DevinContentPart::Text {
+                    text: "Wrote 5 bytes".into()
+                }],
+                is_error: false
+            }]
         );
     }
 

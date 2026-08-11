@@ -197,7 +197,7 @@ describe('TaskDetailPlaceholder', () => {
       'data-completion-cue'
     )
     expect(within(transcript).queryByText('I found the release checklist.')).not.toBeInTheDocument()
-    expect(within(transcript).queryByText('Read File')).not.toBeInTheDocument()
+    expect(within(transcript).queryByText('Explored')).not.toBeInTheDocument()
     const separator = transcript.querySelector('[data-slot="separator"]')
     expect(separator).not.toBeNull()
     expect(disclosure.nextElementSibling).toBe(separator)
@@ -208,7 +208,7 @@ describe('TaskDetailPlaceholder', () => {
     expect(disclosure).toHaveAccessibleName('Worked for 3m 27s. Hide work')
     expect(disclosure.nextElementSibling).toBe(separator)
     expect(within(transcript).getByText('I found the release checklist.')).toBeInTheDocument()
-    expect(within(transcript).getByText('Read File')).toBeInTheDocument()
+    expect(within(transcript).getByText('Explored')).toBeInTheDocument()
     expect(within(transcript).getByText('The release brief is ready.')).toBeInTheDocument()
   })
 
@@ -237,7 +237,8 @@ describe('TaskDetailPlaceholder', () => {
       name: 'Working… Hide work'
     })
     expect(activeDisclosure).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Inspect Railgun')).toBeInTheDocument()
+    expect(screen.getByText('Explored')).toBeInTheDocument()
+    expect(screen.getByText('Inspected Railgun')).toBeInTheDocument()
 
     await act(async () => {
       api.emit({
@@ -269,7 +270,7 @@ describe('TaskDetailPlaceholder', () => {
     })
     expect(completedDisclosure).toHaveAttribute('aria-expanded', 'false')
     expect(completedDisclosure.querySelector('[data-completion-cue="true"]')).not.toBeNull()
-    expect(screen.queryByText('Inspect Railgun')).not.toBeInTheDocument()
+    expect(screen.queryByText('Inspected Railgun')).not.toBeInTheDocument()
     const finalAnswer = screen.getByText('Inspection finished.')
     expect(finalAnswer).toBeInTheDocument()
     expect(finalAnswer.closest('[data-message-role="assistant"]')).toHaveAttribute(
@@ -362,12 +363,12 @@ describe('TaskDetailPlaceholder', () => {
       'data-message-role',
       'user'
     )
-    const tool = within(transcript).getByText('Read File').closest('li')
+    const tool = within(transcript).getByText('Explored').closest('li')
     expect(tool).toHaveAttribute('data-message-role', 'tool')
     expect(tool).not.toHaveTextContent('notes.txt')
     fireEvent.click(within(tool!).getByRole('button', { name: /Show details/ }))
     expect(tool).toHaveTextContent('notes.txt')
-    expect(tool).not.toHaveTextContent('Failed')
+    expect(tool).toHaveTextContent('Failed')
     expect(within(transcript).getByText('finished')).toBeInTheDocument()
     expect(within(transcript).getByText('partial')).toBeInTheDocument()
     expect(within(transcript).queryByText(/\*\*partial/)).not.toBeInTheDocument()
