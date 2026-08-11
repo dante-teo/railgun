@@ -30,9 +30,7 @@ export function PaneToggle({
           <Icon aria-hidden="true" data-icon="inline-start" strokeWidth={1.75} />
         </TopBarIconButton>
       </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={7}>
-        {label}
-      </TooltipContent>
+      <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   )
 }

@@ -393,7 +393,7 @@ export function TaskComposer({
         <div data-slot="task-composer-spectrum" />
       </div>
       <div
-        className="relative z-10 flex w-full flex-col gap-1 rounded-[inherit] bg-card p-2 ring-1 ring-foreground/10"
+        className="relative z-10 flex w-full flex-col gap-2 rounded-[inherit] bg-card p-2 ring-1 ring-foreground/10"
         data-slot="task-composer-surface"
       >
         <textarea
@@ -416,7 +416,7 @@ export function TaskComposer({
           value={draft}
         />
         {attachments.length > 0 ? (
-          <ul aria-label="Attachments" className="flex flex-wrap gap-1 px-1">
+          <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-2">
             {attachments.map((attachment) => (
               <AttachmentChip
                 attachment={attachment}
@@ -436,7 +436,7 @@ export function TaskComposer({
         <ComposerAlert message={sendError} />
         <div
           aria-label="Composer controls"
-          className="flex items-center gap-1"
+          className="flex items-center gap-2"
           data-slot="task-composer-toolbar"
           role="group"
         >

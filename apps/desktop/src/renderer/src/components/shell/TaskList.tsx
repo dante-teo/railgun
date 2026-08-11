@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Archive } from 'lucide-react'
 
+import { usePresence } from '@/hooks/use-presence'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -62,7 +63,7 @@ function TaskListRow({
     <li
       aria-hidden={archiving || undefined}
       className={cn(
-        'group flex min-h-15 items-center gap-1 rounded-md pr-2 transition-[background-color,opacity,transform] duration-(--duration-feedback) ease-(--ease-out) hover:bg-muted focus-within:bg-muted data-[archiving=true]:pointer-events-none data-[archiving=true]:translate-x-1 data-[archiving=true]:opacity-0 data-[restored=true]:animate-in data-[restored=true]:fade-in-0 data-[restored=true]:slide-in-from-right-1 data-[restored=true]:duration-(--duration-feedback)',
+        'group flex min-h-15 items-center gap-2 rounded-md pr-2 transition-[background-color,opacity,transform] duration-(--duration-feedback) ease-(--ease-out) hover:bg-muted focus-within:bg-muted data-[archiving=true]:pointer-events-none data-[archiving=true]:translate-x-1 data-[archiving=true]:opacity-0 data-[restored=true]:animate-in data-[restored=true]:fade-in-0 data-[restored=true]:slide-in-from-right-1 data-[restored=true]:duration-(--duration-feedback)',
         selected && 'bg-muted'
       )}
       data-archiving={archiving || undefined}
@@ -116,9 +117,9 @@ function TaskListRow({
 
 function TaskListSkeleton({ active }: { active: boolean }): React.JSX.Element {
   return (
-    <div aria-label="Task list is loading" className="flex flex-col gap-1" role="status">
+    <div aria-label="Task list is loading" className="flex flex-col gap-2" role="status">
       {Array.from({ length: 6 }, (_, index) => (
-        <div className="flex min-h-15 items-center gap-3 px-3 py-2" key={index}>
+        <div className="flex min-h-15 items-center gap-2 px-3 py-2" key={index}>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className={cn('h-4 w-4/5', !active && 'animate-none')} />
             <Skeleton className={cn('h-3 w-20', !active && 'animate-none')} />
@@ -140,6 +141,33 @@ function TaskListEmpty({ loadError }: Pick<TaskListProps, 'loadError'>): React.J
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
+  )
+}
+
+function TaskListActionError({ error }: { error?: string }): React.JSX.Element | null {
+  const present = Boolean(error)
+  const [content, setContent] = useState({ message: error, source: error })
+  const { mounted, handleTransitionEnd } = usePresence(present)
+  if (content.source !== error) {
+    setContent({ message: error ?? content.message, source: error })
+  }
+
+  if (!mounted || !content.message) {
+    return null
+  }
+
+  return (
+    <p
+      aria-hidden={present ? undefined : true}
+      className="translate-y-0 px-3 pb-2 text-xs leading-5 text-destructive opacity-100 transition-[opacity,transform] duration-(--duration-feedback) ease-(--ease-out) starting:-translate-y-1 starting:opacity-0 data-[present=false]:pointer-events-none data-[present=false]:-translate-y-1 data-[present=false]:opacity-0 data-[present=false]:duration-100 motion-reduce:transform-none! motion-reduce:transition-opacity! motion-reduce:duration-(--duration-feedback)!"
+      data-present={present}
+      data-slot="task-list-error"
+      inert={present ? undefined : true}
+      onTransitionEnd={handleTransitionEnd}
+      role={present ? 'alert' : undefined}
+    >
+      {content.message}
+    </p>
   )
 }
 
@@ -170,15 +198,7 @@ export function TaskList({
       aria-label="Task list"
       className="flex h-full min-w-0 flex-col overflow-hidden px-3 py-3"
     >
-      {taskActionError ? (
-        <p
-          className="animate-in px-3 pb-2 text-xs leading-5 text-destructive fade-in-0 slide-in-from-top-1 duration-(--duration-feedback) ease-(--ease-out)"
-          data-slot="task-list-error"
-          role="alert"
-        >
-          {taskActionError}
-        </p>
-      ) : null}
+      <TaskListActionError error={taskActionError} />
       <div className="grid min-h-0 flex-1">
         {showLoadingSurface ? (
           <div
@@ -199,7 +219,7 @@ export function TaskList({
             {tasks.length === 0 ? (
               <TaskListEmpty loadError={loadError} />
             ) : (
-              <ol className="flex min-w-0 flex-col gap-1">
+              <ol className="flex min-w-0 flex-col gap-2">
                 {tasks.map((task) => (
                   <TaskListRow
                     archiving={task.id === archivingTaskId}

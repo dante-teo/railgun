@@ -20,7 +20,7 @@ function NavigationRow({
     <div
       aria-current={selected ? 'page' : undefined}
       className={cn(
-        'flex h-11 items-center gap-3 rounded-md px-3 text-[15px] font-medium text-foreground',
+        'flex h-11 items-center gap-2 rounded-md px-3 text-[15px] font-medium text-foreground',
         selected && 'bg-surface-active'
       )}
     >
@@ -37,7 +37,7 @@ function NavigationRow({
 export function SidebarNavigation({ activity }: { activity: ActivitySnapshot }): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col px-3 pb-3 pt-4">
-      <nav aria-label="Primary" className="flex flex-col gap-1">
+      <nav aria-label="Primary" className="flex flex-col gap-2">
         <NavigationRow icon={CheckSquare2} label="Tasks" selected />
         <NavigationRow icon={CalendarDays} label="Scheduled" />
         <NavigationRow icon={Settings} label="Settings" />

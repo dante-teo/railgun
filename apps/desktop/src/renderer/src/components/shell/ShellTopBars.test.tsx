@@ -31,11 +31,7 @@ describe('ShellTopBars', () => {
     const createTaskButton = screen.getByRole('button', { name: 'Create task' })
     const workspaceTopBar = container.firstElementChild
 
-    expect(workspaceTopBar).toHaveClass(
-      'pl-5',
-      'pr-5',
-      'in-data-[traffic-light-clearance=true]:pl-2'
-    )
+    expect(workspaceTopBar).toHaveClass('px-4', 'in-data-[traffic-light-clearance=true]:pl-2')
     expect(screen.queryByText('Tasks')).toBeNull()
     expect(screen.queryByText('Draft project brief')).toBeNull()
     expect(workspaceTopBar).toHaveTextContent('')

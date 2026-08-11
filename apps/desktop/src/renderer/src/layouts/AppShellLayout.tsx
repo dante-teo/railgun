@@ -218,7 +218,7 @@ export function AppShellLayout({
               data-traffic-light-clearance={String(!layout.sidebarVisible)}
             >
               {!layout.sidebarVisible ? (
-                <div className="ml-[92px] shrink-0">
+                <div className="ml-24 shrink-0">
                   <PaneToggle
                     controls="shell-sidebar"
                     expanded={false}

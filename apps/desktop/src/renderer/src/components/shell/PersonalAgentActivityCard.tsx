@@ -36,7 +36,7 @@ function AdvisorRow({ message }: { message: AdvisorActivity | null }): React.JSX
         <>
           <PopoverTitle>Advisor</PopoverTitle>
           {message ? (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
               <p className="m-0 text-xs font-medium text-muted-foreground">
                 {statusLabel(message.severity)}
               </p>
@@ -60,11 +60,11 @@ function SubagentPreview({ subagent }: { subagent: SubagentActivity }): React.JS
   return (
     <>
       <PopoverTitle>Subagent</PopoverTitle>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <p className="m-0 text-xs font-medium text-muted-foreground">Delegated goal</p>
         <p className="m-0 whitespace-pre-wrap break-words leading-relaxed">{subagent.goal}</p>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <p className="m-0 text-xs font-medium text-muted-foreground">Assistant response</p>
         <p
           aria-live="polite"
@@ -160,9 +160,9 @@ export function PersonalAgentActivityCard({
       <CardHeader className="sr-only">
         <CardTitle>Personal agent activity</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col gap-0.5 px-2">
+      <CardContent className="flex flex-col gap-0 px-2">
         <AdvisorRow message={snapshot.advisor} />
-        <div className="flex min-h-8 items-center gap-2.5 px-2 text-[12px] font-medium text-muted-foreground">
+        <div className="flex min-h-8 items-center gap-2 px-2 text-[12px] font-medium text-muted-foreground">
           <span className="min-w-0 flex-1 truncate">Subagents</span>
           <span className="shrink-0 font-mono text-[11px]">{snapshot.subagentCount}</span>
         </div>

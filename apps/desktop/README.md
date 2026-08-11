@@ -247,7 +247,16 @@ The renderer uses the bundled Barlow variable font for interface text and Depart
 only for technical literals such as code, paths, identifiers, and commands. Theme values live as
 semantic Tailwind tokens in `src/renderer/src/assets/main.css`. Topbar icon actions share the
 `TopBarIconButton` contract so sizing, interaction states, drag behavior, and accessible labeling
-remain consistent.
+remain consistent. Spatial rhythm uses Tailwind `2` (8 px) for close relationships, `3` (12 px)
+for related subgroups, `4` (16 px) for major separation, and `6` (24 px) for broad section
+boundaries. Margins, padding, and gaps use the closest built-in utility; arbitrary values remain
+reserved for fixed product or native-window geometry.
+
+Routine feedback reuses the shared 120 ms strong ease-out tokens and animates only opacity and
+transform. Presence-managed exits follow their entrance path, become inert and hidden from
+assistive technology immediately, and unmount when their opacity transition finishes. Reduced
+motion removes spatial movement but retains short opacity feedback. High-frequency navigation,
+keyboard flows, transcript streaming, disclosure height, and pane geometry remain immediate.
 
 The Tasks content column lists real saved sessions in backend order. Selecting a row activates that
 backend session and opens its complete transcript. Archive actions remove a task optimistically and
@@ -299,7 +308,10 @@ uses a critically damped scroll unless reduced motion is requested; submitting a
 following immediately. A persistent **Agent is working…** status remains visible from prompt
 acceptance until the backend turn finishes, including periods before any assistant text arrives.
 Approval and clarification requests appear inline, keep the turn running while awaiting input, and
-default focus to the safe denial/answer control. Escape denies or declines the primary request.
+default focus to the safe denial/answer control. New request cards use a subtle opacity-and-rise
+entrance and return along the same path after resolution. The reserved status line crossfades
+submitting and error feedback without announcing the outgoing state twice. Escape denies or
+declines the primary request.
 
 The controlled composer fills the available width with 16 px edge spacing. Its textarea starts at
 one line, grows with content, and scrolls after ten lines. Return sends, Shift+Return inserts a

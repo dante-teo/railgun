@@ -101,6 +101,33 @@ describe('TaskList', () => {
     expect(screen.getByText(task.title)).toBeInTheDocument()
   })
 
+  it('keeps a cleared task action error inert until its exit transition finishes', () => {
+    const view = renderTaskList({ taskActionError: 'Could not archive the task.' })
+    const alert = screen.getByRole('alert')
+
+    view.rerender(
+      <TooltipProvider>
+        <TaskList
+          archiveDisabled={false}
+          loading={false}
+          onArchive={() => undefined}
+          onArchiveExit={() => undefined}
+          onSelect={() => undefined}
+          tasks={[task]}
+        />
+      </TooltipProvider>
+    )
+
+    expect(alert).toHaveAttribute('aria-hidden', 'true')
+    expect(alert).toHaveAttribute('data-present', 'false')
+    expect(alert).toHaveAttribute('inert')
+
+    fireEvent.transitionEnd(alert, { propertyName: 'transform' })
+    expect(alert).toBeInTheDocument()
+    fireEvent.transitionEnd(alert, { propertyName: 'opacity' })
+    expect(alert).not.toBeInTheDocument()
+  })
+
   it('reports selection through a pressed task action', () => {
     const onSelect = vi.fn()
     renderTaskList({ onSelect, selectedTaskId: task.id })

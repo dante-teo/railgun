@@ -64,14 +64,14 @@ function InspectorRow({
 }: InspectorRowProps): React.JSX.Element {
   return (
     <div className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] items-center border-b text-[13px]">
-      <div className="flex min-w-0 items-center gap-3 text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
         <Icon aria-hidden="true" className="size-[17px] shrink-0" strokeWidth={1.55} />
         <span className="truncate">{label}</span>
       </div>
       <span
         className={cn(
           'truncate text-muted-foreground',
-          mono && 'w-fit max-w-full rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[12px]'
+          mono && 'w-fit max-w-full rounded-sm bg-muted px-2 py-0 font-mono text-[12px] leading-5'
         )}
         title={value}
       >
@@ -94,7 +94,7 @@ function InspectorSection({ rows, title }: InspectorSectionProps): React.JSX.Ele
 
 export function TaskInspector(): React.JSX.Element {
   return (
-    <div className="flex h-full flex-col gap-7 overflow-y-auto px-5 py-7">
+    <div className="flex h-full flex-col gap-6 overflow-y-auto px-4 py-6">
       {INSPECTOR_SECTIONS.map((section) => (
         <InspectorSection key={section.title} {...section} />
       ))}

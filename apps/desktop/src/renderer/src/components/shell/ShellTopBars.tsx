@@ -8,7 +8,7 @@ export function SidebarTopBar(): React.JSX.Element {
 
 export function TasksWorkspaceTopBar(): React.JSX.Element {
   return (
-    <div className="flex h-full min-w-0 items-center pl-5 pr-5 in-data-[traffic-light-clearance=true]:pl-2">
+    <div className="flex h-full min-w-0 items-center px-4 in-data-[traffic-light-clearance=true]:pl-2">
       <TopBarIconButton aria-label="Create task">
         <SquarePen aria-hidden="true" data-icon="inline-start" strokeWidth={1.7} />
       </TopBarIconButton>
@@ -18,7 +18,7 @@ export function TasksWorkspaceTopBar(): React.JSX.Element {
 
 export function InspectorTopBar(): React.JSX.Element {
   return (
-    <div className="flex h-full min-w-0 items-center pl-5">
+    <div className="flex h-full min-w-0 items-center pl-4">
       <h2 className="truncate text-[17px] font-semibold leading-none tracking-[-0.01em]">
         Inspector
       </h2>

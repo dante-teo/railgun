@@ -45,7 +45,7 @@ function CompletionCue({
 }): React.JSX.Element {
   return (
     <span
-      className={cn('inline-flex items-center gap-1.5', enabled && styles.completionCue)}
+      className={cn('inline-flex items-center gap-2', enabled && styles.completionCue)}
       data-completion-cue={enabled ? 'true' : undefined}
     >
       {children}
@@ -75,7 +75,7 @@ export function TurnWorkRow({
           <CollapsibleTrigger
             aria-label={disclosureLabel}
             className={cn(
-              'group flex min-h-8 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-muted-foreground outline-none',
+              'group flex min-h-8 items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-muted-foreground outline-none',
               'focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:text-foreground',
               styles.trigger
             )}
@@ -98,7 +98,7 @@ export function TurnWorkRow({
         </Collapsible>
       ) : (
         <div>
-          <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+          <div className="px-2 py-2 text-xs font-medium text-muted-foreground">
             <CompletionCue enabled={completionCue}>{label}</CompletionCue>
           </div>
           <Separator />

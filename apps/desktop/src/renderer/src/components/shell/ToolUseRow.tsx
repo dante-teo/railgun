@@ -134,7 +134,7 @@ function DisclosureRow({
         <CollapsibleTrigger
           aria-label={disclosureLabel(label, failed, running, expanded)}
           className={cn(
-            'group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-muted-foreground outline-none',
+            'group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-muted-foreground outline-none',
             'focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:text-foreground',
             styles.trigger,
             failed && 'text-destructive data-[state=open]:text-destructive'
@@ -204,7 +204,7 @@ export const ExplorationGroupRow = memo(function ExplorationGroupRow({
       resetKey={`${lastMessageId}:${running ? 'running' : 'completed'}`}
       running={running}
     >
-      <ul aria-label="Exploration details" className="flex flex-col gap-1 px-2 py-1">
+      <ul aria-label="Exploration details" className="flex flex-col gap-2 px-2 py-2">
         {messages.map((message) => {
           const presentation = presentationFor(message.name)
           const Icon = message.failed ? CircleXIcon : presentation.icon
@@ -232,7 +232,7 @@ export const ExplorationGroupRow = memo(function ExplorationGroupRow({
 function FileChangeDetails({ message }: { message: TranscriptToolMessage }): React.JSX.Element {
   if (message.running) {
     return (
-      <p className="px-2 py-1 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
+      <p className="px-2 py-2 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
         Preparing file change…
       </p>
     )
@@ -240,31 +240,31 @@ function FileChangeDetails({ message }: { message: TranscriptToolMessage }): Rea
   const change = message.fileChange
   if (!change || change.status === 'unavailable') {
     return (
-      <p className="px-2 py-1 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
+      <p className="px-2 py-2 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
         Diff unavailable
       </p>
     )
   }
   if (change.status === 'unchanged') {
     return (
-      <p className="px-2 py-1 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
+      <p className="px-2 py-2 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
         No content changes
       </p>
     )
   }
   if (!change.diff) {
     return (
-      <p className="px-2 py-1 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
+      <p className="px-2 py-2 text-xs leading-5 text-muted-foreground" data-slot="tool-details">
         {message.name === 'create_file' ? 'Created an empty file' : 'Diff unavailable'}
       </p>
     )
   }
   const target = basename(message.target) ?? 'file'
   return (
-    <div className="flex flex-col gap-1.5" data-slot="tool-details">
+    <div className="flex flex-col gap-2" data-slot="tool-details">
       <pre
         aria-label={`Diff for ${target}`}
-        className="max-h-72 overflow-auto rounded-lg border bg-muted/40 px-3 py-2.5 font-mono text-xs leading-5 text-foreground"
+        className="max-h-72 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 font-mono text-xs leading-5 text-foreground"
       >
         <code>{change.diff}</code>
       </pre>
@@ -282,7 +282,7 @@ function ToolDetails({ message }: { message: TranscriptToolMessage }): React.JSX
   if (message.name === 'run_shell_command') {
     return (
       <div
-        className="flex max-h-56 flex-col gap-2 overflow-auto px-2 py-1 font-mono text-xs leading-5"
+        className="flex max-h-56 flex-col gap-2 overflow-auto px-2 py-2 font-mono text-xs leading-5"
         data-slot="tool-details"
       >
         <pre aria-label="Shell command" className="whitespace-pre-wrap break-words text-foreground">
@@ -304,7 +304,7 @@ function ToolDetails({ message }: { message: TranscriptToolMessage }): React.JSX
   }
   const presentation = presentationFor(message.name)
   return (
-    <p className="break-words px-2 py-1 text-xs leading-5 text-foreground" data-slot="tool-details">
+    <p className="break-words px-2 py-2 text-xs leading-5 text-foreground" data-slot="tool-details">
       {message.detail ?? basename(message.target) ?? presentation.description}
     </p>
   )

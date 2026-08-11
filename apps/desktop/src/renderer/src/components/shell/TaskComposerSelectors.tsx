@@ -149,7 +149,7 @@ export function ApprovalModeSelector({
                   value={option.mode}
                 >
                   <ModeIcon className="mt-0.5 text-muted-foreground" />
-                  <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="flex min-w-0 flex-col gap-2">
                     <span className="font-medium">{option.label}</span>
                     <span className="text-xs text-muted-foreground">{option.description}</span>
                   </span>

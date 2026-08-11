@@ -138,7 +138,7 @@ export function PersonalAgentActivityPopover({
           aria-expanded={visibleOpen}
           aria-haspopup="dialog"
           aria-label={triggerLabel}
-          className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] outline-none transition-[background-color,color,transform] duration-(--duration-feedback) ease-(--ease-out) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 pointer-fine:active:scale-[0.97]"
+          className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] outline-none transition-[background-color,color,transform] duration-(--duration-feedback) ease-(--ease-out) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 pointer-fine:active:scale-[0.97]"
           onBlur={handleBlur}
           onClick={handleClick}
           onFocus={handleFocus}

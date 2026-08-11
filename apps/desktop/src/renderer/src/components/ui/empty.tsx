@@ -7,7 +7,7 @@ function Empty({ className, ...props }: React.ComponentProps<'div'>): React.JSX.
     <div
       data-slot="empty"
       className={cn(
-        'flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance',
+        'flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance has-data-[slot=empty-icon]:gap-6',
         className
       )}
       {...props}
@@ -26,7 +26,7 @@ function EmptyHeader({ className, ...props }: React.ComponentProps<'div'>): Reac
 }
 
 const emptyMediaVariants = cva(
-  'mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  'flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
   {
     variants: {
       variant: {
@@ -83,7 +83,7 @@ function EmptyContent({ className, ...props }: React.ComponentProps<'div'>): Rea
     <div
       data-slot="empty-content"
       className={cn(
-        'flex w-full max-w-sm min-w-0 flex-col items-center gap-2.5 text-sm text-balance',
+        'flex w-full max-w-sm min-w-0 flex-col items-center gap-2 text-sm text-balance',
         className
       )}
       {...props}

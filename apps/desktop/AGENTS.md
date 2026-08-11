@@ -40,6 +40,9 @@ them; a feature is not a synonym for a routed screen.
 - Tailwind belongs in Layouts and Components, not Pages.
 - Prefer semantic theme utilities such as `bg-background` and `text-muted-foreground` over raw
   colors.
+- Use the semantic spacing scale consistently: `2` for close relationships, `3` for related
+  subgroups, `4` for major separation, and `6` for broad section boundaries. Prefer the closest
+  built-in Tailwind utility over arbitrary spacing values.
 - Prefer `gap-*` over `space-x-*` or `space-y-*`, and `size-*` when width and height match.
 - Use the Tailwind spacing scale for margins, padding, and gaps. Reserve arbitrary spacing values
   for fixed product or platform-window constraints that cannot use the shared scale.
@@ -51,6 +54,20 @@ them; a feature is not a synonym for a routed screen.
   a reusable or complex purpose, make it a Layout or Component instead.
 - Pages pass semantic props to Layouts and Components; they do not pass Tailwind through
   `className` escape hatches.
+
+## Motion rules
+
+- Add motion only when it communicates feedback, state, or spatial continuity. Keep frequent
+  navigation, keyboard flows, streaming content, disclosure height, and pane geometry immediate.
+- Reuse the shared `--duration-feedback` and `--ease-out` tokens for routine feedback. Prefer
+  Tailwind's built-in duration and translation utilities over arbitrary values, and do not create a
+  parallel motion scale for one component.
+- Animate compositor-friendly `opacity` and `transform` properties. Enter and exit along the same
+  path, and use `usePresence` when an exit must finish before unmounting.
+- Make exiting interactive content inert and hidden from assistive technology immediately, then
+  unmount it on its own opacity transition. A new active state must remain usable while it enters.
+- Reduced-motion behavior keeps short opacity feedback while removing translation, scaling,
+  scrolling, and other spatial motion.
 
 ## Dependency direction
 
