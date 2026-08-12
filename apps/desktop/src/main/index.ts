@@ -1,4 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import {
+  app,
+  autoUpdater as nativeAutoUpdater,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  shell
+} from 'electron'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -6,7 +14,8 @@ import electronUpdater from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { createActiveSessionMutationQueue } from './active-session-mutations.mts'
 import { ActivityService } from './activity.mts'
-import { startAutomaticUpdates } from './automatic-updates.mts'
+import { createAutomaticUpdateController, type AutomaticUpdater } from './automatic-updates.mts'
+import { createUpdateExperience } from './application-menu.mts'
 import {
   attachmentDialogProperties,
   pickAttachments,
@@ -23,6 +32,7 @@ import { PersonalizationService } from './personalization.mts'
 import { SchedulerService, type SchedulerTarget } from './scheduler.mts'
 import { ScheduledJobService } from './scheduled-jobs.mts'
 import { SkillService } from './skills.mts'
+import { createShutdownCoordinator } from './shutdown.mts'
 import { TaskService } from './tasks.mts'
 import { createTranscriptService } from './transcript.mts'
 import { activitySnapshotChannel, activityUpdateChannel } from '../shared/activity-api'
@@ -87,12 +97,77 @@ const skillService = new SkillService(backendProcess)
 const transcriptService = createTranscriptService(backendProcess)
 const scheduledJobService = new ScheduledJobService(backendProcess)
 const activeSessionMutations = createActiveSessionMutationQueue()
+const { autoUpdater } = electronUpdater
 let schedulerService = new SchedulerService({})
-let isQuitting = false
 let backendFailureReported = false
 
+function updaterAdapter(): AutomaticUpdater {
+  const stagedListeners = new Map<Parameters<AutomaticUpdater['on']>[1], () => void>()
+  return {
+    get allowPrerelease(): boolean {
+      return autoUpdater.allowPrerelease
+    },
+    set allowPrerelease(value: boolean) {
+      autoUpdater.allowPrerelease = value
+    },
+    get autoDownload(): boolean {
+      return autoUpdater.autoDownload
+    },
+    set autoDownload(value: boolean) {
+      autoUpdater.autoDownload = value
+    },
+    get autoInstallOnAppQuit(): boolean {
+      return autoUpdater.autoInstallOnAppQuit
+    },
+    set autoInstallOnAppQuit(value: boolean) {
+      autoUpdater.autoInstallOnAppQuit = value
+    },
+    checkForUpdates: () => autoUpdater.checkForUpdates(),
+    on: (event, listener) => {
+      if (event === 'update-staged') {
+        const stagedListener = (): void => listener()
+        stagedListeners.set(listener, stagedListener)
+        return nativeAutoUpdater.on('update-downloaded', stagedListener)
+      }
+      if (event === 'error') {
+        return autoUpdater.on('error', listener)
+      }
+      return autoUpdater.on(event, listener)
+    },
+    removeListener: (event, listener) => {
+      if (event === 'update-staged') {
+        const stagedListener = stagedListeners.get(listener)
+        if (stagedListener) {
+          stagedListeners.delete(listener)
+          return nativeAutoUpdater.removeListener('update-downloaded', stagedListener)
+        }
+        return nativeAutoUpdater
+      }
+      if (event === 'error') {
+        return autoUpdater.removeListener('error', listener)
+      }
+      return autoUpdater.removeListener(event, listener)
+    },
+    quitAndInstall: () => autoUpdater.quitAndInstall()
+  }
+}
+
+const updates = updaterAdapter()
+
+function reportShutdownFailure(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  process.stderr.write(`Backend shutdown failed: ${message}\n`)
+}
+
+const shutdownCoordinator = createShutdownCoordinator({
+  quitAndInstall: () => updates.quitAndInstall(),
+  quitApp: () => app.quit(),
+  reportError: reportShutdownFailure,
+  stopBackend: () => backendProcess.stop()
+})
+
 function reportBackendFailure(error: unknown): void {
-  if (isQuitting || backendFailureReported) {
+  if (shutdownCoordinator.isShuttingDown() || backendFailureReported) {
     return
   }
 
@@ -137,7 +212,7 @@ function startConfiguredBackend(): void {
     .catch(reportBackendFailure)
   child.once('error', reportBackendFailure)
   child.once('exit', (code, signal) => {
-    if (!isQuitting) {
+    if (!shutdownCoordinator.isShuttingDown()) {
       const reason = signal ? `signal ${signal}` : `exit code ${code ?? 'unknown'}`
       reportBackendFailure(new Error(`The backend stopped unexpectedly with ${reason}`))
     }
@@ -394,12 +469,35 @@ app.whenReady().then(() => {
   })
 
   createWindow()
-  const { autoUpdater } = electronUpdater
-  startAutomaticUpdates({
+  const updateController = createAutomaticUpdateController({
     isPackaged: app.isPackaged,
     reportError: reportUpdateFailure,
-    updater: autoUpdater,
+    restartToInstall: () => shutdownCoordinator.restartToInstall(),
+    updater: updates,
     version: app.getVersion()
+  })
+  const updateExperience = createUpdateExperience({
+    currentVersion: app.getVersion(),
+    dialogs: {
+      showMessageBox: (options) => {
+        const parentWindow = BrowserWindow.getFocusedWindow()
+        return parentWindow
+          ? dialog.showMessageBox(parentWindow, options)
+          : dialog.showMessageBox(options)
+      }
+    },
+    isTaskRunning: () => transcriptService.getSnapshot().status === 'running',
+    menu: {
+      install: (template) => Menu.setApplicationMenu(Menu.buildFromTemplate([...template]))
+    },
+    subscribeTaskState: (listener) => transcriptService.subscribe(listener),
+    updater: updateController
+  })
+  updateController.start()
+
+  app.once('will-quit', () => {
+    updateExperience.dispose()
+    updateController.dispose()
   })
 
   app.on('activate', function () {
@@ -410,14 +508,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', (event) => {
-  if (isQuitting || !backendProcess.isRunning) {
-    isQuitting = true
-    return
-  }
-
-  event.preventDefault()
-  isQuitting = true
-  void backendProcess.stop().finally(() => app.quit())
+  shutdownCoordinator.handleBeforeQuit(event)
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

@@ -444,6 +444,26 @@ handling, and cap and scroll long conversations. Their motion is an origin-aware
 `scale(0.97)` entrance with a faster exit; reduced-motion mode retains opacity feedback without
 transform motion.
 
+## Software Updates
+
+Packaged builds check the signed GitHub release feed after startup and then four hours after each
+check finishes. Stable builds stay on the stable channel, prerelease builds follow prereleases, and
+available updates download in the background. Automatic check failures are logged without
+interrupting work.
+
+The **Railgun > Check for Updates…** menu item starts a manual check. Its label reports when a check
+or download is in progress. On macOS, Railgun keeps showing **Downloading Update…** after the ZIP is
+downloaded while the native updater stages and validates it; the menu changes to **Restart to
+Update…** only after that native staging succeeds. A staging failure clears the ready state, logs the
+failure, and resumes the four-hour retry cadence. Manual checks use native dialogs to report the
+current version, the version being downloaded, or a friendly connection failure.
+
+When download and native staging finish, Railgun offers **Restart Now** and **Later**. The prompt waits
+while a task is running, and Restart Now rechecks that the transcript is idle before stopping the
+bundled backend, releasing the desktop lock, and installing the update. Later suppresses further
+automatic prompts for that version while keeping Restart to Update available in the menu. A staged
+update also installs automatically on the next normal quit.
+
 ## Electron Binary Repair
 
 Electron's JavaScript package and downloaded application binary are installed separately. An
@@ -488,7 +508,9 @@ The desktop suite covers correlated requests, exact session-load validation and 
 activity-frame validation and lifecycle resets, startup revision ordering, subscription cleanup,
 coalesced streaming updates with immediate terminal publication, shared-lock
 creation, conflict handling, stale recovery and lifecycle release, and the activity card's pointer
-and keyboard interactions. Transcript coverage includes pagination, strict snapshot validation,
+and keyboard interactions. Native update coverage includes four-hour polling, manual outcomes,
+dialog serialization, idle-safe prompting, macOS staging confirmation and failure recovery, and
+shutdown ordering. Transcript coverage includes pagination, strict snapshot validation,
 immutable streaming reduction, safe tool normalization, private-frame rejection, prompt projection,
 bounded file-change and shell-output projection, safe diff-header generation, nested snapshot
 isolation, legacy timestamp fallback, send/abort lifecycle, approval and clarification responses,
@@ -526,9 +548,8 @@ and Chromium notice remain in `Contents/Resources`.
 
 Tagged GitHub releases use the existing Developer ID and Apple notarization secrets to sign,
 notarize, and staple the app before producing `Railgun-<version>-darwin-arm64.dmg` and `.zip`.
-Electron Builder also creates public GitHub update metadata and blockmaps. Packaged stable clients
-ignore prereleases, downloaded updates install on quit, and updater failures do not terminate the
-application.
+Electron Builder also creates public GitHub update metadata and blockmaps. The desktop update flow
+consumes this existing feed and does not change its schema or the release artifact pipeline.
 
 Each release also includes `Railgun-appcast-arm64.xml`, signed with the existing Sparkle EdDSA key,
 so installations of the retired pre-Electron application can replace themselves with the same
