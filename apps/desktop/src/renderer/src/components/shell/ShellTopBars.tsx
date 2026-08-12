@@ -9,6 +9,16 @@ export function SidebarTopBar(): React.JSX.Element {
   return <span className="sr-only">Railgun navigation</span>
 }
 
+export function ScheduledWorkspaceTopBar(): React.JSX.Element {
+  return (
+    <div className="flex h-full min-w-0 items-center px-4 in-data-[traffic-light-clearance=true]:pl-2">
+      <h2 className="truncate text-[17px] font-semibold leading-none tracking-[-0.01em]">
+        Scheduled
+      </h2>
+    </div>
+  )
+}
+
 interface TasksWorkspaceTopBarProps {
   createDisabled?: boolean
   creating?: boolean

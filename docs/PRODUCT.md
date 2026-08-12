@@ -46,9 +46,14 @@ General manages the future-task default model, Advisor, approval behavior, and t
 scheduler. Appearance applies Auto, Light, or Dark immediately and persists the choice locally.
 Personalization edits `~/.railgun/SOUL.md` and saved memories. Skills manages private Markdown skill
 files under `~/.railgun/skills`. Valid editor drafts save before in-app navigation; invalid or failed
-saves keep the user on the current route. The Scheduled navigation label remains non-routed because
-background scheduler management lives in General. Inspector content on Tasks remains static
-presentation data.
+saves keep the user on the current route. Scheduled Jobs is available at `/scheduled` for listing,
+creating, editing, and deleting recurring prompts. Background Scheduling installation and repair
+remain in General; a stopped or missing scheduler does not lock job CRUD. Inspector content on Tasks
+remains static presentation data. Scheduled jobs use the Mac's current local timezone and refresh
+recorded run metadata while the route stays open. New schedules use a shared numeric five-field cron
+subset; existing five-field schedules remain readable for compatibility. Desktop CRUD and scheduler
+run-result writes use one cross-process transaction so concurrent executions do not restore stale
+job definitions.
 
 ## Production lifecycle
 

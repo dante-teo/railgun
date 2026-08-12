@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+pub mod cron;
 pub mod paths;
 pub mod protocol;
 pub mod rpc;

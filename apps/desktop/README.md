@@ -3,8 +3,9 @@
 The production Electron application, built with TypeScript, React, React Router, Tailwind CSS, and
 shadcn/ui. Its Tasks interface loads and resumes saved conversation sessions from the configured
 JSONL backend, streams agent responses, handles in-turn interactions, and optimistically archives
-tasks. Its Settings interface owns user configuration, personalization, skills, scheduler
-management, and archived-task lifecycle. It is Railgun's sole desktop and release surface.
+tasks. Its Scheduled interface owns recurring-prompt CRUD, while Settings owns user configuration,
+personalization, skills, Background Scheduling installation, and archived-task lifecycle. It is
+Railgun's sole desktop and release surface.
 
 ## Requirements
 
@@ -129,7 +130,14 @@ any model fork before the next begins, preventing late work from replacing a new
 operation does not block later mutations.
 
 Settings uses separate narrow preload APIs for models, Advisor, approval configuration,
-personalization, managed skills, and scheduler status/install/uninstall. The main process validates
+personalization, managed skills, and scheduler status/install/uninstall. The Scheduled route adds
+`window.railgun.scheduler.listJobs()`, `createJob(input)`, `updateJob(name, input)`, and
+`deleteJob(name)`. Its immutable renderer projection contains only name, five-field schedule,
+trimmed prompt, ISO last-run time, completed/failed status, and a bounded failure message. The main
+process validates new names, cron expressions, prompts, mutation identifiers, and every backend job
+before the data crosses the context-isolated preload boundary. Job listing uses bounded 50-record
+backend pages and a narrow backend projection so no single JSONL frame can approach the transport
+limit. The main process also validates
 selected models against the live catalog when the setting requires an available model, preserves
 unknown backend configuration fields, and keeps unavailable stored model IDs visible without
 silently rewriting them. Model, Advisor, and approval mutations require an idle backend; scheduler
@@ -288,6 +296,31 @@ transform. Presence-managed exits follow their entrance path, become inert and h
 assistive technology immediately, and unmount when their opacity transition finishes. Reduced
 motion removes spatial movement but retains short opacity feedback. High-frequency navigation,
 keyboard flows, transcript streaming, disclosure height, and pane geometry remain immediate.
+
+### Scheduled route contract
+
+`/scheduled` preserves the primary Sidebar and gives the complete Workspace body to a centered,
+full-width scheduled-jobs surface. Detail, Inspector, their topbars, separators, and reveal controls
+are structurally absent; their persisted Tasks preferences remain unchanged. The Sidebar item and
+Workspace topbar both identify the route as Scheduled.
+
+Jobs load independently from Background Scheduling status and render alphabetically. Create and
+edit validate the backend's shared numeric five-field cron subset immediately with Hourly, Daily at
+9:00 AM, Weekdays at 9:00 AM, and Custom choices. New writes accept numeric values, `*`, lists,
+ascending ranges, and step expressions; names and the special `?`, `L`, `W`, and `#` forms are not
+part of the shared subset, and day-of-month and day-of-week cannot both be constrained. Stored
+five-field expressions accepted by an older backend remain listable; unsupported local calculation
+forms show no next-due preview and must be replaced with the shared subset when the job is updated.
+Mutation responses update the immutable local list without an immediate refetch; a quiet 30-second
+refresh keeps run times, statuses, errors, and next-due calculations current while the route remains
+mounted. Failed saves retain the complete dialog draft; failed deletes retain their confirmation
+and error. Successful deletes make the row inert and hidden from assistive technology while its
+short exit finishes. A stopped, missing,
+repair-needed, or unavailable scheduler produces a warning and link to General Settings but never
+disables CRUD; installation and repair remain in General. Cron-file mutations and scheduler result
+updates share a cross-process transaction over the stable `~/.railgun/cron/jobs.lock` target and
+atomically replace `jobs.json`, so a long-running job can merge its run metadata without restoring
+stale definitions or resurrecting a deleted job.
 
 ### Settings route contract
 
@@ -464,8 +497,9 @@ coverage exercises role-specific Markdown, loading and error states, working and
 indicators, optimistic-to-persisted completion handoff, chronological exploration grouping,
 file-diff presentation, tool disclosure and failure states, controlled submission and restoration,
 task-summary refreshes, task-switch locking, stick-to-bottom pause, jump and resume behavior,
-Settings routing and Inspector exclusion, theme persistence, navigation autosave, configuration
-locking, and archived-row mutation transitions.
+Scheduled routing and pane exclusion, scheduler warning behavior, cron validation, immutable CRUD
+updates and delete exits, plus Settings routing and Inspector exclusion, theme persistence,
+navigation autosave, configuration locking, and archived-row mutation transitions.
 
 ## Packaging
 

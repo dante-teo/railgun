@@ -1,4 +1,12 @@
-use crate::{paths::RailgunPaths, skills, storage::Store};
+use crate::{
+    cron::{
+        is_protected_cron_job, load_jobs, transact_jobs, validate_schedule, visible_cron_jobs,
+        with_internal_cron_jobs,
+    },
+    paths::RailgunPaths,
+    skills,
+    storage::Store,
+};
 use anyhow::{Context, Result, bail};
 use futures_util::{StreamExt, future::join_all};
 use reqwest::redirect::Policy;
@@ -24,6 +32,9 @@ use uuid::Uuid;
 use widevin::{
     DevinChatRequest, DevinContentPart, DevinMessage, DevinProvider, DevinStreamEvent, DevinTool,
 };
+
+#[cfg(test)]
+use crate::cron::save_jobs;
 
 pub const TOOL_NAMES: &[&str] = &[
     "read_file",
@@ -52,8 +63,6 @@ const READ_FILE_BYTES: u64 = TEXT_LIMIT as u64 + 4;
 const FILE_DIFF_BUDGET: usize = 16_384;
 const FILE_DIFF_PRIOR_LIMIT: usize = 200_000;
 const FILE_DIFF_TIMEOUT: Duration = Duration::from_millis(50);
-pub(crate) const INTERNAL_DREAM_JOB_ID: &str = "railgun.internal.dream";
-const INTERNAL_DREAM_SCHEDULE: &str = "0 0 * * *";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
@@ -978,14 +987,10 @@ async fn memory_consolidate(arguments: &Value, context: &ToolContext) -> Result<
 }
 
 async fn cron(arguments: &Value, context: &ToolContext) -> Result<String> {
-    let stored_jobs = load_jobs(&context.paths).await?;
-    let mut jobs = with_internal_cron_jobs(stored_jobs.clone());
-    if jobs != stored_jobs {
-        save_jobs(&context.paths, &jobs).await?;
-    }
     match string(arguments, "action")? {
         "list" => {
-            let visible_jobs = visible_cron_jobs(&jobs);
+            let visible_jobs =
+                transact_jobs(&context.paths, |jobs| Ok((visible_cron_jobs(jobs), false))).await?;
             Ok(if visible_jobs.is_empty() {
                 "No cron jobs configured.".into()
             } else {
@@ -993,141 +998,77 @@ async fn cron(arguments: &Value, context: &ToolContext) -> Result<String> {
             })
         }
         "add" => {
-            let id = string(arguments, "id")?;
-            reject_protected_cron_job(id)?;
-            if jobs.iter().any(|job| job["id"] == id) {
-                bail!("a cron job with id {id:?} already exists")
-            };
-            let schedule = string(arguments, "schedule")?;
-            validate_schedule(schedule)?;
-            let prompt = string(arguments, "prompt")?;
-            jobs.push(json!({"id":id,"schedule":schedule,"prompt":prompt,"lastRun":null,"requiredOutputs":[],"lastSuccess":null,"lastStatus":null,"lastError":null}));
-            save_jobs(&context.paths, &jobs).await?;
+            let id = string(arguments, "id")?.to_owned();
+            reject_protected_cron_job(&id)?;
+            let schedule = string(arguments, "schedule")?.to_owned();
+            validate_schedule(&schedule)?;
+            let prompt = string(arguments, "prompt")?.to_owned();
+            let transaction_id = id.clone();
+            transact_jobs(&context.paths, move |jobs| {
+                if jobs.iter().any(|job| job["id"] == transaction_id) {
+                    bail!("a cron job with id {transaction_id:?} already exists")
+                };
+                jobs.push(json!({"id":transaction_id,"schedule":schedule,"prompt":prompt,"lastRun":null,"requiredOutputs":[],"lastSuccess":null,"lastStatus":null,"lastError":null}));
+                Ok(((), true))
+            })
+            .await?;
             Ok(format!("Added cron job {id:?}"))
         }
         "remove" => {
-            let id = string(arguments, "id")?;
-            reject_protected_cron_job(id)?;
-            let before = jobs.len();
-            jobs.retain(|job| job["id"] != id);
-            if jobs.len() == before {
-                bail!("no cron job found with id {id:?}")
-            };
-            save_jobs(&context.paths, &jobs).await?;
+            let id = string(arguments, "id")?.to_owned();
+            reject_protected_cron_job(&id)?;
+            let transaction_id = id.clone();
+            transact_jobs(&context.paths, move |jobs| {
+                let before = jobs.len();
+                jobs.retain(|job| job["id"] != transaction_id);
+                if jobs.len() == before {
+                    bail!("no cron job found with id {transaction_id:?}")
+                };
+                Ok(((), true))
+            })
+            .await?;
             Ok(format!("Removed cron job {id:?}."))
         }
         "update" => {
-            let id = string(arguments, "id")?;
-            reject_protected_cron_job(id)?;
-            let job = jobs
-                .iter_mut()
-                .find(|job| job["id"] == id)
-                .context("cron job not found")?;
-            if let Some(schedule) = arguments.get("schedule").and_then(Value::as_str) {
+            let id = string(arguments, "id")?.to_owned();
+            reject_protected_cron_job(&id)?;
+            let schedule = arguments
+                .get("schedule")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            if let Some(schedule) = &schedule {
                 validate_schedule(schedule)?;
-                job["schedule"] = json!(schedule);
             }
-            if let Some(prompt) = arguments
+            let prompt = arguments
                 .get("prompt")
                 .and_then(Value::as_str)
                 .filter(|p| !p.trim().is_empty())
-            {
-                job["prompt"] = json!(prompt);
-            }
-            save_jobs(&context.paths, &jobs).await?;
+                .map(str::to_owned);
+            let transaction_id = id.clone();
+            transact_jobs(&context.paths, move |jobs| {
+                let job = jobs
+                    .iter_mut()
+                    .find(|job| job["id"] == transaction_id)
+                    .context("cron job not found")?;
+                if let Some(schedule) = schedule {
+                    job["schedule"] = json!(schedule);
+                }
+                if let Some(prompt) = prompt {
+                    job["prompt"] = json!(prompt);
+                }
+                Ok(((), true))
+            })
+            .await?;
             Ok(format!("Updated cron job {id:?}."))
         }
         _ => bail!("unknown cron action"),
     }
 }
 
-fn internal_dream_job() -> Value {
-    json!({
-        "id": INTERNAL_DREAM_JOB_ID,
-        "kind": "dream",
-        "internal": true,
-        "schedule": INTERNAL_DREAM_SCHEDULE,
-        "prompt": "",
-        "lastRun": null,
-        "requiredOutputs": [],
-        "lastSuccess": null,
-        "lastStatus": null,
-        "lastError": null,
-    })
-}
-
-fn normalized_internal_dream_job(mut job: Value) -> Value {
-    job["id"] = json!(INTERNAL_DREAM_JOB_ID);
-    job["kind"] = json!("dream");
-    job["internal"] = json!(true);
-    job["schedule"] = json!(INTERNAL_DREAM_SCHEDULE);
-    job["prompt"] = json!("");
-    job
-}
-
-pub(crate) fn with_internal_cron_jobs(jobs: Vec<Value>) -> Vec<Value> {
-    let dream = jobs
-        .iter()
-        .find(|job| job["id"] == INTERNAL_DREAM_JOB_ID)
-        .cloned()
-        .map(normalized_internal_dream_job)
-        .unwrap_or_else(internal_dream_job);
-    jobs.into_iter()
-        .filter(|job| job["id"] != INTERNAL_DREAM_JOB_ID)
-        .chain(std::iter::once(dream))
-        .collect()
-}
-
-pub(crate) fn visible_cron_jobs(jobs: &[Value]) -> Vec<Value> {
-    jobs.iter()
-        .filter(|job| job["id"] != INTERNAL_DREAM_JOB_ID)
-        .cloned()
-        .collect()
-}
-
-pub(crate) fn is_protected_cron_job(job_id: &str) -> bool {
-    job_id == INTERNAL_DREAM_JOB_ID
-}
-
 fn reject_protected_cron_job(job_id: &str) -> Result<()> {
     if is_protected_cron_job(job_id) {
         bail!("internal cron jobs cannot be changed")
     }
-    Ok(())
-}
-
-pub async fn load_jobs(paths: &RailgunPaths) -> Result<Vec<Value>> {
-    match tokio::fs::read_to_string(&paths.cron).await {
-        Ok(value) => {
-            let jobs: Vec<Value> = serde_json::from_str(&value)?;
-            for job in &jobs {
-                validate_schedule(job["schedule"].as_str().unwrap_or_default())?;
-            }
-            Ok(jobs)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(error.into()),
-    }
-}
-pub async fn save_jobs(paths: &RailgunPaths, jobs: &[Value]) -> Result<()> {
-    if let Some(parent) = paths.cron.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(
-        &paths.cron,
-        format!("{}\n", serde_json::to_string_pretty(jobs)?),
-    )
-    .await?;
-    Ok(())
-}
-pub fn validate_schedule(schedule: &str) -> Result<()> {
-    if schedule.trim().is_empty() {
-        bail!("cron schedule must not be empty")
-    };
-    if schedule.split_ascii_whitespace().count() != 5 {
-        bail!("cron schedule must use five-minute fields")
-    }
-    schedule.parse::<croner::Cron>()?;
     Ok(())
 }
 

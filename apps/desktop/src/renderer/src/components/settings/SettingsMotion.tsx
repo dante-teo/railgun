@@ -3,25 +3,13 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type ReactNode,
   type TransitionEvent
 } from 'react'
 
+import { Crossfade } from '@/components/motion/Crossfade'
 import { transitionEndFallbackMilliseconds } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-
-interface CrossfadeLayer {
-  readonly content: ReactNode
-  readonly key: string
-  readonly revision: number
-}
-
-interface CrossfadeState {
-  readonly activeKey: string
-  readonly activeRevision: number
-  readonly outgoing?: CrossfadeLayer
-}
 
 const fallbackFeedbackDurationMilliseconds = 120
 const fallbackEaseOut = 'cubic-bezier(0.23, 1, 0.32, 1)'
@@ -35,79 +23,10 @@ export function SettingsCrossfade({
   layout?: 'inline' | 'stack'
   stateKey: string
 }): React.JSX.Element {
-  const latestContent = useRef(children)
-  const [transition, setTransition] = useState<CrossfadeState>({
-    activeKey: stateKey,
-    activeRevision: 0
-  })
-
-  useLayoutEffect(() => {
-    if (transition.activeKey !== stateKey) {
-      setTransition({
-        activeKey: stateKey,
-        activeRevision: transition.activeRevision + 1,
-        outgoing: {
-          content: latestContent.current,
-          key: transition.activeKey,
-          revision: transition.activeRevision
-        }
-      })
-    }
-    latestContent.current = children
-  }, [children, stateKey, transition.activeKey, transition.activeRevision])
-
-  const finishOutgoing = useCallback((revision: number): void => {
-    setTransition((current) =>
-      current.outgoing?.revision === revision ? { ...current, outgoing: undefined } : current
-    )
-  }, [])
-
-  useEffect(() => {
-    const outgoing = transition.outgoing
-    if (!outgoing) return
-    const fallback = window.setTimeout(
-      () => finishOutgoing(outgoing.revision),
-      transitionEndFallbackMilliseconds
-    )
-    return () => window.clearTimeout(fallback)
-  }, [finishOutgoing, transition.outgoing])
-
   return (
-    <div
-      className={cn(
-        layout === 'inline'
-          ? 'inline-grid min-w-0 justify-items-end'
-          : 'grid w-full min-w-0 items-start'
-      )}
-      data-layout={layout}
-      data-slot="settings-crossfade"
-    >
-      {transition.outgoing ? (
-        <div
-          aria-hidden="true"
-          className="col-start-1 row-start-1 min-w-0"
-          data-motion="exiting"
-          data-slot="settings-crossfade-layer"
-          inert
-          key={`${transition.outgoing.key}-${transition.outgoing.revision}`}
-          onTransitionEnd={(event) => {
-            if (event.target === event.currentTarget && event.propertyName === 'opacity') {
-              finishOutgoing(transition.outgoing!.revision)
-            }
-          }}
-        >
-          {transition.outgoing.content}
-        </div>
-      ) : null}
-      <div
-        className="col-start-1 row-start-1 min-w-0"
-        data-motion={transition.outgoing ? 'entering' : 'stable'}
-        data-slot="settings-crossfade-layer"
-        key={`${transition.activeKey}-${transition.activeRevision}`}
-      >
-        {children}
-      </div>
-    </div>
+    <Crossfade layout={layout} stateKey={stateKey}>
+      {children}
+    </Crossfade>
   )
 }
 

@@ -1,11 +1,10 @@
 use anyhow::{Result, bail};
 use chrono::{SecondsFormat, TimeZone, Utc};
-use railgun_backend::{protocol::CAPABILITIES, transcript};
+use railgun_backend::{cron::validate_schedule, protocol::CAPABILITIES, transcript};
 use serde_json::{Map, Value, json};
 use std::{
     collections::HashSet,
     process::ExitCode,
-    str::FromStr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -1047,7 +1046,10 @@ impl Mock {
                                 json!({
                                     "id":job["id"],
                                     "schedule":job["schedule"],
-                                    "prompt":job["prompt"]
+                                    "prompt":job["prompt"],
+                                    "lastRun":job["lastRun"],
+                                    "lastStatus":job["lastStatus"],
+                                    "lastError":job["lastError"]
                                 })
                             })
                             .collect::<Vec<_>>()
@@ -1074,8 +1076,22 @@ impl Mock {
                     self.respond_error(&kind, id.as_deref(), "invalid cron job");
                     return Ok(None);
                 };
+                let job_id = command
+                    .get("jobId")
+                    .and_then(Value::as_str)
+                    .filter(|job_id| !job_id.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("mock-cron-{}", self.next_cron));
+                if self.cron.iter().any(|job| job["id"] == job_id) {
+                    self.respond_error(
+                        &kind,
+                        id.as_deref(),
+                        &format!("cron job already exists: {job_id}"),
+                    );
+                    return Ok(None);
+                }
                 let job = json!({
-                    "id":format!("mock-cron-{}",self.next_cron),
+                    "id":job_id,
                     "schedule":schedule,
                     "prompt":prompt,
                     "lastRun":null,
@@ -2184,7 +2200,7 @@ fn branchable_message_ids(session: &MockSession) -> std::collections::HashSet<i6
 
 fn normalize_cron(schedule: &str) -> Option<String> {
     let normalized = schedule.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.split(' ').count() != 5 || croner::Cron::from_str(&normalized).is_err() {
+    if validate_schedule(&normalized).is_err() {
         return None;
     }
     Some(normalized)
@@ -2358,6 +2374,30 @@ mod tests {
                 .unwrap()
                 .contains("mock-stored-secret")
         );
+    }
+
+    #[tokio::test]
+    async fn cron_add_preserves_an_explicit_job_id() {
+        let (mut mock, mut frames, _) = test_mock("empty-stores");
+        mock.handle(
+            json!({
+                "id":"add",
+                "type":"cron_add",
+                "jobId":"morning-brief",
+                "schedule":"0 9 * * *",
+                "prompt":"Prepare the morning brief",
+                "includeJob":true
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        )
+        .await
+        .unwrap();
+
+        let response = drain_frames(&mut frames);
+        assert_eq!(response[0]["data"]["job"]["id"], "morning-brief");
+        assert_eq!(mock.cron.last().unwrap()["id"], "morning-brief");
     }
 
     #[test]

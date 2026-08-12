@@ -58,10 +58,10 @@ initialization failure as fatal.
 
 The current desktop implements the task list, persisted transcripts, streaming Markdown,
 attachments, model and approval selection, context usage, in-turn approval and clarification, the
-Activity surface, and route-addressable Settings for General, Appearance, Personalization, Skills,
-and Archived Tasks. The Scheduled navigation label remains non-routed, and Inspector data remains
-static presentation data on Tasks; Settings intentionally omits the Inspector while preserving its
-stored Tasks preference.
+Activity surface, a route-addressable Scheduled Jobs CRUD surface, and Settings for General,
+Appearance, Personalization, Skills, and Archived Tasks. Inspector data remains static presentation
+data on Tasks; Scheduled and Settings intentionally omit the Inspector while preserving its stored
+Tasks preference.
 
 The detailed renderer, preload, RPC, and process contracts live in
 [`apps/desktop/README.md`](./apps/desktop/README.md).
@@ -150,8 +150,14 @@ Railgun preserves the existing data layout across application updates:
 ~/.railgun/desktop-client.lock
 ~/.railgun/SOUL.md
 ~/.railgun/cron/jobs.json
+~/.railgun/cron/jobs.lock
 ~/.railgun/skills/
 ```
+
+`jobs.lock` is the scheduler's persistent advisory-lock target. Its presence is normal: Railgun
+locks it around read-modify-write transactions and atomically replaces `jobs.json`, then leaves the
+empty lock file in place so desktop CRUD and the background scheduler always coordinate on the same
+inode.
 
 SQLite uses foreign keys, WAL, a five-second busy timeout, embedded up-only SQLx migrations, and
 the legacy database importer. Existing sessions and credentials remain in place when the Electron

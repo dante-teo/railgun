@@ -71,7 +71,7 @@ function NavigationRow({
     </>
   )
   const className = cn(
-    'flex h-11 items-center gap-2 rounded-md px-3 text-[15px] font-medium text-foreground transition-[background-color,transform] duration-(--duration-feedback) ease-(--ease-out) active:scale-[0.985]',
+    'flex h-11 items-center gap-2 rounded-md px-3 text-[15px] font-medium text-foreground transition-transform duration-(--duration-feedback) ease-(--ease-out) active:scale-[0.985]',
     selected && 'bg-surface-active'
   )
 
@@ -109,7 +109,7 @@ export function SidebarNavigation({
 }: {
   activity: ActivitySnapshot
   onNavigate?: (to: string) => Promise<boolean>
-  selected?: 'tasks' | 'settings'
+  selected?: 'tasks' | 'scheduled' | 'settings'
 }): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col px-3 pb-3 pt-4">
@@ -121,7 +121,13 @@ export function SidebarNavigation({
           selected={selected === 'tasks'}
           to="/"
         />
-        <NavigationRow icon={CalendarDays} label="Scheduled" />
+        <NavigationRow
+          icon={CalendarDays}
+          label="Scheduled"
+          onNavigate={onNavigate}
+          selected={selected === 'scheduled'}
+          to="/scheduled"
+        />
         <NavigationRow
           icon={Settings}
           label="Settings"

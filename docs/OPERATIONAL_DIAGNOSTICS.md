@@ -44,6 +44,14 @@ manage it; mock and unconfigured Electron launches report Background Scheduling 
 installed plist is a private regular file with mode `0600`, runs the configured backend in
 `scheduler` mode, and writes standard output and error to `~/.railgun/logs/scheduler.log`.
 
+Scheduled definitions live in `~/.railgun/cron/jobs.json`. Railgun coordinates every definition
+mutation and scheduler result update through the persistent `~/.railgun/cron/jobs.lock` advisory
+lock, then replaces `jobs.json` atomically. The empty lock file normally remains on disk and is not
+evidence that the scheduler is stuck. A running job merges only its latest run timestamp, status,
+and bounded error into the current definition; a job deleted during execution is not recreated.
+The Scheduled route requests bounded pages and refreshes run metadata every 30 seconds while it is
+open. A background refresh failure preserves the visible list; use Retry if the initial list fails.
+
 Settings reports Not installed, Running, Stopped, Repair needed, or Unavailable. Executable path,
 hash, app version, working directory, permissions, malformed plist data, or the retired
 `sh.railgun.dream.plist` can make an installation require repair. A packaged application may

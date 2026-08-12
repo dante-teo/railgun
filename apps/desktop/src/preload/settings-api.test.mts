@@ -11,8 +11,12 @@ import {
   soulSetChannel
 } from '../shared/personalization-api.ts'
 import {
+  schedulerCreateJobChannel,
+  schedulerDeleteJobChannel,
   schedulerGetStatusChannel,
   schedulerInstallChannel,
+  schedulerListJobsChannel,
+  schedulerUpdateJobChannel,
   schedulerUninstallChannel
 } from '../shared/scheduler-api.ts'
 import {
@@ -64,6 +68,10 @@ test('settings preloads use only their narrow IPC channels', async () => {
   await scheduler.getStatus()
   await scheduler.install()
   await scheduler.uninstall()
+  await scheduler.listJobs()
+  await scheduler.createJob({ name: 'brief', schedule: '0 9 * * *', prompt: 'Brief' })
+  await scheduler.updateJob('brief', { schedule: '0 * * * *', prompt: 'Updated' })
+  await scheduler.deleteJob('brief')
 
   assert.deepEqual(
     calls.map(([channel]) => channel),
@@ -83,7 +91,16 @@ test('settings preloads use only their narrow IPC channels', async () => {
       skillsDeleteChannel,
       schedulerGetStatusChannel,
       schedulerInstallChannel,
-      schedulerUninstallChannel
+      schedulerUninstallChannel,
+      schedulerListJobsChannel,
+      schedulerCreateJobChannel,
+      schedulerUpdateJobChannel,
+      schedulerDeleteJobChannel
     ]
   )
+  assert.deepEqual(calls.slice(-3), [
+    [schedulerCreateJobChannel, { name: 'brief', schedule: '0 9 * * *', prompt: 'Brief' }],
+    [schedulerUpdateJobChannel, 'brief', { schedule: '0 * * * *', prompt: 'Updated' }],
+    [schedulerDeleteJobChannel, 'brief']
+  ])
 })

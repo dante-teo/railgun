@@ -21,6 +21,7 @@ import { handleExternalWindowOpen } from './external-links.mts'
 import { getModelConfiguration, selectModel, setDefaultModel } from './models.mts'
 import { PersonalizationService } from './personalization.mts'
 import { SchedulerService, type SchedulerTarget } from './scheduler.mts'
+import { ScheduledJobService } from './scheduled-jobs.mts'
 import { SkillService } from './skills.mts'
 import { TaskService } from './tasks.mts'
 import { createTranscriptService } from './transcript.mts'
@@ -43,9 +44,13 @@ import {
   soulSetChannel
 } from '../shared/personalization-api'
 import {
+  schedulerCreateJobChannel,
+  schedulerDeleteJobChannel,
   schedulerGetStatusChannel,
   schedulerInstallChannel,
-  schedulerUninstallChannel
+  schedulerListJobsChannel,
+  schedulerUninstallChannel,
+  schedulerUpdateJobChannel
 } from '../shared/scheduler-api'
 import {
   skillsCreateChannel,
@@ -80,6 +85,7 @@ const taskService = new TaskService(backendProcess)
 const personalizationService = new PersonalizationService(backendProcess)
 const skillService = new SkillService(backendProcess)
 const transcriptService = createTranscriptService(backendProcess)
+const scheduledJobService = new ScheduledJobService(backendProcess)
 const activeSessionMutations = createActiveSessionMutationQueue()
 let schedulerService = new SchedulerService({})
 let isQuitting = false
@@ -284,6 +290,16 @@ function registerIpcHandlers(): void {
   ipcMain.handle(schedulerGetStatusChannel, () => schedulerService.getStatus())
   ipcMain.handle(schedulerInstallChannel, () => schedulerService.install())
   ipcMain.handle(schedulerUninstallChannel, () => schedulerService.uninstall())
+  ipcMain.handle(schedulerListJobsChannel, () => scheduledJobService.listJobs())
+  ipcMain.handle(schedulerCreateJobChannel, (_event, input: unknown) =>
+    scheduledJobService.createJob(input)
+  )
+  ipcMain.handle(schedulerUpdateJobChannel, (_event, name: unknown, input: unknown) =>
+    scheduledJobService.updateJob(name, input)
+  )
+  ipcMain.handle(schedulerDeleteJobChannel, (_event, name: unknown) =>
+    scheduledJobService.deleteJob(name)
+  )
   ipcMain.handle(transcriptSendChannel, (_event, sessionId: unknown, submission: unknown) =>
     transcriptService.send(sessionId, submission)
   )
