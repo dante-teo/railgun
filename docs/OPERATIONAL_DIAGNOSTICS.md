@@ -61,10 +61,16 @@ fails, and never copy credentials or unrestricted configuration into a diagnosti
 
 Discovery accepts root-level Markdown files and nested directories containing
 `SKILL.md`, normalizes CRLF input, and does not follow symlinks. Files with
-invalid frontmatter, names, descriptions, or oversized bodies are skipped;
-parse and read failures produce a backend warning. Duplicate effective names
-are resolved by deterministic relative-path order; the first valid file wins
-and later files are skipped with their paths in diagnostics.
+invalid frontmatter, names, descriptions, or oversized bodies are skipped.
+For compatibility with hand-authored skills, if strict YAML parsing fails,
+discovery retries when there is exactly one nonempty, top-level, unquoted
+`description:` value and treats the remainder of that line as literal text.
+This permits colon-separated prose such as `description: Manage notes: safely`
+without weakening validation of the other metadata. Managed Settings writes
+canonical YAML. Other parse and read failures produce a backend warning.
+Duplicate effective names are resolved by deterministic relative-path order;
+the first valid file wins and later files are skipped with their paths in
+diagnostics.
 
 If the skills root itself is a symlink, not a directory, or cannot be read,
 ordinary desktop and scheduled prompts continue with no advertised skills.

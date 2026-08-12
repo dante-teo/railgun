@@ -256,7 +256,7 @@ fn parse_skill_file(path: &Path) -> Result<Option<Skill>> {
     let Some((frontmatter, body)) = split_frontmatter(&normalized) else {
         return Ok(None);
     };
-    let metadata: Frontmatter = serde_yaml::from_str(frontmatter)?;
+    let metadata = parse_frontmatter(frontmatter)?;
     let inferred_name = if path.file_name().and_then(|value| value.to_str()) == Some("SKILL.md") {
         path.parent().and_then(|value| value.file_name())
     } else {
@@ -284,6 +284,52 @@ fn parse_skill_file(path: &Path) -> Result<Option<Skill>> {
         body: body.to_owned(),
         path: path.to_owned(),
     }))
+}
+
+fn parse_frontmatter(frontmatter: &str) -> Result<Frontmatter> {
+    match serde_yaml::from_str(frontmatter) {
+        Ok(metadata) => Ok(metadata),
+        Err(original_error) => {
+            let Some(normalized) = quote_plain_description(frontmatter) else {
+                return Err(original_error.into());
+            };
+            serde_yaml::from_str(&normalized).map_err(|_| original_error.into())
+        }
+    }
+}
+
+fn quote_plain_description(frontmatter: &str) -> Option<String> {
+    let candidates = frontmatter
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let value = line.strip_prefix("description:")?.trim();
+            (!value.is_empty()
+                && !matches!(
+                    value.as_bytes().first(),
+                    Some(b'\"' | b'\'' | b'|' | b'>' | b'[' | b'{')
+                ))
+            .then_some((index, value))
+        })
+        .collect::<Vec<_>>();
+    let [(description_index, description)] = candidates.as_slice() else {
+        return None;
+    };
+    let quoted = serde_json::to_string(description).ok()?;
+    Some(
+        frontmatter
+            .lines()
+            .enumerate()
+            .map(|(index, line)| {
+                if index == *description_index {
+                    format!("description: {quoted}")
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
@@ -526,6 +572,23 @@ mod tests {
         assert_eq!(
             find(directory.path(), "alias-name").unwrap().body,
             "first\n"
+        );
+    }
+
+    #[test]
+    fn discovery_accepts_plain_text_descriptions_containing_colons() {
+        let directory = tempdir().unwrap();
+        write(
+            &directory.path().join("pavo/SKILL.md"),
+            "---\nname: pavo\ndescription: Manage a note vault: discover, search, read, and edit notes safely.\n---\nBody\n",
+        );
+
+        let skills = discover(directory.path()).unwrap();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(
+            skills[0].description,
+            "Manage a note vault: discover, search, read, and edit notes safely."
         );
     }
 

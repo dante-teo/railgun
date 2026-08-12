@@ -308,9 +308,10 @@ Appearance stores `auto`, `light`, or `dark` under `railgun.theme.v1`, applies i
 immediately, and follows live system color-scheme changes in Auto. Personalization edits
 `~/.railgun/SOUL.md` and searches or manages up to 100 Preference, Fact, and Project memories. Skills
 searches and manages private Markdown skills; names match `[a-z0-9-]{1,64}` and cannot change after
-creation. SOUL and dialog editors retain explicit Save/Cancel or Save/Revert controls. Valid dirty
-drafts save before in-app navigation, while invalid or failed saves cancel navigation and remain
-visible.
+creation. The skill editor remains bounded by the application viewport: its form scrolls, its
+Markdown body uses a bounded textarea, and its header and Save/Cancel actions remain visible. SOUL
+and dialog editors retain explicit Save/Cancel or Save/Revert controls. Valid dirty drafts save
+before in-app navigation, while invalid or failed saves cancel navigation and remain visible.
 
 Archived Tasks searches title, model, or ID and shows model, message count, and archived time.
 Restore, permanent deletion, and Delete All require confirmation and are disabled while run state is

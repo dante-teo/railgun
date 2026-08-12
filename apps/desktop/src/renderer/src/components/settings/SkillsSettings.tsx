@@ -309,7 +309,7 @@ export function SkillsSettings({
         }}
         open={Boolean(draft)}
       >
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{draft?.original ? 'Edit Skill' : 'New Skill'}</DialogTitle>
             <DialogDescription>
@@ -317,7 +317,7 @@ export function SkillsSettings({
             </DialogDescription>
           </DialogHeader>
           {draft ? (
-            <FieldGroup>
+            <FieldGroup className="min-h-0 overflow-y-auto overscroll-contain">
               <Field
                 data-disabled={Boolean(draft.original)}
                 data-invalid={Boolean(validation.name)}
@@ -355,7 +355,7 @@ export function SkillsSettings({
               <Field>
                 <FieldLabel htmlFor="skill-body">Markdown body</FieldLabel>
                 <Textarea
-                  className="min-h-56 resize-y font-mono text-xs leading-relaxed"
+                  className="h-64 min-h-40 max-h-[50dvh] field-sizing-fixed resize-y font-mono text-xs leading-relaxed"
                   id="skill-body"
                   onChange={(event) =>
                     setDraft((current) =>
