@@ -291,6 +291,15 @@ for related subgroups, `4` (16 px) for major separation, and `6` (24 px) for bro
 boundaries. Margins, padding, and gaps use the closest built-in utility; arbitrary values remain
 reserved for fixed product or native-window geometry.
 
+The complete Sidebar column, including its integrated topbar and activity card, uses the static
+`sidebar-material` surface. It remaps component-facing foreground, card, muted, accent, border,
+primary, focus-ring, and selected-surface tokens within the column so shared components remain
+theme-adaptive without sidebar-specific raw colors. Portaled popovers and tooltips remain on the
+standard application palette because they render outside that scope. Reduced-transparency and
+increased-contrast preferences replace the layered material with an opaque surface, strengthen its
+resize boundary, and preserve the adjusted active-row surface. The material does not animate or
+track pointer movement.
+
 Routine feedback reuses the shared 120 ms strong ease-out tokens and animates only opacity and
 transform. Presence-managed exits follow their entrance path, become inert and hidden from
 assistive technology immediately, and unmount when their opacity transition finishes. Reduced

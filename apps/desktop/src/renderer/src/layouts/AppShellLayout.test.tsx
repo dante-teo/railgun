@@ -205,6 +205,7 @@ describe('AppShellLayout', () => {
   it('renders exactly three aligned topbars and pane-body starts', () => {
     renderShell()
 
+    expect(document.querySelector('#shell-sidebar')).toHaveClass('sidebar-material')
     expect(document.querySelectorAll('[data-shell-topbar]')).toHaveLength(3)
     const resizeHandles = Array.from(document.querySelectorAll('[data-slot="resizable-handle"]'))
     expect(resizeHandles).toHaveLength(3)

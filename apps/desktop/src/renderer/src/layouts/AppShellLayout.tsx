@@ -170,7 +170,7 @@ export function AppShellLayout({
           <section
             aria-hidden={!layout.sidebarVisible}
             className={cn(
-              'flex h-full min-w-0 flex-col bg-sidebar',
+              'sidebar-material flex h-full min-w-0 flex-col',
               !layout.sidebarVisible && 'invisible'
             )}
             id="shell-sidebar"
