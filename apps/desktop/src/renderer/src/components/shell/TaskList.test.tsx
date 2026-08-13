@@ -134,7 +134,11 @@ describe('TaskList', () => {
 
     const select = screen.getByRole('button', { name: `Select ${task.title}` })
     expect(select).toHaveAttribute('aria-pressed', 'true')
-    expect(select.closest('li')).toHaveClass('bg-muted', 'hover:bg-muted', 'focus-within:bg-muted')
+    expect(select.closest('li')).toHaveClass(
+      'bg-surface-active',
+      'hover:bg-surface-active',
+      'focus-within:bg-surface-active'
+    )
     fireEvent.click(select)
     expect(onSelect).toHaveBeenCalledWith(task.id)
   })

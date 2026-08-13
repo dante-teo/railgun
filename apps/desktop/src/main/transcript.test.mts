@@ -339,6 +339,30 @@ test('file-change metadata is copied at reducer and snapshot boundaries', () => 
   assert.equal(storedMessage.fileChange.diff, originalDiff)
 })
 
+test('completed tool-only turns remove their empty assistant placeholder', () => {
+  const withAssistant = reduceTranscriptSnapshot(emptyTranscriptSnapshot(), {
+    type: 'assistant-started',
+    id: 'assistant-one'
+  })
+  const withTool = reduceTranscriptSnapshot(withAssistant, {
+    type: 'tool-started',
+    message: {
+      id: 'tool-one',
+      role: 'tool',
+      name: 'run_shell_command',
+      failed: false,
+      running: true
+    }
+  })
+
+  const completed = reduceTranscriptSnapshot(withTool, {
+    type: 'assistant-ended',
+    id: 'assistant-one'
+  })
+
+  assert.deepEqual(completed.messages, [withTool.messages[1]])
+})
+
 test('transcript hydration accepts legacy messages without IDs and rejects empty continuations', async () => {
   const backend = stubTranscriptBackend(async ({ command }) =>
     command === 'session_load'

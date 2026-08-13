@@ -162,6 +162,12 @@ model selection returns the backend's active session ID and the main process ado
 that session before the composer becomes available again. The renderer also applies that forked ID
 to a temporary “New Task” detail without prematurely adding it to the saved list.
 
+Provider history remains backend-private. During a same-model turn, Railgun retains the latest
+non-empty signed-thinking update so a tool result can be sent back with the provider metadata that
+is required for the follow-up. Changing the active model removes those model-bound signatures before
+the retained history is replayed. Legacy unsigned thinking is not replayed, and an assistant entry
+left empty by that filtering is omitted instead of producing invalid provider history.
+
 Only renderer-safe presentation data crosses this boundary. Assistant text deltas are coalesced to
 at most one IPC publication every 50 ms. Tool activity contains the bounded tool name, live/failure
 state, and a simplified tool-specific detail such as a file basename or item count. Shell commands
@@ -284,9 +290,11 @@ width constraints. Malformed, obsolete, or out-of-range records fall back to def
 
 The renderer uses the bundled Barlow variable font for interface text and Departure Mono Nerd Font
 only for technical literals such as code, paths, identifiers, and commands. Theme values live as
-semantic Tailwind tokens in `src/renderer/src/assets/main.css`. Topbar icon actions share the
-`TopBarIconButton` contract so sizing, interaction states, drag behavior, and accessible labeling
-remain consistent. Spatial rhythm uses Tailwind `2` (8 px) for close relationships, `3` (12 px)
+semantic Tailwind tokens in `src/renderer/src/assets/main.css`. Primary actions, focus indicators,
+selected surfaces, and the Sidebar use an accessible matcha family with a low-chroma wash; ordinary
+structure remains neutral, while destructive and chart colors retain their semantic roles. Topbar
+icon actions share the `TopBarIconButton` contract so sizing, interaction states, drag behavior, and
+accessible labeling remain consistent. Spatial rhythm uses Tailwind `2` (8 px) for close relationships, `3` (12 px)
 for related subgroups, `4` (16 px) for major separation, and `6` (24 px) for broad section
 boundaries. Margins, padding, and gaps use the closest built-in utility; arbitrary values remain
 reserved for fixed product or native-window geometry.
@@ -377,7 +385,9 @@ tool activity is unframed, muted, and left-aligned; assistant responses occupy t
 column. Streamdown renders only the active assistant row in streaming mode and completed or restored
 rows in static mode. HTML is skipped, no Shiki, math, or Mermaid plugin configuration is supplied,
 and historical transcript entries do not animate on load. Each user turn groups intermediate
-assistant rows, tool activity, interaction requests, and working status in one disclosure. Active
+assistant rows, tool activity, interaction requests, and working status in one disclosure.
+Tool-only provider cycles discard their empty assistant placeholder when that stream completes, so
+transcript spacing is determined only by visible rows. Active
 work defaults open; arrival of the end-turn assistant response remounts it collapsed as **Worked for
 3m 27s** (or **Worked** for legacy untimed history), followed by a horizontal separator. Only this
 live completion handoff gives the completed label and final answer a subtle 120 ms entrance; the
@@ -441,7 +451,7 @@ default fails, the active choice remains and the composer shows a warning. Compo
 individual accessible names and live in a labeled group; the group does not claim toolbar semantics
 until it also implements the corresponding keyboard-navigation model.
 
-Focus anywhere inside the composer reveals its animated rainbow bloom. The spectrum pauses while
+Focus anywhere inside the composer reveals its animated leaf-to-sage matcha bloom. The spectrum pauses while
 the composer is idle, and reduced-motion mode keeps static opacity feedback without transform
 motion. Component-specific selectors and keyframes are scoped beside the owning components in CSS
 modules; only shared theme and motion tokens remain in `src/renderer/src/assets/main.css`.

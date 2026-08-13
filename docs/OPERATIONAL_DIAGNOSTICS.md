@@ -69,7 +69,8 @@ fails, and never copy credentials or unrestricted configuration into a diagnosti
 
 Discovery accepts root-level Markdown files and nested directories containing
 `SKILL.md`, normalizes CRLF input, and does not follow symlinks. Files with
-invalid frontmatter, names, descriptions, or oversized bodies are skipped.
+invalid frontmatter, names, descriptions, or oversized bodies are skipped. Effective descriptions
+must be nonempty and at most 1,024 bytes; skill bodies are limited to 200,000 bytes.
 For compatibility with hand-authored skills, if strict YAML parsing fails,
 discovery retries when there is exactly one nonempty, top-level, unquoted
 `description:` value and treats the remainder of that line as literal text.

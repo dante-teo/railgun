@@ -1,3 +1,19 @@
+.composer {
+  --composer-spectrum-leaf: oklch(0.54936 0.12844 128.716 / 74%);
+  --composer-spectrum-matcha: oklch(0.65379 0.15032 128.616 / 84%);
+  --composer-spectrum-sprout: oklch(0.76881 0.14091 126.785 / 76%);
+  --composer-spectrum-sage: oklch(0.76178 0.05964 126.089 / 70%);
+  --composer-glow-opacity: 0.56;
+}
+
+:global(.dark) .composer {
+  --composer-spectrum-leaf: oklch(0.54936 0.12844 128.716 / 84%);
+  --composer-spectrum-matcha: oklch(0.65379 0.15032 128.616 / 94%);
+  --composer-spectrum-sprout: oklch(0.76881 0.14091 126.785 / 88%);
+  --composer-spectrum-sage: oklch(0.76178 0.05964 126.089 / 82%);
+  --composer-glow-opacity: 0.68;
+}
+
 .composer [data-slot='task-composer-glow'] {
   pointer-events: none;
   opacity: 0;
@@ -12,13 +28,13 @@
   width: 200%;
   background: linear-gradient(
       90deg,
-      var(--composer-glow-pink),
-      var(--composer-glow-purple),
-      var(--composer-glow-blue),
-      var(--composer-glow-cyan),
-      var(--composer-glow-yellow),
-      var(--composer-glow-orange),
-      var(--composer-glow-pink)
+      var(--composer-spectrum-leaf),
+      var(--composer-spectrum-matcha),
+      var(--composer-spectrum-sprout),
+      var(--composer-spectrum-sage),
+      var(--composer-spectrum-sprout),
+      var(--composer-spectrum-matcha),
+      var(--composer-spectrum-leaf)
     )
     0 0 / 50% 100% repeat-x;
   animation: spectrum-flow 8s linear infinite;
@@ -26,7 +42,7 @@
 }
 
 .composer:focus-within [data-slot='task-composer-glow'] {
-  opacity: 0.7;
+  opacity: var(--composer-glow-opacity);
 }
 
 .composer:focus-within [data-slot='task-composer-spectrum'] {

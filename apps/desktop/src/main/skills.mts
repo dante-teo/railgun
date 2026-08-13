@@ -2,7 +2,7 @@ import type { ManagedSkill, SkillInput, SkillSummary } from '../shared/skill-api
 import { asObject } from './value-validation.mts'
 
 const skillNamePattern = /^[a-z0-9-]{1,64}$/
-const maximumDescriptionLength = 500
+const maximumDescriptionLength = 1_024
 const maximumBodyLength = 1_000_000
 
 export interface SkillBackend {

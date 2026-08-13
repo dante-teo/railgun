@@ -361,6 +361,8 @@ impl Coordinator {
                     bail!("Model \"{model}\" is unavailable.");
                 }
                 if self.active.model != model {
+                    self.active.messages =
+                        history_without_thinking_signatures(&self.active.messages);
                     if self.active.persistence == "saved" {
                         self.active.id = format!("fork-{}", uuid::Uuid::new_v4());
                         self.active.started_at = now();
@@ -1238,6 +1240,72 @@ struct AgentRunPrompt {
     run_id: String,
 }
 
+fn latest_thinking_signature(current: Option<String>, update: Option<&str>) -> Option<String> {
+    update
+        .filter(|signature| !signature.is_empty())
+        .map(str::to_owned)
+        .or(current)
+}
+
+fn history_without_thinking_signatures(messages: &[Value]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| {
+            let Some(parts) = message
+                .get("content")
+                .filter(|_| message["role"] == "assistant")
+                .and_then(Value::as_array)
+            else {
+                return message.clone();
+            };
+            let content = parts
+                .iter()
+                .map(|part| {
+                    let mut sanitized = part.clone();
+                    if part["type"] == "thinking" {
+                        if let Some(fields) = sanitized.as_object_mut() {
+                            fields.remove("thinkingSignature");
+                        }
+                    }
+                    sanitized
+                })
+                .collect();
+            let mut sanitized = message.clone();
+            sanitized["content"] = Value::Array(content);
+            sanitized
+        })
+        .collect()
+}
+
+fn assistant_message_parts(
+    thinking: String,
+    thinking_signature: Option<String>,
+    text: String,
+    tool_calls: &[(String, String, Value)],
+) -> Vec<Value> {
+    let thinking_part = if thinking.is_empty() {
+        None
+    } else {
+        Some(match thinking_signature {
+            Some(signature) => json!({
+                "type":"thinking",
+                "thinking":thinking,
+                "thinkingSignature":signature
+            }),
+            None => json!({"type":"thinking","thinking":thinking}),
+        })
+    };
+    let text_part = (!text.is_empty()).then(|| json!({"type":"text","text":text}));
+
+    thinking_part
+        .into_iter()
+        .chain(text_part)
+        .chain(tool_calls.iter().map(|(id, name, arguments)| {
+            json!({"type":"toolCall","id":id,"name":name,"arguments":arguments})
+        }))
+        .collect()
+}
+
 async fn provider_turn(
     provider: widevin::DevinProvider,
     model: String,
@@ -1266,6 +1334,7 @@ async fn provider_turn(
         ));
         let mut text = String::new();
         let mut thinking = String::new();
+        let mut thinking_signature = None;
         let mut tool_calls = Vec::new();
 
         loop {
@@ -1285,6 +1354,10 @@ async fn provider_turn(
                         }
                         DevinStreamEvent::ThinkingDelta { delta, signature } => {
                             thinking.push_str(&delta);
+                            thinking_signature = latest_thinking_signature(
+                                thinking_signature,
+                                signature.as_deref(),
+                            );
                             send_update(updates, json!({"type":"message_update","streamEvent":{"type":"thinking_delta","delta":delta,"signature":signature}}));
                         }
                         DevinStreamEvent::Usage { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } => {
@@ -1313,16 +1386,7 @@ async fn provider_turn(
             }
         }
 
-        let mut parts = Vec::new();
-        if !thinking.is_empty() {
-            parts.push(json!({"type":"thinking","thinking":thinking}));
-        }
-        if !text.is_empty() {
-            parts.push(json!({"type":"text","text":text}));
-        }
-        parts.extend(tool_calls.iter().map(|(id, name, arguments)| {
-            json!({"type":"toolCall","id":id,"name":name,"arguments":arguments})
-        }));
+        let parts = assistant_message_parts(thinking, thinking_signature, text, &tool_calls);
         let assistant = json!({"role":"assistant","at":now_millis(),"content":parts});
         messages.push(assistant.clone());
         send_update(
@@ -1456,13 +1520,13 @@ fn send_update(updates: &mpsc::UnboundedSender<RunUpdate>, frame: Value) {
 fn json_messages_to_widevin(messages: &[Value]) -> Result<Vec<DevinMessage>> {
     messages
         .iter()
-        .map(|message| {
+        .map(|message| -> Result<Option<DevinMessage>> {
             let role = message["role"].as_str().context("message role missing")?;
             let content = message.get("content").context("message content missing")?;
             match role {
-                "user" => Ok(DevinMessage::User {
+                "user" => Ok(Some(DevinMessage::User {
                     content: content_parts(content)?,
-                }),
+                })),
                 "assistant" => {
                     let parts = content
                         .as_array()
@@ -1472,13 +1536,19 @@ fn json_messages_to_widevin(messages: &[Value]) -> Result<Vec<DevinMessage>> {
                             "text" => Some(Ok(DevinAssistantContentPart::Text {
                                 text: part["text"].as_str().unwrap_or_default().into(),
                             })),
-                            "thinking" => Some(Ok(DevinAssistantContentPart::Thinking {
-                                thinking: part["thinking"].as_str().unwrap_or_default().into(),
-                                thinking_signature: part
-                                    .get("thinkingSignature")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_owned),
-                            })),
+                            "thinking" => part
+                                .get("thinkingSignature")
+                                .and_then(Value::as_str)
+                                .filter(|signature| !signature.is_empty())
+                                .map(|signature| {
+                                    Ok(DevinAssistantContentPart::Thinking {
+                                        thinking: part["thinking"]
+                                            .as_str()
+                                            .unwrap_or_default()
+                                            .into(),
+                                        thinking_signature: Some(signature.to_owned()),
+                                    })
+                                }),
                             "toolCall" => Some(Ok(DevinAssistantContentPart::ToolCall {
                                 id: part["id"].as_str().unwrap_or_default().into(),
                                 name: part["name"].as_str().unwrap_or_default().into(),
@@ -1487,26 +1557,27 @@ fn json_messages_to_widevin(messages: &[Value]) -> Result<Vec<DevinMessage>> {
                             _ => None,
                         })
                         .collect::<Result<Vec<_>>>()?;
-                    Ok(DevinMessage::Assistant {
+                    Ok((!parts.is_empty()).then(|| DevinMessage::Assistant {
                         content: parts,
                         response_id: message
                             .get("responseId")
                             .and_then(Value::as_str)
                             .map(str::to_owned),
-                    })
+                    }))
                 }
-                "tool" => Ok(DevinMessage::Tool {
+                "tool" => Ok(Some(DevinMessage::Tool {
                     tool_call_id: message["toolCallId"].as_str().unwrap_or_default().into(),
                     content: tool_content_parts(content)?,
                     is_error: message
                         .get("isError")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
-                }),
+                })),
                 _ => bail!("unsupported message role {role}"),
             }
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()
+        .map(|messages| messages.into_iter().flatten().collect())
 }
 
 fn content_parts(value: &Value) -> Result<Vec<DevinContentPart>> {
@@ -2240,6 +2311,114 @@ mod tests {
                 is_error: false
             }]
         );
+    }
+
+    #[test]
+    fn provider_tool_followups_preserve_the_thinking_signature() {
+        let parts = assistant_message_parts(
+            "reasoning".into(),
+            Some("signed-reasoning".into()),
+            "answer".into(),
+            &[(
+                "call-one".into(),
+                "run_shell_command".into(),
+                json!({"command":"pwd"}),
+            )],
+        );
+
+        assert_eq!(
+            parts,
+            vec![
+                json!({
+                    "type":"thinking",
+                    "thinking":"reasoning",
+                    "thinkingSignature":"signed-reasoning"
+                }),
+                json!({"type":"text","text":"answer"}),
+                json!({
+                    "type":"toolCall",
+                    "id":"call-one",
+                    "name":"run_shell_command",
+                    "arguments":{"command":"pwd"}
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn provider_tool_followups_keep_the_latest_non_empty_thinking_signature() {
+        let signature = [Some("first"), None, Some(""), Some("latest")]
+            .into_iter()
+            .fold(None, latest_thinking_signature);
+
+        assert_eq!(signature.as_deref(), Some("latest"));
+    }
+
+    #[test]
+    fn model_changes_strip_model_bound_thinking_signatures() {
+        let messages = vec![
+            json!({"role":"user","content":"Question"}),
+            json!({
+                "role":"assistant",
+                "responseId":"response-one",
+                "content":[
+                    {
+                        "type":"thinking",
+                        "thinking":"reasoning",
+                        "thinkingSignature":"old-model-signature"
+                    },
+                    {"type":"text","text":"Answer"}
+                ]
+            }),
+        ];
+
+        let sanitized = history_without_thinking_signatures(&messages);
+
+        assert_eq!(sanitized[1]["content"][0]["thinking"], "reasoning");
+        assert!(
+            sanitized[1]["content"][0]
+                .get("thinkingSignature")
+                .is_none()
+        );
+        assert_eq!(sanitized[1]["content"][1]["text"], "Answer");
+        assert_eq!(sanitized[1]["responseId"], "response-one");
+        assert_eq!(
+            messages[1]["content"][0]["thinkingSignature"], "old-model-signature",
+            "sanitization must not mutate the source history"
+        );
+    }
+
+    #[test]
+    fn provider_conversion_omits_unsigned_legacy_thinking() {
+        let converted = json_messages_to_widevin(&[json!({
+            "role":"assistant",
+            "content":[
+                {"type":"thinking","thinking":"legacy reasoning"},
+                {"type":"text","text":"Visible answer"}
+            ]
+        })])
+        .unwrap();
+
+        assert_eq!(
+            converted,
+            vec![DevinMessage::Assistant {
+                content: vec![DevinAssistantContentPart::Text {
+                    text: "Visible answer".into()
+                }],
+                response_id: None
+            }]
+        );
+    }
+
+    #[test]
+    fn provider_conversion_drops_reasoning_only_unsigned_assistants() {
+        let converted = json_messages_to_widevin(&[json!({
+            "role":"assistant",
+            "content":[{"type":"thinking","thinking":"legacy reasoning"}]
+        })])
+        .unwrap();
+
+        assert!(converted.is_empty());
     }
 
     #[test]

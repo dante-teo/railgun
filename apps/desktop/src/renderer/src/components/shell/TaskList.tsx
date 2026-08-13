@@ -75,8 +75,10 @@ function TaskListRow({
     <li
       aria-hidden={archiving || undefined}
       className={cn(
-        'group flex min-h-15 items-center gap-2 rounded-md pr-2 transition-[background-color,opacity,transform] duration-(--duration-feedback) ease-(--ease-out) starting:data-[newly-persisted=true]:translate-x-1 starting:data-[newly-persisted=true]:opacity-0 motion-reduce:translate-x-0! hover:bg-muted focus-within:bg-muted data-[archiving=true]:pointer-events-none data-[archiving=true]:translate-x-1 data-[archiving=true]:opacity-0 data-[restored=true]:animate-in data-[restored=true]:fade-in-0 data-[restored=true]:slide-in-from-right-1 data-[restored=true]:duration-(--duration-feedback)',
-        selected && 'bg-muted'
+        'group flex min-h-15 items-center gap-2 rounded-md pr-2 transition-[background-color,opacity,transform] duration-(--duration-feedback) ease-(--ease-out) starting:data-[newly-persisted=true]:translate-x-1 starting:data-[newly-persisted=true]:opacity-0 motion-reduce:translate-x-0! data-[archiving=true]:pointer-events-none data-[archiving=true]:translate-x-1 data-[archiving=true]:opacity-0 data-[restored=true]:animate-in data-[restored=true]:fade-in-0 data-[restored=true]:slide-in-from-right-1 data-[restored=true]:duration-(--duration-feedback)',
+        selected
+          ? 'bg-surface-active hover:bg-surface-active focus-within:bg-surface-active'
+          : 'hover:bg-muted focus-within:bg-muted'
       )}
       data-archiving={archiving || undefined}
       data-newly-persisted={newlyPersisted || undefined}

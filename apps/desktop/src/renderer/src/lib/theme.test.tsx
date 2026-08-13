@@ -7,7 +7,13 @@ import { afterEach, expect, it } from 'vitest'
 import { ThemeProvider, applyTheme, readThemeMode, useTheme } from '@/lib/theme'
 
 const themeStyles = readFileSync(resolve(process.cwd(), 'src/renderer/src/assets/main.css'), 'utf8')
-const customSurfaceTokens = ['--canvas', '--surface-active', '--subtle-foreground', '--placeholder']
+const customSemanticTokens = [
+  '--primary-hover',
+  '--canvas',
+  '--surface-active',
+  '--subtle-foreground',
+  '--placeholder'
+]
 const sidebarThemeTokens = [
   '--sidebar',
   '--sidebar-opaque',
@@ -93,14 +99,14 @@ it('tracks live system changes in Auto mode', async () => {
   applyTheme('light')
 })
 
-it('defines every custom semantic surface token in both theme palettes', () => {
+it('defines every custom semantic token in both theme palettes', () => {
   const lightDeclarations = themeStyles.match(/:root\s*\{([\s\S]*?)\}/u)?.[1]
   const darkDeclarations = themeStyles.match(/\.dark\s*\{([\s\S]*?)\}/u)?.[1]
 
   expect(lightDeclarations).toBeDefined()
   expect(darkDeclarations).toBeDefined()
   for (const declarations of [lightDeclarations, darkDeclarations]) {
-    for (const token of [...customSurfaceTokens, ...sidebarThemeTokens]) {
+    for (const token of [...customSemanticTokens, ...sidebarThemeTokens]) {
       expect(declarations).toMatch(new RegExp(`${token}:\\s*[^;]+;`, 'u'))
     }
   }

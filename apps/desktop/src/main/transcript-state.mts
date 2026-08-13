@@ -740,8 +740,12 @@ export function reduceTranscriptSnapshot(
     case 'assistant-ended':
       return {
         ...state,
-        messages: updateMessage(state.messages, action.id, (message) =>
-          message.role === 'assistant' ? { ...message, status: 'complete' } : message
+        messages: state.messages.flatMap((message) =>
+          message.id !== action.id || message.role !== 'assistant'
+            ? [message]
+            : message.text.trim()
+              ? [{ ...message, status: 'complete' }]
+              : []
         )
       }
     case 'tool-started':

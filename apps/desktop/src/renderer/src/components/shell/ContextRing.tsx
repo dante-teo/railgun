@@ -49,7 +49,7 @@ export function ContextRing({ contextWindow, usedTokens }: ContextUsageValues): 
               strokeWidth="2"
             />
             <circle
-              className="fill-none stroke-foreground transition-[stroke-dashoffset] duration-300 ease-in-out motion-reduce:transition-none"
+              className="fill-none stroke-primary transition-[stroke-dashoffset] duration-300 ease-in-out motion-reduce:transition-none"
               cx="10"
               cy="10"
               data-testid="context-ring-indicator"
