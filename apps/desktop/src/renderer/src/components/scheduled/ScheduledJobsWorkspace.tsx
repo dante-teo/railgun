@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 
 import { ScheduledJobDialog, type ScheduledJobDraft } from './ScheduledJobDialog'
 import { ScheduledJobRow } from './ScheduledJobRow'
+import { FeedbackPresence } from '@/components/motion/FeedbackPresence'
 import { Crossfade } from '@/components/motion/Crossfade'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -67,25 +68,20 @@ function SchedulerNotice({
   onRetry: () => void
   status?: SchedulerStatus
 }): React.JSX.Element | null {
-  if (error) {
-    return (
-      <Alert variant="destructive">
-        <TriangleAlert />
-        <AlertTitle>Background scheduling status is unavailable</AlertTitle>
-        <AlertDescription>
-          Schedules can still be managed, but Railgun could not check whether they will run.
-        </AlertDescription>
-        <AlertAction>
-          <Button onClick={onRetry} size="sm" variant="outline">
-            Retry status
-          </Button>
-        </AlertAction>
-      </Alert>
-    )
-  }
-  if (!status || status.state === 'running') return null
-
-  return (
+  const notice = error ? (
+    <Alert variant="destructive">
+      <TriangleAlert />
+      <AlertTitle>Background scheduling status is unavailable</AlertTitle>
+      <AlertDescription>
+        Schedules can still be managed, but Railgun could not check whether they will run.
+      </AlertDescription>
+      <AlertAction>
+        <Button onClick={onRetry} size="sm" variant="outline">
+          Retry status
+        </Button>
+      </AlertAction>
+    </Alert>
+  ) : status && status.state !== 'running' ? (
     <Alert>
       <TriangleAlert />
       <AlertTitle>Background scheduling is not running</AlertTitle>
@@ -95,6 +91,20 @@ function SchedulerNotice({
         <Link to="/settings/general">Open General Settings</Link>.
       </AlertDescription>
     </Alert>
+  ) : null
+  const stateKey = error
+    ? `error:${error}`
+    : `${status?.state ?? 'checking'}:${status?.detail ?? ''}`
+
+  return (
+    <FeedbackPresence
+      data-slot="scheduler-notice"
+      present={notice !== null}
+      stateKey={stateKey}
+      variant="notice"
+    >
+      {notice}
+    </FeedbackPresence>
   )
 }
 
@@ -244,7 +254,6 @@ export function ScheduledJobsWorkspace(): React.JSX.Element {
       : sortedJobs.length === 0
         ? 'empty'
         : 'ready'
-
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-8 py-8">

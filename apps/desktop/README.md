@@ -309,7 +309,11 @@ resize boundary, and preserve the adjusted active-row surface. The material does
 track pointer movement.
 
 Routine feedback reuses the shared 120 ms strong ease-out tokens and animates only opacity and
-transform. Presence-managed exits follow their entrance path, become inert and hidden from
+compositor-friendly transform-family properties. Tailwind v4 translation utilities target the
+individual CSS `translate` property, so their transition and reduced-motion rules target
+`translate` rather than `transform`. `FeedbackPresence` is reserved for occasional asynchronous
+feedback such as mutation failures and scheduler status notices; typing-driven validation remains
+immediate. Presence-managed exits follow their entrance path, become inert and hidden from
 assistive technology immediately, and unmount when their opacity transition finishes. Reduced
 motion removes spatial movement but retains short opacity feedback. High-frequency navigation,
 keyboard flows, transcript streaming, disclosure height, and pane geometry remain immediate.

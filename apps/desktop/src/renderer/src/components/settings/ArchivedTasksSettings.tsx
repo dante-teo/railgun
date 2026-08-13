@@ -196,17 +196,17 @@ export function ArchivedTasksSettings(): React.JSX.Element {
             </div>
           </Field>
         </FieldGroup>
-        {models?.isRunning ? (
-          <InlineError>Archive actions are locked while a task runs.</InlineError>
-        ) : null}
-        {runStateError ? <InlineError>{runStateError}</InlineError> : null}
-        {mutationError ? <InlineError>{mutationError}</InlineError> : null}
+        <InlineError>
+          {models?.isRunning ? 'Archive actions are locked while a task runs.' : undefined}
+        </InlineError>
+        <InlineError>{runStateError}</InlineError>
+        <InlineError>{mutationError}</InlineError>
         <SettingsCrossfade stateKey={presentationState}>
           {loading ? (
             <SettingsLoading label="Archived tasks are loading" />
           ) : loadError ? (
             <div className="flex items-center justify-between gap-3">
-              <InlineError>{loadError}</InlineError>
+              <InlineError animatePresence={false}>{loadError}</InlineError>
               <Button onClick={retry} variant="outline">
                 Retry
               </Button>

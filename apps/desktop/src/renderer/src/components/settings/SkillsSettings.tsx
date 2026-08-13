@@ -233,13 +233,13 @@ export function SkillsSettings({
             </div>
           </Field>
         </FieldGroup>
-        {mutationError ? <InlineError>{mutationError}</InlineError> : null}
+        <InlineError>{mutationError}</InlineError>
         <SettingsCrossfade stateKey={presentationState}>
           {loading ? (
             <SettingsLoading label="Skills are loading" />
           ) : loadError ? (
             <div className="flex items-center justify-between gap-3">
-              <InlineError>{loadError}</InlineError>
+              <InlineError animatePresence={false}>{loadError}</InlineError>
               <Button onClick={load} variant="outline">
                 Retry
               </Button>
@@ -382,7 +382,7 @@ export function SkillsSettings({
                   }
                 />
               </Field>
-              {mutationError ? <InlineError>{mutationError}</InlineError> : null}
+              <InlineError>{mutationError}</InlineError>
             </FieldGroup>
           ) : null}
           <DialogFooter>

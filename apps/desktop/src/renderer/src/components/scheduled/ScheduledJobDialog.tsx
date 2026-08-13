@@ -186,7 +186,7 @@ export function ScheduledJobDialog({
             {customSchedulePresence.mounted ? (
               <Field
                 aria-hidden={customScheduleVisible ? undefined : 'true'}
-                className="translate-y-0 opacity-100 transition-[opacity,transform] duration-(--duration-feedback) ease-(--ease-out) starting:data-[motion=entering]:-translate-y-1 starting:data-[motion=entering]:opacity-0 data-[motion=exiting]:pointer-events-none data-[motion=exiting]:-translate-y-1 data-[motion=exiting]:opacity-0 motion-reduce:transform-none! motion-reduce:transition-opacity! motion-reduce:duration-(--duration-feedback)! motion-reduce:starting:data-[motion=entering]:opacity-[0.92] motion-reduce:data-[motion=exiting]:opacity-[0.92]"
+                className="translate-y-0 opacity-100 transition-[opacity,translate] duration-(--duration-feedback) ease-(--ease-out) starting:data-[motion=entering]:-translate-y-1 starting:data-[motion=entering]:opacity-0 data-[motion=exiting]:pointer-events-none data-[motion=exiting]:-translate-y-1 data-[motion=exiting]:opacity-0 motion-reduce:translate-none! motion-reduce:transition-opacity! motion-reduce:duration-(--duration-feedback)! motion-reduce:starting:data-[motion=entering]:opacity-[0.92] motion-reduce:data-[motion=exiting]:opacity-[0.92]"
                 data-invalid={Boolean(customScheduleError)}
                 data-motion={
                   customScheduleVisible ? (customFieldEntered ? 'stable' : 'entering') : 'exiting'

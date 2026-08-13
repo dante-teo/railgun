@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card'
+import { FeedbackPresence } from '@/components/motion/FeedbackPresence'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { settingsCategories, type SettingsCategory } from '@/lib/settings-route'
@@ -134,10 +135,31 @@ export function SettingsLoading({ label }: { label: string }): React.JSX.Element
   )
 }
 
-export function InlineError({ children }: { children: ReactNode }): React.JSX.Element {
+export function InlineError({
+  animatePresence = true,
+  children,
+  stateKey
+}: {
+  animatePresence?: boolean
+  children?: ReactNode
+  stateKey?: string
+}): React.JSX.Element | null {
+  if (!animatePresence) {
+    return children ? (
+      <div className="text-sm text-destructive" data-slot="settings-inline-error" role="alert">
+        {children}
+      </div>
+    ) : null
+  }
+
   return (
-    <p className="text-sm text-destructive" role="alert">
+    <FeedbackPresence
+      className="text-sm text-destructive"
+      data-slot="settings-inline-error"
+      role="alert"
+      stateKey={stateKey}
+    >
       {children}
-    </p>
+    </FeedbackPresence>
   )
 }

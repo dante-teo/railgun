@@ -260,7 +260,7 @@ export function PersonalizationSettings({
             <SettingsLoading label="SOUL.md is loading" />
           ) : soulState === 'error' && !soulOriginal && !soulDraft ? (
             <div className="flex items-center justify-between gap-3">
-              <InlineError>{soulError}</InlineError>
+              <InlineError animatePresence={false}>{soulError}</InlineError>
               <Button onClick={loadSoul} variant="outline">
                 Retry
               </Button>
@@ -346,7 +346,7 @@ export function PersonalizationSettings({
             </div>
           </Field>
         </FieldGroup>
-        {memoryMutationError ? <InlineError>{memoryMutationError}</InlineError> : null}
+        <InlineError>{memoryMutationError}</InlineError>
         {memoryLoading ? (
           <SettingsLoading label="Memories are loading" />
         ) : memoryLoadError ? (
@@ -463,7 +463,7 @@ export function PersonalizationSettings({
                 </Select>
                 <FieldDescription>Choose Preference, Fact, or Project.</FieldDescription>
               </Field>
-              {memoryMutationError ? <InlineError>{memoryMutationError}</InlineError> : null}
+              <InlineError>{memoryMutationError}</InlineError>
             </FieldGroup>
           ) : null}
           <DialogFooter>

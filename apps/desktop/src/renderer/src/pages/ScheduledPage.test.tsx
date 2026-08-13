@@ -153,6 +153,28 @@ describe('Scheduled route', () => {
     expect(screen.getAllByRole('button', { name: 'New Schedule' })[0]).toBeEnabled()
   })
 
+  it('retains the scheduler notice through its exit transition', async () => {
+    const getStatus = vi
+      .fn<() => Promise<SchedulerStatus>>()
+      .mockRejectedValueOnce(new Error('launchctl unavailable'))
+      .mockResolvedValueOnce({ state: 'running', detail: null })
+    installApi({ getStatus })
+    renderScheduled()
+
+    const message = await screen.findByText('Background scheduling status is unavailable')
+    const notice = message.closest<HTMLElement>('[data-slot="scheduler-notice"]')!
+    fireEvent.click(screen.getByRole('button', { name: 'Retry status' }))
+
+    await waitFor(() => expect(notice).toHaveAttribute('data-present', 'false'))
+    expect(notice).toHaveAttribute('aria-hidden', 'true')
+    expect(notice).toHaveAttribute('inert')
+    expect(message).toBeInTheDocument()
+
+    fireEvent.transitionEnd(notice, { propertyName: 'opacity' })
+    expect(message).not.toBeInTheDocument()
+    expect(getStatus).toHaveBeenCalledTimes(2)
+  })
+
   it('refreshes run metadata while mounted without showing the loading state again', async () => {
     let refresh: TimerHandler | undefined
     vi.spyOn(window, 'setInterval').mockImplementation((handler, timeout) => {
@@ -200,6 +222,10 @@ describe('Scheduled route', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Prompt' }), {
       target: { value: '  Prepare a daily brief  ' }
     })
+    expect(
+      screen.queryByText('Use 1–64 lowercase letters, numbers, or hyphens.')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Enter a prompt for this schedule.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }))
 
     await waitFor(() =>
@@ -252,6 +278,8 @@ describe('Scheduled route', () => {
     let schedule = screen.getByRole('textbox', { name: 'Cron expression' })
     const customField = schedule.closest<HTMLElement>('[data-slot="scheduled-custom-field"]')!
     expect(customField).toHaveAttribute('data-motion', 'entering')
+    expect(customField).toHaveClass('transition-[opacity,translate]')
+    expect(customField).toHaveClass('motion-reduce:translate-none!')
 
     await user.click(screen.getByRole('combobox', { name: 'Frequency' }))
     await user.click(await screen.findByRole('option', { name: 'Hourly' }))
@@ -270,6 +298,7 @@ describe('Scheduled route', () => {
 
     await user.clear(schedule)
     await user.type(schedule, '15 10 * * *')
+    expect(screen.queryByText('Enter a valid five-field cron expression.')).not.toBeInTheDocument()
     expect(screen.getByText(/Next due:/)).toBeInTheDocument()
     expect(screen.getAllByText(/Mac’s local time/)).toHaveLength(2)
 

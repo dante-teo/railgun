@@ -62,8 +62,14 @@ them; a feature is not a synonym for a routed screen.
 - Reuse the shared `--duration-feedback` and `--ease-out` tokens for routine feedback. Prefer
   Tailwind's built-in duration and translation utilities over arbitrary values, and do not create a
   parallel motion scale for one component.
-- Animate compositor-friendly `opacity` and `transform` properties. Enter and exit along the same
-  path, and use `usePresence` when an exit must finish before unmounting.
+- Reserve `FeedbackPresence` for occasional asynchronous feedback such as mutation failures and
+  scheduler status notices. Keep typing-driven field validation immediate. Pass an explicit
+  `stateKey` whenever composite feedback content can change while it remains present.
+- Animate compositor-friendly `opacity` and transform-family properties. Tailwind v4 translation
+  utilities emit the individual CSS `translate` property, so include `translate` in the transition
+  list and use `motion-reduce:translate-none!` when removing that movement; a `transform`
+  transition or `transform-none` does not cover it. Enter and exit along the same path, and use
+  `usePresence` when an exit must finish before unmounting.
 - Make exiting interactive content inert and hidden from assistive technology immediately, then
   unmount it on its own opacity transition. A new active state must remain usable while it enters.
 - Reduced-motion behavior keeps short opacity feedback while removing translation, scaling,

@@ -186,16 +186,18 @@ export function GeneralSettings(): React.JSX.Element {
       description="Choose defaults for future work, approval behavior, and background execution."
       title="General"
     >
-      {configurationError ? (
-        <InlineError>
-          {configurationError}{' '}
-          {!models ? (
-            <Button onClick={load} size="sm" variant="link">
-              Retry
-            </Button>
-          ) : null}
-        </InlineError>
-      ) : null}
+      <InlineError stateKey={configurationError}>
+        {configurationError ? (
+          <>
+            {configurationError}{' '}
+            {!models ? (
+              <Button onClick={load} size="sm" variant="link">
+                Retry
+              </Button>
+            ) : null}
+          </>
+        ) : null}
+      </InlineError>
 
       <SettingsSection
         description="This affects new tasks only. The current task keeps its selected model."
@@ -402,14 +404,14 @@ export function GeneralSettings(): React.JSX.Element {
             </div>
           )}
         </SettingsCrossfade>
-        {schedulerError ? <InlineError>{schedulerError}</InlineError> : null}
+        <InlineError>{schedulerError}</InlineError>
       </SettingsSection>
 
-      {models?.isRunning ? (
-        <InlineError>
-          Model, Advisor, and Permission settings are locked while a task runs.
-        </InlineError>
-      ) : null}
+      <InlineError>
+        {models?.isRunning
+          ? 'Model, Advisor, and Permission settings are locked while a task runs.'
+          : undefined}
+      </InlineError>
     </SettingsDetail>
   )
 }
